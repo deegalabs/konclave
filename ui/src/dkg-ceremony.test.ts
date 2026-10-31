@@ -31,7 +31,7 @@ interface Device { c: DkgCeremony; key: DeviceKey; consumed: Set<number>; name: 
 
 function device(tag: string, name: string): Device {
   const key = new DeviceKey()
-  return { c: new DkgCeremony(tag, key, ROOM), key, consumed: new Set(), name }
+  return { c: new DkgCeremony(tag, key, ROOM, name), key, consumed: new Set(), name }
 }
 
 const hello = (d: Device): DkgMsg => ({ type: 'hello', v: DKG_VERSION, encPub: b64(d.key.publicBytes()), name: d.name })
@@ -138,6 +138,34 @@ describe('vault creation, version 2', () => {
     for (const d of ds) relay.post(d.c.myTag, hello(d))
     drain(relay, ds)
     expect(confirmAll(relay, ds)).toBe(true)
+  })
+
+  it('a name that the app cuts at 64 units through an emoji still creates the vault', () => {
+    // The app announces `ceremony.myName`: trimmed and cut at 64 UTF-16 units, so a 65-unit name whose
+    // last character is an emoji is cut between the two halves of the pair.
+    const long = `${'a'.repeat(63)}\u{1F600}`
+    const relay = new Relay()
+    const ds = [long, 'Bia', 'Caio'].map((nm, i) => device(`p-${String.fromCharCode(97 + i)}`, nm))
+    ds[0]!.c.setOwnConfig({ n: 3, t: 2 })
+    relay.post(ds[0]!.c.myTag, { type: 'config', v: DKG_VERSION, n: 3, t: 2 })
+    // The hello as NetVault builds it: from the ceremony's own name, not the raw field.
+    for (const d of ds) relay.post(d.c.myTag, { ...hello(d), name: d.c.myName || undefined } as DkgMsg)
+    drain(relay, ds)
+    expect(ds.every((d) => d.c.aborted === null), 'no device stopped').toBe(true)
+    expect(confirmAll(relay, ds)).toBe(true)
+    for (const d of ds) expect(d.c.part3Done).toBe(true)
+  })
+
+  it('a hello for this seat under another name stops creation', () => {
+    // A hello under this device's own tag, with its own key and a name its owner did not type,
+    // ahead of the real hello: the device refuses it.
+    const { relay, ds } = start()
+    const [a, b, c] = ds as [Device, Device, Device]
+    relay.post(a.c.myTag, { ...hello(a), name: 'Another name' } as DkgMsg)
+    for (const d of [a, b, c]) relay.post(d.c.myTag, hello(d))
+    drain(relay, ds)
+    expect(a.c.aborted).toBe('conflict')
+    expect(posted(relay, 'r2')).toEqual([])
   })
 
   it('a hello under this device\'s own tag with another key stops it', () => {
@@ -260,7 +288,7 @@ describe('vault creation, version 2', () => {
     const { relay, ds } = start()
     for (const d of ds) relay.post(d.c.myTag, hello(d))
     // Caio's reveal is swapped for another device's round 1.
-    const other = new CreationSession(new DeviceKey(), 3, 3, 2)
+    const other = new CreationSession(new DeviceKey(), 3, 3, 2, 'Caio')
     const orig = relay.post.bind(relay)
     relay.post = (from, m) => orig(from, m.type === 'reveal' && from === ds[2]!.c.myTag
       ? { type: 'reveal', r1: b64(other.myRound1()), nonce: m.nonce } : m)

@@ -1,10 +1,16 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import init from './wasm-pkg/konclave_wasm.js'
 import { OwnerSigning } from './owner-signing'
 import { ARM_TTL_MS } from './signing-gate'
 import { readSigned, type RecordStore } from './signed-record'
+import { pinClock, unpinClock } from './test-vectors'
+
+// What the device did with an earlier transaction depends on the clock (WASM reads `Date.now()`), so
+// these tests run at a pinned instant. On the real clock they pass until the upgrade and fail after.
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -19,6 +25,9 @@ const B = 'cd'.repeat(32)
 const ALIVE = 4_000_000_000
 // NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
 const NU63 = 0x37a5165b
+// NU7 is the last row of the table: nothing follows it, so a record under it ends at its own expiry.
+// A record that stays alive for ever is under NU7; under NU6.3 it would end at the upgrade (#638).
+const NU7 = 0x77190ad9
 
 // The owner's side of signing on this device: one click covers one transaction, and what this device
 // signed outlives a reload, a closed panel and a withdrawal, so a second transaction for the same
@@ -39,7 +48,7 @@ describe('the owner signing on this device', () => {
     const o = new OwnerSigning(store)
     o.give('p1', Date.now())
     expect(await o.claim('v1', 'p1', A, ALIVE)).toBe('ok')
-    await o.record(A, ALIVE, NU63)
+    await o.record(A, ALIVE, NU7)
     // The send went nowhere, every device withdrew, and the page reloaded: a new click...
     o.withdraw()
     const reloaded = new OwnerSigning(store)

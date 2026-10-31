@@ -4,6 +4,7 @@ import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
+import { StorageError, storageErrorKey } from '../storage-errors'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
@@ -161,7 +162,7 @@ export default function Settings() {
     } catch (e) {
       // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
       // record was NOT touched - which is what the message promises.
-      setRotErr(String(e).includes('same as') ? t('rotate.errSame') : t('rotate.errWrong'))
+      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame') : t('rotate.errWrong'))
     } finally {
       setRotBusy(false)
     }
@@ -179,7 +180,7 @@ export default function Settings() {
       const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
       return { json: b.json, name: b.name }
     } catch (e) {
-      setXpErr(e instanceof Error ? e.message : t('export.errGeneric'))
+      setXpErr(t(storageErrorKey(e, 'export.errGeneric')))
       return null
     }
   }

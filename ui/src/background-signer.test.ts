@@ -4,11 +4,11 @@
 // the injected governance gate approves. Two signers exchange messages over an in-memory relay with
 // the same fixpoint the live signer uses.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, afterAll } from 'vitest'
 import init, { DkgSession, identifierBytes } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
 import { dkgProvenPczt } from './demo-vector'
-import { honestExpiry, withExpiry } from './test-vectors'
+import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { pcztSighash } from './wasm-pkg/konclave_wasm.js'
@@ -22,6 +22,9 @@ import {
   isSignerActive,
   type GovernanceGate,
 } from './background-signer'
+
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))

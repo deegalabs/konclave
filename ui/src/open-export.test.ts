@@ -1,5 +1,10 @@
 import 'fake-indexeddb/auto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+// #669: this file derives keys (PBKDF2 at 600k rounds, AES-GCM) in most of its tests. Measured on
+// an idle machine the slowest took 3.1 s, so under load they cross the 5 s default and read as a
+// regression. The limit is raised for this file only; the global one in vite.config.ts stays.
+vi.setConfig({ testTimeout: 30_000 })
+
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { openExport, examine, reportLines } from '../../scripts/open-export.mjs'
 import { saveVault, loadVault, exportVault, importVault, parseVaultExport, type VaultData } from './storage'
@@ -22,7 +27,8 @@ const PASS = 'correct horse battery staple'
 const ROSTER = ['Alice', 'Bob', 'Carol']
 const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u))
 
-/** The sealed share, in the shape the create screen writes it (NetVault, "The secret bundle"). */
+/** The sealed share, in the shape older builds of the create screen wrote it: with a `deviceSecret`
+ *  the current build no longer writes and no reader uses, so loading it proves the field is ignored. */
 function shareBundle(seat: number, n: number, t: number): Uint8Array {
   return new TextEncoder().encode(JSON.stringify({
     kp: b64(new Uint8Array(40).fill(1)),

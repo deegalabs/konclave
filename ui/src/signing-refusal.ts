@@ -34,7 +34,7 @@ export const REFUSALS: ReadonlySet<string> = new Set([
 ])
 
 /** Messages the device ignored while the transaction may still be signed. */
-export const NOTICES: ReadonlySet<string> = new Set(['net.err.notCoordinator', 'net.err.sighashMismatch'])
+export const NOTICES: ReadonlySet<string> = new Set(['net.err.notCoordinator', 'net.err.sighashMismatch', 'net.err.badShare', 'net.err.stepFailed'])
 
 export type SigningErrorKind = 'refusal' | 'notice' | 'failure'
 

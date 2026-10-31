@@ -257,12 +257,55 @@ pub mod ceremony {
     pub const PACKAGE_SIGNS_ANOTHER_MESSAGE: &str =
         "the signing package signs a different message than the one this device derived";
 
+    /// The one place a device's own message is held against the package it was handed. Both round-2
+    /// functions call it before anything is signed, so neither path can sign a package it has not
+    /// compared.
+    fn require_message(sp: &SigningPackage, message: &[u8]) -> Result<(), E> {
+        if sp.message().as_slice() != message {
+            return Err(PACKAGE_SIGNS_ANOTHER_MESSAGE.to_string());
+        }
+        Ok(())
+    }
+
+    /// What a round-2 call answers when the nonce it was handed has already produced a share.
+    pub const NONCE_ALREADY_USED: &str =
+        "this device's signing nonce already produced a share; a new round 1 is needed";
+
+    /// A signer's nonces for ONE signing round: they make one share and are then dropped. The rule
+    /// lives here, in the thing both round-2 functions sign through.
+    ///
+    /// The nonces are spent only when a share came out. Every `Err` in the signing call comes before
+    /// the share is computed, so a refusal (a package over another message, a commitment that is not
+    /// this device's, a malformed input) emits nothing and leaves them in place for the next package.
+    pub struct NonceSlot(Option<SigningNonces>);
+
+    impl NonceSlot {
+        pub fn new(nonces: SigningNonces) -> Self {
+            NonceSlot(Some(nonces))
+        }
+
+        /// Run `sign` with the nonce and, only if it returns a share, drop the nonce (frost-core
+        /// zeroizes `SigningNonces` on drop).
+        fn sign_once(
+            &mut self,
+            sign: impl FnOnce(&SigningNonces) -> Result<SignatureShare, E>,
+        ) -> Result<Vec<u8>, E> {
+            let nonces = self
+                .0
+                .as_ref()
+                .ok_or_else(|| NONCE_ALREADY_USED.to_string())?;
+            let share = sign(nonces)?;
+            self.0 = None;
+            Ok(share.serialize())
+        }
+    }
+
     /// Participant device, round 1: produce local secret nonces + a public commitment (bytes).
     /// The nonces are kept in the browser session; only the commitment goes to the relay.
-    pub fn participant_round1(kp: &KeyPackage) -> (SigningNonces, Vec<u8>) {
+    pub fn participant_round1(kp: &KeyPackage) -> (NonceSlot, Vec<u8>) {
         let (nonces, commitments) = frost::round1::commit(kp.signing_share(), &mut OsRng);
         (
-            nonces,
+            NonceSlot::new(nonces),
             commitments.serialize().expect("commitment serialize"),
         )
     }
@@ -296,15 +339,18 @@ pub mod ceremony {
     }
 
     /// Participant device, round 2: sign with the seed. Uses the LOCAL nonces + key package.
+    /// `message` is what this device holds for itself; the package is refused unless it signs
+    /// exactly that, for the reason given on `participant_round2_with_randomizer`.
     pub fn participant_round2(
         sp_bytes: &[u8],
-        nonces: &SigningNonces,
+        nonces: &mut NonceSlot,
         kp: &KeyPackage,
         seed: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
-        let share = rerandomized::sign_with_randomizer_seed(&sp, nonces, kp, seed).map_err(e)?;
-        Ok(share.serialize())
+        require_message(&sp, message)?;
+        nonces.sign_once(|n| rerandomized::sign_with_randomizer_seed(&sp, n, kp, seed).map_err(e))
     }
 
     /// Coordinator: rebuild the randomized params from the seed and aggregate the shares.
@@ -378,18 +424,15 @@ pub mod ceremony {
     #[allow(deprecated)]
     pub fn participant_round2_with_randomizer(
         sp_bytes: &[u8],
-        nonces: &SigningNonces,
+        nonces: &mut NonceSlot,
         kp: &KeyPackage,
         randomizer: &[u8],
         message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
-        if sp.message().as_slice() != message {
-            return Err(PACKAGE_SIGNS_ANOTHER_MESSAGE.to_string());
-        }
+        require_message(&sp, message)?;
         let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
-        let share = frost_rerandomized::sign(&sp, nonces, kp, r).map_err(e)?;
-        Ok(share.serialize())
+        nonces.sign_once(|n| frost_rerandomized::sign(&sp, n, kp, r).map_err(e))
     }
 
     /// Coordinator: aggregate the shares under the given randomizer (alpha) into a group signature.
@@ -411,6 +454,43 @@ pub mod ceremony {
         }
         let sig = rerandomized::aggregate(&sp, &map, pubkeys, &params).map_err(e)?;
         sig.serialize().map_err(e)
+    }
+
+    /// Coordinator: does this ONE share verify, for this signer, in this signing package, under
+    /// this randomizer? The coordinator asks it of every share before the share counts, so a share
+    /// that does not verify is not counted, and the next share from that signer is checked in its
+    /// turn. A share of the wrong length or encoding is refused the same way.
+    pub fn check_share_with_randomizer(
+        sp_bytes: &[u8],
+        group_vk: &VerifyingKey,
+        randomizer: &[u8],
+        id_bytes: &[u8],
+        share_bytes: &[u8],
+        pubkeys: &PublicKeyPackage,
+    ) -> Result<(), E> {
+        let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
+        let params = RandomizedParams::from_randomizer(group_vk, r);
+        let id = Identifier::deserialize(id_bytes).map_err(e)?;
+        let share = SignatureShare::deserialize(share_bytes).map_err(e)?;
+        // The shares are checked against the RANDOMIZED key, the one the signature is made under.
+        // (frost-rerandomized does the same to the public key package inside `aggregate`: each
+        // verifying share plus the randomizer's point, under the randomized verifying key.)
+        let verifying_share = pubkeys
+            .verifying_shares()
+            .get(&id)
+            .ok_or_else(|| "this signer is not part of the vault".to_string())?;
+        let randomized_share = frost::keys::VerifyingShare::new(
+            verifying_share.to_element() + *params.randomizer_element(),
+        );
+        frost_rerandomized::frost_core::verify_signature_share(
+            id,
+            &randomized_share,
+            &share,
+            &sp,
+            params.randomized_verifying_key(),
+        )
+        .map_err(e)
     }
 
     /// Verify the group signature under the key re-randomized by the given alpha (what an Orchard
@@ -467,8 +547,9 @@ pub mod ceremony {
 
             // Each device round 2 - sign with local nonces + seed, send share bytes.
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
-                let share_bytes = participant_round2(&sp_bytes, nonces, kp, &seed).unwrap();
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
+                let share_bytes =
+                    participant_round2(&sp_bytes, nonces, kp, &seed, message).unwrap();
                 wire_shares.push((id.serialize(), share_bytes));
             }
 
@@ -511,24 +592,305 @@ pub mod ceremony {
                 wire_commitments.push((id.serialize(), commit_bytes));
             }
             // Built over the LIVE commitments, so nothing about it is malformed.
-            let forged = coordinator_signing_package(&wire_commitments, handed).unwrap();
-            let honest = coordinator_signing_package(&wire_commitments, derived).unwrap();
+            let other_package = coordinator_signing_package(&wire_commitments, handed).unwrap();
+            let own_package = coordinator_signing_package(&wire_commitments, derived).unwrap();
 
             let (_, kp) = signers[0];
-            let refused =
-                participant_round2_with_randomizer(&forged, &local_nonces[0], kp, &alpha, derived);
+            let outcome = participant_round2_with_randomizer(
+                &other_package,
+                &mut local_nonces[0],
+                kp,
+                &alpha,
+                derived,
+            );
             assert_eq!(
-                refused.unwrap_err(),
+                outcome.unwrap_err(),
                 PACKAGE_SIGNS_ANOTHER_MESSAGE,
                 "a package over another message must be refused, and for this reason"
             );
-            // The same device, the same nonces, the honest package: the refusal above is about the
+            // The same device, the same nonces, the package over the derived message: the refusal above is about the
             // message and nothing else.
             assert!(
-                participant_round2_with_randomizer(&honest, &local_nonces[0], kp, &alpha, derived)
-                    .is_ok(),
+                participant_round2_with_randomizer(
+                    &own_package,
+                    &mut local_nonces[0],
+                    kp,
+                    &alpha,
+                    derived
+                )
+                .is_ok(),
                 "the package over the derived message is signed"
             );
+        }
+
+        /// Two devices of a 2-of-3 vault, their round 1 done: the key packages, the nonce slots, the
+        /// commitments as they travel, and the vault's public keys.
+        #[allow(clippy::type_complexity)]
+        fn two_signers() -> (
+            Vec<KeyPackage>,
+            Vec<NonceSlot>,
+            Vec<(Vec<u8>, Vec<u8>)>,
+            Vec<Identifier>,
+        ) {
+            let (shares, _pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let mut kp_list = Vec::new();
+            let mut slots = Vec::new();
+            let mut commitments = Vec::new();
+            let mut ids = Vec::new();
+            for (id, kp) in kps.iter().take(2) {
+                let (slot, commit_bytes) = participant_round1(kp);
+                kp_list.push(kp.clone());
+                slots.push(slot);
+                commitments.push((id.serialize(), commit_bytes));
+                ids.push(*id);
+            }
+            (kp_list, slots, commitments, ids)
+        }
+
+        /// A nonce makes one share: the module refuses a second call with the same nonce, whatever
+        /// the caller kept beside it.
+        #[test]
+        fn a_nonce_makes_one_share_on_the_randomizer_path() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (kps, mut slots, commitments, _ids) = two_signers();
+            let first = b"the sighash of the first payment";
+            let second = b"the sighash of another payment";
+            let sp1 = coordinator_signing_package(&commitments, first).unwrap();
+            let sp2 = coordinator_signing_package(&commitments, second).unwrap();
+
+            assert!(
+                participant_round2_with_randomizer(&sp1, &mut slots[0], &kps[0], &alpha, first)
+                    .is_ok(),
+                "the first use of the nonce makes a share"
+            );
+            // The same nonce with a second package, over another message the device also holds.
+            assert_eq!(
+                participant_round2_with_randomizer(&sp2, &mut slots[0], &kps[0], &alpha, second)
+                    .unwrap_err(),
+                NONCE_ALREADY_USED,
+                "the second use of the same nonce is refused, and for this reason"
+            );
+            // And the very same package again: also refused.
+            assert_eq!(
+                participant_round2_with_randomizer(&sp1, &mut slots[0], &kps[0], &alpha, first)
+                    .unwrap_err(),
+                NONCE_ALREADY_USED
+            );
+        }
+
+        #[test]
+        fn a_nonce_makes_one_share_on_the_seed_path() {
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let group_vk = *pubkeys.verifying_key();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let first = b"the message of the first round";
+            let second = b"the message of another round";
+            let mut slots = Vec::new();
+            let mut commitments = Vec::new();
+            for (id, kp) in kps.iter().take(2) {
+                let (slot, c) = participant_round1(kp);
+                slots.push(slot);
+                commitments.push((id.serialize(), c));
+            }
+            let sp1 = coordinator_signing_package(&commitments, first).unwrap();
+            let sp2 = coordinator_signing_package(&commitments, second).unwrap();
+            let seed1 = coordinator_randomizer_seed(&group_vk, &sp1).unwrap();
+            let seed2 = coordinator_randomizer_seed(&group_vk, &sp2).unwrap();
+            let kp = kps.values().next().unwrap();
+
+            assert!(participant_round2(&sp1, &mut slots[0], kp, &seed1, first).is_ok());
+            assert_eq!(
+                participant_round2(&sp2, &mut slots[0], kp, &seed2, second).unwrap_err(),
+                NONCE_ALREADY_USED,
+                "the seed path spends the nonce too"
+            );
+        }
+
+        /// The other half of the rule: a refusal makes no share, so it does not spend the nonce.
+        #[test]
+        fn a_refused_package_does_not_spend_the_nonce() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (kps, mut slots, commitments, ids) = two_signers();
+            let message = b"the sighash this device derived";
+            let own_package = coordinator_signing_package(&commitments, message).unwrap();
+
+            // A package over the right message that carries a commitment this device never made
+            // for seat 1 (the one from another round 1): frost refuses it inside the signing call.
+            let (_other_slot, other_commit) = participant_round1(&kps[0]);
+            let foreign: Vec<(Vec<u8>, Vec<u8>)> =
+                vec![(ids[0].serialize(), other_commit), commitments[1].clone()];
+            let foreign_sp = coordinator_signing_package(&foreign, message).unwrap();
+            let outcome = participant_round2_with_randomizer(
+                &foreign_sp,
+                &mut slots[0],
+                &kps[0],
+                &alpha,
+                message,
+            )
+            .unwrap_err();
+            assert_ne!(
+                outcome, NONCE_ALREADY_USED,
+                "the first call cannot find the nonce spent"
+            );
+            assert_ne!(
+                outcome, PACKAGE_SIGNS_ANOTHER_MESSAGE,
+                "the message is the right one"
+            );
+            assert!(
+                outcome.to_lowercase().contains("commitment"),
+                "refused because the commitment is not this device's, not for another reason: {outcome}"
+            );
+
+            // Malformed inputs fail before the signing call too.
+            assert!(participant_round2_with_randomizer(
+                &own_package,
+                &mut slots[0],
+                &kps[0],
+                &[1, 2, 3],
+                message
+            )
+            .is_err());
+
+            // The nonce is still there for the package that does belong to it.
+            assert!(
+                participant_round2_with_randomizer(
+                    &own_package,
+                    &mut slots[0],
+                    &kps[0],
+                    &alpha,
+                    message
+                )
+                .is_ok(),
+                "the package that belongs to this device is answered after the refusals"
+            );
+        }
+
+        /// The seed path signs the message inside the package too, so it is bound the same way: a
+        /// package over another message gets no share on either path.
+        #[test]
+        fn the_seed_path_refuses_a_package_over_another_message() {
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let group_vk = *pubkeys.verifying_key();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let derived = b"the message this device derived from its own copy";
+            let handed = b"a message nobody here approved";
+
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push(nonces);
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            let other_package = coordinator_signing_package(&wire_commitments, handed).unwrap();
+            let own_package = coordinator_signing_package(&wire_commitments, derived).unwrap();
+            let seed = coordinator_randomizer_seed(&group_vk, &own_package).unwrap();
+
+            let (_, kp) = signers[0];
+            let outcome =
+                participant_round2(&other_package, &mut local_nonces[0], kp, &seed, derived);
+            assert_eq!(
+                outcome.unwrap_err(),
+                PACKAGE_SIGNS_ANOTHER_MESSAGE,
+                "a package over another message must be refused on the seed path, and for this reason"
+            );
+        }
+
+        /// A share is checked on its own before it counts: one that does not verify, or is not even
+        /// a share, is refused, so it never takes a signer's place.
+        #[test]
+        fn a_share_is_checked_before_it_counts() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let group_vk = *pubkeys.verifying_key();
+            let message = b"konclave: a share that does not verify";
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push(nonces);
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            let sp_bytes = coordinator_signing_package(&wire_commitments, message).unwrap();
+            let own_share = participant_round2_with_randomizer(
+                &sp_bytes,
+                &mut local_nonces[0],
+                signers[0].1,
+                &alpha,
+                message,
+            )
+            .unwrap();
+            let id1 = signers[0].0.serialize();
+            let id2 = signers[1].0.serialize();
+            let check = |id: &[u8], share: &[u8]| {
+                check_share_with_randomizer(&sp_bytes, &group_vk, &alpha, id, share, &pubkeys)
+            };
+            assert!(
+                check(&id1, &own_share).is_ok(),
+                "a share that verifies passes"
+            );
+            // Seat 1's share offered for seat 2: well formed, wrong for seat 2.
+            assert!(
+                check(&id2, &own_share).is_err(),
+                "another signer's share is refused"
+            );
+            // The wrong length or encoding is refused the same way, before it can take a place.
+            assert!(
+                check(&id1, &own_share[..own_share.len() - 1]).is_err(),
+                "too short"
+            );
+            assert!(
+                check(&id1, &[own_share.clone(), vec![0]].concat()).is_err(),
+                "too long"
+            );
+            assert!(check(&id1, &[0xff; 32]).is_err(), "not a scalar");
+            assert!(check(&id1, &[]).is_err(), "empty");
         }
 
         #[test]
@@ -565,7 +927,7 @@ pub mod ceremony {
 
             // Round 2 with the EXPLICIT Orchard alpha (no seed).
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
                 let share =
                     participant_round2_with_randomizer(&sp_bytes, nonces, kp, &alpha, message)
                         .unwrap();
@@ -779,9 +1141,10 @@ pub mod dkg {
                     .unwrap();
             let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
                 let share =
-                    super::super::ceremony::participant_round2(&sp, nonces, kp, &seed).unwrap();
+                    super::super::ceremony::participant_round2(&sp, nonces, kp, &seed, message)
+                        .unwrap();
                 wire_shares.push((id.serialize(), share));
             }
             let sig = super::super::ceremony::coordinator_aggregate(
@@ -890,6 +1253,9 @@ pub mod creation {
 
     pub struct Creation {
         my_seat: u16,
+        /// The name this device announced for itself (what its owner typed). The code binds every
+        /// seat's name, so this seat's announcement is held to it like its key and commitment.
+        my_name: String,
         n: u16,
         t: u16,
         device: seal::DeviceKey,
@@ -909,7 +1275,13 @@ pub mod creation {
     impl Creation {
         /// Seated: run round 1 and draw the nonce. `device_secret` is the key whose public half
         /// this device announced in its hello.
-        pub fn new(device_secret: &[u8; 32], my_seat: u16, n: u16, t: u16) -> Result<Self, E> {
+        pub fn new(
+            device_secret: &[u8; 32],
+            my_seat: u16,
+            n: u16,
+            t: u16,
+            my_name: &str,
+        ) -> Result<Self, E> {
             if !(2..=32).contains(&n) || t < 1 || t > n || my_seat < 1 || my_seat > n {
                 return Err("invalid seat or quorum".into());
             }
@@ -918,6 +1290,7 @@ pub mod creation {
             rand::RngCore::fill_bytes(&mut OsRng, &mut nonce);
             Ok(Creation {
                 my_seat,
+                my_name: my_name.to_string(),
                 n,
                 t,
                 device: seal::DeviceKey::from_secret_bytes(device_secret),
@@ -970,7 +1343,9 @@ pub mod creation {
                 .try_into()
                 .map_err(|_| "commitment must be 32 bytes")?;
             if seat == self.my_seat
-                && (enc_pub != self.device.public_bytes() || commit != self.my_commitment())
+                && (enc_pub != self.device.public_bytes()
+                    || commit != self.my_commitment()
+                    || name != self.my_name)
             {
                 return Err("this seat's announcement is not this device's".into());
             }
@@ -1203,7 +1578,7 @@ pub mod creation {
                     let secret = seal::DeviceKey::generate().secret_bytes();
                     Dev {
                         secret,
-                        c: Creation::new(&secret, seat, n, t).unwrap(),
+                        c: Creation::new(&secret, seat, n, t, &format!("m{seat}")).unwrap(),
                     }
                 })
                 .collect()
@@ -1337,9 +1712,10 @@ pub mod creation {
                 })
                 .collect();
             // In device 1's view, seat 3 committed to and revealed another round 1 (same key).
-            let (r1x, nx) = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2)
-                .unwrap()
-                .my_reveal();
+            let (r1x, nx) =
+                Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2, "m3")
+                    .unwrap()
+                    .my_reveal();
             let cx = commitment(3, &ann[2].1, &r1x, &nx);
             for (i, d) in ds.iter_mut().enumerate() {
                 let view = |seat: u16| {
@@ -1373,16 +1749,16 @@ pub mod creation {
             let a = (pub_of(&ds[0]), ds[0].c.my_commitment(), ds[0].c.my_reveal());
             let b = (pub_of(&ds[1]), ds[1].c.my_commitment(), ds[1].c.my_reveal());
             let d = &mut ds[0].c;
-            d.add_member(1, &a.0, "a", &a.1).unwrap();
+            d.add_member(1, &a.0, "m1", &a.1).unwrap();
             assert!(
                 d.add_reveal(1, &a.2 .0, &a.2 .1).is_err(),
                 "no reveal before every seat committed"
             );
             assert!(
-                d.add_member(1, &a.0, "a", &a.1).is_err(),
+                d.add_member(1, &a.0, "m1", &a.1).is_err(),
                 "a seat commits once"
             );
-            d.add_member(2, &b.0, "b", &b.1).unwrap();
+            d.add_member(2, &b.0, "m2", &b.1).unwrap();
             assert!(
                 d.add_reveal(2, &a.2 .0, &b.2 .1).is_err(),
                 "a reveal must match its commitment"
@@ -1399,9 +1775,28 @@ pub mod creation {
             d.add_reveal(1, &a.2 .0, &a.2 .1).unwrap();
             d.freeze(b"room", "quorum", "v", "a", 1).unwrap();
             assert!(
-                d.add_member(2, &b.0, "b", &b.1).is_err(),
+                d.add_member(2, &b.0, "m2", &b.1).is_err(),
                 "the roster is closed"
             );
+        }
+
+        /// The code the members compare binds every seat's name, so a device also refuses a
+        /// transcript that gives ITS OWN seat a name other than the one its owner typed.
+        #[test]
+        fn this_device_seat_must_carry_its_own_name() {
+            let mut ds = devices(2, 2);
+            let pk = pub_of(&ds[0]);
+            let cm = ds[0].c.my_commitment();
+            assert_eq!(
+                ds[0].c.add_member(1, &pk, "someone else", &cm).unwrap_err(),
+                "this seat's announcement is not this device's",
+                "own key and commitment, another name"
+            );
+            // The refusal left the seat free: the right announcement is still taken.
+            assert!(ds[0].c.add_member(1, &pk, "m1", &cm).is_ok());
+            let other = pub_of(&ds[1]);
+            let ocm = ds[1].c.my_commitment();
+            assert!(ds[0].c.add_member(2, &other, "anything", &ocm).is_ok());
         }
 
         #[test]
@@ -1409,7 +1804,7 @@ pub mod creation {
             let mut ds = devices(2, 2);
             let other = seal::DeviceKey::generate().public_bytes();
             let cm = ds[0].c.my_commitment();
-            assert!(ds[0].c.add_member(1, &other, "a", &cm).is_err());
+            assert!(ds[0].c.add_member(1, &other, "m1", &cm).is_err());
         }
 
         #[test]
@@ -1442,10 +1837,11 @@ pub mod creation {
                 pub1: Option<[u8; 32]>,
             }
             // Another round 1 and another key for seat 1, each with a commitment that matches it.
-            let other_r1 = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2)
-                .unwrap()
-                .my_reveal()
-                .0;
+            let other_r1 =
+                Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2, "m1")
+                    .unwrap()
+                    .my_reveal()
+                    .0;
             let other_pub = seal::DeviceKey::generate().public_bytes();
             let base = V {
                 names: ["a", "b", "c"],
@@ -1460,7 +1856,7 @@ pub mod creation {
                 pub1: None,
             };
             let code = |v: V| {
-                let mut o = Creation::new(&d[1].secret, 2, 3, v.t).unwrap();
+                let mut o = Creation::new(&d[1].secret, 2, 3, v.t, v.names[1]).unwrap();
                 o.r1 = ann[1].3 .0.clone();
                 o.nonce = ann[1].3 .1;
                 let seat1 = |i: usize, r1: &Vec<u8>, n: &[u8; 32], pk: &[u8; 32]| {
@@ -1844,10 +2240,11 @@ pub mod recovery {
                 super::super::ceremony::coordinator_signing_package(&commits, message).unwrap();
             let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
             let mut shares_wire = Vec::new();
-            for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter()) {
+            for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter_mut()) {
                 shares_wire.push((
                     id.serialize(),
-                    super::super::ceremony::participant_round2(&sp, nc, kp, &seed).unwrap(),
+                    super::super::ceremony::participant_round2(&sp, nc, kp, &seed, message)
+                        .unwrap(),
                 ));
             }
             let sig = super::super::ceremony::coordinator_aggregate(
@@ -2186,6 +2583,12 @@ pub mod pczt_bridge {
         },
     }
 
+    /// The height at which the last upgrade in the table activates: the number the app's upgrade notice
+    /// reads, so the notice carries no height of its own (the table is the one home of it).
+    pub fn latest_upgrade_height(rules: &NetworkRules) -> u32 {
+        rules.epochs.last().map_or(0, |row| row.activation_height)
+    }
+
     /// What a new transaction is, for an approval this device already put its share into: `signed`
     /// is this device's record of those transactions (their sighash, expiry and branch). `Same` is a
     /// ceremony restarted on the same transaction; `AfterExpiry` a new one once every earlier one can
@@ -2271,10 +2674,11 @@ pub mod pczt_bridge {
         Ok(records)
     }
 
-    /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly
-    /// `t - t % 34,560 + 69,120` for a target height `t` the device's clock allows (and the header's
-    /// own upgrade still allows), never any other long expiry. Below its window the expiry is refused
-    /// as for any transaction.
+    /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly what
+    /// `Table::crossing_expiry` gives for a target height the device's clock allows and the header's
+    /// own branch covers (the modulus is 34,560 blocks before NU7 and 103,680 from it, and the table is
+    /// the one home of that), never any other long expiry. Below its window the expiry is refused as
+    /// for any transaction.
     ///
     /// What a header must be, from the device's clock alone (never the coordinator's height, never
     /// the PCZT's own claims): its branch, version and version group are a row of the table; it has
@@ -2288,7 +2692,6 @@ pub mod pczt_bridge {
         now_unix: i64,
         crossing: bool,
     ) -> Result<(), String> {
-        use zcash_protocol::zip318::{EXPIRY_MODULUS, EXPIRY_WINDOW};
         if now_unix < rules.anchor.unix {
             return Err(
                 "[expiry] this device's clock is earlier than the network this app signs for"
@@ -2333,12 +2736,8 @@ pub mod pczt_bridge {
                 .next_activation_after(h.branch_id)
                 .map_or(u32::MAX, |a| a - 1);
             let target_hi = b.top.min(last);
-            let zip318_at = |t: u32| t - t % EXPIRY_MODULUS + EXPIRY_WINDOW;
-            let is_zip318 = crossing
-                && e > b.lo
-                && e.is_multiple_of(EXPIRY_MODULUS)
-                && e >= zip318_at(b.lo)
-                && e <= zip318_at(target_hi);
+            let is_zip318 =
+                crossing && e > b.lo && rules.is_crossing_expiry(e, h.branch_id, b.lo, target_hi);
             if !is_zip318 {
                 return Err(plain_err);
             }
@@ -2526,10 +2925,7 @@ pub mod pczt_bridge {
     ) -> Option<[u8; 512]>
     where
         D: zcash_note_encryption::Domain<Note = orchard::Note, Memo = [u8; 512]>,
-        orchard::pczt::Action: zcash_note_encryption::ShieldedOutput<
-            D,
-            { zcash_note_encryption::ENC_CIPHERTEXT_SIZE },
-        >,
+        orchard::pczt::Action: zcash_note_encryption::ShieldedOutput<D>,
     {
         let esk = D::derive_esk(note)?;
         let pk_d = D::get_pk_d(note);
@@ -3560,9 +3956,9 @@ pub mod pczt_bridge {
 
         /// A real testnet unified address whose only receiver is `receiver`.
         fn testnet_ua(receiver: &[u8]) -> String {
-            use zcash_address::unified::{Address, Encoding, Receiver};
+            use zcash_address::unified::{Address, Encoding, Receiver, Revision, Uitem};
             let r: [u8; 43] = receiver.try_into().unwrap();
-            Address::try_from_items(vec![Receiver::Orchard(r)])
+            Address::try_from_items(Revision::R0, vec![Uitem::Data(Receiver::Orchard(r))])
                 .unwrap()
                 .encode(&zcash_protocol::consensus::NetworkType::Test)
         }
@@ -3611,6 +4007,14 @@ pub mod pczt_bridge {
         // The header a device can check before its share leaves, from its own clock and the network
         // the build is for, never from the coordinator's height or the PCZT's own claims.
         const T_ANCHOR: i64 = 1_785_247_643; // block 3,428,143 (NU6.3 activation), header time
+        /// What the device read before NU7's row existed: the NU6.3 row alone, with mainnet's anchor.
+        /// The tests that pin the behaviour that did not change (the pinned window, the turning point of
+        /// a record, a record that never stops counting) read it, because past the real upgrade height
+        /// the real table rightly answers differently. They are tests of the rule, not of the date.
+        const ONE_ROW: NetworkRules = NetworkRules {
+            epochs: &[MAINNET.epochs[0]],
+            anchor: MAINNET.anchor,
+        };
         /// A record entry of an NU6.3 transaction, as every record written so far is.
         fn signed(sighash: &str, expiry: u32) -> SignedTx {
             SignedTx {
@@ -3620,11 +4024,11 @@ pub mod pczt_bridge {
             }
         }
         /// What `Second` is for an NU6.3 transaction expiring at `first_expiry`: the time shown is
-        /// the rule's own turning point (`lapses_at`).
+        /// the rule's own turning point (`lapses_at`) on the one-row table, which is what the pinned tests read.
         fn second(first_expiry: u32) -> ApprovalDecision {
             ApprovalDecision::Second {
                 first_expiry,
-                until_unix: lapses_at(&MAINNET, first_expiry, NU6_3),
+                until_unix: lapses_at(&ONE_ROW, first_expiry, NU6_3),
                 until_height: None,
                 by_epoch: false,
             }
@@ -3701,12 +4105,12 @@ pub mod pczt_bridge {
         #[test]
         fn height_bounds_reproduce_what_the_device_gave_before_the_table_moved() {
             for (d, lo, est, hi) in PINNED_BOUNDS {
-                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                let b = ONE_ROW.height_bounds(T_ANCHOR + d);
                 assert_eq!((b.lo, b.est, b.hi), (lo, est, hi), "clock anchor+{d}");
             }
             // A clock before the anchor confirms nothing: the empty window.
             for d in [-86_400i64, -1] {
-                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                let b = ONE_ROW.height_bounds(T_ANCHOR + d);
                 assert_eq!((b.lo, b.est, b.hi), (u32::MAX, 0, 0), "clock anchor{d}");
             }
         }
@@ -3715,7 +4119,7 @@ pub mod pczt_bridge {
         fn lapses_at_reproduces_what_the_device_gave_before_the_table_moved() {
             for (expiry, t) in PINNED_LAPSES {
                 assert_eq!(
-                    lapses_at(&MAINNET, expiry, NU6_3),
+                    lapses_at(&ONE_ROW, expiry, NU6_3),
                     Some(t),
                     "expiry {expiry}"
                 );
@@ -3729,7 +4133,7 @@ pub mod pczt_bridge {
             for (d, lo, _, _) in PINNED_BOUNDS {
                 let now = T_ANCHOR + d;
                 for (expiry, counted) in [(lo - 11, false), (lo - 10, true), (lo - 9, true)] {
-                    let got = approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", now);
+                    let got = approval_decision(&ONE_ROW, &[signed("aa", expiry)], "bb", now);
                     let want = if counted {
                         second(expiry)
                     } else {
@@ -4079,24 +4483,24 @@ pub mod pczt_bridge {
             // exactly when the other does, for expiries across months.
             for days in [1i64, 30, 76, 200] {
                 let built = T_ANCHOR + days * 86_400;
-                let expiry = MAINNET.height_bounds(built).est + 40;
+                let expiry = ONE_ROW.height_bounds(built).est + 40;
                 let t =
-                    lapses_at(&MAINNET, expiry, NU6_3).expect("an expiry above the anchor lapses");
+                    lapses_at(&ONE_ROW, expiry, NU6_3).expect("an expiry above the anchor lapses");
                 let rec = [signed("aa", expiry)];
                 assert_eq!(
-                    approval_decision(&MAINNET, &rec, "bb", t - 1),
+                    approval_decision(&ONE_ROW, &rec, "bb", t - 1),
                     second(expiry),
                     "{days}d: still counted one second before"
                 );
                 assert_eq!(
-                    approval_decision(&MAINNET, &rec, "bb", t),
+                    approval_decision(&ONE_ROW, &rec, "bb", t),
                     ApprovalDecision::AfterExpiry,
                     "{days}d: lapsed at the time shown"
                 );
                 assert!(t > built, "{days}d: never in the past of when it was built");
             }
             assert_eq!(
-                lapses_at(&MAINNET, 1, NU6_3),
+                lapses_at(&ONE_ROW, 1, NU6_3),
                 Some(T_ANCHOR),
                 "below the anchor: lapsed from the start"
             );
@@ -4163,8 +4567,14 @@ pub mod pczt_bridge {
             // The table of this build does not know the branch: the device cannot judge, so it refuses.
             let e = parse_signed(&NEXT, "aa:5:12345").unwrap_err();
             assert!(e.starts_with("[record]"), "{e}");
-            // Mainnet today has no NU7 row either: a record naming it cannot be judged here.
-            assert!(parse_signed(&MAINNET, &format!("aa:5:{NU7_TEST}")).is_err());
+            // Mainnet knows NU7 since its row was added (#638): a record naming it is judged, and a branch
+            // it does not know is not.
+            assert_eq!(
+                parse_signed(&MAINNET, &format!("aa:5:{NU7_TEST}")).unwrap()[0].branch,
+                NU7_TEST
+            );
+            assert!(parse_signed(&ONE_ROW, &format!("aa:5:{NU7_TEST}")).is_err());
+            assert!(parse_signed(&MAINNET, "aa:5:12345").is_err());
             assert!(parse_signed(&MAINNET, "aa").is_err());
             assert!(parse_signed(&MAINNET, "aa:x").is_err());
             assert!(parse_signed(&MAINNET, "aa:5:x").is_err());
@@ -4199,9 +4609,124 @@ pub mod pczt_bridge {
             );
             // Without the later row the same record is still counted at that moment: the cap does it.
             assert!(matches!(
-                approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", t),
+                approval_decision(&ONE_ROW, &[signed("aa", expiry)], "bb", t),
                 ApprovalDecision::Second { .. }
             ));
+        }
+
+        // ---- The same rules on the REAL mainnet table, with NU7's real height (#638). The tests above
+        // use a table with a made-up height so they stay true whatever the chain does; these pin what
+        // this build does at block 3,543,405.
+        const A_MAIN: u32 = 3_543_405;
+        const NU7_MAIN: u32 = 0x7719_0ad9;
+        /// The clock at which block A_MAIN is estimated on mainnet (75 s a block from the anchor).
+        const T_A_MAIN: i64 = T_ANCHOR + 75 * (A_MAIN as i64 - 3_428_143);
+
+        #[test]
+        fn the_app_is_told_the_height_of_the_last_upgrade_in_the_table() {
+            // The dashboard's notice reads it through WASM, so the app carries no height of its own.
+            assert_eq!(latest_upgrade_height(&MAINNET), A_MAIN);
+            assert_eq!(latest_upgrade_height(&ONE_ROW), 3_428_143);
+        }
+
+        #[test]
+        fn on_mainnet_an_nu7_header_is_accepted_only_once_the_clock_can_reach_the_upgrade() {
+            let nu7 = |expiry| hdr(NU7_MAIN, expiry);
+            // Seventy-five days after the anchor the window is nowhere near A: NU7 is refused.
+            let early = T_ANCHOR + 75 * 86_400;
+            let b = MAINNET.height_bounds(early);
+            let e = check_header(&MAINNET, &nu7(b.est + 100), early).unwrap_err();
+            assert!(e.starts_with("[network]"), "{e}");
+            // At the estimated moment of A the window straddles it: both branches are accepted.
+            let b = MAINNET.height_bounds(T_A_MAIN);
+            assert!(b.lo < A_MAIN && b.top > A_MAIN);
+            check_header(&MAINNET, &nu7(A_MAIN + 100), T_A_MAIN).unwrap();
+            check_header(&MAINNET, &hdr(NU6_3, A_MAIN - 20), T_A_MAIN).unwrap();
+            // Three days later the floor is past A: an NU6.3 header (which cannot be mined) is refused,
+            // an NU7 one still accepted.
+            let late = T_A_MAIN + 3 * 86_400;
+            let b = MAINNET.height_bounds(late);
+            assert!(b.lo > A_MAIN);
+            assert_eq!(
+                b.hi - b.top,
+                120,
+                "an ordinary NU7 transaction expires 120 blocks past its target"
+            );
+            let e = check_header(&MAINNET, &hdr(NU6_3, b.est + 40), late).unwrap_err();
+            assert!(e.starts_with("[network]"), "{e}");
+            check_header(&MAINNET, &nu7(b.est + 100), late).unwrap();
+        }
+
+        #[test]
+        fn on_mainnet_a_zip318_crossing_after_the_upgrade_is_accepted_at_its_new_scale() {
+            // Past A the modulus is 103,680 blocks (ZIP 318 at 25 s blocks): an honest crossing built by
+            // the new engine has that expiry, and the device must not read it with the old 34,560.
+            let late = T_A_MAIN + 3 * 86_400;
+            let b = MAINNET.height_bounds(late);
+            let new_scale = MAINNET.crossing_expiry(b.est);
+            assert_eq!(new_scale % 103_680, 0);
+            check_header_for(&MAINNET, &hdr(NU7_MAIN, new_scale), late, true).unwrap();
+            // The old scale for a target past A is a pre-NU7 builder's: refused.
+            let old_scale = b.est - b.est % 34_560 + 69_120;
+            assert!(check_header_for(&MAINNET, &hdr(NU7_MAIN, old_scale), late, true).is_err());
+            // A crossing built just before A at the old scale is still accepted around A.
+            let around = T_A_MAIN;
+            let b = MAINNET.height_bounds(around);
+            let before = MAINNET.crossing_expiry(A_MAIN - 50);
+            check_header_for(&MAINNET, &hdr(NU6_3, before), around, true).unwrap();
+            assert!(b.lo < A_MAIN);
+        }
+
+        #[test]
+        fn on_mainnet_a_crossing_expiry_is_accepted_only_at_the_scale_of_its_own_branch() {
+            // Around A the window straddles both scales; the header's branch decides which one is honest.
+            let b = MAINNET.height_bounds(T_A_MAIN);
+            assert!(b.lo < A_MAIN && b.top > A_MAIN);
+            let (old_scale, new_scale) = (
+                MAINNET.crossing_expiry(A_MAIN - 1),
+                MAINNET.crossing_expiry(A_MAIN),
+            );
+            assert_ne!(old_scale, new_scale);
+            check_header_for(&MAINNET, &hdr(NU6_3, old_scale), T_A_MAIN, true).unwrap();
+            check_header_for(&MAINNET, &hdr(NU7_MAIN, new_scale), T_A_MAIN, true).unwrap();
+            assert!(check_header_for(&MAINNET, &hdr(NU7_MAIN, old_scale), T_A_MAIN, true).is_err());
+            assert!(check_header_for(&MAINNET, &hdr(NU6_3, new_scale), T_A_MAIN, true).is_err());
+        }
+
+        #[test]
+        fn on_mainnet_an_nu63_record_turns_after_expiry_a_few_blocks_after_the_upgrade() {
+            // Signed under NU6.3 before A and not mined, expiring after A (a crossing's is weeks away):
+            // dead at A, so the device stops warning "pays twice" once its floor is past A + 9.
+            for expiry in [A_MAIN + 50, A_MAIN + 34_560] {
+                let rec = [signed("aa", expiry)];
+                let t = lapses_at(&MAINNET, expiry, NU6_3).expect("it lapses");
+                let lo = |t: i64| MAINNET.height_bounds(t).lo;
+                assert!(
+                    lo(t) > A_MAIN - 1 + 10 && lo(t - 1) <= A_MAIN - 1 + 10,
+                    "expiry {expiry}: the turn is at A + 9"
+                );
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t - 1),
+                    ApprovalDecision::Second {
+                        first_expiry: expiry,
+                        until_unix: Some(t),
+                        until_height: Some(A_MAIN - 1),
+                        by_epoch: true
+                    },
+                    "expiry {expiry}"
+                );
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t),
+                    ApprovalDecision::AfterExpiry,
+                    "expiry {expiry}"
+                );
+                // About a day after A with the NU6.3 anchor: the slack there is 27 hours.
+                assert!(
+                    (T_A_MAIN..T_A_MAIN + 40 * 3_600).contains(&t),
+                    "expiry {expiry}: turns {} h after A",
+                    (t - T_A_MAIN) / 3_600
+                );
+            }
         }
 
         #[test]
@@ -4257,9 +4782,9 @@ pub mod pczt_bridge {
             // Expiry 0 and no later upgrade: the decision has no turning point. A time on the screen
             // would say the warning stops somewhere it does not (the moment of another record's turn).
             let now = T_ANCHOR + 75 * 87_500;
-            let b = MAINNET.height_bounds(now);
+            let b = ONE_ROW.height_bounds(now);
             let rec = [signed("aa", 0), signed("cc", b.est + 41)];
-            let d = approval_decision(&MAINNET, &rec, "bb", now);
+            let d = approval_decision(&ONE_ROW, &rec, "bb", now);
             let ApprovalDecision::Second {
                 until_unix,
                 until_height,
@@ -4273,7 +4798,7 @@ pub mod pczt_bridge {
             // And it is still Second long after the other record's turn: nothing was promised.
             let later = now + 86_400 * 400;
             assert!(matches!(
-                approval_decision(&MAINNET, &rec, "bb", later),
+                approval_decision(&ONE_ROW, &rec, "bb", later),
                 ApprovalDecision::Second { .. }
             ));
         }
@@ -4455,7 +4980,7 @@ pub mod pczt_bridge {
                         .iter()
                         .find(|a| a.output().user_address().is_some())
                         .unwrap();
-                    slice = a.output().encrypted_note().enc_ciphertext[200..232].to_vec();
+                    slice = a.output().encrypted_note().enc_ciphertext.0[200..232].to_vec();
                     Ok::<(), OErr>(())
                 })
                 .unwrap();
@@ -4737,6 +5262,24 @@ pub mod pczt_bridge {
         }
 
         #[test]
+        fn shielded_sighash_of_an_nu7_pczt_matches_the_signer_on_the_stable_crates() {
+            // The same fixture with its branch rewritten to NU7 (see konclave-signer's `as_nu7`): the device's
+            // hand-written ZIP-244 recompute must meet the crate's (zcash_primitives 0.31, pczt 0.10) on one
+            // value, and that value commits to the new branch.
+            let nu7 = patch_once(IW_PROVEN, &varint(0x37a5_165b), &varint(0x7719_0ad9));
+            let got = shielded_sighash(&Pczt::parse(&nu7).unwrap()).unwrap();
+            assert_ne!(
+                hex::encode(got),
+                hex::encode(IW_SIGHASH),
+                "the branch id is hashed in"
+            );
+            assert_eq!(
+                hex::encode(got),
+                "9b869f2332ef5a0d8e987612e9bdbe67275a6fdc1d742b77b929d4bbb0a0601d"
+            );
+        }
+
+        #[test]
         fn shielded_sighash_matches_signer_ironwood() {
             // THE GATE (issue #62 / I2): the on-device ZIP-244 recompute must equal, byte-for-byte,
             // the sighash konclave-signer extracted from the SAME real mainnet Ironwood PCZT (the
@@ -4784,7 +5327,6 @@ mod js {
     use super::frost;
     use super::OsRng;
     use frost::keys::KeyPackage;
-    use frost::round1::SigningNonces;
     use wasm_bindgen::prelude::*;
 
     fn je(e: impl core::fmt::Display) -> JsValue {
@@ -4849,14 +5391,11 @@ mod js {
     /// Participant round-1 output: nonces stay on THIS device; commitment goes to the relay.
     #[wasm_bindgen]
     pub struct Round1 {
-        nonces: Vec<u8>,
+        nonces: ceremony::NonceSlot,
         commitment: Vec<u8>,
     }
     #[wasm_bindgen]
     impl Round1 {
-        pub fn nonces(&self) -> Vec<u8> {
-            self.nonces.clone()
-        }
         pub fn commitment(&self) -> Vec<u8> {
             self.commitment.clone()
         }
@@ -4867,23 +5406,21 @@ mod js {
     pub fn participant_round1(kp_bytes: &[u8]) -> Result<Round1, JsValue> {
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
         let (nonces, commitment) = ceremony::participant_round1(&kp);
-        Ok(Round1 {
-            nonces: nonces.serialize().map_err(je)?,
-            commitment,
-        })
+        Ok(Round1 { nonces, commitment })
     }
 
-    /// Participant device, round 2 (JS): sign with the local nonces + seed.
+    /// Participant device, round 2 (JS): sign with the local nonces + seed. `message` is what this
+    /// device holds for itself; the share is refused unless the package signs exactly that.
     #[wasm_bindgen(js_name = participantRound2)]
     pub fn participant_round2(
         sp: &[u8],
-        nonces_bytes: &[u8],
+        round1: &mut Round1,
         kp_bytes: &[u8],
         seed: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
-        let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2(sp, &nonces, &kp, seed).map_err(je)
+        ceremony::participant_round2(sp, &mut round1.nonces, &kp, seed, message).map_err(je)
     }
 
     /// Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
@@ -4896,15 +5433,20 @@ mod js {
     #[wasm_bindgen(js_name = participantRound2WithRandomizer)]
     pub fn participant_round2_with_randomizer(
         sp: &[u8],
-        nonces_bytes: &[u8],
+        round1: &mut Round1,
         kp_bytes: &[u8],
         randomizer: &[u8],
         message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
-        let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2_with_randomizer(sp, &nonces, &kp, randomizer, message)
-            .map_err(je)
+        ceremony::participant_round2_with_randomizer(
+            sp,
+            &mut round1.nonces,
+            &kp,
+            randomizer,
+            message,
+        )
+        .map_err(je)
     }
 
     /// Coordinator (JS): accumulates the public wire material and produces the signature.
@@ -4954,6 +5496,21 @@ mod js {
         #[wasm_bindgen(js_name = addShare)]
         pub fn add_share(&mut self, id: &[u8], share: &[u8]) {
             self.shares.push((id.into(), share.into()));
+        }
+        /// Does this one share verify, for this signer, in this package, under this randomizer
+        /// (alpha)? Throws when it does not, or is not a share at all. Ask it of every share before
+        /// `addShare`: one that fails never takes the signer's place.
+        #[wasm_bindgen(js_name = checkShare)]
+        pub fn check_share(
+            &self,
+            id: &[u8],
+            share: &[u8],
+            randomizer: &[u8],
+        ) -> Result<(), JsValue> {
+            let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
+            let pubkeys = frost::keys::PublicKeyPackage::deserialize(&self.pubkeys).map_err(je)?;
+            ceremony::check_share_with_randomizer(&self.sp, &vk, randomizer, id, share, &pubkeys)
+                .map_err(je)
         }
         pub fn aggregate(&self) -> Result<Vec<u8>, JsValue> {
             let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
@@ -5152,10 +5709,12 @@ mod js_dkg {
             my_seat: u16,
             n: u16,
             t: u16,
+            my_name: &str,
         ) -> Result<CreationSession, JsValue> {
             let secret = device.inner.secret_bytes();
             Ok(CreationSession {
-                inner: super::creation::Creation::new(&secret, my_seat, n, t).map_err(je)?,
+                inner: super::creation::Creation::new(&secret, my_seat, n, t, my_name)
+                    .map_err(je)?,
             })
         }
         #[wasm_bindgen(js_name = myCommitment)]
@@ -5280,10 +5839,6 @@ mod js_dkg {
             DeviceKey {
                 inner: seal::device_key_from_share(key_package),
             }
-        }
-        #[wasm_bindgen(js_name = secretBytes)]
-        pub fn secret_bytes(&self) -> Vec<u8> {
-            self.inner.secret_bytes().to_vec()
         }
         #[wasm_bindgen(js_name = publicBytes)]
         pub fn public_bytes(&self) -> Vec<u8> {
@@ -5655,6 +6210,14 @@ mod js_pczt {
             p.fee_zat,
             p.actions
         ))
+    }
+
+    /// The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
+    /// reads it for the notice it shows before a payment: the same number the device and the
+    /// coordinator use, never one typed in the app.
+    #[wasm_bindgen(js_name = upgradeHeight)]
+    pub fn upgrade_height() -> u32 {
+        pczt_bridge::latest_upgrade_height(&pczt_bridge::MAINNET)
     }
 
     /// What a new transaction is for an approval this device already signed (`approval_decision`),

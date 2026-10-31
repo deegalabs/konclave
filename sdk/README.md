@@ -125,9 +125,10 @@ coord.prepare()
 const sp = coord.signingPackage()
 const seed = coord.seed()
 
-// Round 2: each device signs with ITS OWN nonces; only the share crosses.
-coord.addShare(vault.id(0), participantRound2(sp, a.nonces(), vault.key_package(0), seed))
-coord.addShare(vault.id(1), participantRound2(sp, b.nonces(), vault.key_package(1), seed))
+// Round 2: each device signs with ITS OWN nonces, which stay inside the `Round1` handle
+// (`a`, `b`); only the share crosses. A handle makes ONE share: a second call throws.
+coord.addShare(vault.id(0), participantRound2(sp, a, vault.key_package(0), seed, message))
+coord.addShare(vault.id(1), participantRound2(sp, b, vault.key_package(1), seed, message))
 
 const sig = coord.aggregate()
 const ok = verifyRedpallas(vault.groupVk(), sp, seed, message, sig)
@@ -137,6 +138,15 @@ console.log(ok, toHex(sig))
 To wire this across devices, move each public blob (`commitment()`, `signingPackage()`, `seed()`,
 each `addShare` payload) over your transport with `toBase64` / `fromBase64`. Use `identifierBytes(i)`
 so every device agrees on who is seat `i` with no central registry.
+
+`participantRound1` returns a handle that holds the device's nonces inside the module; they are
+never given to your code. `participantRound2` and `participantRound2WithRandomizer` take the handle and
+spend it: one handle, one share, so call `participantRound1` again for the next
+round, and `free()` a handle you drop without using.
+
+`participantRound2` takes the message the device holds for itself, and refuses a signing package
+that signs anything else: the package comes from the coordinator, so the device compares before it
+signs.
 
 The example above signs an arbitrary message on the **seed path** (`participantRound2` + `aggregate`
 + `verifyRedpallas`). That is the right surface for a generic redpallas signature, but it is **not**
@@ -200,7 +210,7 @@ for (let off = 0; off + 36 <= rand.length; off += 36) {
   // Round 2 (per device): sign with THIS spend's alpha, not a seed.
   // The last argument is the sighash THIS device computed. A package that signs anything else
   // is refused, so a device cannot be handed a package built over another transaction.
-  const share = participantRound2WithRandomizer(sp, a.nonces(), myKeyPackage, alpha, sighash)
+  const share = participantRound2WithRandomizer(sp, a, myKeyPackage, alpha, sighash)
   // coord.addShare(identifierBytes(seat), shareBytes)  // for each chosen seat
 
   // Aggregate + verify UNDER the same alpha - the exact check the chain runs.

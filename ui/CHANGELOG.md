@@ -52,6 +52,139 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open, on the coordinator: registration accepts
   `threshold: 1` (#589).
 
+## [0.16.0] 2026-10-30
+
+### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
+
+- **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
+  machine takes a signing request only from the device assembling the signature and does not let a
+  second one replace the one in hand (#730); it checks each signature part on its own and names the
+  signer of one that does not check out, with the new text `net.err.badShare` (#729); it holds the
+  signing module's round handle and frees it as soon as the share is made, when a spend ends, when the
+  device is re-armed and when the owner withdraws consent (#731); the signing demonstration and the
+  share-repair demonstration pass the device's message to the module (#725); a new vault's sealed backup
+  no longer carries the creation device key (#738); and a device checks its own name in the creation
+  transcript, which runs on the devices that carry this build (#739).
+
+### Added
+
+- The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
+  coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
+  and the counts in the documents say 22.
+- **The app knows the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
+  device accepts transactions built for it, in blocks of 25 seconds, and about 27 hours after its own
+  estimate of the upgrade (between about 15 and 39 hours after the real one) it stops accepting
+  transactions built for the previous one, which the network no longer mines. A pool crossing's
+  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before).
+  Payments are paused around the upgrade rather than built for the wrong one, and after it a
+  coordinator that is not updated yet refuses them.
+- **A notice before the upgrade.** From about six hours before it until about a night after, the
+  dashboard says that the network upgrades, that payments are paused for a while around it, and that
+  nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
+  The block number comes from the same table the device and the coordinator use, not from the app.
+
+### Changed
+
+- **The signing module reads a pool crossing's expiry at the scale of the network upgrade the transaction's
+  header names, and reports the height of the last upgrade in its table.** A crossing's expiry (ZIP 318)
+  is accepted only at the scale of that upgrade, so a header cannot borrow the other scale around the
+  upgrade. The module is rebuilt (see the root changelog). The dashboard notice listed under Added
+  reads the reported height.
+- **The signing module in the web app is rebuilt on the stable NU7 crate line** (orchard 0.16.0, pczt
+  0.10.0, zcash_primitives 0.31.0, and the crates that go with them; see the root changelog). The
+  packaged module in the app is a new build of the same code against newer releases of those crates.
+  What a member sees is unchanged, and the device's own recompute of the signature hash still matches
+  the signer on the transactions it matched before.
+- **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
+  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
+  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
+  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
+  payment can be built. The refusal withdraws the signatures that were given, which "your approval
+  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
+
+### Fixed
+
+- **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
+  smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
+  Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
+  could not be drawn left a blank square (now a sentence pointing to the address and the link). The
+  rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
+  file (#317, #662).
+- **The proof page no longer offers a check that could not run.** Its "verify on-chain now" button
+  asked an explorer's API, and the site's own security policy refused that request before it left,
+  so pressing it always ended in "blocked", which reads as a broken claim. The button is gone; the
+  page says how to check instead: the two explorer links on every transaction, and the
+  `verify-proof.mjs` script for the whole list at once. A test now holds the page's network origins
+  to the policy (#615).
+- **The "page not found" and the crash screen now speak the member's language.** Both were
+  English-only, with no way to translate them: a Portuguese member hit a dead link or a crashed
+  screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
+  crash screen reads it directly, without the rest of the app, so it still works when what crashed
+  is the app itself (#318, part A).
+- **The Members screen says when it could not read the list.** With the coordinator offline it
+  drew an empty roster under "0 members", with no message and no way to retry, and every seat it
+  did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
+  says so, says the vault and your share are still on this device, and offers "Try again"; the chip
+  appears only on a list that was actually read (#315).
+- **Import and export errors now appear in the member's language.** A wrong passphrase, a corrupt or
+  incomplete file, a vault already on the device: each of those came straight from the storage layer,
+  in English, on the screen of a member restoring the one copy of their seat. The storage layer now
+  refuses with a code and the dialogs turn the code into a sentence from the dictionary, in
+  Portuguese or English; the generic line stays as the fallback, and is still what a failure of
+  the browser's own storage shows (#586).
+- **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
+  the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
+  one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
+  transaction is built. Every one of those strings now says the same true thing: this vault cannot
+  pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
+  everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
+  and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
+- **Closing a dialog that opened on a field returns focus to the button that opened it.** Remove,
+  import and unlock a vault, the creation dialog, rotate passphrase and export all put focus in a
+  field as they open; on close, focus fell to the page instead of the opener, because the dialog
+  recorded where to return after the field had already taken focus. It now records the opener before
+  any focus moves. The signing confirm and the lock overlay were not affected (#667).
+- **The landing page and the loading placeholders read the dictionary.** The landing carried its
+  own copy in both languages, outside the dictionary, so the test that keeps the two languages in
+  step never saw it, and the loading placeholders announced "Loading" in English whatever the
+  language. Nothing reads differently today; a sentence changed in one language can no longer be
+  missed in the other, and a screen reader hears "Carregando" in Portuguese (#318, part B).
+- **The spreadsheet export carries the transaction id and the memo, and exports what the screen
+  shows.** The XLSX, the export meant for the accountant, had no txid column, so no row could be
+  tied to the block explorer, and no memo; it ignored the state and kind filters, so a book
+  filtered to settled payrolls exported everything, silently; an empty book produced a total that
+  summed itself, which Excel opens with a circular-reference warning; and the file named the app as
+  its author in the hidden document properties. Now every row carries its memo and its txid, linked
+  to the public explorer; the export holds exactly the rows on screen, and its Summary names the
+  active filter; an empty book exports zeros instead of formulas; and the hidden properties say
+  nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
+  coordinator, which does not know the screen's filters (#302, with #301).
+
+### Known limits
+
+- The own-name check runs on the devices that carry this build.
+- In the hidden properties of the spreadsheet export, the application is still named as Microsoft
+  Excel. The library writes that line and the app cannot change it (#302).
+- **The notice before the upgrade reads the chain tip the coordinator reports, and it goes away about
+  14 hours after the upgrade even if the coordinator has not been updated by then.** It says nothing
+  that depends on the update. A payment that moves funds between pools, built shortly before the
+  upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
+  funds are available again" is not promised.
+
+- **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
+  loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
+  cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
+  notice. The refusal texts still apply there: a payment that the pause holds back is refused with its
+  own sentence.
+- **For some 15 to 39 hours after the upgrade a device can still warn that signing again could pay twice**
+  about an earlier payment that the network already refuses. The device estimates the upgrade from its
+  clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
+  sees the chain, already says the payment needs a new signature. A release that anchors the clock to
+  the real time of the upgrade block shortens this.
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed

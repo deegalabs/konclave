@@ -44,9 +44,11 @@ describe('send preflight', () => {
     expect(send).toMatch(/const step = panelStep\(readReply\(r\), t\)\s*if \(step\.do === 'resolve'\) await resolveUnknown\(vault\.group_pubkey, pid\)\s*else apply\(pid, step\)/)
     expect(panel).toMatch(/apply\(proposalId, resolvedStep\(r\)\)/)
     expect(panel).not.toMatch(/function unknown\(/)
-    // apply: a failure goes to fail(); everything else is shown through stepResult.
-    expect(panel).toMatch(/if \(step\.do === 'fail'\) return fail\(pid, step\.text, step\.raw\)/)
-    expect(panel).toMatch(/showFor\(pid, stepResult\(step\)\)/)
+    // apply: every step, a failure included, goes through one rule for what it does to the send
+    // memory and the signatures (stepEffects, busy-endings.test.ts), and is shown through stepResult.
+    expect(panel).toMatch(/const plan = applyPlan\(step, refusingRef\.current\)/)
+    expect(panel).toMatch(/function fail\(pid: string, msg: string, raw\?: string\) \{\s*apply\(pid, \{ do: 'fail', text: msg, raw \}\)\s*\}/)
+    expect(panel).toMatch(/showFor\(pid, plan\.result\)/)
     // The countdown is guarded by payment, and reset when another payment opens.
     expect(panel).toMatch(/onAttempt: count,/)
     expect(panel).toMatch(/const count = \(n: number\) => \{ if \(boundTo\.current === proposalId\) setChecking\(n\) \}/)
@@ -201,10 +203,10 @@ describe('executeProposal passes the state of a refused send', () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'proposal is not ready to send', state: 'sent' }), { status: 409 }))
     try {
       const { executeProposal } = await import('./helper')
-      const r = await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r' })
+      const r = await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r', dryRun: false })
       expect(r).toEqual({ error: 'proposal is not ready to send', state: 'sent' })
       vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'build failed' }), { status: 500 }))
-      expect(await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r' })).toEqual({ error: 'build failed' })
+      expect(await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r', dryRun: false })).toEqual({ error: 'build failed' })
     } finally {
       vi.unstubAllGlobals()
     }

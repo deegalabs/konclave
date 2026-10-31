@@ -695,7 +695,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         // The invite is what members share; the relay room is derived from it AND the PIN, both
         // required (ADR-0007 I4, as amended), and the room id is also bound into the members' code.
         const roomId = await deriveRoom(code, pin)
-        const cer = new DkgCeremony(myTagRef.current, deviceKeyRef.current, roomId)
+        const cer = new DkgCeremony(myTagRef.current, deviceKeyRef.current, roomId, myNameRef.current)
         cer.onAbort = (why) => {
           setError(tt(ABORT_MESSAGE[why], { name: cer.config?.cn || pe('quem convidou você', 'whoever invited you') }))
           setPhase('error')
@@ -736,7 +736,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           await sess.send(JSON.stringify({ type: 'config', v: DKG_VERSION, ...configRef.current } satisfies Msg))
         }
         await sess.send(
-          JSON.stringify({ type: 'hello', v: DKG_VERSION, encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
+          JSON.stringify({ type: 'hello', v: DKG_VERSION, encPub: b64(deviceKeyRef.current.publicBytes()), name: cer.myName || undefined } satisfies Msg),
         )
         addLog(tt('net.log.joined'))
         void advance()
@@ -872,7 +872,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         JSON.stringify({
           kp: b64(dkg.keyPackage()),
           pubkeys: b64(dkg.pubkeys()),
-          deviceSecret: b64(deviceKeyRef.current?.secretBytes() ?? new Uint8Array()),
           seat: mySeatRef.current,
           n: cfg?.n ?? 0,
           t: cfg?.t ?? 0,

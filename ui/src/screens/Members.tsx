@@ -1,10 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
+
+/** What the screen shows for a roster: still reading, could not read (the coordinator did not
+ *  answer, or answered without a vault), or the real list. One rule, so a list that was not read
+ *  is never drawn as an empty vault with every seat marked healthy (#315). */
+export type MembersView = 'loading' | 'unread' | 'roster'
+export function membersView(live: boolean | null, vault: Vault | null): MembersView {
+  if (live === null) return 'loading'
+  // A vault whose names came from this device's roster, not the coordinator, is not a list that
+  // was read (api.ts falls back to the on-device names so the ceremony drawer keeps its names).
+  return live && vault && vault.members_read !== false ? 'roster' : 'unread'
+}
 
 
 export default function Members() {
@@ -22,22 +33,28 @@ export default function Members() {
   // Read from the on-device record but not shown: the governance nudge it used to gate was
   // removed. Kept as a setter-only so the record read stays intact for whatever needs it next.
   const [, setGov] = useState<Governance | null>(null)
+  // The vault's public group identity, hashed to a short code members compare out of band (#65 I4).
   // The name THIS device chose at create/join, so "you" marks the right seat. Without an on-device
   // record there is no "you" to mark - never guess a seat.
   const [me, setMe] = useState<string | null>(null)
   // Who set up the vault (propagated). Marks the creator - a real fixed fact - rather than the
   // per-ceremony FROST "coordinator" role, which used to be pinned to seat 0 (the wrong member).
   const [creator, setCreator] = useState<string | null>(null)
-  // The vault's public group identity, hashed to a short code members compare out of band (#65 I4).
+  // Bumped by the retry button: the read runs again from the start (#315).
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => { setLive(null); setVault(null); setAttempt((a) => a + 1) }, [])
+  // The retry button unmounts with the message; focus moves to the message when it comes back,
+  // so a keyboard or screen-reader member is not dropped at the top of the page.
+  const unreadRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let on = true
     void (async () => {
       const ok = await health()
       if (!on) return
-      setLive(ok)
       if (ok) {
         const v = await getVault()
-        if (on && v) {
+        if (!on) return
+        if (v) {
           setVault(v)
           try {
             const saved = await listVaults()
@@ -46,9 +63,11 @@ export default function Members() {
           } catch { /* local-bridge mode - no on-device record */ }
         }
       }
+      // Set last, so the screen never shows "live" with a vault still on its way.
+      setLive(ok)
     })()
     return () => { on = false }
-  }, [])
+  }, [attempt])
 
   async function saveMyName() {
     const next = myNewName.trim()
@@ -91,6 +110,8 @@ export default function Members() {
   // This device's stored name is NOT in the current roster: a prior rename synced the helper but not
   // this device, so it is "stuck". The editor self-heals (adopt an existing roster name); flag it.
   const meOutOfSync = !!me && members.length > 0 && !members.some((m) => m.name === me)
+  const view = membersView(live, vault)
+  useEffect(() => { if (view === 'unread' && attempt > 0) unreadRef.current?.focus() }, [view, attempt])
 
   return (
     <>
@@ -105,7 +126,15 @@ export default function Members() {
         />
 
 
-        {live === null ? <Loading /> : (
+        {view === 'loading' && <Loading />}
+        {view === 'unread' && (
+          <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
+            <div className="who-name mb-sm">{t('members.unreadTitle')}</div>
+            <p className="dim">{t('members.unreadLead')}</p>
+            <button className="btn ok sm-btn mt-sm" onClick={retry}>{t('members.retry')}</button>
+          </div>
+        )}
+        {view === 'roster' && (
         <div className="signers mt">
           {members.map((m, i) => {
             const isMe = !!me && m.name === me
@@ -158,7 +187,7 @@ export default function Members() {
         )}
 
         <PageFooter>
-          <span>{t('members.footCount', { count: members.length, t: thr, n })}</span>
+          <span>{view === 'roster' ? t('members.footCount', { count: members.length, t: thr, n }) : t('members.footUnread')}</span>
           <span className="dim pushr">{t('members.footNote')}</span>
         </PageFooter>
 

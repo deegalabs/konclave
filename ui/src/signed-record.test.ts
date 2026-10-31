@@ -1,8 +1,12 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, afterAll } from 'vitest'
 import init, { approvalDecision } from './wasm-pkg/konclave_wasm.js'
 import { decideFor, hashSighash, readSigned, recordSigned, validBranch, type RecordStore } from './signed-record'
+import { pinClock, unpinClock } from './test-vectors'
+
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -21,6 +25,8 @@ const ALIVE = 4_000_000_000
 const DEAD = 1
 // NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
 const NU63 = 0x37a5165b
+// The last row of the table: nothing follows it, so a record under it ends at its own expiry (or never).
+const NU7 = 0x77190ad9
 
 describe('what this device signed, per vault and approval', () => {
   it('starts empty, and keeps a hash of each sighash with its expiry, never the sighash', async () => {
@@ -34,10 +40,10 @@ describe('what this device signed, per vault and approval', () => {
 
   it('records a transaction once, and keeps vaults and approvals apart', async () => {
     const s = memory()
-    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
-    await recordSigned(s, 'v1', 'p1', A.toUpperCase(), ALIVE, NU63)
-    await recordSigned(s, 'v1', 'p2', B, ALIVE, NU63)
-    await recordSigned(s, 'v2', 'p1', B, ALIVE, NU63)
+    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU7)
+    await recordSigned(s, 'v1', 'p1', A.toUpperCase(), ALIVE, NU7)
+    await recordSigned(s, 'v1', 'p2', B, ALIVE, NU7)
+    await recordSigned(s, 'v2', 'p1', B, ALIVE, NU7)
     expect(readSigned(s, 'v1', 'p1')).toHaveLength(1)
     expect(readSigned(s, 'v1', 'p2')).toHaveLength(1)
     expect(readSigned(s, 'v2', 'p1')).toHaveLength(1)
@@ -121,7 +127,7 @@ describe('the branch of what this device signed', () => {
 
   it('a record that never stops counting gives no time: Second carries null, not a moment', async () => {
     const s = memory()
-    await recordSigned(s, 'v1', 'p1', A, 0, NU63) // no expiry
+    await recordSigned(s, 'v1', 'p1', A, 0, NU7) // no expiry, and no upgrade after NU7
     const d = await decideFor(s, 'v1', 'p1', B)
     expect(d).toEqual({ kind: 'second', firstExpiry: 0, untilUnix: null, untilHeight: null, byEpoch: false })
   })
@@ -131,7 +137,7 @@ describe('the branch of what this device signed', () => {
     // would wait for and find the warning still there.
     const s = memory()
     const soon = (await import('./test-vectors')).honestExpiry()
-    await recordSigned(s, 'v1', 'p1', A, 0, NU63)
+    await recordSigned(s, 'v1', 'p1', A, 0, NU7)
     await recordSigned(s, 'v1', 'p1', 'ee'.repeat(32), soon, NU63)
     const d = await decideFor(s, 'v1', 'p1', B)
     expect(d).toEqual({ kind: 'second', firstExpiry: soon, untilUnix: null, untilHeight: null, byEpoch: false })
@@ -150,11 +156,27 @@ describe('the branch of what this device signed', () => {
   })
 })
 
+describe('an NU6.3 record that outlives the NU7 upgrade (#638)', () => {
+  it('ends at the upgrade, not at its expiry: the time and the block come from the table WASM carries', async () => {
+    const { upgradeHeight } = await import('./wasm-pkg/konclave_wasm.js')
+    const s = memory()
+    // An expiry far past the upgrade (a pool crossing's is weeks away): it can never be mined at or after
+    // the upgrade, so the warning ends a few blocks after it and says it is the upgrade that ends it.
+    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
+    const d = await decideFor(s, 'v1', 'p1', B)
+    expect(d.kind).toBe('second')
+    if (d.kind !== 'second') return
+    expect(d.byEpoch).toBe(true)
+    expect(d.untilHeight).toBe(upgradeHeight() - 1)
+    expect(d.untilUnix).toBeGreaterThan(Date.now() / 1000)
+  })
+})
+
 describe('what a new transaction is, by the rule in WASM', () => {
   it('first, the same, a second while the first is alive, or after it expired', async () => {
     const s = memory()
     expect(await decideFor(s, 'v1', 'p1', A)).toEqual({ kind: 'first' })
-    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
+    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU7)
     expect(await decideFor(s, 'v1', 'p1', A)).toEqual({ kind: 'same' })
     expect(await decideFor(s, 'v1', 'p1', B)).toEqual({ kind: 'second', firstExpiry: ALIVE, untilUnix: expect.any(Number), untilHeight: null, byEpoch: false })
     const t = memory()

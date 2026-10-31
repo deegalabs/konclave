@@ -291,7 +291,7 @@ export const SECTIONS: Section[] = [
       {
         k: 'ul',
         items: [
-          { 'pt-BR': '**Sapling ≠ Orchard** - um destino só-Sapling pode travar fundos; o app decodifica o endereço e bloqueia com um aviso claro.', en: '**Sapling ≠ Orchard** - a Sapling-only destination can lock funds; the app decodes the address and blocks it with a clear warning.' },
+          { 'pt-BR': '**Blindado antigo (Sapling) ≠ blindado atual** - um destino só-Sapling pode travar fundos; o app decodifica o endereço e bloqueia com um aviso claro.', en: '**Older shielded (Sapling) ≠ current shielded** - a Sapling-only destination can lock funds; the app decodes the address and blocks it with a clear warning.' },
           { 'pt-BR': '**Memo só vai para destino blindado** - destinos transparentes (públicos) não levam memo, e o pagamento é marcado como público na cadeia.', en: '**Memos need a shielded destination** - transparent (public) destinations carry no memo, and the payment is flagged public on-chain.' },
           { 'pt-BR': '**Faça o dry-run (só na versão local)** - o envio local tem um ensaio que roda a cerimônia inteira e para *antes* de transmitir. O app web não tem ensaio: as proteções dele são o preview, a confirmação explícita e a aprovação de um quórum. O que a tela de assinatura mostra é o que o seu aparelho leu da própria transação.', en: '**Dry-run first (local build only)** - the local send path has a rehearsal that runs the whole ceremony and stops *before* broadcast. The web app has no rehearsal: its safeguards are the preview, the explicit confirmation and a quorum’s approval. What the signing screen shows is what your device read from the transaction itself.' },
           { 'pt-BR': '**Um envio leva alguns minutos quando os signatários estão on-line** - no web cada signatário abre o pagamento e toca em "Assinar com minha parte" (o último toca em "Assinar e enviar") e deixa a tela aberta enquanto o cofre monta, prova e transmite; na versão local o `frostd` sobe na hora e a cerimônia leva de 30 a 60 s.', en: '**A send takes a few minutes once the signers are online** - on the web each signer opens the payment and presses "Sign with my share" (the last one presses "Sign and send"), then keeps the screen open while the vault builds, proves and broadcasts; in the local build `frostd` starts fresh and the ceremony takes 30-60s.' },
@@ -702,12 +702,12 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**"Wrong passphrase for this export"** (esta mensagem aparece em inglês): é a frase-senha que você usava quando gerou aquele arquivo, que pode ser uma antiga.',
-            en: '**"Wrong passphrase for this export"**: it is the passphrase you had when you made that file, which may be an older one.',
+            'pt-BR': '**"Frase-senha errada para este backup"**: é a frase-senha que você usava quando gerou aquele arquivo, que pode ser uma antiga.',
+            en: '**"Wrong passphrase for this backup"**: it is the passphrase you had when you made that file, which may be an older one.',
           },
           {
-            'pt-BR': '**"A vault with this id already exists on this device"** (também em inglês): o cofre já está aqui. Abra pela lista.',
-            en: '**"A vault with this id already exists on this device"**: the vault is already here. Open it from the list.',
+            'pt-BR': '**"Este cofre já está neste aparelho"**: o cofre já está aqui. Abra pela lista.',
+            en: '**"This vault is already on this device"**: the vault is already here. Open it from the list.',
           },
           {
             'pt-BR': 'Se o aparelho antigo ainda funciona: sugerimos manter o assento num aparelho só. Quando o novo abrir o cofre, use **Remover deste aparelho** em Ajustes no antigo.',

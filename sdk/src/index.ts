@@ -243,8 +243,8 @@ export function localTestCeremony(
   const seed = coord.seed()
 
   // Round 2 - each device signs with ITS OWN nonces; only the share crosses.
-  coord.addShare(vault.id(0), participantRound2(sp, a.nonces(), vault.key_package(0), seed))
-  coord.addShare(vault.id(1), participantRound2(sp, b.nonces(), vault.key_package(1), seed))
+  coord.addShare(vault.id(0), participantRound2(sp, a, vault.key_package(0), seed, message))
+  coord.addShare(vault.id(1), participantRound2(sp, b, vault.key_package(1), seed, message))
 
   // Aggregate the shares into one group signature, then verify it.
   const signature = coord.aggregate()
