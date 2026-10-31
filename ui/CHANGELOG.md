@@ -73,6 +73,12 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Six sentences no longer promise more than the code does.** The two landing pages said the key
+  "never leaves the device", and the signing panel said the share "never leaves this device"; a
+  share does leave, sealed under the passphrase, inside the backup a member exports. Settings said
+  the relay "sees only public material"; a signing request, with who the vault pays and how much,
+  crosses it unsealed until every device in the vault has registered its key. Each sentence now
+  says what happens, in both languages (#802).
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
