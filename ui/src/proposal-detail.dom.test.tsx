@@ -54,6 +54,16 @@ describe('the proposal screen states its facts', () => {
     expect(await screen.findByText(en('proposal.confirmationsN').replace('{n}', '21'))).toBeTruthy()
   })
 
+  it('the count moves while the screen is open: the tip is re-read with the list on each poll', async () => {
+    mount('p1')
+    expect(await screen.findByText(en('proposal.confirmationsN').replace('{n}', '21'))).toBeTruthy()
+    // Ten more blocks on the chain. The poll re-reads the list AND the tip; a tip read once at mount
+    // left the count standing still while the list moved. Regaining focus runs the poll at once.
+    getBalance.mockResolvedValue({ configured: true, spendable_zat: 500000000, total_zat: 500000000, chain_tip_height: 3500130 })
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText(en('proposal.confirmationsN').replace('{n}', '31'))).toBeTruthy()
+  })
+
   it('an awaiting payment: until when it can be approved', async () => {
     mount('p2')
     await screen.findByText('Chairs')

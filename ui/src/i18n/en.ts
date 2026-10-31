@@ -778,7 +778,6 @@ export const en: Record<string, string> = {
   'proposal.proposePaymentLink': 'Propose a payment →',
   'proposal.paymentTo': 'Payment to {dest}',
   'proposal.payrollSubtitle': '{n} payments in one transaction, approved once',
-  'proposal.paymentSubtitle': 'to {dest}',
   'proposal.stanceProposedApproved': 'proposed · approved',
   'proposal.stanceApproved': 'approved',
   'proposal.stanceRefused': 'refused',

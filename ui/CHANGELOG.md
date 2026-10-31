@@ -50,9 +50,13 @@ history to tidy it is how context gets lost.
   as a date and hour with the time left beside it; while the chain has not answered the screen says
   nothing rather than "not confirmed"; and the copy button names what it copies and announces
   "Copied" to a screen reader.
+
 ## [0.16.0] 2026-10-30
 
 ### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
 
 - **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
   machine takes a signing request only from the device assembling the signature and does not let a
@@ -168,6 +172,7 @@ history to tidy it is how context gets lost.
   that depends on the update. A payment that moves funds between pools, built shortly before the
   upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
   funds are available again" is not promised.
+
 - **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
   loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
   cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
@@ -178,6 +183,7 @@ history to tidy it is how context gets lost.
   clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
   sees the chain, already says the payment needs a new signature. A release that anchors the clock to
   the real time of the upgrade block shortens this.
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed

@@ -774,7 +774,6 @@ export const ptBR: Record<string, string> = {
   'proposal.proposePaymentLink': 'Propor um pagamento →',
   'proposal.paymentTo': 'Pagamento a {dest}',
   'proposal.payrollSubtitle': '{n} pagamentos numa transação, aprovada uma vez',
-  'proposal.paymentSubtitle': 'para {dest}',
   'proposal.stanceProposedApproved': 'propôs · aprovou',
   'proposal.stanceApproved': 'aprovou',
   'proposal.stanceRefused': 'recusou',

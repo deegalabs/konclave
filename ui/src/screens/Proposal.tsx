@@ -108,16 +108,28 @@ export default function Proposal() {
     return () => { on = false }
   }, [])
 
-  // Only a sent payment has a block to count; the list is read once per sent proposal.
+  // Only a sent payment has a block to count. The count is the tip minus that block, so the list
+  // and the tip are read TOGETHER: once per sent proposal, then once a minute while the screen is
+  // open. The tip used to come from the one balance read at mount, so the list moved and the
+  // count did not (#760).
   const sentTxid = p?.state === 'sent' || p?.state === 'confirmed' ? p.txid : undefined
+  const readChain = async (first: boolean, live: () => boolean) => {
+    const [list, b] = await Promise.all([readTransactions(), getBalance()])
+    if (!live()) return
+    // A list that could not be read is said on the first read; on a later one the last list stays.
+    if (Array.isArray(list)) setTxs(list)
+    else if (first) setTxs(null)
+    if (b?.configured && typeof b.chain_tip_height === 'number') setTip(b.chain_tip_height)
+  }
   useEffect(() => {
     if (!sentTxid) return
     let on = true
-    void readTransactions().then((list) => { if (on) setTxs(Array.isArray(list) ? list : null) })
+    void readChain(true, () => on)
     return () => { on = false }
+    // readChain is recreated each render; the read it runs depends on sentTxid alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sentTxid])
-  // The count moves while the screen is open: re-read the list once a minute.
-  usePoll(() => { void readTransactions().then((list) => { if (Array.isArray(list)) setTxs(list) }) }, 60_000, !!sentTxid)
+  usePoll(() => { void readChain(false, () => true) }, 60_000, !!sentTxid)
 
   async function vote(approve: boolean) {
     if (!p) return
