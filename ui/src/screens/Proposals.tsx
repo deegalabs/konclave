@@ -11,6 +11,8 @@ import { rankDesk, expiredByClock, stampKey, type Band } from '../desk'
 import { settlementOf, isConfirmed } from '../settlement'
 import { expiryLabel, fmtZec } from '../format'
 import { useLoading } from '../loading'
+import ReadState from '../ReadState'
+import { lastReadFailure } from '../read-failure'
 import { useT, useTr, type TFn, type TRichFn } from '../i18n'
 
 // Closed without payment: shown only on request, so the desk stays about what can still move. An
@@ -85,8 +87,14 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   // cannot be told from one the chain already holds, and the group would show it as still pending.
   const [txsAsked, setTxsAsked] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
+  // `attempt` re-runs the first read; `failed` counts the retries that failed again and is what
+  // re-mounts and focuses the message (after the answer, never at the click). `stale` says that
+  // the rows on screen stopped refreshing: two polls in a row failed after a good read.
   const [attempt, setAttempt] = useState(0)
-  const unreadRef = useRef<HTMLDivElement>(null)
+  const [failed, setFailed] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  const [stale, setStale] = useState(false)
+  const misses = useRef(0)
   const { begin, end } = useLoading()
 
   // Auto-refresh: a new proposal or an incoming approval shows up without a manual reload. Poll on
@@ -109,10 +117,16 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
             if (on) setMe(saved.find((s) => s.id === v.id)?.myName ?? null)
           } catch { /* local-bridge mode: no on-device record */ }
         }
-        if (ps) { setRows(ps); setUnread(false) } else if (first) setUnread(true)
+        if (ps) {
+          setRows(ps); setUnread(false); misses.current = 0; setStale(false)
+        } else if (first) {
+          setUnread(true); if (attempt > 0) setFailed((f) => f + 1)
+        } else {
+          misses.current += 1; if (misses.current >= 2) setStale(true)
+        }
       } finally {
         inFlight = false
-        if (first) end()
+        if (first) { end(); setRetrying(false) }
       }
     }
     void load(true)
@@ -135,10 +149,9 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   }, [hasSent])
   usePoll(() => { void readTransactions().then((list) => { if (Array.isArray(list)) setTxs(list) }) }, 60_000, hasSent)
 
-  // Bumped by the retry button: the read runs again from the start, and focus returns to the message
-  // if it comes back.
-  const retry = useCallback(() => { setUnread(false); setAttempt((a) => a + 1) }, [])
-  useEffect(() => { if (unread && attempt > 0) unreadRef.current?.focus() }, [unread, attempt])
+  // Bumped by the retry button: the read runs again from the start; a retry that fails again is said
+  // again and takes focus (ReadState).
+  const retry = useCallback(() => { setRetrying(true); setAttempt((a) => a + 1) }, [])
 
   const open = useCallback((p: Proposal) => nav('/proposal', { state: { id: p.id } }), [nav])
 
@@ -161,16 +174,15 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
     <>
       {rows === null && !unread && <SkeletonRows n={4} />}
 
-      {unread && (
-        <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
-          <div className="who-name mb-sm">{t('proposals.unreadTitle')}</div>
-          <p className="dim">{t('proposals.unreadLead')}</p>
-          <button className="btn ok sm-btn mt-sm" onClick={retry}>{t('proposals.retry')}</button>
-        </div>
+      {/* The full message only when nothing was ever read: with rows on screen, a retry that fails
+          again keeps the one line above them (stale), never a second alert. */}
+      {rows === null && unread && (
+        <ReadState title={t('proposals.unreadTitle')} failure={lastReadFailure('/api/vault/proposals') ?? lastReadFailure('/api/proposals')} attempt={failed} busy={retrying} onRetry={retry} />
       )}
 
       {rows !== null && (
         <>
+          {stale && <ReadState compact title={t('proposals.unreadTitle')} failure={lastReadFailure('/api/vault/proposals') ?? lastReadFailure('/api/proposals')} busy={retrying} onRetry={retry} />}
           {needsYou.length > 0 && (
             <Group id="pl-needs-you" label={desk.personal ? t('proposals.needsYou') : t('proposals.readyToSign')} count={needsYou.length} ready={needsYou.some((i) => i.band === 'sign')}>
               {needsYou.map((i) => <Row key={i.p.id} p={i.p} band={i.band} last={i.last} {...rowProps} />)}

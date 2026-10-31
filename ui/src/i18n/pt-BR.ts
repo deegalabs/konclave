@@ -1275,8 +1275,6 @@ export const ptBR: Record<string, string> = {
   'proposals.closedGroup': 'Encerradas',
   'proposals.nothingForYou': 'Nada precisa de você agora.',
   'proposals.unreadTitle': 'Não foi possível ler as propostas',
-  'proposals.unreadLead': 'A lista não pôde ser lida. O cofre e a sua parte continuam neste aparelho; só a lista não chegou.',
-  'proposals.retry': 'Tentar de novo',
   'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo, o identificador da transação e quem propôs e aprovou cada pagamento.',
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposto por',
