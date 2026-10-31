@@ -1054,18 +1054,34 @@ mod tests {
         // Mainnet has a row after NU6.3 (NU7), so the gate asks for the tip: well before the upgrade,
         // far from any hold.
         let no_tip = || -> Result<u64, ToolError> { Ok(3_500_000) };
-        let result = net_prepare_send_with(
+        let result = net_prepare_send_gated(
             &sc,
             &plan,
             &relay,
             &[],
             5,
             Duration::from_millis(1),
-            &no_tip,
+            &fixed_clock_gate(&no_tip),
         );
         let seen = published.lock().unwrap().clone();
         std::fs::remove_dir_all(&dir).ok();
         (result, seen)
+    }
+
+    /// The clock of every test of the send path that is not about the clock: the anchor's own second, far
+    /// before any upgrade, so what the real clock reads on the day cannot change what a test sees.
+    fn anchor_unix() -> i64 {
+        konclave_seal::epochs::MAINNET.anchor.unix
+    }
+
+    /// Mainnet's table with the caller's tip and a FIXED clock. Tests call `net_prepare_send_gated` with
+    /// it, never `net_prepare_send_with`, which reads the real clock (`live_gate`).
+    fn fixed_clock_gate<'a>(tip: &'a dyn Fn() -> Result<u64, ToolError>) -> EpochGate<'a> {
+        EpochGate {
+            table: &konclave_seal::epochs::MAINNET,
+            tip,
+            now: &anchor_unix,
+        }
     }
 
     /// A relay nobody answers on: it takes the signing request and counts the polls it is asked, and it
@@ -1166,14 +1182,14 @@ mod tests {
         // Mainnet has a row after NU6.3 (NU7), so the gate asks for the tip: well before the upgrade,
         // far from any hold.
         let no_tip = || -> Result<u64, ToolError> { Ok(3_500_000) };
-        let result = net_prepare_send_with(
+        let result = net_prepare_send_gated(
             &sc,
             &plan,
             &relay,
             &[],
             max_polls,
             Duration::from_millis(1),
-            &no_tip,
+            &fixed_clock_gate(&no_tip),
         );
         std::fs::remove_dir_all(&dir).ok();
         (result, gets.load(std::sync::atomic::Ordering::SeqCst))
@@ -1391,6 +1407,32 @@ mod tests {
     }
 
     /// The gate's inputs are fixed by the test; see the assertions.
+    /// A test that reaches the live gate reads the real clock, and from 2026-11-05 09:24:53 UTC (block
+    /// 3,543,117, the start of the crossing refusal) every test whose transaction lasts long refuses.
+    /// So no test of this module calls `net_prepare_send_with`; they call `net_prepare_send_gated` with
+    /// `fixed_clock_gate`. Read from the source on purpose: a rule that only a convention keeps is how a
+    /// second copy of the call appears.
+    #[test]
+    fn no_test_reaches_the_live_gate_and_so_the_real_clock() {
+        let src = include_str!("send.rs");
+        let tests = src
+            .split("#[cfg(test)]\nmod tests")
+            .nth(1)
+            .expect("the tests module");
+        let (_, after_guard) = tests
+            .split_once("fn no_test_reaches_the_live_gate_and_so_the_real_clock")
+            .expect("this test");
+        let before_guard = tests
+            .split("fn no_test_reaches_the_live_gate_and_so_the_real_clock")
+            .next()
+            .unwrap();
+        let needle = ["net_prepare_send_with", "("].concat();
+        assert!(
+            !before_guard.contains(&needle) && !after_guard.contains(&needle),
+            "a test calls net_prepare_send_with, which reads the real clock: use net_prepare_send_gated with fixed_clock_gate"
+        );
+    }
+
     /// The production gate is wired to mainnet's table and the real clock, not a constant.
     #[test]
     fn the_live_gate_reads_mainnets_table_and_the_real_clock() {
