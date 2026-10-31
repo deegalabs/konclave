@@ -50,6 +50,17 @@ history to tidy it is how context gets lost.
   in the clear is rewritten the next time the passphrase is typed on that device. Devices that never
   imported a backup, and the backup files themselves, were not affected.
 
+### Added
+
+- **A proposal states its facts.** Under the amount, the screen now says when the proposal was
+  created, until when it can be approved (or that it has no deadline), the whole destination address
+  with a copy button, and, once sent, how many confirmations the payment has, counted from the
+  chain, or that it is not in a block yet. The address used to be shortened everywhere, the deadline
+  appeared only in the list, and confirmations were nowhere on this screen. The deadline is given
+  as a date and hour with the time left beside it; while the chain has not answered the screen says
+  nothing rather than "not confirmed"; and the copy button names what it copies and announces
+  "Copied" to a screen reader.
+
 ### Fixed
 
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
