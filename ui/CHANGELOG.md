@@ -150,6 +150,14 @@ Update once any signing in progress has finished. Your vault and your share stay
   active filter; an empty book exports zeros instead of formulas; and the hidden properties say
   nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
   coordinator, which does not know the screen's filters (#302, with #301).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming, spendable after 10 confirmations") instead of "exceeds the vault balance"
+  (#293, #352).
 
 ### Known limits
 

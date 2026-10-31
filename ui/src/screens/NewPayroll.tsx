@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { usePoll } from '../usePoll'
+import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
+import { isOpen } from '../desk'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Loading, Soon } from '../components'
 import { PageHeader } from '../page'
@@ -7,7 +10,7 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -47,10 +50,17 @@ export default function NewPayroll() {
   const [csv, setCsv] = useState('')
   // The same balance the payment screen reads, refreshed on the same cadence (useVaultBalance): this
   // screen used to read it once, so a payroll opened while the wallet was busy stayed blocked.
-  // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after and the
-  // over-balance block are against spendable (catches amount+fee overspend at propose).
   const { bal, busy: walletBusy } = useVaultBalance()
-  const balanceZat = bal ? bal.spendable_zat ?? bal.total_zat ?? null : null
+  // What this payroll may draw on, from the ONE function Pay and the Dashboard use (#293): spendable
+  // minus what open proposals already hold. This screen read `spendable_zat` on its own, so two
+  // payrolls against the same funds both validated and the second died at build.
+  const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
+  const reservedZat = reservedZatOf(openProps)
+  const openHolding = (openProps ?? []).filter(isOpen).map((x) => x.proposer).join(', ')
+  const balanceZat = freeZatOf(bal, openProps)
+  // Funds that are merely confirming, derived (total minus spendable): never `pending_zat`, which
+  // the web path does not fill (#352).
+  const confirmingZat = confirmingZatOf(bal)
   // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
   // always spend the sum.
   const pools = bal ? poolsOf(bal) : undefined
@@ -90,6 +100,7 @@ export default function NewPayroll() {
       if (await health()) {
         const [bs, led, v] = await Promise.all([getBeneficiaries(), getLedger(), getVault()])
         if (!on) return
+        void getProposals().then((ps) => { if (on) setOpenProps(ps) })
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
@@ -129,6 +140,12 @@ export default function NewPayroll() {
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
   const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+  // Funds are released when someone else's proposal is sent or refused, and a payroll blocked by a
+  // reservation must see it lift without a reload: the same cadence as the balance and as Pay.
+  usePoll(() => {
+    void getProposals().then(setOpenProps)
+  }, 12_000)
+
   const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
 
   async function importCsv() {
@@ -181,8 +198,10 @@ export default function NewPayroll() {
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.
-  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools })
-  const overBalance = block === 'over-balance'
+  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools, reservedZat })
+  // When the whole shortfall is confirmations, say that, not "exceeds the balance" (#352).
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, totalZat, feeZat)
+  const overBalance = block === 'over-balance' && !onlyConfirming
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
@@ -364,8 +383,15 @@ export default function NewPayroll() {
         {/* Same reason as the payment screen: the gate fails closed, so name the block. Only once
             there is a valid row - on an empty sheet the total is 0 and would always warn. */}
         <div role="status" id="payroll-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
-        {count > 0 && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
-          <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
+        {count > 0 && onlyConfirming && (
+          <div className="hint warn mt-sm">{t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })}</div>
+        )}
+        {count > 0 && !onlyConfirming && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
+          <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
+            free: fmtZecExact((balanceZat ?? 0) / 1e8),
+            reserved: fmtZecExact(reservedZat / 1e8),
+            held: String(openHolding),
+          })}</div>
         )}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 

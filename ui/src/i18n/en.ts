@@ -714,6 +714,7 @@ export const en: Record<string, string> = {
   // it: "you are short" would be a lie, and it would hide the one thing they can act on.
   'money.blockReserved': 'The vault has the funds, but {reserved} ZEC is committed to open proposals ({held}). {free} ZEC is free to propose right now \u00b7 it is released when those are sent or refused.',
   'money.blockNoFunds': "This vault has nothing spendable yet. Funds received recently may still be confirming.",
+  'money.blockConfirming': 'The vault has the funds, but {confirming} ZEC is still confirming (spendable after 10 confirmations). This will fit once it lands.',
   'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
 
   // New payroll

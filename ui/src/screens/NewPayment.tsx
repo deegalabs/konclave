@@ -6,7 +6,7 @@ import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import { amountAmbiguous, amountTyped, fmtZecExact, typedAmountZat, zatToZec } from '../format'
-import { freeZatOf, reservedZatOf } from '../balance-parts'
+import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
   createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
@@ -163,7 +163,11 @@ export default function NewPayment() {
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
   // amount we cannot parse now block instead of waving the payment through.
   const block = proposeBlock({ amountZat, amountAmbiguous: amountAmbiguous(value), availableZat, feeZat, memoOver, pools, reservedZat })
-  const overBalance = block === 'over-balance'
+  // When the whole shortfall is confirmations, say that, not "more than the vault can spend" (#352).
+  // Derived from total minus spendable: `pending_zat` is never filled on the web path.
+  const confirmingZat = confirmingZatOf(bal)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, amountZat, feeZat)
+  const overBalance = block === 'over-balance' && !onlyConfirming
 
   async function submit() {
     setError(null)
@@ -290,7 +294,10 @@ export default function NewPayment() {
               screen used to stay silent about. Say which one - but never on an untouched form:
               an empty amount also parses to null, and a warning on a blank field is noise. */}
           <div role="status" id="pay-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
-          {value.trim() !== '' && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
+          {value.trim() !== '' && onlyConfirming && (
+            <div className="hint warn mt-sm">{t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })}</div>
+          )}
+          {value.trim() !== '' && !onlyConfirming && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
             <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
               free: fmtZecExact((freeZat ?? 0) / 1e8),
               reserved: fmtZecExact(reservedZat / 1e8),
