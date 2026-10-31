@@ -60,6 +60,16 @@ history to tidy it is how context gets lost.
   as a date and hour with the time left beside it; while the chain has not answered the screen says
   nothing rather than "not confirmed"; and the copy button names what it copies and announces
   "Copied" to a screen reader.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Fixed
 
@@ -80,6 +90,14 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open: on the coordinator, registration accepts
   `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
   the ceremony, which then refuses it (#589).
+- **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
+  sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
+  whose money never left, was added to "Open", and the figure disagreed with the one the screen
+  shows. The Movements sheet now carries an "Open" column (yes for a proposal still awaiting
+  approval or ready to sign), the Summary's "Open" sums that column, and the screen's total, its
+  filter and the export read one rule. The TOTAL row of the Movements sheet added every row,
+  refused and expired ones included, so it agreed with neither summary total; it is now what
+  moved plus what can still move, the two summary totals added together (#302).
 - **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
   spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
   the signers, label and field for a form, headed sections for Settings), so the content lands
@@ -87,14 +105,25 @@ history to tidy it is how context gets lost.
   these four screens a screen reader hears the word once, from one live region, not once per grey
   block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
   outline under forced colours (#320).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
+- **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
+  payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
+  read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
+  They now show every place down to the zatoshi. The amount sent was never affected (#777).
 
 ### Known limits
 
 - The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
   is not among the four screens above (#320).
-
-### Known limits
-
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a

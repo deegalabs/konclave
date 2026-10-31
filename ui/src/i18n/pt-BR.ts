@@ -717,6 +717,7 @@ export const ptBR: Record<string, string> = {
   // e esconderia a \u00fanica coisa em que o membro pode agir.
   'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}). Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
+  'money.blockConfirming': 'O cofre tem o valor, mas {confirming} ZEC ainda estão confirmando. Proponha quando confirmar.',
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 
   // New payroll
@@ -765,10 +766,10 @@ export const ptBR: Record<string, string> = {
   'payroll.feeSaved': 'uma transação em vez de {n} · economiza {saved} ZEC',
   'payroll.pvFeeK': 'Taxa est.',
   'payroll.pvPlusFee': '+ taxa est. {fee}',
-  'payroll.pvAfter': 'Saldo após',
+  'payroll.pvAfter': 'Livre após',
   'payroll.pvApproval': 'Aprovação',
   'payroll.pvApprovalValue': 'Enviar já conta como a de **{proposer}**',
-  'payroll.warnExceeds': 'Total + taxa excede o saldo do cofre.',
+  'payroll.warnExceeds': 'O total mais a taxa de rede passa do que o cofre pode gastar agora. Reduza os valores.',
   'payroll.sending': 'Enviando…',
   'payroll.submitBtn': 'Enviar para aprovação',
 
@@ -1265,4 +1266,15 @@ export const ptBR: Record<string, string> = {
   'proposal.confirmationsUnknown': 'não deu para ler a cadeia',
   'proposal.confirmedBlock': 'confirmada, bloco {h}',
   'proposal.copyAddress': 'Copiar endereço',
+  // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
+  'proposals.needsYou': 'Precisa de você',
+  'proposals.withOthers': 'Com os outros membros',
+  'proposals.sentAwaiting': 'Enviadas, aguardando confirmação',
+  'proposals.showClosed': 'Mostrar encerradas ({n})',
+  'proposals.hideClosed': 'Esconder encerradas ({n})',
+  'proposals.closedGroup': 'Encerradas',
+  'proposals.nothingForYou': 'Nada precisa de você agora.',
+  'proposals.unreadTitle': 'Não foi possível ler as propostas',
+  'proposals.unreadLead': 'A lista não pôde ser lida. O cofre e a sua parte continuam neste aparelho; só a lista não chegou.',
+  'proposals.retry': 'Tentar de novo',
 }
