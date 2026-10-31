@@ -1298,4 +1298,7 @@ export const ptBR: Record<string, string> = {
   'ceremonies.noProposal': 'Nenhuma proposta deste cofre tem esta transação.',
   'ceremonies.thisPayment': 'Este pagamento',
   'proposal.viewEvidence': 'Ver a evidência da assinatura →',
+  // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
+  'ledger.filterClosed': 'Encerradas',
+  'ledger.closedNoMoney': 'sem pagamento',
 }

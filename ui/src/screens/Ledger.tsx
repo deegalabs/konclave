@@ -12,6 +12,9 @@ import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
+// Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
+// outside both totals; shown with its own state and no outflow sign, because the money never left.
+const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
 // "Open" (awaiting or ready) is `isOpen` from desk.ts: one rule for the dashboard, this screen's
 // total and filter, and the export, so a refused or expired row cannot count as open in one of them.
 
@@ -24,7 +27,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [threshold, setThreshold] = useState(2)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
-  const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
+  const [fState, setFState] = useState<'all' | 'settled' | 'openp' | 'closed'>('all')
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
   // The period window: by month, quarter or year, walked with an offset; entries placed by creation date.
   const [pKind, setPKind] = useState<PeriodKind>('all')
@@ -152,12 +155,12 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   }
   const period = win ? winLabel : periodOf(ledger)
   const filtered = inWin.filter((p) => {
-    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : isOpen(p))
+    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : fState === 'closed' ? CLOSED(p) : isOpen(p))
     return stOk && knOk(p)
   })
   // The active filters in the chips' own words, so a filtered export says it is a part of the book.
   const filterLabel = [
-    fState === 'settled' ? t('ledger.filterSettled') : fState === 'openp' ? t('ledger.open') : '',
+    fState === 'settled' ? t('ledger.filterSettled') : fState === 'openp' ? t('ledger.open') : fState === 'closed' ? t('ledger.filterClosed') : '',
     fKind === 'payment' ? t('ledger.filterPayments') : fKind === 'payroll' ? t('ledger.filterPayrolls') : '',
   ].filter(Boolean).join(' · ')
 
@@ -218,6 +221,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <button className={'chip' + (fState === 'all' ? ' on' : '')} aria-pressed={fState === 'all'} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
             <button className={'chip' + (fState === 'settled' ? ' on' : '')} aria-pressed={fState === 'settled'} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
             <button className={'chip' + (fState === 'openp' ? ' on' : '')} aria-pressed={fState === 'openp'} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
+            <button className={'chip' + (fState === 'closed' ? ' on' : '')} aria-pressed={fState === 'closed'} onClick={() => setFState('closed')}>{t('ledger.filterClosed')}</button>
           </span>
           <span className="chip-group" role="group" aria-labelledby="ledger-kind-label">
             <span className="chip-glabel" id="ledger-kind-label">{t('ledger.filterKindLabel')}</span>
@@ -252,12 +256,13 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                 + ' · ' + t('ledger.approvalsOf', { count: p.approvals.length, total: threshold })
                 + (selfOnly ? ' · ' + t('ledger.selfApproved') : '')
               const settledRow = SETTLED(p.state)
+              const closedRow = CLOSED(p)
               const isOpen = open.has(p.id)
               const lines = linesById[p.id]
               return (
                 <Fragment key={p.id}>
                   <tr
-                    className={isPayroll ? 'doc-row' : ''}
+                    className={[isPayroll ? 'doc-row' : '', closedRow ? 'closed' : ''].filter(Boolean).join(' ')}
                     onClick={() => toggle(p)}
                     style={isPayroll ? { cursor: 'pointer' } : undefined}
                     {...(isPayroll ? { role: 'button' as const, tabIndex: 0, 'aria-expanded': isOpen, onKeyDown: activateOnKey(() => toggle(p)) } : {})}
@@ -272,12 +277,13 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     </td>
                     <td className="by">{who}</td>
-                    <td className="num out">
-                      <Secret sm><span>−{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
+                    <td className={closedRow ? 'num dim' : 'num out'}>
+                      <Secret sm><span>{closedRow ? '' : '−'}{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
                           ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
                           : t('state.' + p.state)}
+                        {closedRow && <span className="closed-tag">{t('ledger.closedNoMoney')}</span>}
                       </div>
                     </td>
                   </tr>

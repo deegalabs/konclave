@@ -156,4 +156,20 @@ describe('the Ledger screen exports what it shows (#302)', () => {
       vi.useRealTimers()
     }
   })
+  it('shows a closed proposal as closed: its own state, no outflow sign, and a filter of its own', async () => {
+    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    getLedger.mockResolvedValue([pending, refused, rent])
+    mount()
+    const cell = await screen.findByText('Refused chairs')
+    const row = cell.closest('tr')!
+    expect(row.className).toContain('closed')
+    expect(row.textContent).toContain(en('ledger.closedNoMoney'))
+    expect(row.textContent).not.toContain('−0.75') // money never left: no outflow sign
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.filterClosed') }))
+    expect(screen.queryByText('October rent')).toBeNull()
+    expect(screen.getByText('Refused chairs')).toBeTruthy()
+    await clickExport()
+    expect(exported().items.map((i) => i.memo)).toEqual(['Refused chairs'])
+    expect(exported().filter).toBe(en('ledger.filterClosed'))
+  })
 })

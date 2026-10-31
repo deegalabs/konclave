@@ -83,6 +83,10 @@ history to tidy it is how context gets lost.
   on the screen, from what the device already reads; nothing new is recorded (#290 still owns
   recording who signed and which proposal). The link lands on Activity's evidence tab, where the
   menu leads, and the record is focused and tagged "This payment" on arrival.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
 
 ### Fixed
 

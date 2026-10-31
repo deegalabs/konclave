@@ -1302,4 +1302,7 @@ export const en: Record<string, string> = {
   'ceremonies.noProposal': 'No proposal in this vault carries this transaction.',
   'ceremonies.thisPayment': 'This payment',
   'proposal.viewEvidence': 'View the signing evidence →',
+  // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
+  'ledger.filterClosed': 'Closed',
+  'ledger.closedNoMoney': 'no payment',
 }
