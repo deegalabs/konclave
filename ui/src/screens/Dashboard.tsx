@@ -7,6 +7,7 @@ import { SkeletonStat, SkeletonRows } from '../skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
+import MembersPeek from '../MembersPeek'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
@@ -428,24 +429,7 @@ export default function Dashboard() {
           eyebrow={t('dashboard.collectiveVault')}
           title={name}
           subtitle={<>
-            {tr('dashboard.vmetaPre')} · <span className="members-peek">
-              <Link className="link" to="/members" aria-describedby={roster.length > 0 ? 'members-pop' : undefined}>{t('dashboard.membersCount', { n: members })}</Link>
-              {roster.length > 0 && (
-                <span className="members-pop" role="tooltip" id="members-pop">
-                  <span className="members-pop-head">{t('dashboard.membersQuorum', { t: thr, n })}</span>
-                  <span className="members-pop-list">
-                    {roster.map((m) => (
-                      <span className="members-pop-row" key={m.pubkey || m.name}>
-                        <Identicon seed={m.pubkey || m.name} size={22} />
-                        <span className="members-pop-name">{m.name}</span>
-                        {m.name === creator && <span className="klab members-pop-tag creator">{t('members.creatorShort')}</span>}
-                        {m.name === me && <span className="klab members-pop-tag">{t('members.youShort')}</span>}
-                      </span>
-                    ))}
-                  </span>
-                </span>
-              )}
-            </span>
+            {tr('dashboard.vmetaPre')} · <MembersPeek members={members} thr={thr} n={n} roster={roster} creator={creator} me={me} />
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
