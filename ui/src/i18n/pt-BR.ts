@@ -1293,4 +1293,7 @@ export const ptBR: Record<string, string> = {
   'ledger.periodHint': 'Os lançamentos entram pela data de criação.',
   'ledger.emptyPeriod': 'Nenhum lançamento em {period}.',
   'ledger.csvWholeBook': 'O CSV é sempre o livro inteiro, qualquer que seja o período.',
+  // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
+  'ledger.filterClosed': 'Encerradas',
+  'ledger.closedNoMoney': 'sem pagamento',
 }

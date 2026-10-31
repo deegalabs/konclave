@@ -75,6 +75,10 @@ history to tidy it is how context gets lost.
   follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
   export carries the period's name as its period. Until now the period was only read off
   the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
 
 ### Fixed
 

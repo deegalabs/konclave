@@ -1297,4 +1297,7 @@ export const en: Record<string, string> = {
   'ledger.periodHint': 'Entries are placed by their creation date.',
   'ledger.emptyPeriod': 'No entries in {period}.',
   'ledger.csvWholeBook': 'The CSV is always the whole book, whatever the period.',
+  // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
+  'ledger.filterClosed': 'Closed',
+  'ledger.closedNoMoney': 'no payment',
 }
