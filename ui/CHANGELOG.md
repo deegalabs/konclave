@@ -98,6 +98,16 @@ history to tidy it is how context gets lost.
   these four screens a screen reader hears the word once, from one live region, not once per grey
   block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
   outline under forced colours (#320).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
 
 ### Known limits
 
