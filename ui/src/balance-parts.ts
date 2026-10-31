@@ -126,3 +126,34 @@ export function freeZatOf(
   const spendable = bal.spendable_zat ?? total
   return balanceParts(total, spendable, reservedZatOf(proposals)).freeZat
 }
+
+// ---- funds that are only confirming ----
+//
+// #352: both propose screens said "exceeds the vault balance" and nothing else, even when the vault
+// held the amount and the wallet was waiting on confirmations. The field that looks like it holds
+// this, `pending_zat`, is optional on the type and NEVER filled on the web path: code reading it
+// compiles and does nothing. So confirming is DERIVED, total minus spendable, in whole zatoshi,
+// the way the Dashboard's composition does it.
+
+type Bal = { total_zat?: number | null; spendable_zat?: number | null } | null
+
+/** On the chain, not yet spendable by the wallet's confirmation policy. `null` when unknown. */
+export function confirmingZatOf(bal: Bal): number | null {
+  const total = bal?.total_zat
+  if (bal == null || total == null) return null
+  return balanceParts(total, bal.spendable_zat ?? total, 0).confirmingZat
+}
+
+/**
+ * Whether a payment that does NOT fit now would fit once the confirming funds land: the whole
+ * shortfall is confirmations, not money. True only when something is confirming and
+ * amount + fee is within total minus what open proposals hold. False on anything unknown, so the
+ * screen never promises a fit it cannot see.
+ */
+export function shortfallIsConfirming(bal: Bal, reservedZat: number, amountZat: number | null, feeZat: number): boolean {
+  const total = bal?.total_zat
+  if (bal == null || total == null || amountZat == null) return false
+  const confirming = confirmingZatOf(bal) ?? 0
+  if (confirming <= 0) return false
+  return amountZat + feeZat <= Math.max(0, Math.round(total) - Math.max(0, Math.round(reservedZat)))
+}

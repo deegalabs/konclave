@@ -9,7 +9,7 @@ import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import MembersPeek from '../MembersPeek'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
-import { rankDesk, type Band } from '../desk'
+import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
@@ -66,14 +66,11 @@ const NOTE_KEY: Record<Band, string> = {
 }
 
 /**
- * The stamp and the one-line summary. Both fall back to neutral, vault-level wording when this
- * device does not know its own member name (`desk.personal === false`): we will not tell someone
- * their vote is missing when we cannot tell whether they voted.
+ * The one-line summary. Like the stamp (`stampKey`, desk.ts, shared with the proposals list), it
+ * falls back to neutral, vault-level wording when this device does not know its own member name
+ * (`desk.personal === false`): we will not tell someone their vote is missing when we cannot tell
+ * whether they voted.
  */
-function stampKey(band: Band, personal: boolean): string {
-  if (!personal) return band === 'sign' ? 'stamp.ready' : 'stamp.awaiting'
-  return `desk.band.${band}`
-}
 function lineKey(band: Band, personal: boolean): string {
   if (!personal) return band === 'sign' ? 'dashboard.readyToSign' : 'dashboard.needsYou'
   return `desk.line.${band}`
@@ -299,7 +296,8 @@ export default function Dashboard() {
   // replaces the old "pick one" logic, which hid a ready-to-sign proposal behind any awaiting one,
   // ordered by array position rather than urgency, and said "needs you" to a member who had
   // already voted. Open proposals still hold funds, so they also feed the reserved KPI below.
-  const desk = rankDesk(proposals, me, thr)
+  // A proposal past its deadline on this clock is left out, as the list does (desk.ts).
+  const desk = rankDesk(proposals.filter((p) => !expiredByClock(p)), me, thr)
   const lead = desk.items[0] ?? null
   const queue = desk.items.slice(1, 1 + QUEUE_ROWS)
   const open = desk.items.map((i) => i.p)

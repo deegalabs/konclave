@@ -8,7 +8,9 @@
 // #302: every row carries its memo and its txid (linked to the public explorer), so whoever holds
 // the workbook can tie a row to the chain; the Summary names the active filter when the export is
 // a part of the book; an empty book writes zeros where a formula would have pointed at itself; and
-// the file's hidden properties carry no author and no time the Summary does not show.
+// the file's hidden properties carry no author and no time the Summary does not show. The Summary's
+// "Open" counts only the rows that can still move (awaiting or ready), on an Open column of their
+// own: a refused or expired row is neither settled nor open, so it enters neither total.
 
 import type { Workbook } from 'exceljs'
 import { explorerTxUrl } from './format'
@@ -22,6 +24,7 @@ export interface LedgerXlsxItem {
   memo: string // this row's memo: the payment's, or the payroll line's (#302)
   state: string // localized state label
   settled: boolean // sent/confirmed → counts toward "settled out"
+  open: boolean // awaiting/ready → counts toward "open"; a refused or expired row is neither
   zec: number // outflow for this row
   txid: string // '' until the proposal was sent; a payroll's rows share one (#302)
 }
@@ -52,6 +55,7 @@ export interface LedgerXlsxData {
     colMemo: string
     colState: string
     colSettled: string
+    colOpen: string
     colValue: string
     colTxid: string
     total: string
@@ -82,6 +86,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     { header: L.colMemo, key: 'memo', width: 30 },
     { header: L.colState, key: 'state', width: 12 },
     { header: L.colSettled, key: 'settled', width: 10 },
+    { header: L.colOpen, key: 'open', width: 10 },
     { header: L.colValue, key: 'zec', width: 14 },
     { header: L.colTxid, key: 'txid', width: 66 },
   ]
@@ -89,6 +94,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   // wrong one.
   const letter = (key: string) => String.fromCharCode(65 + columns.findIndex((c) => c.key === key))
   const settledCol = letter('settled')
+  const openCol = letter('open')
   const valueCol = letter('zec')
 
   // Row math is deterministic from the item count, so the Summary formulas can be written before
@@ -101,7 +107,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   const sheet = (name: string) => (/\s/.test(name) ? `'${name}'` : name) // quote a sheet name only if it has spaces
   const MV = sheet(L.movements)
   const span = (col: string) => `${col}${firstData}:${col}${lastData}`
-  const sumIf = (yesNo: string) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(settledCol)},"${yesNo}",${MV}!${span(valueCol)})` })
+  const sumIf = (col: string, yesNo: string) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(col)},"${yesNo}",${MV}!${span(valueCol)})` })
 
   // ---- Summary sheet (first tab) with live formulas referencing Movements ----
   const sm = wb.addWorksheet(L.summary)
@@ -122,8 +128,8 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   put(L.generated, data.generatedAt.toISOString().slice(0, 16).replace('T', ' '))
   put(L.entries, n)
   sm.addRow({})
-  put(L.settledOut, sumIf(L.yes), { money: true, bold: true })
-  put(L.open, sumIf(L.no), { money: true, bold: true })
+  put(L.settledOut, sumIf(settledCol, L.yes), { money: true, bold: true })
+  put(L.open, sumIf(openCol, L.yes), { money: true, bold: true })
 
   // ---- Movements sheet (itemized) ----
   const mv = wb.addWorksheet(L.movements, { views: [{ state: 'frozen', ySplit: 1 }] })
@@ -138,12 +144,17 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
       memo: it.memo,
       state: it.state,
       settled: it.settled ? L.yes : L.no,
+      open: it.open ? L.yes : L.no,
       zec: it.zec,
       txid: it.txid,
     })
     if (it.txid) row.getCell('txid').value = { text: it.txid, hyperlink: explorerTxUrl(it.txid) }
   }
-  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `SUM(${span(valueCol)})` } })
+  // The TOTAL row agrees with the summary: what moved plus what can still move. A plain SUM of the
+  // column added the refused and expired rows, whose money never left and which enter neither
+  // summary total, so the sheet's own total disagreed with both of them.
+  const sumIfHere = (col: string) => `SUMIF(${span(col)},"${L.yes}",${span(valueCol)})`
+  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}` } })
   const header = mv.getRow(1)
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }

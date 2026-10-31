@@ -6,10 +6,13 @@ import { PageHeader, PageFooter } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
 import { explorerTxUrl, fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
+import { isOpen } from '../desk'
 import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
+// "Open" (awaiting or ready) is `isOpen` from desk.ts: one rule for the dashboard, this screen's
+// total and filter, and the export, so a refused or expired row cannot count as open in one of them.
 
 export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
@@ -74,7 +77,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         const stLabel = t('state.' + p.state)
         const isSettled = SETTLED(p.state)
         const doc = p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
-        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, txid: p.txid ?? '' }
+        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, open: isOpen(p), txid: p.txid ?? '' }
         if (p.kind === 'payroll') {
           let lines = linesById[p.id]
           if (!lines) {
@@ -105,7 +108,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
           colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
           colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colMemo: t('ledger.colMemo'),
-          colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colValue: t('ledger.colValue'),
+          colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
           colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
         },
       })
@@ -116,7 +119,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
 
   const ledger = rows ?? []
   const settled = ledger.filter((p) => SETTLED(p.state))
-  const pending = ledger.filter((p) => p.state === 'awaiting' || p.state === 'ready')
+  const pending = ledger.filter(isOpen)
   const totalOut = settled.reduce((acc, p) => acc + Number(p.value_zec), 0)
   const totalPending = pending.reduce((acc, p) => acc + Number(p.value_zec), 0)
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
@@ -130,7 +133,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   }
   const period = periodOf(ledger)
   const filtered = ledger.filter((p) => {
-    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
+    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : isOpen(p))
     const knOk = fKind === 'all' || p.kind === fKind
     return stOk && knOk
   })
