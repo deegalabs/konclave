@@ -138,9 +138,10 @@ describe('Add funds reads through the reader, and not behind the unlock overlay'
   const receive = codeOf('./screens/Receive.tsx')
 
   it('waits for the vault to be unlocked, and reads again the moment it is', () => {
-    expect(receive).toMatch(/const \{ locked, unlockNonce \} = useOutletContext<VaultLockContext>\(\)/)
-    expect(receive).toMatch(/if \(locked\) return\s*let on = true\s*const reader = historyReader<WalletTx>\(/)
-    expect(receive).toMatch(/\}, \[locked, unlockNonce\]\)/)
+    // The shared hook asks `needsUnlock` before the first read; the overlay's `locked` alone landed late.
+    expect(receive).toMatch(/const readable = useVaultReadable\(\)/)
+    expect(receive).toMatch(/if \(!readable\) return\s*let on = true\s*const reader = historyReader<WalletTx>\(/)
+    expect(receive).toMatch(/\}, \[readable\]\)/)
   })
 
   it('has no read schedule of its own', () => {

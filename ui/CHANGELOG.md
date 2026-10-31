@@ -98,6 +98,13 @@ history to tidy it is how context gets lost.
   an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
   is still refused only by the coordinator (#294).
 
+- **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
+  Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
+  showed an empty book: those screens read at once, before the shell had found the vault locked, and
+  the refused read looked like a failure. Approvals, the ledger, Signers and Add funds now wait for
+  the same unlock rule the shell uses, read nothing while the vault is locked, and read once the
+  passphrase is given (#292).
+
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
   page was up, a reload of the desk still showed a spinner, and the movements and the balance each
