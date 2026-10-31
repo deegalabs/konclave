@@ -4,7 +4,7 @@ import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
+import { readVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { storageErrorKey } from '../storage-errors'
 import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
@@ -353,7 +353,7 @@ export default function Vaults() {
       //  - 'local' → the local orchestrator/bridge's vaults (present on desktop/local server).
       // On the plain web the bridge is absent, so this degrades to the net-only list (as before).
       const [savedOrNull, bridgeOk] = await Promise.all([
-        listVaults().catch(() => null),
+        readVaults().catch(() => null),
         health().catch(() => false),
       ])
       // On the web `health` asks the vault's server and there is no local Konclave to list: that is
