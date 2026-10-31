@@ -40,12 +40,23 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo" and the in-app docs), the plain word over the accounting term. English
+  already used one word, "Ledger". A test keeps the menu entry, the screen title and the activity
+  tab equal in every language.
+  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
+  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
+  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
+  payment can be built. The refusal withdraws the signatures that were given, which "your approval
+  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
 ## [0.16.0] 2026-10-30
 
 ### Security
-
-These fixes reach a device when it runs this version. If the app says "New version available", press
-Update once any signing in progress has finished. Your vault and your share stay on the device.
 
 - **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
   machine takes a signing request only from the device assembling the signature and does not let a
@@ -91,18 +102,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
   stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
   upgrade block was mined, which is not true while the coordinator is still on the previous engine.
-- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
-  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
-  book, three names, and the member had to work out that they were the same thing. Everything now
-  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
-  caption "Livro ao vivo" and the in-app docs), the plain word over the accounting term. English
-  already used one word, "Ledger". A test keeps the menu entry, the screen title and the activity
-  tab equal in every language.
-  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
-  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
-  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
-  payment can be built. The refusal withdraws the signatures that were given, which "your approval
-  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
 
 ### Fixed
 
@@ -172,7 +171,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   that depends on the update. A payment that moves funds between pools, built shortly before the
   upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
   funds are available again" is not promised.
-
 - **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
   loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
   cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
@@ -183,7 +181,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
   sees the chain, already says the payment needs a new signature. A release that anchors the clock to
   the real time of the upgrade block shortens this.
-
 ## [0.15.0] 2026-10-26
 
 ### Fixed
