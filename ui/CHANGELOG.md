@@ -82,6 +82,14 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Vaults says when it could not read the vaults on this device.** The list is read from this
+  browser's storage, and when that read failed the screen said "No vaults yet", which invites a
+  member to create or import again over a vault that is still there. It now says the list could not
+  be read, that a failed read deletes nothing, and not to create or import again until it reads,
+  with "Try again". When the Konclave on this device answers and then cannot list its vaults, the
+  screen says those are missing from the list, not deleted, above the vaults this browser keeps.
+  On the web, where there is no such Konclave, nothing is said. A browser with no storage, or whose
+  database will not open, is a failed read too: the list used to answer those as empty (#320).
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a

@@ -20,8 +20,9 @@ export type ReadFailure =
   /** The service answered something that is not the JSON the app expects. */
   | 'malformed'
 
-/** Who was asked: the local bridge (the Konclave on this device) or the hosted coordinator (the vault's server). */
-export type ReadSource = 'bridge' | 'coordinator'
+/** Who was asked: the local bridge (the Konclave on this device), the hosted coordinator (the vault's
+ *  server), or this browser's own storage, where the vaults on this device are kept. */
+export type ReadSource = 'bridge' | 'coordinator' | 'device'
 
 export type ReadFailureInfo = { reason: ReadFailure; source: ReadSource }
 

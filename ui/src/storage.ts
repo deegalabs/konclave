@@ -1051,7 +1051,9 @@ export async function importVault(
   }
 }
 
-/** List saved vaults' public metadata (no secrets touched, no passphrase needed). */
+/** List saved vaults' public metadata (no secrets touched, no passphrase needed). Answers `[]` when
+ *  this browser has no storage or the database will not open, which every caller but the Vaults list
+ *  treats as "no record here". The Vaults list must not: it reads with `readVaults` (#320). */
 export async function listVaults(): Promise<VaultPublic[]> {
   if (!storageAvailable()) return []
   let db: IDBDatabase
@@ -1060,6 +1062,17 @@ export async function listVaults(): Promise<VaultPublic[]> {
   } catch {
     return []
   }
+  return vaultsIn(db)
+}
+
+/** The same list, refusing instead of answering `[]` when storage is missing or will not open: an
+ *  empty answer there reads as "No vaults yet" over vaults that are still on the device (#320). */
+export async function readVaults(): Promise<VaultPublic[]> {
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vaults (no IndexedDB/WebCrypto)')
+  return vaultsIn(await openDb())
+}
+
+async function vaultsIn(db: IDBDatabase): Promise<VaultPublic[]> {
   try {
     const tx = db.transaction(STORE, 'readonly')
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)

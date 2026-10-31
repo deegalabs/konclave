@@ -201,6 +201,10 @@ export const ptBR: Record<string, string> = {
   'vaults.doorImportSub': 'Traga um cofre de outro aparelho (arquivo).',
   'vaults.onThisDevice': 'Neste aparelho',
   'vaults.empty': 'Nenhum cofre ainda. Comece criando o primeiro.',
+  'vaults.unreadTitle': 'Não deu para ler os cofres deste aparelho',
+  'vaults.unreadBridgeTitle': 'Não deu para ler os cofres do Konclave neste aparelho',
+  'vaults.unreadBridgeHolds': 'Os cofres guardados neste navegador estão listados abaixo; os do Konclave neste aparelho faltam na lista, não foram apagados.',
+  'vaults.unreadHolds': 'Uma leitura que falha não apaga nada. Não crie nem importe um cofre de novo até esta lista ler.',
   'vaults.note': 'A sua parte da chave fica **só aqui, no seu aparelho** · não vai para nenhum servidor. Propostas e nomes dos membros ficam com o coordenador, para o grupo enxergar.',
   'vaults.howItWorks': 'como funciona',
   'vaults.protectedVault': 'Cofre protegido',
@@ -1284,6 +1288,7 @@ export const ptBR: Record<string, string> = {
   // A read that failed says why and who was asked (read-failure.ts, ReadState.tsx).
   'read.who.bridge': 'O Konclave neste aparelho',
   'read.who.coordinator': 'O servidor do cofre',
+  'read.who.device': 'O armazenamento deste navegador',
   'read.offline': 'Este aparelho está sem conexão de rede.',
   'read.timeout': '{who} demorou demais para responder.',
   'read.denied': '{who} negou a este aparelho o acesso ao cofre. Abra o cofre com a sua senha neste aparelho e tente de novo.',

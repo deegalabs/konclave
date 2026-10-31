@@ -201,6 +201,10 @@ export const en: Record<string, string> = {
   'vaults.doorImportSub': 'Bring a vault from another device (a file).',
   'vaults.onThisDevice': 'On this device',
   'vaults.empty': 'No vaults yet. Start by creating the first one.',
+  'vaults.unreadTitle': 'Could not read the vaults on this device',
+  'vaults.unreadBridgeTitle': 'Could not read the vaults on the Konclave on this device',
+  'vaults.unreadBridgeHolds': 'The vaults kept in this browser are listed below; the ones on the Konclave on this device are missing from the list, not deleted.',
+  'vaults.unreadHolds': 'A read that fails deletes nothing. Do not create or import a vault again until this list reads.',
   'vaults.note': 'Your share of the key stays **here only, on your device** · it never goes to any server. Proposals and member names are kept by the coordinator so the group can see them.',
   'vaults.howItWorks': 'how it works',
   'vaults.protectedVault': 'Protected vault',
@@ -1288,6 +1292,7 @@ export const en: Record<string, string> = {
   // A read that failed says why and who was asked (read-failure.ts, ReadState.tsx).
   'read.who.bridge': 'Konclave on this device',
   'read.who.coordinator': 'The vault’s server',
+  'read.who.device': 'This browser’s storage',
   'read.offline': 'This device has no network connection.',
   'read.timeout': '{who} took too long to answer.',
   'read.denied': '{who} refused this device access to the vault. Open the vault with your passphrase on this device and try again.',
