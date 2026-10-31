@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec, fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
+import { fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
 import { estimatedFeeZat } from '../fee-estimate'
@@ -177,7 +177,9 @@ export default function Proposal() {
       </main></>)
   }
 
-  const val = fmtZec(p.value_zec)
+  // Exact, never rounded to four places: the fee and total beside it are exact, and the signing
+  // panel reads the same figure (#777). The amount sent was never affected by the display.
+  const val = fmtZecExact(p.value_zat / 1e8)
   const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
   // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
@@ -302,7 +304,7 @@ export default function Proposal() {
                 <tr key={i}>
                   <td>{l.label || '-'}</td>
                   <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
-                  <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
+                  <td className="num"><Secret sm><span>{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
                   <td className="mono dim">{l.memo || '-'}</td>
                 </tr>
               ))}

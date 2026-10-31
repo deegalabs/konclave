@@ -714,6 +714,7 @@ export const en: Record<string, string> = {
   // it: "you are short" would be a lie, and it would hide the one thing they can act on.
   'money.blockReserved': 'The vault has the funds, but {reserved} ZEC is committed to open proposals ({held}). {free} ZEC is free to propose right now \u00b7 it is released when those are sent or refused.',
   'money.blockNoFunds': "This vault has nothing spendable yet. Funds received recently may still be confirming.",
+  'money.blockConfirming': 'The vault holds the amount, but {confirming} ZEC is still confirming. Propose it once that lands.',
   'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
 
   // New payroll
@@ -762,10 +763,10 @@ export const en: Record<string, string> = {
   'payroll.feeSaved': 'one transaction instead of {n} · saves {saved} ZEC',
   'payroll.pvFeeK': 'Est. fee',
   'payroll.pvPlusFee': '+ est. fee {fee}',
-  'payroll.pvAfter': 'Balance after',
+  'payroll.pvAfter': 'Free after',
   'payroll.pvApproval': 'Approval',
   'payroll.pvApprovalValue': 'Sending already counts as **{proposer}**’s',
-  'payroll.warnExceeds': 'Total + fee exceeds the vault balance.',
+  'payroll.warnExceeds': 'The total plus the network fee is more than the vault can spend right now. Lower the amounts.',
   'payroll.sending': 'Sending…',
   'payroll.submitBtn': 'Send for approval',
 
@@ -1158,6 +1159,7 @@ export const en: Record<string, string> = {
   'receive.reload': 'Reload',
   'receive.copy': 'Copy address',
   'receive.copied': 'Copied',
+  'receive.copyErr': 'Could not copy. Select the address or the link and copy it by hand.',
   'receive.amount': 'Amount (optional, ZEC)',
   'receive.uri': 'Payment link (ZIP-321)',
   'receive.copyUri': 'Copy link',
@@ -1262,4 +1264,15 @@ export const en: Record<string, string> = {
   'proposal.confirmationsUnknown': 'could not read the chain',
   'proposal.confirmedBlock': 'confirmed, block {h}',
   'proposal.copyAddress': 'Copy address',
+  // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
+  'proposals.needsYou': 'Needs you',
+  'proposals.withOthers': 'With the other members',
+  'proposals.sentAwaiting': 'Sent, awaiting confirmation',
+  'proposals.showClosed': 'Show closed ({n})',
+  'proposals.hideClosed': 'Hide closed ({n})',
+  'proposals.closedGroup': 'Closed',
+  'proposals.nothingForYou': 'Nothing needs you right now.',
+  'proposals.unreadTitle': 'Could not read the proposals',
+  'proposals.unreadLead': 'The list could not be read. Your vault and your share are still on this device; only the list did not arrive.',
+  'proposals.retry': 'Try again',
 }
