@@ -1217,6 +1217,7 @@ export const en: Record<string, string> = {
   'storage.err.corrupt': 'This backup is incomplete or damaged. Nothing was imported. Use another copy of the file.',
   'storage.err.unsupportedVersion': 'This backup is from a newer version. Update Konclave and try again.',
   'storage.err.alreadyExists': 'This vault is already on this device. Open it from the list.',
+  'storage.err.sealedFieldUnreadable': 'Part of this vault on this device did not open, so the passphrase was not changed and nothing was lost. To choose a new one, make a backup, check that it says it is complete, and restore it in another browser profile, keeping this copy until that works. This copy and earlier backups still open with the current passphrase.',
   'storage.err.samePassphrase': 'The new passphrase is the same as the current one.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'The desktop app exists (v{ver}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.',

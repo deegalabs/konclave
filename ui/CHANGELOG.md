@@ -98,6 +98,8 @@ history to tidy it is how context gets lost.
   the relay "sees only public material"; a signing request, with who the vault pays and how much,
   crosses it unsealed until every device in the vault has registered its key. Each sentence now
   says what happens, in both languages (#802).
+- A passphrase change could drop an encrypted viewing key that did not open, a regression from #781 that was never released.
+  The change is now refused and the vault is left as it was.
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
