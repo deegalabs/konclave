@@ -1162,6 +1162,7 @@ export const ptBR: Record<string, string> = {
   'receive.reload': 'Recarregar',
   'receive.copy': 'Copiar endereço',
   'receive.copied': 'Copiado',
+  'receive.copyErr': 'Não foi possível copiar. Selecione o endereço ou o link e copie à mão.',
   'receive.amount': 'Valor (opcional, ZEC)',
   'receive.uri': 'Link de pagamento (ZIP-321)',
   'receive.copyUri': 'Copiar link',

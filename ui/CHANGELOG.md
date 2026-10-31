@@ -73,6 +73,13 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
+  address and the payment link) and on the proof page (transaction ids), the copy button said
+  "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
+  permission denied, an insecure context) still read as success, and a member could paste a stale
+  clipboard value where they believed the address was. Both screens now wait for the write, say
+  "Copied" only when it was confirmed, and otherwise say that it could not copy and to select the
+  text by hand. The creation invite already did this (#313).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -112,6 +119,11 @@ history to tidy it is how context gets lost.
   payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
   read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
   They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **The members popover on the vault home closes with Escape.** Hovering or focusing "N members"
+  opens the roster and the quorum; a keyboard user who tabbed onto the link got the popover over
+  the page and could only close it by moving focus away. It now opens on hover and on focus and
+  closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
+  no longer closes it on the way to it (#602).
 - **A device that only unlocks with the passkey is told when it still holds the viewing key
   unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
   encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
