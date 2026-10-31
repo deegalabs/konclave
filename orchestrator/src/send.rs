@@ -623,11 +623,17 @@ pub fn net_prepare_send_with<T: Transport>(
 ) -> Result<SignedSend, ToolError> {
     // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
     // upgrade to be near, which it has since the NU7 row).
-    let gate = EpochGate {
+    let gate = live_gate(tip);
+    net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
+}
+
+/// The live gate: mainnet's table, the caller's tip and the coordinator's clock.
+fn live_gate<'a>(tip: &'a dyn Fn() -> Result<u64, ToolError>) -> EpochGate<'a> {
+    EpochGate {
         table: &konclave_seal::epochs::MAINNET,
         tip,
-    };
-    net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
+        now: &crate::epoch::system_unix,
+    }
 }
 
 /// [`net_prepare_send_with`] against a given epoch gate, so the hold and the branch check can be
@@ -660,6 +666,7 @@ pub fn net_prepare_send_gated<T: Transport>(
     crate::epoch::check_built(
         gate.table,
         tip,
+        (gate.now)(),
         pczt::consensus_branch_of(&tx2)?,
         pczt::expiry_height_of(&tx2)?,
     )?;
@@ -1212,6 +1219,18 @@ mod tests {
         plan: SpendPlan,
         tip: u64,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
+        prepare_gated_at(tag, proven_bytes, plan, tip, tip)
+    }
+
+    /// [`prepare_gated`] with the coordinator's clock at `clock_height`.
+    #[cfg(unix)]
+    fn prepare_gated_at(
+        tag: &str,
+        proven_bytes: &[u8],
+        plan: SpendPlan,
+        tip: u64,
+        clock_height: u64,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-gated-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1269,9 +1288,13 @@ mod tests {
             "helper",
         );
         let read_tip = move || -> Result<u64, ToolError> { Ok(tip) };
+        let table = &crate::epoch::test_table::WITH_NEXT;
+        let clock = crate::epoch::test_table::clock_at(table, clock_height);
+        let read_clock = move || clock;
         let gate = EpochGate {
-            table: &crate::epoch::test_table::WITH_NEXT,
+            table,
             tip: &read_tip,
+            now: &read_clock,
         };
         let result =
             net_prepare_send_gated(&sc, &plan, &relay, &[], 5, Duration::from_millis(1), &gate);
@@ -1365,6 +1388,56 @@ mod tests {
         let e = r.expect_err("a crossing this close to the upgrade");
         assert_eq!(crate::epoch::refusal_of(&e), Some(Refusal::CrossingHold));
         assert!(seen.is_empty());
+    }
+
+    /// The gate's inputs are fixed by the test; see the assertions.
+    /// The production gate is wired to mainnet's table and the real clock, not a constant.
+    #[test]
+    fn the_live_gate_reads_mainnets_table_and_the_real_clock() {
+        let tip = || -> Result<u64, ToolError> { Ok(0) };
+        let gate = live_gate(&tip);
+        let real = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!(
+            ((gate.now)() - real).abs() < 5,
+            "the gate's clock is the system clock"
+        );
+        assert_eq!(gate.table.anchor.height, 3_428_143);
+        assert!(
+            gate.table.epochs.len() >= 2,
+            "mainnet's table has the later row"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_build_gate_in_a_send_takes_a_second_height_input() {
+        use crate::epoch::test_table::A;
+        use crate::epoch::{Refusal, K_CROSSING};
+        let outside_tip = u64::from(A - K_CROSSING) - 1;
+        let (r, seen, log) = prepare_gated_at(
+            "clock-ahead",
+            PROVEN,
+            a_payment(),
+            outside_tip,
+            u64::from(A) - 24,
+        );
+        let e = r.expect_err("the crossing is held");
+        assert_eq!(crate::epoch::refusal_of(&e), Some(Refusal::CrossingHold));
+        assert!(seen.is_empty(), "nothing reached the room");
+        let _ = log;
+        // With the clock at the tip the crossing is built.
+        let (r, _, log) = prepare_gated_at(
+            "clock-agrees",
+            PROVEN,
+            a_payment(),
+            outside_tip,
+            outside_tip,
+        );
+        r.expect("a tip the clock agrees with is not held");
+        assert!(log.contains("prove"), "built and proven: {log}");
     }
 
     /// The send loop reads on from where the previous poll stopped, so the answer is reached within

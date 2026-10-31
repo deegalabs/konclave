@@ -97,6 +97,14 @@ export function zatToZec(zat: number): string {
   return (zat / ZAT_PER_ZEC).toFixed(8)
 }
 
+/** The same date with the hour (HH:MM, 24h), for facts that are hour-scale, like a deadline. */
+export function fmtDateTime(unix?: number, locale: 'pt-BR' | 'en' = 'pt-BR'): string {
+  const day = fmtDate(unix, locale)
+  if (day === '-') return day
+  const d = new Date((unix as number) * 1000)
+  return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /** Human expiry label from an expiry unix (seconds). Empty string when there is no expiry
  *  (missing, or the "never expires" sentinel). */
 export function expiryLabel(unix: number | undefined, t: TFn): string {

@@ -23,9 +23,11 @@ export interface CopyButtonProps {
   value: string
   /** Extra classes for the caller's layout. The button styles itself. */
   className?: string
+  /** What is copied, for the button's name ("Copy address"); the generic "Copy" when absent. */
+  label?: string
 }
 
-export default function CopyButton({ value, className }: CopyButtonProps) {
+export default function CopyButton({ value, className, label: own }: CopyButtonProps) {
   const t = useT()
   const [done, setDone] = useState(false)
   const timer = useRef<number | undefined>(undefined)
@@ -46,7 +48,7 @@ export default function CopyButton({ value, className }: CopyButtonProps) {
     }
   }
 
-  const label = done ? t('members.fpCopied') : t('members.fpCopy')
+  const label = done ? t('members.fpCopied') : (own ?? t('members.fpCopy'))
   return (
     <button
       type="button"
@@ -55,6 +57,8 @@ export default function CopyButton({ value, className }: CopyButtonProps) {
       aria-label={label}
       title={label}
     >
+      {/* Always mounted, so "Copied" is announced by readers that ignore a label change on a focused button. */}
+      <span className="visually-hidden" role="status">{done ? t('members.fpCopied') : ''}</span>
       {done ? (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
