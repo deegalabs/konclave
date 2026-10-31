@@ -19,6 +19,8 @@ import { unlockOnDevice, importAndUnlock } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
+import PlainKeyNotice from '../PlainKeyNotice'
+import { holdsPlainViewingKey } from '../plain-key'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
 import { addressText } from '../approved-payment'
@@ -77,6 +79,7 @@ export default function Vaults() {
   // Finishing a registration that did not finish (REG-RESUME). The device's own records, by id, are
   // what decide whether a card offers it (`resumable`); nothing here re-derives that.
   const [recs, setRecs] = useState<Record<string, VaultPublic>>({})
+  const [plainKey, setPlainKey] = useState<Record<string, boolean>>({})
   const [resumeFor, setResumeFor] = useState<string | null>(null)
   const [resumePass, setResumePass] = useState('')
   const [resumeAck, setResumeAck] = useState(false)
@@ -369,6 +372,8 @@ export default function Vaults() {
       const merged = [...netRows, ...localRows].filter((r) => (seen.has(r.v.id) ? false : (seen.add(r.v.id), true)))
       setRows(merged)
       setRecs(Object.fromEntries(saved.map((s) => [s.id, s])))
+      // #784: which records still hold the viewing key in the clear (presence only, never the value).
+      setPlainKey(Object.fromEntries(saved.filter(holdsPlainViewingKey).map((s) => [s.id, true])))
       setLoaded(true)
     })()
     return () => { on = false }
@@ -435,6 +440,7 @@ export default function Vaults() {
                 {v.secured === true && <span className="rd-sectag safe" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>}
                 {v.secured === false && <span className="rd-sectag open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
                 <h3>{v.name}</h3>
+                {plainKey[v.id] && <PlainKeyNotice vaultId={v.id} onSealed={() => setPlainKey((m) => ({ ...m, [v.id]: false }))} />}
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>

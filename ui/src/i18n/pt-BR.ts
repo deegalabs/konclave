@@ -171,6 +171,13 @@ export const ptBR: Record<string, string> = {
   'vaults.resumeBackupCopy': 'Copiar',
   'vaults.resumeBackupIncomplete': 'Esta cópia restaura o seu assento, mas falta a chave de visualização do cofre. Faça de novo em Configurações quando o cofre mostrar o saldo.',
   'vaults.openHint': 'Quem tiver o link deste cofre lê saldo, histórico e membros.',
+  // #784: uma chave de visualização que um backup importado deixou em claro, num aparelho que só usa a passkey
+  'vaults.plainKeyTitle': 'Este aparelho ainda guarda a chave de visualização sem criptografia.',
+  'vaults.plainKeyLead': 'Um backup importado antes desta versão a deixou assim, e desbloquear com a passkey não consegue criptografá-la. Digite a frase-senha uma vez aqui; depois disso ela fica criptografada e este aviso some.',
+  'vaults.plainKeyPass': 'Frase-senha deste cofre',
+  'vaults.plainKeyBtn': 'Criptografar agora',
+  'vaults.plainKeyBusy': 'Criptografando…',
+  'vaults.plainKeyWrong': 'Essa frase-senha não abriu este cofre. Nada mudou.',
   'dashboard.evictionBanner': "Este navegador não garantiu guardar a sua parte da chave, então ela pode ser apagada sem aviso.",
   'dashboard.evictionInstall': "Instalar o app é o que faz ele garantir.",
   'dashboard.evictionInstallCta': "Instalar neste aparelho",

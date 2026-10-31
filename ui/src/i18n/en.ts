@@ -171,6 +171,13 @@ export const en: Record<string, string> = {
   'vaults.resumeBackupCopy': 'Copy',
   'vaults.resumeBackupIncomplete': "This copy restores your seat but is missing the vault's viewing key. Make it again from Settings once the vault shows its balance.",
   'vaults.openHint': "Anyone with this vault's link can read its balance, history and members.",
+  // #784: a viewing key an imported backup left in the clear, on a device that only uses the passkey
+  'vaults.plainKeyTitle': 'This device still holds the viewing key unencrypted.',
+  'vaults.plainKeyLead': 'A backup imported before this version left it that way, and unlocking with the passkey cannot encrypt it. Type the passphrase once here; after that it stays encrypted and this notice goes away.',
+  'vaults.plainKeyPass': 'This vault’s passphrase',
+  'vaults.plainKeyBtn': 'Encrypt it now',
+  'vaults.plainKeyBusy': 'Encrypting…',
+  'vaults.plainKeyWrong': 'That passphrase did not open this vault. Nothing changed.',
   'dashboard.evictionBanner': "This browser has not promised to keep your key share, so it can be deleted without warning.",
   'dashboard.evictionInstall': "Installing the app is what makes it promise.",
   'dashboard.evictionInstallCta': "Install on this device",
