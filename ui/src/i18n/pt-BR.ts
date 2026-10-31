@@ -748,7 +748,7 @@ export const ptBR: Record<string, string> = {
   'payroll.namePlaceholder': 'nome',
   'payroll.addrPlaceholder': 'u1… (blindado)',
   'payroll.cellPublic': 'público',
-  'payroll.cellSapling': 'blindado antigo (Sapling) · não pagável · use u1…',
+  'payroll.cellSapling': 'endereço blindado antigo (Sapling) · peça um endereço u1…',
   'payroll.memoPublicPlaceholder': 'sem memo (público)',
   'payroll.memoPlaceholder': 'holerite…',
   'payroll.addRow': '+ Adicionar linha',
@@ -1281,4 +1281,21 @@ export const ptBR: Record<string, string> = {
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposto por',
   'ledger.colApprovedBy': 'Aprovado por',
+  // Ledger period picker: a window by month, quarter or year, placed by creation date.
+  'ledger.periodLabel': 'PERÍODO',
+  'ledger.periodAll': 'Todo o período',
+  'ledger.periodMonth': 'Mês',
+  'ledger.periodQuarter': 'Trimestre',
+  'ledger.periodYear': 'Ano',
+  'ledger.periodPrev': 'Período anterior',
+  'ledger.periodNext': 'Próximo período',
+  'ledger.periodQuarterLabel': 'T{q} {y}',
+  'ledger.periodHint': 'Os lançamentos entram pela data de criação.',
+  'ledger.emptyPeriod': 'Nenhum lançamento em {period}.',
+  'ledger.csvWholeBook': 'O CSV é sempre o livro inteiro, qualquer que seja o período.',
+  // Evidence and payment point at each other (same txid); the join is on the screen.
+  'ceremonies.viewProposal': 'Ver proposta →',
+  'ceremonies.noProposal': 'Nenhuma proposta deste cofre tem esta transação.',
+  'ceremonies.thisPayment': 'Este pagamento',
+  'proposal.viewEvidence': 'Ver a evidência da assinatura →',
 }

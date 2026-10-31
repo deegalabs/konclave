@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { PageHeader, PageFooter } from '../page'
-import { Loading } from '../components'
+import { Loading, Secret } from '../components'
 import { useT, useI18n } from '../i18n'
-import { getSelectedVault } from '../api'
+import { getSelectedVault, getLedger, type Proposal } from '../api'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
-import { fmtDate, shortAddr } from '../format'
+import { fmtDate, fmtZec, shortAddr } from '../format'
 import { useLoading } from '../loading'
 
 /**
@@ -18,6 +19,14 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
   const { locale } = useI18n()
   const { begin, end } = useLoading()
   const [records, setRecords] = useState<CeremonyRecord[] | null>(null)
+  // The proposals, so a record that reached the chain can name the payment it signed (same txid).
+  // The join is on the screen only: the record carries no proposal id (#290).
+  const [byTxid, setByTxid] = useState<Map<string, Proposal>>(new Map())
+  const loc = useLocation() as { state?: { txid?: string } }
+  const hilite = loc.state?.txid
+  const hiliteRef = useRef<HTMLLIElement>(null)
+  // Arriving from a proposal: land on its record (focus scrolls it into view and a reader says it).
+  useEffect(() => { if (records && hilite) hiliteRef.current?.focus() }, [records, hilite])
   const [busy, setBusy] = useState(true)
 
   useEffect(() => {
@@ -27,8 +36,12 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
       try {
         const id = getSelectedVault()
         if (!id) { if (on) setBusy(false); return }
-        const r = await vaultCeremonies(id)
-        if (on) { setRecords(r); setBusy(false) }
+        const [r, ps] = await Promise.all([vaultCeremonies(id), getLedger()])
+        if (on) {
+          setRecords(r)
+          setByTxid(new Map((ps ?? []).filter((p) => p.txid).map((p) => [p.txid as string, p])))
+          setBusy(false)
+        }
       } finally {
         end()
       }
@@ -37,19 +50,34 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
   }, [begin, end])
 
   const list = (
-      <div className="cer-list mt">
+      <ul className="cer-list mt" role="list">
         {busy && <Loading />}
         {!busy && (!records || records.length === 0) && (
           <p className="hint">{t('ceremonies.empty')}</p>
         )}
-        {records && records.map((c, i) => (
-          <div key={i} className="cer-row">
+        {records && records.map((c, i) => {
+          const p = c.txid ? byTxid.get(c.txid) : undefined
+          const doc = p ? (p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))) : ''
+          const here = !!hilite && c.txid === hilite
+          return (
+          <li key={i} className={'cer-row' + (here ? ' hilite' : '')} tabIndex={here ? -1 : undefined} ref={here ? hiliteRef : undefined} aria-current={here ? 'true' : undefined}>
             <div className="cer-head">
               <span className={c.dry_run ? 'cer-tag' : 'cer-tag live'}>
                 {c.dry_run ? t('ceremonies.dryRun') : t('ceremonies.broadcast')}
               </span>
               <span className="cer-when">{fmtDate(c.created_at_unix, locale)}</span>
+              {here && <span className="cer-tag this">{t('ceremonies.thisPayment')}</span>}
             </div>
+            {/* What this signature paid: the proposal with the same txid, in the treasurer's words. */}
+            {c.txid && (p ? (
+              <div className="cer-pay">
+                <span className="cer-doc">{doc}</span>
+                <Secret sm><b>{fmtZec(p.value_zec)} ZEC</b></Secret>
+                <Link className="link" to="/proposal" state={{ id: p.id }} aria-label={`${t('ceremonies.viewProposal')} ${doc}`}>{t('ceremonies.viewProposal')}</Link>
+              </div>
+            ) : (
+              <div className="cer-nomatch dim">{t('ceremonies.noProposal')}</div>
+            ))}
             {/* The receipt: what a member cares about - was it sent, and where to see it on-chain. */}
             {c.txid ? (
               <div className="cer-receipt">
@@ -68,9 +96,10 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
                 <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '-'}</code>
               </div>
             </details>
-          </div>
-        ))}
-      </div>
+          </li>
+          )
+        })}
+      </ul>
   )
 
   if (embedded) return list

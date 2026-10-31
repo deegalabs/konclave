@@ -70,9 +70,28 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **The book can be read by period.** Month, quarter or year, walked back and forth, or all time;
+  entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
+  follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
+  export carries the period's name as its period. Until now the period was only read off
+  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+- **The signing evidence names the payment it belongs to, and a sent payment points at its
+  evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
+  recognises; now each record that reached the chain shows the proposal with the same transaction
+  id (its document and amount) with a link to it, and says when no proposal on this device matches.
+  The sent proposal links to its evidence record, which is highlighted on arrival. The join happens
+  on the screen, from what the device already reads; nothing new is recorded (#290 still owns
+  recording who signed and which proposal). The link lands on Activity's evidence tab, where the
+  menu leads, and the record is focused and tagged "This payment" on arrival.
 
 ### Fixed
 
+- **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
+  it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
+  page was up, a reload of the desk still showed a spinner, and the movements and the balance each
+  announced their loading, so a screen reader heard it twice. It now draws the vault's name, the
+  desk, the movements and the balance as placeholders where they will be, and the word is heard
+  once; a balance that is only syncing still says it on its own (#320).
 - **Six sentences no longer promise more than the code does.** The two landing pages said the key
   "never leaves the device", and the signing panel said the share "never leaves this device"; a
   share does leave, sealed under the passphrase, inside the backup a member exports. Settings said
@@ -165,11 +184,23 @@ history to tidy it is how context gets lost.
   names, "Proposed by" and "Approved by", as the vault records them; a payroll's rows share them.
   When each approval was given is not recorded yet (#290), so the sheet does not pretend to know
   it (#302).
+- **A payroll line with an older shielded (Sapling) address is refused on the line.** The vault
+  pays current shielded (u1) receivers only; the payee picker said so under the field, but the
+  line still counted as valid, the sheet composed, and the coordinator refused the whole payroll.
+  The line now carries the problem itself ("older shielded (Sapling) address, ask for a u1
+  address"), the sheet cannot be sent while it stands, and the picker no longer repeats the
+  sentence under a payroll line. The note under the sheet now says why the button is off when a
+  line is flagged, and each flagged line is marked invalid and linked to its own note, so a screen
+  reader hears it on the line (#294).
+- **The ledger's filter chips say which one is selected, and the groups have names.** A screen reader
+  read "Mês" or "Liquidados" as plain buttons, with nothing to tell which was active and no group
+  boundary between PERIOD, STATE and KIND; the selected chip's blue text also fell just under the
+  contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
+  group, the period name is announced when it changes, and the selected text is darker. Found by the
+  accessibility pass on the period picker.
 
 ### Known limits
 
-- The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
-  is not among the four screens above (#320).
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a

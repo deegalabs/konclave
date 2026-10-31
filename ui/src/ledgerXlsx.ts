@@ -35,7 +35,7 @@ export interface LedgerXlsxItem {
 
 export interface LedgerXlsxData {
   vaultName: string
-  period: string
+  period: string // the chosen period's name when one is chosen, otherwise the span of the exported rows
   /** The active filters' labels when the export is a part of the book; '' for the whole book (#302). */
   filter: string
   generatedAt: Date
