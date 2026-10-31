@@ -73,6 +73,12 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
+  it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
+  page was up, a reload of the desk still showed a spinner, and the movements and the balance each
+  announced their loading, so a screen reader heard it twice. It now draws the vault's name, the
+  desk, the movements and the balance as placeholders where they will be, and the word is heard
+  once; a balance that is only syncing still says it on its own (#320).
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
@@ -162,8 +168,6 @@ history to tidy it is how context gets lost.
 
 ### Known limits
 
-- The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
-  is not among the four screens above (#320).
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
