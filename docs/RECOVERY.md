@@ -6,6 +6,10 @@
 > Update (2026-09-06): on a Private vault the export now carries the viewing key and the scan height
 > (#447, #480); the gap remains for Open vaults and for moving a vault to another coordinator.
 
+> **For a member, not an operator:** [IF_EVERY_SERVICE_DISAPPEARS.md](IF_EVERY_SERVICE_DISAPPEARS.md)
+> answers what a group can still do, and with what, if the site, the coordinator and the relay are all
+> gone, and marks what has been read against the code but not yet rehearsed.
+
 ## Where each secret lives (the trust boundary)
 
 | Layer | Holds | On disk? | Can spend? |
