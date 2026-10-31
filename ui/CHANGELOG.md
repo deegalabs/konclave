@@ -40,6 +40,20 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **"What changed", a tab under Approvals.** What changed state since this device last looked:
+  what arrived for you, became ready (for you to sign, or for others), was sent, confirmed,
+  refused, withdrawn or expired, most pressing first, each line opening its proposal. The
+  comparison is local, against the list as it was when you last pressed "Mark as seen" on this
+  device; a first look takes that snapshot and says there is nothing to compare yet. Nothing new
+  is asked of the coordinator and nothing leaves the device (#151, #125).
+
+### Known limits
+
+- **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
+  stays open for that), and a milestone that passed is not listed yet.
+
 ## [0.17.0] 2026-11-06
 
 ### Security
