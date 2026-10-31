@@ -73,6 +73,18 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open: on the coordinator, registration accepts
   `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
   the ceremony, which then refuses it (#589).
+- **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
+  spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
+  the signers, label and field for a form, headed sections for Settings), so the content lands
+  where the placeholder was; only the caption line, when it appears, takes a line of its own. On
+  these four screens a screen reader hears the word once, from one live region, not once per grey
+  block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
+  outline under forced colours (#320).
+
+### Known limits
+
+- The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
+  is not among the four screens above (#320).
 
 ### Known limits
 
