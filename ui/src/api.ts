@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { recordRead, classifyRead } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason } from './send-outcome'
 import {
@@ -185,9 +186,13 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
-    if (!res.ok) return null
-    return (await res.json()) as T
-  } catch {
+    if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'bridge'); return null }
+    const data = (await res.json()) as T
+    recordRead(path, null)
+    return data
+  } catch (error) {
+    // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
+    recordRead(path, classifyRead({ error }), 'bridge')
     return null
   } finally {
     clearTimeout(t)
