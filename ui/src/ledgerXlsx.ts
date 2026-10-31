@@ -150,7 +150,11 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     })
     if (it.txid) row.getCell('txid').value = { text: it.txid, hyperlink: explorerTxUrl(it.txid) }
   }
-  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `SUM(${span(valueCol)})` } })
+  // The TOTAL row agrees with the summary: what moved plus what can still move. A plain SUM of the
+  // column added the refused and expired rows, whose money never left and which enter neither
+  // summary total, so the sheet's own total disagreed with both of them.
+  const sumIfHere = (col: string) => `SUMIF(${span(col)},"${L.yes}",${span(valueCol)})`
+  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}` } })
   const header = mv.getRow(1)
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }

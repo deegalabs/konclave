@@ -68,15 +68,20 @@ describe('the XLSX ledger export (#302)', () => {
     expect(mv.getRow(3).getCell('txid').value ?? '').toBe('') // not sent: no txid, no link
   })
 
-  it('sums exactly the data rows, on the sheet and in the summary, whatever the columns are', async () => {
-    const wb = await buildLedgerWorkbook(data([item(), item({ settled: false, open: true, state: 'awaiting', zec: 0.25 })]))
+  it('sums the rows that moved or can still move, on the sheet and in the summary, whatever the columns are', async () => {
+    // Three rows: settled, open, and a refused one whose money never left. The sheet's TOTAL row
+    // used to SUM the whole value column, so it added the refused row that neither summary total
+    // counts, and disagreed with both of them. It is now the two summary totals added together.
+    const wb = await buildLedgerWorkbook(data([
+      item(), item({ settled: false, open: true, state: 'awaiting', zec: 0.25 }), item({ settled: false, open: false, state: 'rejected', zec: 0.5 }),
+    ]))
     const mv = wb.getWorksheet('Movements')!
-    const total = mv.getRow(4) // header, two rows, total
+    const total = mv.getRow(5) // header, three rows, total
     expect(total.getCell('document').value).toBe('TOTAL')
-    expect(total.getCell('zec').formula).toBe('SUM(J2:J3)')
-    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"yes",Movements!J2:J3)' })
-    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!I2:I3,"yes",Movements!J2:J3)' })
-    expect(summaryValue(wb, 'Entries')).toBe(2)
+    expect(total.getCell('zec').formula).toBe('SUMIF(H2:H4,"yes",J2:J4)+SUMIF(I2:I4,"yes",J2:J4)')
+    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H4,"yes",Movements!J2:J4)' })
+    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!I2:I4,"yes",Movements!J2:J4)' })
+    expect(summaryValue(wb, 'Entries')).toBe(3)
   })
 
   it('writes zeros, not formulas, for an empty book, so nothing sums itself', async () => {
