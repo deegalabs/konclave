@@ -139,8 +139,8 @@ export default function NewPayment() {
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
   const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
   // An address the vault cannot pay closes Propose and says why on the field, as the payroll line
-  // does (#294). A pasted Sapling address reaches here, and so does a saved payee's address that is
-  // not one; the coordinator refused both, but only after the click.
+  // does (#294). A pasted Sapling address reaches here, a transparent one on the web, and a saved
+  // payee's address that is not one; the coordinator refused all three, but only after the click.
   const toRefused = to.trim() ? addressRefusal(to.trim()) : null
   // A real available balance when we have it; a neutral dash otherwise - never a fake number.
   // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
@@ -250,7 +250,7 @@ export default function NewPayment() {
               describedBy={toRefused ? 'pay-to-refused' : undefined}
             />
           </label>
-          {toRefused && <div className="hint warn mt-sm" id="pay-to-refused">{t(toRefused === 'sapling' ? 'payment.toSapling' : 'payment.toUnknown')}</div>}
+          {toRefused && <div className="hint warn mt-sm" id="pay-to-refused">{t(toRefused === 'sapling' ? 'payment.toSapling' : toRefused === 'transparent' ? 'payment.toTransparent' : 'payment.toUnknown')}</div>}
 
           <label className="field"><span>{t('payment.value')}</span>
             <div className="payamt">

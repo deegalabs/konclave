@@ -654,6 +654,7 @@ export const en: Record<string, string> = {
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Enter the destination address.',
   'payment.toSapling': 'This is an older shielded (Sapling) address, which this vault cannot pay. Ask for an address that starts with u1.',
+  'payment.toTransparent': 'This is a transparent address, and this vault pays shielded addresses only. Ask for an address that starts with u1.',
   'payment.toUnknown': 'This is not an address this vault can pay. Check it, or pick another beneficiary.',
   'payment.title': 'New payment',
   'payment.cap': 'Propose a payment for the quorum to approve. Nothing leaves the vault until it is approved.',
@@ -756,6 +757,7 @@ export const en: Record<string, string> = {
   'payroll.addrPlaceholder': 'u1… (shielded)',
   'payroll.cellPublic': 'public',
   'payroll.cellSapling': 'older shielded (Sapling) address · ask for a u1… address',
+  'payroll.cellTransparent': 'transparent address · this vault pays u1… addresses only',
   'payroll.memoPublicPlaceholder': 'no memo (public)',
   'payroll.memoPlaceholder': 'payslip…',
   'payroll.addRow': '+ Add line',

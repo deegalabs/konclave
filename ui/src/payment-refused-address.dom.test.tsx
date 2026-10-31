@@ -13,6 +13,7 @@ const en = (k: string): string => dict[k] ?? k
 // or a saved payee's address that is no address. The coordinator refused it, after the click. The
 // payroll line already refused both; the two now ask one rule.
 const ZS = 'zs1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'
+const T1 = 't1Rv4exT7bqhZqi2j7xz8bUHDMxwosrjADU'
 const U1 = 'u1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'
 const benefs = vi.hoisted(() => ({ list: [] as unknown[] }))
 vi.mock('./api', async (orig) => ({
@@ -46,7 +47,10 @@ describe('an address the vault cannot pay closes Propose and says why (#294)', (
     expect(addressRefusal(ZS)).toBe('sapling')
     expect(addressRefusal('not an address')).toBe('unknown')
     expect(addressRefusal(U1)).toBeNull()
-    expect(addressRefusal('t1abcdefghijk')).toBeNull() // transparent is a warned exception, not a refusal
+    // Transparent is the path's: the local bridge pays it as a warned public payment, the hosted
+    // coordinator refuses any address without an Orchard receiver.
+    expect(addressRefusal(T1, false)).toBeNull()
+    expect(addressRefusal(T1, true)).toBe('transparent')
     const row = { label: '', value: '1', memo: '' }
     expect(rowIssue({ ...row, address: ZS })).toBe('payroll.cellSapling')
     expect(rowIssue({ ...row, address: 'not an address' })).toBe('payroll.issueUnknown')

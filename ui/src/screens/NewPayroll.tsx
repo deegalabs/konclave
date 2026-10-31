@@ -31,11 +31,12 @@ const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 export function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
-  // (#294): the coordinator refuses a Sapling line for the whole sheet. Said on the line, before the
-  // sheet is composed, by the same rule the payment screen asks.
+  // (#294): the coordinator refuses a line it cannot pay for the whole sheet. Said on the line,
+  // before the sheet is composed, by the same rule the payment screen asks.
   const refused = addressRefusal(r.address.trim())
   if (refused === 'unknown') return 'payroll.issueUnknown'
   if (refused === 'sapling') return 'payroll.cellSapling'
+  if (refused === 'transparent') return 'payroll.cellTransparent'
   if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
   const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'

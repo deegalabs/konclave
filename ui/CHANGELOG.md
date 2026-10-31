@@ -91,10 +91,12 @@ history to tidy it is how context gets lost.
   "Older shielded address", and a transparent one still says "Transparent address".
 
 - **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
-  address, or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
   screen, and the coordinator refused it only after the click. The field now says what is wrong and
   the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
-  an address with the right prefix and a damaged checksum is still refused by the coordinator (#294).
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
 
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the

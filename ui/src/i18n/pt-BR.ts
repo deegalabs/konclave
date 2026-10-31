@@ -650,6 +650,7 @@ export const ptBR: Record<string, string> = {
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Informe o endereço de destino.',
   'payment.toSapling': 'Este é um endereço blindado antigo (Sapling), que este cofre não consegue pagar. Peça um endereço que comece com u1.',
+  'payment.toTransparent': 'Este é um endereço transparente, e este cofre paga só endereços blindados. Peça um endereço que comece com u1.',
   'payment.toUnknown': 'Este não é um endereço que este cofre consiga pagar. Confira, ou escolha outro beneficiário.',
   'payment.title': 'Novo pagamento',
   'payment.cap': 'Proponha um pagamento para o quórum aprovar. Nada sai do cofre enquanto não for aprovado.',
@@ -752,6 +753,7 @@ export const ptBR: Record<string, string> = {
   'payroll.addrPlaceholder': 'u1… (blindado)',
   'payroll.cellPublic': 'público',
   'payroll.cellSapling': 'endereço blindado antigo (Sapling) · peça um endereço u1…',
+  'payroll.cellTransparent': 'endereço transparente · este cofre paga só endereços u1…',
   'payroll.memoPublicPlaceholder': 'sem memo (público)',
   'payroll.memoPlaceholder': 'holerite…',
   'payroll.addRow': '+ Adicionar linha',
