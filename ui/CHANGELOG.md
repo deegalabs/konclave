@@ -60,9 +60,26 @@ history to tidy it is how context gets lost.
   as a date and hour with the time left beside it; while the chain has not answered the screen says
   nothing rather than "not confirmed"; and the copy button names what it copies and announces
   "Copied" to a screen reader.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Fixed
 
+- **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
+  address and the payment link) and on the proof page (transaction ids), the copy button said
+  "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
+  permission denied, an insecure context) still read as success, and a member could paste a stale
+  clipboard value where they believed the address was. Both screens now wait for the write, say
+  "Copied" only when it was confirmed, and otherwise say that it could not copy and to select the
+  text by hand. The creation invite already did this (#313).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -88,12 +105,30 @@ history to tidy it is how context gets lost.
   these four screens a screen reader hears the word once, from one live region, not once per grey
   block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
   outline under forced colours (#320).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
+- **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
+  payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
+  read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
+  They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **The members popover on the vault home closes with Escape.** Hovering or focusing "N members"
+  opens the roster and the quorum; a keyboard user who tabbed onto the link got the popover over
+  the page and could only close it by moving focus away. It now opens on hover and on focus and
+  closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
+  no longer closes it on the way to it (#602).
 
 ### Known limits
 
 - The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
   is not among the four screens above (#320).
-
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
