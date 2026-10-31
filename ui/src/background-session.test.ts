@@ -808,8 +808,8 @@ describe('BackgroundSession - who sends, with clocks that disagree (#626)', () =
       await d.session.onMessage(m.from, m.data)
     }
   }
-  async function pair(skewA: number, skewB: number) {
-    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+  async function pair(skewA: number, skewB: number, keys = dkg2of3()) {
+    const { s0, s1, groupVk, pubkeys } = keys
     const bus = new Bus()
     const open: GovernanceGate = () => true
     const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open, undefined, skewA)
@@ -870,9 +870,13 @@ describe('BackgroundSession - who sends, with clocks that disagree (#626)', () =
     // signed right around the first round's expiry, a per-device clock let one device forget a
     // signature the other still counted, and both could be named.
     let named = 0
+    // One key generation for the 25 rounds: the test is about the tally and the clocks, and generating
+    // keys 25 times was most of its 2 seconds, which the default 5-second timeout could not take when the
+    // whole suite runs at once (it timed out in two full runs; the clocks here are virtual, `NOW`).
+    const keys = dkg2of3()
     for (const skewB of [-3000, -1000, 0, 1000, 3000]) {
       for (const gap of [-2500, -800, 0, 800, 2500]) {
-        const { A, B, bus } = await pair(0, skewB)
+        const { A, B, bus } = await pair(0, skewB, keys)
         await signRound(B, A, bus) // the first round closed on A, who never sent (#334)
         A.namedSender = null
         B.namedSender = null
@@ -885,7 +889,7 @@ describe('BackgroundSession - who sends, with clocks that disagree (#626)', () =
     // Agreeing on nobody is the #626 symptom itself, so some of these rounds must name a sender:
     // those signed after the first round's window, where both signatures are fresh.
     expect(named).toBeGreaterThan(0)
-  })
+  }, 20_000) // 25 rounds of real signing: well under this alone, but a worker starved by the rest of the suite needs room
 
   it('signing the same payment again after the signatures expired names a sender, without a reload', async () => {
     const { A, B, bus } = await pair(0, 0)
