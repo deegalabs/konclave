@@ -1295,4 +1295,22 @@ export const ptBR: Record<string, string> = {
   // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
   'ledger.filterClosed': 'Encerradas',
   'ledger.closedNoMoney': 'sem pagamento',
+  // A read that failed says why and who was asked (read-failure.ts, ReadState.tsx).
+  'read.who.bridge': 'O Konclave neste aparelho',
+  'read.who.coordinator': 'O servidor do cofre',
+  'read.offline': 'Este aparelho está sem conexão de rede.',
+  'read.timeout': '{who} demorou demais para responder.',
+  'read.denied': '{who} negou a este aparelho o acesso ao cofre. Abra o cofre com a sua senha neste aparelho e tente de novo.',
+  'read.missing': '{who} não encontrou este cofre.',
+  'read.unavailable': '{who} não respondeu direito.',
+  'read.malformed': '{who} respondeu algo que esta versão não entende.',
+  'read.unknown': 'A leitura não terminou.',
+  'read.holds': 'O cofre e a sua parte da chave continuam neste aparelho.',
+  'read.retry': 'Tentar de novo',
+  'read.retrying': 'Tentando de novo…',
+  'read.stale': 'Não deu para atualizar; mostrando a última leitura.',
+  'people.unreadTitle': 'Não foi possível ler o cadastro de pessoas',
+  'people.holds': 'As pessoas cadastradas não foram apagadas.',
+  'people.registerLater': 'Cadastre depois que a lista voltar.',
+  'ledger.unreadTitle': 'Não foi possível ler o livro',
 }
