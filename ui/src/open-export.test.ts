@@ -65,6 +65,16 @@ async function checked(id: string, seat: number, n: number, t: number, roster = 
 }
 
 describe('the offline checker reads a real backup the way the app wrote it', () => {
+  it('a backup made from a restored vault, whose viewing key is sealed on the device, is complete (#599)', async () => {
+    const bundle = await backupOf('oe-sealed', 1, 3, 2)
+    await importVault(bundle, PASS, { overwrite: true })
+    // No key passed in: this is the device's own copy, as when the coordinator cannot be reached.
+    const again = parseVaultExport(JSON.stringify(await exportVault(vaultIdOf('oe-sealed').id, PASS)))
+    const { env, v1, payload } = await openExport(again, PASS)
+    expect(payload.ufvk).toBe('uview1example')
+    expect(reportLines(again, env, v1, payload).join('\n')).not.toContain('restores the SEAT')
+  })
+
   it('the fixture is the share the app itself decodes', async () => {
     // Guards the test rather than the script: if the create screen's bundle changes shape, the
     // app's own decoder is what notices, and this stops agreeing with it.
