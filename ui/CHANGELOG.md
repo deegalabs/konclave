@@ -124,6 +124,12 @@ history to tidy it is how context gets lost.
   the page and could only close it by moving focus away. It now opens on hover and on focus and
   closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
   no longer closes it on the way to it (#602).
+- **The backup file's name no longer says which vault it is.** The export's contents reveal nothing
+  without the passphrase, not even which vault the file belongs to, but the file was named after
+  the vault, so a downloads folder, a synced drive, a mail attachment or a USB stick showed the
+  vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
+  from every screen that offers a backup; the date and time tell copies apart. Open the file in
+  the app, or with the opener script, to see which vault it is (#587).
 
 ### Known limits
 

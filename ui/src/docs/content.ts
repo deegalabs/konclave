@@ -524,7 +524,7 @@ export const SECTIONS: Section[] = [
           en: 'A backup you have never opened is an assumption. On any computer with Node, download `open-export.mjs` from the Konclave repository (github.com/deegalabs/konclave, folder `scripts`), put it next to your file and run:',
         },
       },
-      { k: 'code', t: 'node open-export.mjs <your-vault>.konclave.json' },
+      { k: 'code', t: 'node open-export.mjs konclave-backup-<date>.konclave.json' },
       {
         k: 'p',
         t: {
@@ -600,8 +600,8 @@ export const SECTIONS: Section[] = [
             en: '**4.** In the **Export this vault** window, type your passphrase in the field **This vault’s passphrase**.',
           },
           {
-            'pt-BR': '**5.** Toque em **Baixar arquivo**. O navegador salva um arquivo com o nome do cofre e a data e hora em que foi feito, terminado em `.konclave.json`, onde ele costuma salvar os downloads. Ou toque em **Copiar** e cole o texto numa nota do seu gerenciador de senhas.',
-            en: '**5.** Press **Download file**. Your browser saves a file named after the vault and the date and time it was made, ending in `.konclave.json`, wherever it keeps downloads. Or press **Copy** and paste the text into a note in your password manager.',
+            'pt-BR': '**5.** Toque em **Baixar arquivo**. O navegador salva um arquivo chamado `konclave-backup` com a data e a hora em que foi feito, terminado em `.konclave.json` (o nome não diz de que cofre é), onde ele costuma salvar os downloads. Ou toque em **Copiar** e cole o texto numa nota do seu gerenciador de senhas.',
+            en: '**5.** Press **Download file**. Your browser saves a file named `konclave-backup` with the date and time it was made, ending in `.konclave.json` (the name does not say which vault it is), wherever it keeps downloads. Or press **Copy** and paste the text into a note in your password manager.',
           },
           {
             'pt-BR': '**6.** Guarde o arquivo em dois lugares que não sejam este aparelho, por exemplo um gerenciador de senhas e um pendrive. Guarde a frase-senha em outro lugar, não junto do arquivo.',
