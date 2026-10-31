@@ -1,4 +1,5 @@
 import { Letterhead } from '../components'
+import { copyText } from '../clipboard'
 import { useI18n } from '../i18n'
 import { useToast } from '../toast'
 import { PROOF_RECORD_URL, PROOF_TXS, proofOriginCounts } from '../proof-record'
@@ -35,6 +36,7 @@ const TXT = {
     blockLabel: 'Bloco',
     copy: 'Copiar',
     copied: 'Copiado',
+    copyFailed: 'Não foi possível copiar. Selecione o texto e copie à mão.',
     openZec: 'Abrir no zcashexplorer',
     openBlockchair: 'Abrir no Blockchair',
     howTitle: 'Como conferir',
@@ -61,6 +63,7 @@ const TXT = {
     blockLabel: 'Block',
     copy: 'Copy',
     copied: 'Copied',
+    copyFailed: 'Could not copy. Select the text and copy it by hand.',
     openZec: 'Open on zcashexplorer',
     openBlockchair: 'Open on Blockchair',
     howTitle: 'How to check',
@@ -99,9 +102,10 @@ export default function Proof() {
     .replace('{dealer}', String(origins.dealer))
     .replace('{dkg}', String(origins.dkg))
 
-  const copy = (text: string) => {
-    void navigator.clipboard?.writeText(text)
-    toast.ok(T.copied)
+  const copy = async (text: string) => {
+    // #313: "Copied" only when the clipboard confirmed it; a refusal is said, not hidden.
+    if (await copyText(text)) toast.ok(T.copied)
+    else toast.err(T.copyFailed)
   }
 
   return (
@@ -130,7 +134,7 @@ export default function Proof() {
                     <button
                       type="button"
                       className="proof-copy"
-                      onClick={() => copy(t.txid)}
+                      onClick={() => void copy(t.txid)}
                       aria-label={T.copy}
                     >
                       {T.copy}
