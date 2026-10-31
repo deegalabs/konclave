@@ -150,6 +150,9 @@ Update once any signing in progress has finished. Your vault and your share stay
   active filter; an empty book exports zeros instead of formulas; and the hidden properties say
   nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
   coordinator, which does not know the screen's filters (#302, with #301).
+- **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
+  spinner while they loaded; they now draw a placeholder in the shape of the content (rows for a
+  list, label and field for a form), so the page never jumps when the real thing arrives (#320).
 
 ### Known limits
 

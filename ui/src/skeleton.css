@@ -58,3 +58,16 @@
     background: var(--surface-2);
   }
 }
+
+/* A form while it decides what it may offer: label, field, label, field, a button. */
+.skel-form{display:grid; gap:14px; margin-top:12px}
+.skel-field{display:grid; gap:6px}
+.skel-f-label{width:28%; height:11px}
+.skel-f-input{height:40px; border-radius:8px}
+.skel-f-btn{width:140px; height:34px; margin-top:4px}
+/* A detail page: title, sub line, amount, a few lines of facts. */
+.skel-detail{display:grid; gap:10px; margin-top:8px}
+.skel-d-title{width:55%; height:22px}
+.skel-d-sub{width:35%; height:12px}
+.skel-detail .skel-amt{margin-top:8px}
+.skel-d-row{width:70%; height:13px}

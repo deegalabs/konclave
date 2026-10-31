@@ -62,3 +62,32 @@ export function SkeletonRows({ n = 4, className }: { n?: number; className?: str
     </div>
   )
 }
+
+/** `fields` label-and-input pairs and a button: the shape of a form that is still deciding what it may offer. */
+export function SkeletonForm({ fields = 3, className }: { fields?: number; className?: string }) {
+  const t = useT()
+  return (
+    <div className={['skel-form', className].filter(Boolean).join(' ')} role="status" aria-label={t('skeleton.loading')}>
+      {Array.from({ length: fields }, (_, i) => (
+        <div className="skel-field" key={i}>
+          <span aria-hidden="true" className="skel skel-line skel-f-label" />
+          <span aria-hidden="true" className="skel skel-block skel-f-input" />
+        </div>
+      ))}
+      <span aria-hidden="true" className="skel skel-pill skel-f-btn" />
+    </div>
+  )
+}
+
+/** A detail page: a title line, a sub line, the amount, then `rows` lines of facts. */
+export function SkeletonDetail({ rows = 3, className }: { rows?: number; className?: string }) {
+  const t = useT()
+  return (
+    <div className={['skel-detail', className].filter(Boolean).join(' ')} role="status" aria-label={t('skeleton.loading')}>
+      <span aria-hidden="true" className="skel skel-line skel-d-title" />
+      <span aria-hidden="true" className="skel skel-line skel-d-sub" />
+      <span aria-hidden="true" className="skel skel-amt" />
+      {Array.from({ length: rows }, (_, i) => <span aria-hidden="true" className="skel skel-line skel-d-row" key={i} />)}
+    </div>
+  )
+}

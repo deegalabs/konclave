@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Seal, Loading } from '../components'
+import { SkeletonRows } from '../skeleton'
+import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
@@ -126,7 +127,7 @@ export default function Members() {
         />
 
 
-        {view === 'loading' && <Loading />}
+        {view === 'loading' && <SkeletonRows n={4} />}
         {view === 'unread' && (
           <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
             <div className="who-name mb-sm">{t('members.unreadTitle')}</div>
