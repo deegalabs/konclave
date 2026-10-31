@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import { SkeletonForm } from '../skeleton'
 import { usePoll } from '../usePoll'
 import { useNavigate } from 'react-router-dom'
-import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
@@ -216,7 +216,7 @@ export default function NewPayment() {
     <main className="page pay">
       <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
-      {live === null ? <Loading /> : (<>
+      {live === null ? <SkeletonForm fields={3} /> : (<>
       <div className="ctx">
         <span>{tr('payment.fromVault', { name: vaultName })}</span>
         <span className="ctx-sep">·</span>
