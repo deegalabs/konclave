@@ -1317,4 +1317,21 @@ export const en: Record<string, string> = {
   // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
   'ledger.filterClosed': 'Closed',
   'ledger.closedNoMoney': 'no payment',
+  // A read that failed says why and who was asked (read-failure.ts, ReadState.tsx).
+  'read.who.bridge': 'Konclave on this device',
+  'read.who.coordinator': 'The vault’s server',
+  'read.offline': 'This device has no network connection.',
+  'read.timeout': '{who} took too long to answer.',
+  'read.denied': '{who} refused this device access to the vault. Open the vault with your passphrase on this device and try again.',
+  'read.missing': '{who} does not know this vault.',
+  'read.unavailable': '{who} did not answer properly.',
+  'read.malformed': '{who} answered something this version does not understand.',
+  'read.unknown': 'The read did not complete.',
+  'read.holds': 'Your vault and your part of the key are still on this device.',
+  'read.retry': 'Try again',
+  'read.retrying': 'Trying again…',
+  'read.stale': 'Could not refresh; showing the last read.',
+  'people.unreadTitle': 'Could not read the people register',
+  'people.holds': 'Registered people were not deleted.',
+  'people.registerLater': 'Register after the list is back.',
 }

@@ -1558,3 +1558,8 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .cer-row.hilite{border-color:var(--accent); background:var(--accent-soft)}
 .cer-row.hilite .link{color:var(--accent-ink)}
 .cer-tag.this{color:var(--accent-ink); border-color:var(--accent-line); background:var(--accent-soft)}
+/* The shared "could not read" state (ReadState.tsx). */
+.read-state p{font-size:15px}
+.read-state h2{margin:0 0 6px; font-size:15px}
+.read-state.compact{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:0 0 10px; font-size:13px}
+.read-state.compact .btn{margin-top:0}
