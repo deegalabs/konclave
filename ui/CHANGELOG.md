@@ -40,6 +40,27 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **A restored vault kept its viewing key readable on the device (#599).** From 2026-09-06 (#447), a
+  device that imported a backup carrying the viewing key stored that key unencrypted in the app's local
+  storage, next to the encrypted share and read secret. Anyone able to read that storage could read
+  it without the passphrase: malware or another user on the computer, an extension with access to the site, or a copy of the browser profile. It cannot move funds, but it reads the vault's whole history,
+  memos and payslips included. It is now encrypted under the passphrase, and a record that holds it
+  in the clear is rewritten the next time the passphrase is typed on that device. Devices that never
+  imported a backup, and the backup files themselves, were not affected.
+
+### Added
+
+- **A proposal states its facts.** Under the amount, the screen now says when the proposal was
+  created, until when it can be approved (or that it has no deadline), the whole destination address
+  with a copy button, and, once sent, how many confirmations the payment has, counted from the
+  chain, or that it is not in a block yet. The address used to be shortened everywhere, the deadline
+  appeared only in the list, and confirmations were nowhere on this screen. The deadline is given
+  as a date and hour with the time left beside it; while the chain has not answered the screen says
+  nothing rather than "not confirmed"; and the copy button names what it copies and announces
+  "Copied" to a screen reader.
+
 ### Fixed
 
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
@@ -60,6 +81,24 @@ history to tidy it is how context gets lost.
   filter and the export read one rule. The TOTAL row of the Movements sheet added every row,
   refused and expired ones included, so it agreed with neither summary total; it is now what
   moved plus what can still move, the two summary totals added together (#302).
+- **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
+  spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
+  the signers, label and field for a form, headed sections for Settings), so the content lands
+  where the placeholder was; only the caption line, when it appears, takes a line of its own. On
+  these four screens a screen reader hears the word once, from one live region, not once per grey
+  block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
+  outline under forced colours (#320).
+
+### Known limits
+
+- The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
+  is not among the four screens above (#320).
+
+- **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
+  key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
+  field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
+  passkey does not rewrite the record, because a passkey does not open what the key is encrypted
+  under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
 
 ## [0.16.0] 2026-10-30
 

@@ -91,16 +91,19 @@ Update once any signing in progress has finished. Your vault and your share stay
   that. It existed since the first browser signing ceremony, 2026-07-15. Each share is now checked on its own, for its
   signer, before it counts (`Coordinator.checkShare`), a share from a seat the package does not name is
   not counted, the assembling device uses its own computed share, and a failed combination is reported.
-- **A signing request from a device other than the one assembling the signature could start a ceremony (#730).** A
-  device accepted a signing request from any seated device, not only from the one assembling the
-  signature, and a second request arriving while a ceremony ran could replace the one in hand. A request
-  that carried a transaction also took the place of the copy the device held from the coordinator. That
-  did not get a device past its check of the content: before any share moves, the device reads what the
-  transaction pays and refuses it unless it matches the lines the coordinator reports as approved (those
-  lines still come from the coordinator at signing, #567). It existed since 2026-07-15. A request is now
-  taken only from the device that is assembling the signature, a second request during a ceremony does
-  not replace the first, and one from another device in the room is ignored. A device that holds the
-  coordinator's request signs that transaction, and an incoming request has to name its sighash.
+- **A signing request from a device other than the one assembling the signature could start a
+  ceremony (#730).** A device accepted a signing request from any seated device, not only from the
+  one assembling the signature, and a second request arriving while a ceremony ran could replace the
+  one in hand. A request that carried a transaction also took the place of the copy the device held
+  from the coordinator. This entry first said the device's own check of the content stopped any
+  harm. That holds only from 2026-09-15 (#513), when the device began to refuse a transaction whose
+  outputs did not match the lines the coordinator reports as approved, before any share moved; until
+  early October (#610) what it read of the transaction was not bound to what the signature covers;
+  those lines still come from the coordinator at signing (#567); and the /net lab screen does not
+  make this check. The first problem existed since 2026-07-15. A request is now taken only from the
+  device that is assembling the signature, a second request during a ceremony does not replace the
+  first, and one from another device in the room is ignored. A device that holds the coordinator's
+  request signs that transaction, and an incoming request has to name its sighash.
 - **A signing nonce could be used for two shares (#731).** The module returned a round's nonces to the
   page as bytes (`Round1.nonces()`), and the signing calls took those bytes. Nothing in the module
   stopped a caller from making two shares from one nonce over two packages with different binding

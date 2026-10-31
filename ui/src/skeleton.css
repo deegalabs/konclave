@@ -24,6 +24,23 @@
   100% { background-position: -200% 0; }
 }
 
+/* The status region: the word is in the DOM at once (assistive tech), visible after ~400 ms. */
+.skel-status { min-height: 0; }
+.skel-status-text {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  opacity: 0;
+  animation: skel-caption 0s linear 0.4s forwards;
+}
+@keyframes skel-caption { to { opacity: 1; } }
+
+/* Forced colours paint no backgrounds: draw the outline of each block instead. */
+@media (forced-colors: active) {
+  .skel { outline: 1px solid CanvasText; outline-offset: -1px; animation: none; }
+}
+
 /* Variants */
 .skel-line  { height: 12px; }
 .skel-block { height: 44px; border-radius: var(--radius); }
@@ -45,10 +62,29 @@
 }
 .skel-row:last-child { border-bottom: 0; }
 .skel-row .skel-r-date { width: 64px; flex: 0 0 auto; }
-.skel-row .skel-r-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; }
-.skel-row .skel-r-t   { height: 13px; width: 58%; }
-.skel-row .skel-r-sub { height: 11px; width: 38%; }
+.skel-row .skel-r-main, .skel-person .skel-r-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; }
+.skel-row .skel-r-t, .skel-person .skel-r-t     { height: 13px; width: 58%; }
+.skel-row .skel-r-sub, .skel-person .skel-r-sub { height: 11px; width: 38%; }
 .skel-row .skel-r-val { width: 72px; height: 13px; flex: 0 0 auto; }
+/* A short history: one line per row, 40 px tall. */
+.skel-rows-compact .skel-row { padding: 13px 0; }
+.skel-rows-compact .skel-r-date { width: 80px; }
+
+/* Composed: a roster - a round mark, a name over a sub line, a tag. */
+.skel-roster { display: flex; flex-direction: column; }
+.skel-person {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.skel-person:last-child { border-bottom: 0; }
+.skel-person .skel-p-mark { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 auto; }
+.skel-person .skel-p-tag { width: 64px; flex: 0 0 auto; }
+
+/* The square a QR code fills. */
+.skel-qr { width: 220px; height: 220px; max-width: 100%; border-radius: var(--radius); }
 
 /* Strict motion budget: no looping sweep - settle to a flat token block. */
 @media (prefers-reduced-motion: reduce) {
@@ -58,3 +94,18 @@
     background: var(--surface-2);
   }
 }
+
+/* A form while it decides what it may offer: label, field, label, field, a button. */
+.skel-form{display:grid; gap:14px; margin-top:12px}
+.skel-field{display:grid; gap:6px}
+.skel-f-label{width:28%; height:11px}
+.skel-f-input{height:40px; border-radius:8px}
+.skel-f-btn{width:140px; height:34px; margin-top:4px}
+/* Side by side, the way a form's short header row is laid out. */
+.skel-form-inline{grid-template-columns:1fr 2fr; gap:12px}
+/* A detail page: title, sub line, amount, a few lines of facts. */
+.skel-detail{display:grid; gap:10px; margin-top:8px}
+.skel-d-title{width:55%; height:22px}
+.skel-d-sub{width:35%; height:12px}
+.skel-d-amt{height:40px; width:42%; border-radius:var(--radius); margin:8px 0}
+.skel-d-row{width:70%; height:13px}

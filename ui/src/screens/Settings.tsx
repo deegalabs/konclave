@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Skeleton } from '../skeleton'
+import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { StorageError, storageErrorKey } from '../storage-errors'
 import { useNavigate, Link } from 'react-router-dom'
-import { Seal, Loading } from '../components'
+import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
@@ -268,7 +268,7 @@ export default function Settings() {
       {/* Relay selection (#213) is PARKED (single relay via VITE_RELAY_BASE for now); the picker lives
           on the feat/relay-in-invite branch until a real relay network exists. */}
 
-      {live === null && <Loading />}
+      {live === null && <SkeletonDetail rows={4} />}
 
       {live !== null && <>
       {/* #488: a section index, the way a settings screen with named sections earns one. Only where
