@@ -1281,4 +1281,9 @@ export const ptBR: Record<string, string> = {
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposto por',
   'ledger.colApprovedBy': 'Aprovado por',
+  // Evidence and payment point at each other (same txid); the join is on the screen.
+  'ceremonies.viewProposal': 'Ver proposta →',
+  'ceremonies.noProposal': 'Nenhuma proposta deste cofre tem esta transação.',
+  'ceremonies.thisPayment': 'Este pagamento',
+  'proposal.viewEvidence': 'Ver a evidência da assinatura →',
 }

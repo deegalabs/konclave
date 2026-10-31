@@ -833,7 +833,7 @@ export const en: Record<string, string> = {
   'proposal.signNeverReassembles': 'Signing never reassembles the key: each part signs in place and only the combined result goes to the network.',
   'proposal.sentConfirm': '**Sent to mainnet.** Payment broadcast and signed by quorum.',
   'proposal.txid': 'txid',
-  'proposal.viewExplorer': 'view in explorer ↗',
+  'proposal.viewExplorer': 'View in explorer ↗',
 
   // In-vault signing ceremony panel (K11)
   'signing.title': 'Sign this payment',
@@ -1285,4 +1285,9 @@ export const en: Record<string, string> = {
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposed by',
   'ledger.colApprovedBy': 'Approved by',
+  // Evidence and payment point at each other (same txid); the join is on the screen.
+  'ceremonies.viewProposal': 'View proposal →',
+  'ceremonies.noProposal': 'No proposal in this vault carries this transaction.',
+  'ceremonies.thisPayment': 'This payment',
+  'proposal.viewEvidence': 'View the signing evidence →',
 }

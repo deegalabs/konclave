@@ -70,6 +70,14 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **The signing evidence names the payment it belongs to, and a sent payment points at its
+  evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
+  recognises; now each record that reached the chain shows the proposal with the same transaction
+  id (its document and amount) with a link to it, and says when no proposal on this device matches.
+  The sent proposal links to its evidence record, which is highlighted on arrival. The join happens
+  on the screen, from what the device already reads; nothing new is recorded (#290 still owns
+  recording who signed and which proposal). The link lands on Activity's evidence tab, where the
+  menu leads, and the record is focused and tagged "This payment" on arrival.
 
 ### Fixed
 
