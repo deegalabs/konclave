@@ -1320,4 +1320,6 @@ export const en: Record<string, string> = {
   'people.unreadTitle': 'Could not read the people register',
   'people.holds': 'Registered people were not deleted.',
   'people.registerLater': 'Register after the list is back.',
+  'receive.unreadTitle': 'Could not read the vault',
+  'receive.holds': 'The vault’s address is recorded on this device.',
 }

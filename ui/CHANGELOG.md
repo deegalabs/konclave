@@ -92,6 +92,9 @@ history to tidy it is how context gets lost.
   people register is the first screen to use it, keeps the people it already read when a refresh
   fails, and does not offer to register someone into a list it cannot see; the others follow one by
   one.
+- **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
+  sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
+  and "Try again"; "no vault" is kept for when there really is none.
 
 ### Fixed
 

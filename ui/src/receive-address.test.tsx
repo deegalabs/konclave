@@ -149,7 +149,7 @@ describe('a history read that fails is not an answer', () => {
     expect(en['receive.historyUnreadable']).toMatch(/Could not read the history yet/)
     expect(ptBR['receive.historyUnreadable']).toMatch(/Não deu para ler o histórico ainda/)
     expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
-    // A retry in flight shows the loader again, not the failure text.
-    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
+    // A retry in flight shows the placeholder rows again, not the failure text: a skeleton, not a spinner.
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <SkeletonRows n=\{3\} compact \/>/)
   })
 })
