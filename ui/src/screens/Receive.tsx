@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useToast } from '../toast'
 import { SkeletonDetail, SkeletonQr, SkeletonRows } from '../skeleton'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
@@ -67,6 +68,7 @@ export function HistoryStatus({ checking, checkedAt, failed = false }: { checkin
 
 export default function Receive() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const noticeId = useId()
   const readable = useVaultReadable()
@@ -81,6 +83,7 @@ export default function Receive() {
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
   // #313: said only after the clipboard confirmed the write; a refusal is said instead.
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [copyErr, setCopyErr] = useState(false)
   // The vault's full on-chain record since creation (browser-native path). Loaded once; the txids
   // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
@@ -168,12 +171,19 @@ export default function Receive() {
     }
   }, [uri])
 
+  // #313: "Copied" is said once the clipboard answers, never before. The write is refused on a
+  // denied permission or an unfocused document, and a member who was told it worked would paste
+  // whatever the clipboard held before, believing it is the vault's address.
   const copy = async (text: string, tag: string) => {
-    const ok = await copyText(text)
-    setCopyErr(!ok)
-    if (!ok) return
+    setCopyErr(false)
+    if (!(await copyText(text))) {
+      setCopyErr(true) // the failure stays where the button is; the toast only mirrors it
+      toast.err(t('toast.copyFailed'))
+      return
+    }
     setCopied(tag)
-    setTimeout(() => setCopied(null), 1600)
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(null), 1600)
   }
 
   if (!vault) {
@@ -211,7 +221,7 @@ export default function Receive() {
           {/* The button's label changes, which a screen reader does not read on its own: one live
               region says "Copied" for either button (#320). */}
           <span className="visually-hidden" role="status">{copied ? t('receive.copied') : ''}</span>
-          <div role="alert">{copyErr && <div className="hint warn mt-sm">{t('receive.copyErr')}</div>}</div>
+          {copyErr && <div className="hint err" role="alert">{t('toast.copyFailed')}</div>}
 
           <label className="field"><span>{t('receive.amount')}</span>
             <input
