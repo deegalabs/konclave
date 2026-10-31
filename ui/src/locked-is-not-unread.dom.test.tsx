@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useState, type ReactElement } from 'react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { ToastProvider } from './toast'
 import { en as dict } from './i18n/en'
 const en = (k: string): string => dict[k] ?? k
 
@@ -47,7 +48,7 @@ function Shell() {
   return <Outlet context={{ locked: false, unlockNonce, live: true }} />
 }
 const mount = (el: ReactElement) => render(
-  <MemoryRouter><I18nProvider><Routes><Route element={<Shell />}><Route path="/" element={el} /></Route></Routes></I18nProvider></MemoryRouter>,
+  <MemoryRouter><I18nProvider><ToastProvider><Routes><Route element={<Shell />}><Route path="/" element={el} /></Route></Routes></ToastProvider></I18nProvider></MemoryRouter>,
 )
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)) })
 

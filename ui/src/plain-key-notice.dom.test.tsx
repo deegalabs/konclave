@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { ToastProvider } from './toast'
 import { en as dict } from './i18n/en'
 const en = (k: string): string => dict[k] ?? k
 
@@ -24,7 +25,7 @@ const base = { governance: { threshold: 2, total: 2 }, threshold: 2, groupKey: '
 const plain = { ...base, id: 'p', name: 'Plain', plainViewingKey: true }
 const sealed = { ...base, id: 's', name: 'Sealed', plainViewingKey: false }
 
-const mount = () => render(<MemoryRouter initialEntries={['/vaults']}><I18nProvider><Vaults /></I18nProvider></MemoryRouter>)
+const mount = () => render(<MemoryRouter initialEntries={['/vaults']}><I18nProvider><ToastProvider><Vaults /></ToastProvider></I18nProvider></MemoryRouter>)
 const cardOf = (name: string) => screen.getByText(name).closest('.rd-card') as HTMLElement
 
 describe('the notice for a viewing key still in the clear (#784)', () => {

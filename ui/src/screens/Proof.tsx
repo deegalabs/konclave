@@ -1,6 +1,7 @@
 import { Letterhead } from '../components'
+import { useState } from 'react'
 import { copyText } from '../clipboard'
-import { useI18n } from '../i18n'
+import { useI18n, useT } from '../i18n'
 import { useToast } from '../toast'
 import { PROOF_RECORD_URL, PROOF_TXS, proofOriginCounts } from '../proof-record'
 import '../proof.css'
@@ -94,6 +95,8 @@ function rich(s: string) {
 export default function Proof() {
   const { locale } = useI18n()
   const toast = useToast()
+  const tt = useT()
+  const [copyErr, setCopyErr] = useState(false)
   const loc = (locale as Locale) in TXT ? (locale as Locale) : 'en'
   const T = TXT[loc]
 
@@ -102,10 +105,13 @@ export default function Proof() {
     .replace('{dealer}', String(origins.dealer))
     .replace('{dkg}', String(origins.dkg))
 
+  // #313: "Copied" only once the clipboard confirmed it; a refused write says so, above the cards,
+  // and the toast only mirrors it.
   const copy = async (text: string) => {
-    // #313: "Copied" only when the clipboard confirmed it; a refusal is said, not hidden.
-    if (await copyText(text)) toast.ok(T.copied)
-    else toast.err(T.copyFailed)
+    setCopyErr(false)
+    if (await copyText(text)) { toast.ok(T.copied); return }
+    setCopyErr(true)
+    toast.err(tt('toast.copyFailed'))
   }
 
   return (
@@ -122,6 +128,7 @@ export default function Proof() {
             <p>{rich(T.how)}</p>
           </aside>
 
+          {copyErr && <p className="hint err" role="alert">{tt('toast.copyFailed')}</p>}
           <div className="proof-cards">
             {PROOF_TXS.map((t) => {
               return (

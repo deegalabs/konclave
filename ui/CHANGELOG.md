@@ -219,6 +219,24 @@ history to tidy it is how context gets lost.
   contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
   group, the period name is announced when it changes, and the selected text is darker. Found by the
   accessibility pass on the period picker.
+- **Every action that saves says so.** Saving or removing a person, renaming yourself, downloading or
+  copying a backup, importing or removing a vault: each now ends in the same small notice the
+  payment screens already use, naming the person or the vault, so a member who was not watching
+  the list knows the write landed, and one that did not land says that instead: a removal the
+  register refused names the person still on the list, and a backup download the browser refused
+  keeps the export dialog open with "Copy" rather than announcing a file that never came. The
+  export dialog closes on success, so the notice is the one signal on the page. A backup that is
+  incomplete is not that success: the dialog stays open with the warning that the file restores the
+  seat and not the vault, and no "Download started". The rename's own line, which vanished after two seconds, is gone, and the
+  field empties with the new name as its placeholder. The passphrase change keeps its panel, which
+  already says what happened and carries the export reminder. A screen reader hears each notice
+  from a region that exists from the first paint, instead of a row inserted already filled, which
+  many readers skip (#320).
+- **"Copied" was said before the clipboard answered.** The Receive page (the vault's address and the
+  payment link) and the proof page (the txids) fired the clipboard write and claimed success at
+  once; a denied permission or an unfocused tab refuses that write, and the member would paste
+  whatever the clipboard held before, believing it was the vault's address. Both now wait for the
+  answer; a refusal stays beside the button and asks for a copy by hand (#313).
 
 ### Known limits
 
