@@ -1281,4 +1281,16 @@ export const ptBR: Record<string, string> = {
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposto por',
   'ledger.colApprovedBy': 'Aprovado por',
+  // Ledger period picker: a window by month, quarter or year, placed by creation date.
+  'ledger.periodLabel': 'PERÍODO',
+  'ledger.periodAll': 'Todo o período',
+  'ledger.periodMonth': 'Mês',
+  'ledger.periodQuarter': 'Trimestre',
+  'ledger.periodYear': 'Ano',
+  'ledger.periodPrev': 'Período anterior',
+  'ledger.periodNext': 'Próximo período',
+  'ledger.periodQuarterLabel': 'T{q} {y}',
+  'ledger.periodHint': 'Os lançamentos entram pela data de criação.',
+  'ledger.emptyPeriod': 'Nenhum lançamento em {period}.',
+  'ledger.csvWholeBook': 'O CSV é sempre o livro inteiro, qualquer que seja o período.',
 }
