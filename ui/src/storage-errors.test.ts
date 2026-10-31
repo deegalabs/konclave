@@ -50,7 +50,7 @@ describe('storage refusals reach the member in their language (#586)', () => {
 
   it('every code has a key in both dictionaries, and an error without a code falls back', () => {
     const codes = ['no-storage', 'no-vault', 'no-id', 'passphrase-required', 'new-passphrase-required', 'wrong-passphrase', 'wrong-passphrase-saved',
-      'not-an-export', 'corrupt', 'unsupported-version', 'already-exists', 'same-passphrase'] as const
+      'not-an-export', 'corrupt', 'unsupported-version', 'already-exists', 'same-passphrase', 'sealed-field-unreadable'] as const
     for (const c of codes) {
       const k = storageErrorKey(new StorageError(c, 'x'), 'fallback')
       expect(k, c).toMatch(/^storage\.err\./)

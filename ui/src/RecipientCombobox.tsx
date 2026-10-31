@@ -4,7 +4,7 @@
 // list. Replaces the old "select + Manage payees button + raw address input" trio. WAI-ARIA combobox.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { addBeneficiary, classifyAddress, shortAddr, type Beneficiary } from './api'
+import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, type Beneficiary } from './api'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
 
@@ -23,8 +23,16 @@ function pushRecent(addr: string): void {
 /** A resolved recipient. `name` is null for a raw pasted address. */
 export type Recipient = { address: string; name: string | null; memo?: string }
 
+/** What a pasted address is called on its row. Only addresses that classify reach the row; a Sapling
+ *  one used to fall through to "Transparent address" beside its own "older shielded" chip. */
+export function pastedLabelKey(k: ReturnType<typeof classifyAddress>): string {
+  if (k === 'unified') return 'rec.addrShielded'
+  if (k === 'sapling') return 'rec.addrSapling'
+  return 'rec.addrPublic'
+}
+
 export function RecipientCombobox({
-  benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact,
+  benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact, invalid, describedBy,
 }: {
   benefs: Beneficiary[]
   address: string
@@ -34,6 +42,9 @@ export function RecipientCombobox({
   placeholder?: string
   autoFocus?: boolean
   compact?: boolean
+  /** The row this field sits in has a problem; the id names where it is said. */
+  invalid?: boolean
+  describedBy?: string
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -55,6 +66,9 @@ export function RecipientCombobox({
 
   const picked = !!name && !!address
   const kind = address.trim().length > 1 ? classifyAddress(address.trim()) : null
+  // An address the vault cannot pay is said by the screen that refuses it (the payment field, the
+  // payroll line), by the same rule; this field does not say it a second time beside it (#294).
+  const refused = kind ? addressRefusal(address.trim()) : null
   const qIsAddr = classifyAddress(q.trim()) !== 'unknown' && q.trim().length > 6
 
   // The dropdown rows: pasted address, or recents+saved filtered by the query, then an inline "add".
@@ -190,6 +204,8 @@ export function RecipientCombobox({
             aria-expanded={open}
             aria-autocomplete="list"
             aria-controls="rcb-pop"
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             autoComplete="off"
             spellCheck={false}
             placeholder={placeholder ?? t('rec.placeholder')}
@@ -213,7 +229,7 @@ export function RecipientCombobox({
               <div className="rcb-grp">{t('rec.pasted')}</div>
               <button type="button" role="option" aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onClick={() => pick({ address: rows.pasted!, name: null })}>
                 <Identicon seed={rows.pasted!} size={26} />
-                <span className="rcb-om"><span className="rcb-on">{k === 'unified' ? t('rec.addrShielded') : t('rec.addrPublic')} {chip(k)}</span><span className="rcb-oa">{shortAddr(rows.pasted!)}</span></span>
+                <span className="rcb-om"><span className="rcb-on">{t(pastedLabelKey(k))} {chip(k)}</span><span className="rcb-oa">{shortAddr(rows.pasted!)}</span></span>
               </button>
             </>)
           })()}
@@ -266,18 +282,16 @@ export function RecipientCombobox({
         </div>
       )}
 
-      {/* Under-field validation for a raw / picked address. */}
-      {!open && kind && (
+      {/* Under-field validation for a raw / picked address the vault can pay. A refused one is said
+          by the screen that refuses it, so the sentence is not repeated here. */}
+      {!open && kind && !refused && (
         <div className={'hint mt-xs ' + (kind === 'unified' ? 'rcb-ok' : 'warn')}>
-          {kind === 'unified' ? t('rec.shieldedOk')
-            : kind === 'transparent' ? t('rec.publicWarn')
-            : kind === 'sapling' ? t('rec.saplingWarn')
-            : t('rec.unknownWarn')}
+          {kind === 'unified' ? t('rec.shieldedOk') : t('rec.publicWarn')}
         </div>
       )}
 
       {/* Offer to save a valid, unsaved pasted address as a reusable payee (the user names it). */}
-      {!open && !picked && kind && kind !== 'unknown' && kind !== 'sapling' && !benefs.some((b) => b.address === address.trim()) && (
+      {!open && !picked && kind && !refused && !benefs.some((b) => b.address === address.trim()) && (
         savePrompt ? (
           <div className="rcb-savebox">
             <input className="input" placeholder={t('rec.saveNamePlaceholder')} value={saveName} autoFocus

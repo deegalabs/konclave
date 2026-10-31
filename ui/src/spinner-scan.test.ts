@@ -5,7 +5,7 @@ import { codeOf } from './source-scan'
 // generic spinner in its place. The screens converted here must not reach for <Loading/> again.
 
 describe('loading is a skeleton, not a spinner', () => {
-  for (const f of ['Members.tsx', 'NewPayment.tsx', 'NewPayroll.tsx', 'Settings.tsx']) {
+  for (const f of ['Dashboard.tsx', 'Members.tsx', 'NewPayment.tsx', 'NewPayroll.tsx', 'Settings.tsx']) {
     it(`${f} draws a skeleton while it loads`, () => {
       const src = codeOf(`screens/${f}`)
       expect(src).not.toMatch(/<Loading\b/)
