@@ -40,12 +40,21 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
 ## [0.16.0] 2026-10-30
 
 ### Security
-
-These fixes reach a device when it runs this version. If the app says "New version available", press
-Update once any signing in progress has finished. Your vault and your share stay on the device.
 
 - **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
   machine takes a signing request only from the device assembling the signature and does not let a
@@ -150,16 +159,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   active filter; an empty book exports zeros instead of formulas; and the hidden properties say
   nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
   coordinator, which does not know the screen's filters (#302, with #301).
-- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
-  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
-  read the raw spendable balance, so two payrolls against the same funds both validated and the
-  second died at signing. Both screens now draw on one rule (free = spendable minus what open
-  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
-  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
-  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
-  block is read from one live region the button points at, so a screen reader hears it appear,
-  change and clear; the "after" figure is labelled as free funds and shows a dash while a
-  reservation or confirmations are the block (#293, #352).
 
 ### Known limits
 
@@ -171,7 +170,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   that depends on the update. A payment that moves funds between pools, built shortly before the
   upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
   funds are available again" is not promised.
-
 - **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
   loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
   cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
@@ -182,7 +180,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
   sees the chain, already says the payment needs a new signature. A release that anchors the clock to
   the real time of the upgrade block shortens this.
-
 ## [0.15.0] 2026-10-26
 
 ### Fixed
