@@ -11,7 +11,7 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -31,11 +31,11 @@ const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 export function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
-  if (k === 'unknown') return 'payroll.issueUnknown'
-  // (#294): the vault pays Orchard receivers only, and the coordinator refuses a Sapling
-  // line for the whole sheet. Said on the line, before the sheet is composed, with the word that
-  // had been written for it and never used.
-  if (k === 'sapling') return 'payroll.cellSapling'
+  // (#294): the coordinator refuses a Sapling line for the whole sheet. Said on the line, before the
+  // sheet is composed, by the same rule the payment screen asks.
+  const refused = addressRefusal(r.address.trim())
+  if (refused === 'unknown') return 'payroll.issueUnknown'
+  if (refused === 'sapling') return 'payroll.cellSapling'
   if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
   const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'

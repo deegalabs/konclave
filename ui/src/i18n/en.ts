@@ -653,6 +653,8 @@ export const en: Record<string, string> = {
 
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Enter the destination address.',
+  'payment.toSapling': 'This is an older shielded (Sapling) address, which this vault cannot pay. Ask for an address that starts with u1.',
+  'payment.toUnknown': 'This is not an address this vault can pay. Check it, or pick another beneficiary.',
   'payment.title': 'New payment',
   'payment.cap': 'Propose a payment for the quorum to approve. Nothing leaves the vault until it is approved.',
   'payment.fromVault': 'From vault **{name}**',
@@ -667,6 +669,7 @@ export const en: Record<string, string> = {
   'rec.pasted': 'Pasted address',
   'rec.addrShielded': 'Shielded address',
   'rec.addrPublic': 'Transparent address',
+  'rec.addrSapling': 'Older shielded address',
   'rec.add': 'Add “{q}”',
   'rec.addAddr': 'Payee’s u1… address',
   'rec.addMemo': 'Default memo (optional)',

@@ -649,6 +649,8 @@ export const ptBR: Record<string, string> = {
 
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Informe o endereço de destino.',
+  'payment.toSapling': 'Este é um endereço blindado antigo (Sapling), que este cofre não consegue pagar. Peça um endereço que comece com u1.',
+  'payment.toUnknown': 'Este não é um endereço que este cofre consiga pagar. Confira, ou escolha outro beneficiário.',
   'payment.title': 'Novo pagamento',
   'payment.cap': 'Proponha um pagamento para o quórum aprovar. Nada sai do cofre enquanto não for aprovado.',
   'payment.fromVault': 'Do cofre **{name}**',
@@ -663,6 +665,7 @@ export const ptBR: Record<string, string> = {
   'rec.pasted': 'Endereço colado',
   'rec.addrShielded': 'Endereço blindado',
   'rec.addrPublic': 'Endereço transparente',
+  'rec.addrSapling': 'Endereço blindado antigo',
   'rec.add': 'Adicionar “{q}”',
   'rec.addAddr': 'Endereço u1… do destinatário',
   'rec.addMemo': 'Memo padrão (opcional)',

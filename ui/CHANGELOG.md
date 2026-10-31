@@ -86,6 +86,16 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong and
+  the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum is still refused by the coordinator (#294).
+
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
   page was up, a reload of the desk still showed a spinner, and the movements and the balance each

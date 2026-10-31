@@ -491,6 +491,14 @@ export function classifyAddress(addr: string): AddressKind {
   return 'unknown'
 }
 
+/** Why the vault cannot pay this address, or null. ONE rule for the payment and the payroll line
+ *  (#294): the vault pays Orchard and transparent receivers, and the coordinator refuses a Sapling
+ *  one. This reads the prefix only; the coordinator still decodes the whole address. */
+export function addressRefusal(addr: string): 'unknown' | 'sapling' | null {
+  const k = classifyAddress(addr)
+  return k === 'unknown' || k === 'sapling' ? k : null
+}
+
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
  * (§6.11 "human-readable errors"). Matches on the backend's English error CODES; returns a

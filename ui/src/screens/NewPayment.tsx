@@ -9,7 +9,7 @@ import { amountAmbiguous, amountTyped, fmtZecExact, typedAmountZat, zatToZec } f
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
-  createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
+  createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, addressRefusal, humanError,
   type Beneficiary, type Member, type Proposal,
 } from '../api'
 import { listVaults } from '../storage'
@@ -138,6 +138,10 @@ export default function NewPayment() {
   const memoOver = memoLen > MEMO_MAX
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
   const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
+  // An address the vault cannot pay closes Propose and says why on the field, as the payroll line
+  // does (#294). A pasted Sapling address reaches here, and so does a saved payee's address that is
+  // not one; the coordinator refused both, but only after the click.
+  const toRefused = to.trim() ? addressRefusal(to.trim()) : null
   // A real available balance when we have it; a neutral dash otherwise - never a fake number.
   // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
   // `spendable`: that is the number this screen used to show while the Dashboard was telling the
@@ -210,7 +214,7 @@ export default function NewPayment() {
   // `block === null` covers memo, amount and balance. The amount check used to be a looser
   // `parseFloat(value.replace(',', '.')) > 0`, which accepted a comma decimal that `parseZecToZat`
   // rejects - so the button enabled for an amount the rest of the code could not read.
-  const canSubmit = !busy && block === null && !!to.trim()
+  const canSubmit = !busy && block === null && !!to.trim() && toRefused === null
 
   return (
     <main className="page pay">
@@ -242,8 +246,11 @@ export default function NewPayment() {
               name={toName}
               onChange={(r) => { setTo(r.address); setToName(r.name); if (r.memo) setMemo(r.memo) }}
               onReloadBenefs={reloadBenefs}
+              invalid={!!toRefused}
+              describedBy={toRefused ? 'pay-to-refused' : undefined}
             />
           </label>
+          {toRefused && <div className="hint warn mt-sm" id="pay-to-refused">{t(toRefused === 'sapling' ? 'payment.toSapling' : 'payment.toUnknown')}</div>}
 
           <label className="field"><span>{t('payment.value')}</span>
             <div className="payamt">
@@ -316,7 +323,7 @@ export default function NewPayment() {
           <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
-          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'pay-busy' : null, blockMsg ? 'pay-block' : null].filter(Boolean).join(' ') || undefined}>
+          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'pay-busy' : null, blockMsg ? 'pay-block' : null, toRefused ? 'pay-to-refused' : null].filter(Boolean).join(' ') || undefined}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </aside>

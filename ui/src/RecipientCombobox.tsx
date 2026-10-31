@@ -23,6 +23,14 @@ function pushRecent(addr: string): void {
 /** A resolved recipient. `name` is null for a raw pasted address. */
 export type Recipient = { address: string; name: string | null; memo?: string }
 
+/** What a pasted address is called on its row. Only addresses that classify reach the row; a Sapling
+ *  one used to fall through to "Transparent address" beside its own "older shielded" chip. */
+export function pastedLabelKey(k: ReturnType<typeof classifyAddress>): string {
+  if (k === 'unified') return 'rec.addrShielded'
+  if (k === 'sapling') return 'rec.addrSapling'
+  return 'rec.addrPublic'
+}
+
 export function RecipientCombobox({
   benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact, invalid, describedBy,
 }: {
@@ -218,7 +226,7 @@ export function RecipientCombobox({
               <div className="rcb-grp">{t('rec.pasted')}</div>
               <button type="button" role="option" aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onClick={() => pick({ address: rows.pasted!, name: null })}>
                 <Identicon seed={rows.pasted!} size={26} />
-                <span className="rcb-om"><span className="rcb-on">{k === 'unified' ? t('rec.addrShielded') : t('rec.addrPublic')} {chip(k)}</span><span className="rcb-oa">{shortAddr(rows.pasted!)}</span></span>
+                <span className="rcb-om"><span className="rcb-on">{t(pastedLabelKey(k))} {chip(k)}</span><span className="rcb-oa">{shortAddr(rows.pasted!)}</span></span>
               </button>
             </>)
           })()}
