@@ -1293,4 +1293,9 @@ export const ptBR: Record<string, string> = {
   'ledger.periodHint': 'Os lançamentos entram pela data de criação.',
   'ledger.emptyPeriod': 'Nenhum lançamento em {period}.',
   'ledger.csvWholeBook': 'O CSV é sempre o livro inteiro, qualquer que seja o período.',
+  // Evidence and payment point at each other (same txid); the join is on the screen.
+  'ceremonies.viewProposal': 'Ver proposta →',
+  'ceremonies.noProposal': 'Nenhuma proposta deste cofre tem esta transação.',
+  'ceremonies.thisPayment': 'Este pagamento',
+  'proposal.viewEvidence': 'Ver a evidência da assinatura →',
 }

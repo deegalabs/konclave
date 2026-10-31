@@ -1537,3 +1537,12 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .plist-link:hover{text-decoration:underline}
 .plist-stamp{display:inline-block; margin-left:8px; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:1px 6px; vertical-align:middle}
 .plist-stamp.sign{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
+/* The payment a signature record belongs to, and the record a proposal points at. */
+.cer-list{list-style:none; padding-left:0}
+.cer-pay{display:flex; flex-wrap:wrap; gap:6px 12px; align-items:baseline; margin:8px 0}
+.cer-pay .cer-doc{font-weight:500; min-width:0; overflow-wrap:anywhere}
+.cer-pay b{font-variant-numeric:tabular-nums}
+.cer-nomatch{margin:8px 0; font-size:12px}
+.cer-row.hilite{border-color:var(--accent); background:var(--accent-soft)}
+.cer-row.hilite .link{color:var(--accent-ink)}
+.cer-tag.this{color:var(--accent-ink); border-color:var(--accent-line); background:var(--accent-soft)}
