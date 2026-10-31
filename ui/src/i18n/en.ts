@@ -752,7 +752,7 @@ export const en: Record<string, string> = {
   'payroll.namePlaceholder': 'name',
   'payroll.addrPlaceholder': 'u1… (shielded)',
   'payroll.cellPublic': 'public',
-  'payroll.cellSapling': 'older shielded (Sapling) · cannot be paid · use u1…',
+  'payroll.cellSapling': 'older shielded (Sapling) address · ask for a u1… address',
   'payroll.memoPublicPlaceholder': 'no memo (public)',
   'payroll.memoPlaceholder': 'payslip…',
   'payroll.addRow': '+ Add line',

@@ -165,6 +165,14 @@ history to tidy it is how context gets lost.
   names, "Proposed by" and "Approved by", as the vault records them; a payroll's rows share them.
   When each approval was given is not recorded yet (#290), so the sheet does not pretend to know
   it (#302).
+- **A payroll line with an older shielded (Sapling) address is refused on the line.** The vault
+  pays current shielded (u1) receivers only; the payee picker said so under the field, but the
+  line still counted as valid, the sheet composed, and the coordinator refused the whole payroll.
+  The line now carries the problem itself ("older shielded (Sapling) address, ask for a u1
+  address"), the sheet cannot be sent while it stands, and the picker no longer repeats the
+  sentence under a payroll line. The note under the sheet now says why the button is off when a
+  line is flagged, and each flagged line is marked invalid and linked to its own note, so a screen
+  reader hears it on the line (#294).
 
 ### Known limits
 
