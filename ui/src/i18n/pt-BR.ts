@@ -748,7 +748,7 @@ export const ptBR: Record<string, string> = {
   'payroll.namePlaceholder': 'nome',
   'payroll.addrPlaceholder': 'u1… (blindado)',
   'payroll.cellPublic': 'público',
-  'payroll.cellSapling': 'blindado antigo (Sapling) · não pagável · use u1…',
+  'payroll.cellSapling': 'endereço blindado antigo (Sapling) · peça um endereço u1…',
   'payroll.memoPublicPlaceholder': 'sem memo (público)',
   'payroll.memoPlaceholder': 'holerite…',
   'payroll.addRow': '+ Adicionar linha',
