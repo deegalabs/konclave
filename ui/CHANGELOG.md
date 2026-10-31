@@ -40,6 +40,13 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
+  payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
+  read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
+  They now show every place down to the zatoshi. The amount sent was never affected (#777).
+
 ## [0.16.0] 2026-10-30
 
 ### Security
