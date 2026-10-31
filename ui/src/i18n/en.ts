@@ -1262,4 +1262,15 @@ export const en: Record<string, string> = {
   'proposal.confirmationsUnknown': 'could not read the chain',
   'proposal.confirmedBlock': 'confirmed, block {h}',
   'proposal.copyAddress': 'Copy address',
+  // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
+  'proposals.needsYou': 'Needs you',
+  'proposals.withOthers': 'With the other members',
+  'proposals.sentAwaiting': 'Sent, awaiting confirmation',
+  'proposals.showClosed': 'Show closed ({n})',
+  'proposals.hideClosed': 'Hide closed ({n})',
+  'proposals.closedGroup': 'Closed',
+  'proposals.nothingForYou': 'Nothing needs you right now.',
+  'proposals.unreadTitle': 'Could not read the proposals',
+  'proposals.unreadLead': 'The list could not be read. Your vault and your share are still on this device; only the list did not arrive.',
+  'proposals.retry': 'Try again',
 }

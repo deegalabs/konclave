@@ -60,6 +60,16 @@ history to tidy it is how context gets lost.
   as a date and hour with the time left beside it; while the chain has not answered the screen says
   nothing rather than "not confirmed"; and the copy button names what it copies and announces
   "Copied" to a screen reader.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Fixed
 
