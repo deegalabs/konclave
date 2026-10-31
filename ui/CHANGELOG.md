@@ -70,6 +70,11 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **The book can be read by period.** Month, quarter or year, walked back and forth, or all time;
+  entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
+  follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
+  export carries the period's name as its period. Until now the period was only read off
+  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
 
 ### Fixed
 
@@ -159,6 +164,12 @@ history to tidy it is how context gets lost.
   names, "Proposed by" and "Approved by", as the vault records them; a payroll's rows share them.
   When each approval was given is not recorded yet (#290), so the sheet does not pretend to know
   it (#302).
+- **The ledger's filter chips say which one is selected, and the groups have names.** A screen reader
+  read "Mês" or "Liquidados" as plain buttons, with nothing to tell which was active and no group
+  boundary between PERIOD, STATE and KIND; the selected chip's blue text also fell just under the
+  contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
+  group, the period name is announced when it changes, and the selected text is darker. Found by the
+  accessibility pass on the period picker.
 
 ### Known limits
 

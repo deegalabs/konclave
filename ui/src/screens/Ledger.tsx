@@ -7,6 +7,7 @@ import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { isOpen } from '../desk'
+import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
 import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
 
@@ -25,6 +26,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
   const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
+  // The period window: by month, quarter or year, walked with an offset; entries placed by creation date.
+  const [pKind, setPKind] = useState<PeriodKind>('all')
+  const [pOffset, setPOffset] = useState(0)
   const [xlsxBusy, setXlsxBusy] = useState(false)
 
   // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
@@ -98,7 +102,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       }
       await exportLedgerXlsx({
         vaultName: vaultName ?? 'Konclave',
-        period: periodOf(filtered),
+        period: win ? winLabel : periodOf(filtered),
         filter: filterLabel,
         generatedAt: new Date(),
         items,
@@ -119,8 +123,21 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   }
 
   const ledger = rows ?? []
-  const settled = ledger.filter((p) => SETTLED(p.state))
-  const pending = ledger.filter(isOpen)
+  const win = periodWindow(pKind, pOffset)
+  const winLabel = periodLabel(pKind, pOffset, new Date(), locale, (q, y) => t('ledger.periodQuarterLabel', { q: String(q), y: String(y) }))
+  const inWin = ledger.filter((p) => inPeriod(win, p.created_at))
+  // Changing the kind keeps the date in view: the offset is recomputed from the window's start.
+  const setKind = (k: PeriodKind) => {
+    const anchor = win ? new Date(win.from * 1000) : new Date()
+    setPKind(k)
+    setPOffset(offsetFor(k, anchor))
+  }
+  const knOk = (p: Proposal) => fKind === 'all' || p.kind === fKind
+  // The headline totals follow the period and the kind filter, never the state filter (a state is
+  // what each total already selects).
+  const scoped = inWin.filter(knOk)
+  const settled = scoped.filter((p) => SETTLED(p.state))
+  const pending = scoped.filter(isOpen)
   // Totals in integer zatoshi, formatted once: a float sum of the decimal strings drifts (#303).
   const totalOut = zatToZec(sumZat(settled))
   const totalPending = zatToZec(sumZat(pending))
@@ -133,11 +150,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     const hi = Math.max(...dates)
     return lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
   }
-  const period = periodOf(ledger)
-  const filtered = ledger.filter((p) => {
+  const period = win ? winLabel : periodOf(ledger)
+  const filtered = inWin.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : isOpen(p))
-    const knOk = fKind === 'all' || p.kind === fKind
-    return stOk && knOk
+    return stOk && knOk(p)
   })
   // The active filters in the chips' own words, so a filtered export says it is a part of the book.
   const filterLabel = [
@@ -155,7 +171,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           <span className="btn ghost sm-btn">{t('ledger.exportCsv')}</span>
         </Soon>
       ) : (
-        <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
+        <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv" title={win ? t('ledger.csvWholeBook') : undefined}>{t('ledger.exportCsv')}</a>
       )}
       <button className="btn ghost sm-btn" disabled={xlsxBusy} title={t('ledger.xlsxIncludes')} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
@@ -170,7 +186,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? '…'}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
-            <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
+            <div><span className="klab">{t('ledger.entries')}</span><b>{inWin.length}</b></div>
           </div>
           <div className="db-totals">
             <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">−{fmtZecExact(Number(totalOut))}</b></Secret></div>
@@ -178,22 +194,39 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
-        <div className="cap">{t('ledger.capLive')}<br /><span>{t('ledger.xlsxIncludes')}</span></div>
+        {/* The period hint is on screen, not visually hidden: a hidden box that clips its text reads as a cropped control at 320px. */}
+        <div className="cap">{t('ledger.capLive')}<br /><span id="ledger-period-hint">{t('ledger.periodHint')}</span> <span>{t('ledger.xlsxIncludes')}</span></div>
 
         <div className="filters">
-          <span className="chip-group">
-            <span className="chip-glabel">{t('ledger.filterStateLabel')}</span>
-            <button className={'chip' + (fState === 'all' ? ' on' : '')} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
-            <button className={'chip' + (fState === 'settled' ? ' on' : '')} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
-            <button className={'chip' + (fState === 'openp' ? ' on' : '')} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
+          <span className="chip-group" role="group" aria-labelledby="ledger-period-label" aria-describedby="ledger-period-hint">
+            <span className="chip-glabel" id="ledger-period-label" title={t('ledger.periodHint')}>{t('ledger.periodLabel')}</span>
+            {(['all', 'month', 'quarter', 'year'] as const).map((k) => (
+              <button key={k} className={'chip' + (pKind === k ? ' on' : '')} aria-pressed={pKind === k} onClick={() => setKind(k)}>
+                {t({ all: 'ledger.periodAll', month: 'ledger.periodMonth', quarter: 'ledger.periodQuarter', year: 'ledger.periodYear' }[k])}
+              </button>
+            ))}
+            {win && <button className="chip" aria-label={t('ledger.periodPrev')} title={t('ledger.periodPrev')} onClick={() => setPOffset((o) => o - 1)}>‹</button>}
+            {/* Always mounted, so a change of window is announced (a live region must exist before its text changes). */}
+            <span className="chip-label" role="status" title={t('ledger.periodHint')}>{win ? winLabel : ''}</span>
+            {win && (
+              <button className="chip" aria-label={t('ledger.periodNext')} title={t('ledger.periodNext')} aria-disabled={pOffset >= 0}
+                onClick={() => { if (pOffset < 0) setPOffset((o) => o + 1) }}>›</button>
+            )}
           </span>
-          <span className="chip-group">
-            <span className="chip-glabel">{t('ledger.filterKindLabel')}</span>
-            <button className={'chip' + (fKind === 'all' ? ' on' : '')} onClick={() => setFKind('all')}>{t('ledger.filterEverything')}</button>
-            <button className={'chip' + (fKind === 'payment' ? ' on' : '')} onClick={() => setFKind('payment')}>{t('ledger.filterPayments')}</button>
-            <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} onClick={() => setFKind('payroll')}>{t('ledger.filterPayrolls')}</button>
+          <span className="chip-group" role="group" aria-labelledby="ledger-state-label">
+            <span className="chip-glabel" id="ledger-state-label">{t('ledger.filterStateLabel')}</span>
+            <button className={'chip' + (fState === 'all' ? ' on' : '')} aria-pressed={fState === 'all'} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
+            <button className={'chip' + (fState === 'settled' ? ' on' : '')} aria-pressed={fState === 'settled'} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
+            <button className={'chip' + (fState === 'openp' ? ' on' : '')} aria-pressed={fState === 'openp'} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
           </span>
-          {filtered.length !== ledger.length && <span className="chip-note">{t('ledger.showingOf', { shown: filtered.length, total: ledger.length })}</span>}
+          <span className="chip-group" role="group" aria-labelledby="ledger-kind-label">
+            <span className="chip-glabel" id="ledger-kind-label">{t('ledger.filterKindLabel')}</span>
+            <button className={'chip' + (fKind === 'all' ? ' on' : '')} aria-pressed={fKind === 'all'} onClick={() => setFKind('all')}>{t('ledger.filterEverything')}</button>
+            <button className={'chip' + (fKind === 'payment' ? ' on' : '')} aria-pressed={fKind === 'payment'} onClick={() => setFKind('payment')}>{t('ledger.filterPayments')}</button>
+            <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} aria-pressed={fKind === 'payroll'} onClick={() => setFKind('payroll')}>{t('ledger.filterPayrolls')}</button>
+          </span>
+          {/* The note's base is the period in view, the same base as the band's count. */}
+          {filtered.length !== inWin.length && <span className="chip-note">{t('ledger.showingOf', { shown: filtered.length, total: inWin.length })}</span>}
         </div>
 
         <table className="tbl razao mt">
@@ -205,7 +238,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             {rows !== null && ledger.length === 0 && (
               <tr><td colSpan={4} className="by">{t('ledger.emptyNone')}</td></tr>
             )}
-            {ledger.length > 0 && filtered.length === 0 && (
+            {ledger.length > 0 && win && inWin.length === 0 && (
+              <tr><td colSpan={4} className="by">{t('ledger.emptyPeriod', { period: winLabel })} <button className="chip" onClick={() => setKind('all')}>{t('ledger.periodAll')}</button></td></tr>
+            )}
+            {inWin.length > 0 && filtered.length === 0 && (
               <tr><td colSpan={4} className="by">{t('ledger.emptyFilter')}</td></tr>
             )}
             {filtered.map((p) => {
