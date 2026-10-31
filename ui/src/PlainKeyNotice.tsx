@@ -30,7 +30,7 @@ export default function PlainKeyNotice({ vaultId, onSealed }: { vaultId: string;
   }
 
   return (
-    <form className="cv-warn plain-key" role="note" onSubmit={(e) => void submit(e)} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+    <form className="cv-warn" role="note" onSubmit={(e) => void submit(e)} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <strong>{t('vaults.plainKeyTitle')}</strong>
       <p className="dim">{t('vaults.plainKeyLead')}</p>
       <label className="field"><span>{t('vaults.plainKeyPass')}</span>

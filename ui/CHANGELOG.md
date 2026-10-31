@@ -73,13 +73,6 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **A device that only unlocks with the passkey is told when it still holds the viewing key
-  unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
-  encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
-  the key is encrypted under), so a member who only used the passkey kept the old record with
-  nothing on screen saying so. The vault list now carries a short notice on that vault's card
-  asking for the passphrase once on this device; typing it runs the same rewrite, and the notice
-  goes away. The check reads only whether the field is present, never its value (#784).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -119,6 +112,13 @@ history to tidy it is how context gets lost.
   payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
   read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
   They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **A device that only unlocks with the passkey is told when it still holds the viewing key
+  unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
+  encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
+  the key is encrypted under), so a member who only used the passkey kept the old record with
+  nothing on screen saying so. The vault list now carries a short notice on that vault's card
+  asking for the passphrase once on this device; typing it runs the same rewrite, and the notice
+  goes away. The check reads only whether the field is present, never its value (#784).
 
 ### Known limits
 
