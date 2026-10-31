@@ -36,6 +36,7 @@ const propose = () => screen.getByRole('button', { name: en('payment.proposeBtn'
 const fill = async (addr: string) => {
   const to = await screen.findByRole('combobox')
   fireEvent.change(to, { target: { value: addr } })
+  fireEvent.click(screen.getByRole('option')) // pick the pasted row: the list closes, as a member's does
   fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '0.01' } })
 }
 
@@ -60,8 +61,17 @@ describe('an address the vault cannot pay closes Propose and says why (#294)', (
     mount()
     await fill(ZS)
     expect(screen.getByText(en('payment.toSapling'))).toBeTruthy()
+    expect(document.querySelector('.rcb .hint')).toBeNull() // said once, by the field's refusal
     expect(propose().disabled).toBe(true)
     expect(propose().getAttribute('aria-describedby')).toContain('pay-to-refused')
+  })
+
+  it('on the local bridge a transparent address is paid as public, and the field says so', async () => {
+    mount()
+    await fill(T1)
+    expect(screen.getByText(en('rec.publicWarn'))).toBeTruthy()
+    expect(screen.queryByText(en('payment.toTransparent'))).toBeNull()
+    expect(propose().disabled).toBe(false)
   })
 
   it('a saved payee whose address is no address: Propose stays closed', async () => {

@@ -44,8 +44,11 @@ describe('on the web, a transparent address is refused before the click (#294)',
   it('the payment field says why, and Propose stays closed', async () => {
     render(<MemoryRouter><I18nProvider><ToastProvider><NewPayment /></ToastProvider></I18nProvider></MemoryRouter>)
     fireEvent.change(await screen.findByRole('combobox'), { target: { value: T1 } })
+    fireEvent.click(screen.getByRole('option')) // pick the pasted row: the list closes, as a member's does
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '0.01' } })
     expect(screen.getByText(en('payment.toTransparent'))).toBeTruthy()
+    // Not "this payment is visible on the blockchain" beside it: there is no payment to see.
+    expect(screen.queryByText(en('rec.publicWarn'))).toBeNull()
     expect((screen.getByRole('button', { name: en('payment.proposeBtn') }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

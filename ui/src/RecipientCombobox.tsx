@@ -4,7 +4,7 @@
 // list. Replaces the old "select + Manage payees button + raw address input" trio. WAI-ARIA combobox.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { addBeneficiary, classifyAddress, shortAddr, type Beneficiary } from './api'
+import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, type Beneficiary } from './api'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
 
@@ -66,6 +66,9 @@ export function RecipientCombobox({
 
   const picked = !!name && !!address
   const kind = address.trim().length > 1 ? classifyAddress(address.trim()) : null
+  // An address the vault cannot pay is said by the screen that refuses it (the payment field, the
+  // payroll line), by the same rule; this field does not say it a second time beside it (#294).
+  const refused = kind ? addressRefusal(address.trim()) : null
   const qIsAddr = classifyAddress(q.trim()) !== 'unknown' && q.trim().length > 6
 
   // The dropdown rows: pasted address, or recents+saved filtered by the query, then an inline "add".
@@ -279,20 +282,16 @@ export function RecipientCombobox({
         </div>
       )}
 
-      {/* Under-field validation for a raw / picked address. In a payroll row (compact) a Sapling
-          address is a blocking problem of the line, said in the line's own slot, so the sentence
-          is not repeated here. */}
-      {!open && kind && !(compact && kind === 'sapling') && (
+      {/* Under-field validation for a raw / picked address the vault can pay. A refused one is said
+          by the screen that refuses it, so the sentence is not repeated here. */}
+      {!open && kind && !refused && (
         <div className={'hint mt-xs ' + (kind === 'unified' ? 'rcb-ok' : 'warn')}>
-          {kind === 'unified' ? t('rec.shieldedOk')
-            : kind === 'transparent' ? t('rec.publicWarn')
-            : kind === 'sapling' ? t('rec.saplingWarn')
-            : t('rec.unknownWarn')}
+          {kind === 'unified' ? t('rec.shieldedOk') : t('rec.publicWarn')}
         </div>
       )}
 
       {/* Offer to save a valid, unsaved pasted address as a reusable payee (the user names it). */}
-      {!open && !picked && kind && kind !== 'unknown' && kind !== 'sapling' && !benefs.some((b) => b.address === address.trim()) && (
+      {!open && !picked && kind && !refused && !benefs.some((b) => b.address === address.trim()) && (
         savePrompt ? (
           <div className="rcb-savebox">
             <input className="input" placeholder={t('rec.saveNamePlaceholder')} value={saveName} autoFocus
