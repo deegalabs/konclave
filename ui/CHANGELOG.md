@@ -79,6 +79,13 @@ history to tidy it is how context gets lost.
   or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
   that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
   payment", and a "Closed" filter shows only those lines. They were already outside both totals.
+- **The CSV export works on the web, from the rows on screen, and is safe to open.** The button
+  was "soon" on the web and, on the local build, downloaded a server file that ignored the period and
+  the filters. The CSV is now built in the browser from the same rows as the XLSX, with the period
+  and filters on screen, one row per payroll line, who proposed and approved, and all eight decimals.
+  It opens cleanly in Excel: a UTF-8 marker for accents, the delimiter and decimal mark of the
+  member's language, the entry's local date. A memo or a payee name that starts with "=", "+", "-"
+  or "@" is written so a spreadsheet cannot run it as a formula (#301, #304).
 
 ### Fixed
 

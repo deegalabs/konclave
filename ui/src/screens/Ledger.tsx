@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
-import { Secret, RevealButton, activateOnKey, Soon } from '../components'
+import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
+import { getLedger, getProposalDetail, getVault, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
-import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
+import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
+import { exportLedgerCsv } from '../ledgerCsv'
 import { isOpen } from '../desk'
 import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
 import { useLoading } from '../loading'
@@ -32,7 +33,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // The period window: by month, quarter or year, walked with an offset; entries placed by creation date.
   const [pKind, setPKind] = useState<PeriodKind>('all')
   const [pOffset, setPOffset] = useState(0)
-  const [xlsxBusy, setXlsxBusy] = useState(false)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'csv'>(null)
 
   // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
   // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
@@ -70,11 +71,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function exportXlsx() {
-    if (xlsxBusy) return
-    setXlsxBusy(true)
-    try {
-      const iso = (ts?: number) => (ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '')
+  // The rows and labels both exports share (#302, #301): built once, from what the screen shows.
+  async function exportData(): Promise<LedgerXlsxData> {
+      // The entry's local date, the one the table shows, not the UTC day (#304).
+      const iso = (ts?: number) => {
+        if (!ts) return ''
+        const d = new Date(ts * 1000)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      }
       const items: LedgerXlsxItem[] = []
       // Itemize: a payment = one row; a payroll = one row per beneficiary (fetch its lines if not
       // already open), mirroring the CSV export. Runs from the ledger data already in memory, and
@@ -103,7 +107,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
         }
       }
-      await exportLedgerXlsx({
+      return {
         vaultName: vaultName ?? 'Konclave',
         period: win ? winLabel : periodOf(filtered),
         filter: filterLabel,
@@ -119,9 +123,18 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
           colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
         },
-      })
+      }
+  }
+
+  async function exportAs(kind: 'xlsx' | 'csv') {
+    if (exporting) return
+    setExporting(kind)
+    try {
+      const data = await exportData()
+      if (kind === 'xlsx') await exportLedgerXlsx(data)
+      else await exportLedgerCsv(data, locale)
     } finally {
-      setXlsxBusy(false)
+      setExporting(null)
     }
   }
 
@@ -166,17 +179,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
 
   const exportActions = (
     <>
-      {/* The CSV comes from the bridge's endpoint and is dead on the primary path (#301), and that
-          endpoint does not know the screen's filters, so the CSV is always the whole book (#302).
-          The XLSX and the print view are built in the browser and work everywhere. */}
-      {IS_NET ? (
-        <Soon reason={t('ledger.exportSoonWhy')}>
-          <span className="btn ghost sm-btn">{t('ledger.exportCsv')}</span>
-        </Soon>
-      ) : (
-        <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv" title={win ? t('ledger.csvWholeBook') : undefined}>{t('ledger.exportCsv')}</a>
-      )}
-      <button className="btn ghost sm-btn" disabled={xlsxBusy} title={t('ledger.xlsxIncludes')} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
+      {/* Both files are built in the browser from the rows on screen, so they work on every path
+          and honour the period and the filters (#301, #302). */}
+      <button className="btn ghost sm-btn" disabled={exporting !== null} title={t('ledger.csvIncludes')} onClick={() => void exportAs('csv')}>{exporting === 'csv' ? t('ledger.exporting') : t('ledger.exportCsv')}</button>
+      <button className="btn ghost sm-btn" disabled={exporting !== null} title={t('ledger.xlsxIncludes')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
     </>
   )
