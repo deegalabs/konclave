@@ -7,8 +7,7 @@ import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
 import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBalance'
-import { useOutletContext } from 'react-router-dom'
-import type { VaultLockContext } from '../Layout'
+import { useVaultReadable } from '../vault-readable'
 import { amountAmbiguous, fmtZecExact, typedAmountZat } from '../format'
 import { copyText } from '../clipboard'
 
@@ -66,7 +65,7 @@ export default function Receive() {
   const t = useT()
   const tr = useTr()
   const noticeId = useId()
-  const { locked, unlockNonce } = useOutletContext<VaultLockContext>()
+  const readable = useVaultReadable()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
@@ -98,11 +97,11 @@ export default function Receive() {
   }, [])
 
   // The history is a private read: behind the unlock overlay it would answer 401, which is a failure,
-  // not an empty history. So it waits for the vault to be unlocked and reads again the moment it is
-  // (`unlockNonce`, #467), as the dashboard does. The reader keeps one read at a time and retries a
+  // not an empty history. So it waits until `useVaultReadable` says the vault is unlocked, and reads
+  // again the moment it is (#439, #467). The reader keeps one read at a time and retries a
   // failure on a short schedule that stops; the 15 s poll does the rest (#123), paused when hidden.
   useEffect(() => {
-    if (locked) return
+    if (!readable) return
     let on = true
     const reader = historyReader<WalletTx>({
       read: () => readTransactions(),
@@ -132,7 +131,7 @@ export default function Receive() {
       reader.stop()
       stop()
     }
-  }, [locked, unlockNonce])
+  }, [readable])
 
   const address = vault?.orchard_address ?? ''
   // Each control that hands the address on carries the warning, so a screen reader that missed the
