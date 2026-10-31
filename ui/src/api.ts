@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason } from './send-outcome'
 import {
@@ -185,9 +186,13 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
-    if (!res.ok) return null
-    return (await res.json()) as T
-  } catch {
+    if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'bridge'); return null }
+    const data = (await res.json()) as T
+    recordRead(path, null)
+    return data
+  } catch (error) {
+    // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
+    recordRead(path, classifyRead({ error }), 'bridge')
     return null
   } finally {
     clearTimeout(t)
@@ -929,6 +934,15 @@ export async function getProposalDetail(
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return null
   return { proposal: r.proposal, lines: r.lines ?? [] }
+}
+
+/** Why the last read of a proposal failed, from the route that read it: on the web a proposal is
+ *  found in the vault's proposals (/api/vault/proposals); on the local bridge it is read by id, or,
+ *  with no id, picked from /api/proposals. `null` when that read succeeded: then a missing proposal
+ *  is really missing. Kept beside getProposalDetail so the route asked and the route reported agree. */
+export function proposalReadFailure(id: string | null): ReadFailureInfo | null {
+  if (NET) return lastReadFailure('/api/vault/proposals')
+  return lastReadFailure(id ? `/api/proposals/${encodeURIComponent(id)}` : '/api/proposals')
 }
 
 export type SendResult =

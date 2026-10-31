@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
 import { fmtDateTime } from './format'
+import { recordRead } from './read-failure'
 const en = (k: string): string => dict[k] ?? k
 
 // The proposal screen carries facts it had and did not show: when it was created, until when it
@@ -81,5 +82,32 @@ describe('the proposal screen states its facts', () => {
     readTransactions.mockResolvedValue(null)
     mount('p1')
     expect(await screen.findByText(en('proposal.confirmationsUnknown'))).toBeTruthy()
+  })
+})
+
+describe('a proposal that could not be read', () => {
+  beforeEach(() => {
+    localStorage.setItem('konclave.locale', 'en')
+    getVault.mockResolvedValue({ id: 'v', name: 'Caixa', threshold: 2, total: 3, members: 3, member_list: [{ name: 'Alice' }], group_pubkey: 'v', orchard_address: 'u1x' })
+    getBalance.mockResolvedValue({ configured: true, spendable_zat: 0, total_zat: 0, chain_tip_height: 3500120 })
+    readTransactions.mockResolvedValue([])
+    getProposals.mockResolvedValue([])
+    getProposalDetail.mockResolvedValue(null)
+  })
+  afterEach(() => { cleanup(); localStorage.clear(); recordRead('/api/proposals/p9', null) })
+
+  it('says it could not be read, not that there is no proposal, and offers to try again', async () => {
+    recordRead('/api/proposals/p9', 'unavailable', 'bridge') // what the real reader leaves behind when the read fails
+    mount('p9')
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getAllByText(en('proposal.unreadTitle')).length).toBeGreaterThan(0)
+    expect(screen.queryByText(en('proposal.noneTitle'))).toBeNull()
+    expect(screen.getByRole('button', { name: en('read.retry') })).toBeTruthy()
+  })
+
+  it('a read that succeeded and found nothing still says there is no proposal', async () => {
+    mount('p9')
+    expect(await screen.findByText(en('proposal.noneTitle'))).toBeTruthy()
+    expect(screen.queryByText(en('proposal.unreadTitle'))).toBeNull()
   })
 })
