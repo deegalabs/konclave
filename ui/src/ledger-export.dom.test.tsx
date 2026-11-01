@@ -14,6 +14,8 @@ const en = (k: string): string => dict[k] ?? k
 // what the export was handed.
 const exportLedgerXlsx = vi.hoisted(() => vi.fn<(d: LedgerXlsxData) => Promise<void>>(async () => {}))
 vi.mock('./ledgerXlsx', async (orig) => ({ ...(await orig<typeof import('./ledgerXlsx')>()), exportLedgerXlsx }))
+const exportLedgerCsv = vi.hoisted(() => vi.fn<(d: LedgerXlsxData, locale: 'pt-BR' | 'en') => Promise<void>>(async () => {}))
+vi.mock('./ledgerCsv', async (orig) => ({ ...(await orig<typeof import('./ledgerCsv')>()), exportLedgerCsv }))
 const getLedger = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
 const getProposalDetail = vi.hoisted(() => vi.fn())
@@ -155,5 +157,33 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+  it('shows a closed proposal as closed: its own state, no outflow sign, and a filter of its own', async () => {
+    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    getLedger.mockResolvedValue([pending, refused, rent])
+    mount()
+    const cell = await screen.findByText('Refused chairs')
+    const row = cell.closest('tr')!
+    expect(row.className).toContain('closed')
+    expect(row.textContent).toContain(en('ledger.closedNoMoney'))
+    expect(row.textContent).not.toContain('−0.75') // money never left: no outflow sign
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.filterClosed') }))
+    expect(screen.queryByText('October rent')).toBeNull()
+    expect(screen.getByText('Refused chairs')).toBeTruthy()
+    await clickExport()
+    expect(exported().items.map((i) => i.memo)).toEqual(['Refused chairs'])
+    expect(exported().filter).toBe(en('ledger.filterClosed'))
+  })
+
+  it('the CSV is built in the browser from the same rows as the XLSX, filters included (#301)', async () => {
+    mount()
+    await screen.findByText('October rent')
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.filterPayments') }))
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    await waitFor(() => expect(exportLedgerCsv).toHaveBeenCalled())
+    const [d, locale] = exportLedgerCsv.mock.lastCall!
+    expect(locale).toBe('en')
+    expect(d.items.map((i) => i.memo)).toEqual(['', 'October rent'])
+    expect(d.filter).toBe(en('ledger.filterPayments'))
   })
 })

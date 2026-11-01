@@ -24,7 +24,7 @@ describe('what Add funds says about the address', () => {
     expect(html).toContain('class="banner-warn rcv-warn" role="alert" id="n1"')
     expect(html).toContain('<span class="ow-ic" aria-hidden="true">⚠︎</span>') // text, not emoji
     expect(html).toContain('<b>Use only the address below.</b>')
-    expect(html).toContain('which can mean the coordinator was compromised')
+    expect(html).toContain('which can mean that server was compromised')
     expect(html).toContain('ask them to stop using it')
   })
 
@@ -44,7 +44,7 @@ describe('what Add funds says about the address', () => {
   it('says it in both languages', () => {
     expect(en['receive.addressDiffers']).toMatch(/Ask the other members to compare this address with the one their device shows/)
     expect(ptBR['receive.addressDiffers']).toMatch(/confira se era este e, se não era, peça que deixem de usá-lo/)
-    expect(ptBR['receive.addressDiffers']).toMatch(/o coordenador foi comprometido/)
+    expect(ptBR['receive.addressDiffers']).toMatch(/esse servidor foi comprometido/)
     expect(ptBR['receive.noAddress']).toMatch(/ou não conseguiu lê-lo, então não mostra nenhum/)
   })
 })
@@ -150,7 +150,7 @@ describe('a history read that fails is not an answer', () => {
     expect(en['receive.historyUnreadable']).toMatch(/Could not read the history yet/)
     expect(ptBR['receive.historyUnreadable']).toMatch(/Não deu para ler o histórico ainda/)
     expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
-    // A retry in flight shows the placeholder rows again, not the failure text: a skeleton, not a spinner.
-    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <SkeletonRows n=\{3\} compact \/>/)
+    // A retry in flight shows the loader again, not the failure text.
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
   })
 })

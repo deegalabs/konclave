@@ -1,15 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useToast } from '../toast'
-import { SkeletonDetail, SkeletonQr, SkeletonRows } from '../skeleton'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
 import { getVault, readTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
 import { useI18n, useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
-import { BannerWarn } from '../components'
-import ReadState from '../ReadState'
-import { getSelectedVault } from '../api'
-import { lastReadFailure } from '../read-failure'
+import { BannerWarn, Loading } from '../components'
 import '../receive.css'
 import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBalance'
 import { useVaultReadable } from '../vault-readable'
@@ -74,12 +70,6 @@ export default function Receive() {
   const readable = useVaultReadable()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
-  // A vault that could not be read is said as such, never as "no vault on this device" (#320).
-  const [attempt, setAttempt] = useState(0)
-  const [retrying, setRetrying] = useState(false)
-  // Set from the read's answer, never read off the module during render: a failure left behind by
-  // an earlier vault must not outlive a device that now holds none.
-  const [unread, setUnread] = useState<ReturnType<typeof lastReadFailure>>(null)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
   // #313: said only after the clipboard confirmed the write; a refusal is said instead.
@@ -99,18 +89,15 @@ export default function Receive() {
   // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
   const [sentIds, setSentIds] = useState<Set<string>>(new Set())
 
-  // One read for the first load and for every retry (two copies of it drift).
-  const loadVault = async (first: boolean) => {
-    const v = await getVault()
-    if (v) { setVault(v); setUnread(null) } else {
-      const why = getSelectedVault() ? lastReadFailure('/api/vault') : null
-      setUnread(why)
-      if (!first && why) setAttempt((a) => a + 1)
-    }
-    setLoaded(true)
-  }
-  useEffect(() => { void loadVault(true) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const retryVault = async () => { setRetrying(true); try { await loadVault(false) } finally { setRetrying(false) } }
+  useEffect(() => {
+    let on = true
+    void getVault().then((v) => {
+      if (!on) return
+      if (v) setVault(v)
+      setLoaded(true)
+    })
+    return () => { on = false }
+  }, [])
 
   // The history is a private read: behind the unlock overlay it would answer 401, which is a failure,
   // not an empty history. So it waits until `useVaultReadable` says the vault is unlocked, and reads
@@ -190,9 +177,7 @@ export default function Receive() {
     return (
       <main className="page">
         <PageHeader title={t('receive.title')} />
-        {!loaded ? <div className="rcv-grid"><SkeletonQr /><SkeletonDetail rows={3} status={false} /></div> : unread
-          ? <ReadState title={t('receive.unreadTitle')} failure={unread} attempt={attempt} busy={retrying} onRetry={() => void retryVault()} holds={t('receive.holds')} />
-          : <p className="rcv-note">{t('receive.noVault')}</p>}
+        {loaded ? <p className="rcv-note">{t('receive.noVault')}</p> : <Loading />}
       </main>
     )
   }
@@ -259,7 +244,7 @@ export default function Receive() {
             {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} failed={failed} />}
           </div>
           {!txLoaded ? (
-            failed && !checking ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <SkeletonRows n={3} compact />
+            failed && !checking ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <Loading />
           ) : !txs || txs.length === 0 ? (
             <p className="rcv-note">{t('receive.historyEmpty')}</p>
           ) : (
