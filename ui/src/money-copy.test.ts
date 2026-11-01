@@ -51,7 +51,7 @@ describe('"u1" is explained once per screen', () => {
     for (const s of both('rec.shieldedOk')) expect(s).not.toMatch(/u1/)
   })
   it('and in one form, "starts with u1", never "u1…"', () => {
-    for (const k of ['rec.placeholder', 'payroll.recipientPlaceholder', 'rec.addAddr', 'rec.saplingWarn', 'payroll.cellSapling', 'receive.address']) {
+    for (const k of ['rec.placeholder', 'payroll.recipientPlaceholder', 'rec.addAddr', 'payment.toSapling', 'payment.toTransparent', 'payroll.cellSapling', 'payroll.cellTransparent', 'receive.address']) {
       expect(en[k], k).toMatch(/starts with u1/)
       expect(ptBR[k], k).toMatch(/começa com u1/)
       for (const s of both(k)) expect(s, k).not.toMatch(/u1…/)

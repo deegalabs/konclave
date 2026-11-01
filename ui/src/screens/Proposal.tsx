@@ -401,6 +401,8 @@ export default function Proposal() {
                 <div>{t('proposal.txid')}</div>
                 <div className="mt-xs"><code>{p.txid}</code></div>
                 <div className="mt-xs"><a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a></div>
+                {/* The signing evidence that produced this txid lives one screen away; point at it. */}
+                <div className="mt-xs"><Link className="link" to="/activity" state={{ tab: 'evidence', txid: p.txid }}>{t('proposal.viewEvidence')}</Link></div>
               </div>
             )}
           </>
