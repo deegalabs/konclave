@@ -146,9 +146,11 @@ describe('Add funds reads through the reader, and not behind the unlock overlay'
 
   it('has no read schedule of its own', () => {
     // Its only timer is the copy confirmation; no retry timer and no in-flight flag of its own.
+    // (A retry the member asks for by hand, "try again", is not a schedule: the rule is
+    // about timers, so it names them rather than the word.)
     expect(receive.match(/setTimeout\(/g)).toEqual(['setTimeout('])
     expect(receive).toMatch(/setTimeout\(\(\) => setCopied\(null\), 1600\)/)
-    expect(receive).not.toMatch(/inFlight|retry/)
+    expect(receive).not.toMatch(/inFlight|setInterval|retryTimer/)
     expect(receive).toMatch(/const stop = startVisiblePoll\(reader\.tick, 15_000\)/)
     expect(receive).toMatch(/reader\.stop\(\)/)
   })

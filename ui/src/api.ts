@@ -711,6 +711,13 @@ export async function getLedger(): Promise<Proposal[] | null> {
   return r?.ledger ?? null
 }
 
+/** Why the last getLedger read failed, from the route it actually asked: on the web the book is the
+ *  vault's proposals (/api/vault/proposals), on the local bridge it is /api/ledger. Kept beside
+ *  getLedger so the route asked and the route reported cannot drift apart. */
+export function ledgerReadFailure(): ReadFailureInfo | null {
+  return lastReadFailure(NET ? '/api/vault/proposals' : '/api/ledger')
+}
+
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
   return `${BASE}${withVault('/api/ledger.csv')}`

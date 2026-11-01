@@ -123,7 +123,38 @@ describe('the proposals list (#292)', () => {
     mount()
     await screen.findByText(en('proposals.unreadTitle'))
     expect(screen.queryByText(en('proposals.nothingAwaiting'))).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: en('proposals.retry') }))
+    fireEvent.click(screen.getByRole('button', { name: en('read.retry') }))
     await screen.findByText('Near deadline')
+  })
+
+  it('a retry that fails again says the message again, after the answer, not at the click', async () => {
+    getProposals.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue([far])
+    mount()
+    const first = await screen.findByRole('alert')
+    expect(document.activeElement).not.toBe(first) // the first failure does not steal focus
+    fireEvent.click(screen.getByRole('button', { name: en('read.retry') }))
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first)) // re-mounted once the retry failed
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')))
+    fireEvent.click(screen.getByRole('button', { name: en('read.retry') }))
+    await screen.findByText('Far deadline')
+  })
+
+  it('a retry that fails while rows are on screen keeps one line above them, never a second alert', async () => {
+    getProposals.mockResolvedValueOnce([far]).mockResolvedValue(null)
+    mount()
+    await screen.findByText('Far deadline')
+    // Two refreshes in a row fail: the rows stay, with the short line above them.
+    const read = getProposals.mock.calls.length
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(getProposals.mock.calls.length).toBe(read + 1))
+    fireEvent(window, new Event('focus'))
+    await waitFor(() => expect(document.querySelectorAll('.read-state').length).toBe(1))
+    const calls = getProposals.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: en('read.retry') }))
+    await waitFor(() => expect(getProposals.mock.calls.length).toBeGreaterThan(calls))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: en('read.retry') }).every((b) => !(b as HTMLButtonElement).disabled)).toBe(true))
+    expect(document.querySelectorAll('.read-state').length).toBe(1) // the compact line alone
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Far deadline')).toBeTruthy() // what was read still holds
   })
 })

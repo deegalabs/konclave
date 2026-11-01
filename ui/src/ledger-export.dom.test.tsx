@@ -6,6 +6,7 @@ import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
 import { explorerTxUrl, fmtDate } from './format'
 import type { LedgerXlsxData } from './ledgerXlsx'
+import { recordRead } from './read-failure'
 const en = (k: string): string => dict[k] ?? k
 
 // #302: the XLSX export iterated every row in memory, so a book filtered on screen exported
@@ -185,5 +186,18 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(locale).toBe('en')
     expect(d.items.map((i) => i.memo)).toEqual(['', 'October rent'])
     expect(d.filter).toBe(en('ledger.filterPayments'))
+  })
+
+  it('a book that could not be read is said as such, not left on the skeleton forever (#320)', async () => {
+    getLedger.mockResolvedValueOnce(null).mockResolvedValue([pending, payroll, rent])
+    recordRead('/api/ledger', 'timeout', 'bridge')
+    mount()
+    await screen.findByText(en('ledger.unreadTitle'))
+    expect(screen.getByRole('button', { name: en('ledger.exportXlsx') }).hasAttribute('disabled')).toBe(true) // nothing to export
+    expect(screen.queryByText('−0.0000')).toBeNull() // no total is claimed for a book that was not read
+    const again = await screen.findByRole('button', { name: en('read.retry') })
+    recordRead('/api/ledger', null)
+    fireEvent.click(again)
+    await screen.findByText('October rent')
   })
 })
