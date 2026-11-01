@@ -14,6 +14,7 @@ import { useLoading } from '../loading'
 import ReadState from '../ReadState'
 import { lastReadFailure } from '../read-failure'
 import { useT, useTr, type TFn, type TRichFn } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 
 // Closed without payment: shown only on request, so the desk stays about what can still move. An
 // open proposal whose clock has run out (awaiting or ready: `expiredByClock`, desk.ts) joins them
@@ -96,11 +97,14 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const [stale, setStale] = useState(false)
   const misses = useRef(0)
   const { begin, end } = useLoading()
+  const readable = useVaultReadable()
 
   // Auto-refresh: a new proposal or an incoming approval shows up without a manual reload. Poll on
   // the same 12s cadence as the Dashboard, guarded so calls never overlap. A refresh that fails
   // keeps the rows already on screen; only the first read can leave the list unread.
   useEffect(() => {
+    // Locked: the overlay asks for the passphrase, and nothing is read until it lands (#439).
+    if (!readable) return
     let on = true
     let inFlight = false
     const load = async (first: boolean) => {
@@ -135,7 +139,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
     // `attempt` alone: the loading hooks are stable, and listing them re-ran the first read under a
     // retry button that had just appeared (the read it offered was taken away from under it).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
+  }, [attempt, readable])
 
   // The wallet's transaction list is read apart from the proposals, and only while a sent proposal
   // is on the list: it is what tells a sent one from one the chain already holds (settlement.ts),
