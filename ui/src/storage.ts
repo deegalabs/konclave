@@ -967,7 +967,13 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   // not make the device refuse: the next screen to read the vault found the slot empty and pinned
   // whatever the helper answered then, so a rotation reopened the write-once slot the money gate
   // depends on. Carrying the record whole means a field added later cannot be lost here either.
+  let unreadable = false
   const wrote = await updateRecord(id, (stored) => {
+    // A new key could not carry a sealed field that did not open, and it may be the only copy.
+    if ((stored.ufvkCipher && !loaded.ufvk) || (stored.secretCipher && !loaded.accessSecret)) {
+      unreadable = true
+      return undefined
+    }
     const record: VaultRecord = {
       ...stored,
       salt,
@@ -983,6 +989,7 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
     delete record.ufvk
     return record
   })
+  if (unreadable) throw storageError('sealed-field-unreadable', 'A sealed field of this vault did not open, so its passphrase was not changed')
   if (!wrote) throw storageError('no-vault', 'No saved vault with that id on this device')
 }
 
