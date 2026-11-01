@@ -1342,4 +1342,6 @@ export const ptBR: Record<string, string> = {
   'people.holds': 'As pessoas cadastradas não foram apagadas.',
   'people.registerLater': 'Cadastre depois que a lista voltar.',
   'ledger.unreadTitle': 'Não foi possível ler o livro',
+  'receive.unreadTitle': 'Não foi possível ler o cofre',
+  'receive.holds': 'O endereço do cofre está gravado neste aparelho.',
 }

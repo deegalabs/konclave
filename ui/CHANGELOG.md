@@ -119,6 +119,9 @@ history to tidy it is how context gets lost.
   button. A line whose address repeats an earlier line now says so. Until now a new payroll
   started empty every month, and an address retyped by hand is the riskiest moment in the product
   (#332).
+- **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
+  sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
+  and "Try again"; "no vault" is kept for when there really is none.
 
 ### Fixed
 
