@@ -289,6 +289,10 @@ history to tidy it is how context gets lost.
   screen says those are missing from the list, not deleted, above the vaults this browser keeps.
   On the web, where there is no such Konclave, nothing is said. A browser with no storage, or whose
   database will not open, is a failed read too: the list used to answer those as empty (#320).
+- **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
+  said how much was missing and that signing waited for the funds, and nothing about the funds a
+  member had just sent. It now says they count once the network mines them and can be spent after
+  a few blocks, and that nothing is lost, in both languages (#710).
 - **Every action that saves says so.** Saving or removing a person, renaming yourself, downloading or
   copying a backup, importing or removing a vault: each now ends in the same small notice the
   payment screens already use, naming the person or the vault, so a member who was not watching
