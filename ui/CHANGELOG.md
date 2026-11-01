@@ -110,6 +110,25 @@ history to tidy it is how context gets lost.
   people register is the first screen to use it, keeps the people it already read when a refresh
   fails, and does not offer to register someone into a list it cannot see; the others follow one by
   one.
+- **A payroll can start from a previous one.** Each past payroll at the foot of the screen gains
+  "Start from this one": the sheet is filled with its lines (name, address, value, memo), each
+  marked "copied, check address and amount" until its address is looked at, and nothing else comes
+  along: the period and the approvals start fresh, and whether it fits the balance is asked again.
+  A copied line whose person now has a different address in the registry says so. Typed lines are
+  never replaced without a yes, and the sheet counts the copied lines still unchecked beside the
+  button. A line whose address repeats an earlier line now says so. Until now a new payroll
+  started empty every month, and an address retyped by hand is the riskiest moment in the product
+  (#332).
+- **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
+  sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
+  and "Try again"; "no vault" is kept for when there really is none.
+- **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
+  who was asked, what still holds, and "Try again" that says when it is trying.
+- **The signing evidence no longer reads "no ceremonies recorded yet" when the list could not be
+  read, and a proposal no longer reads "no proposal" when it could not be read.** A failed read is
+  said as such, with the reason and "Try again"; a proposal that was read and is not there still
+  says so. A locked vault is neither: both screens wait for the passphrase and read once it is
+  given (#320).
 
 ### Fixed
 
@@ -253,6 +272,23 @@ history to tidy it is how context gets lost.
   and no longer sends the member to "consolidate the vault", which no button does. "u1" is
   explained once per screen, where the address is shown or typed (on Payroll too, whose field said
   nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
+- **The book no longer stays on its loading skeleton when it could not be read.** A failed read is
+  said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
+  the read the book actually makes, the vault's proposals; the first version asked for a route the
+  web never reads, so the reason never showed (#320).
+- **Four strings the money-copy pass left now speak the member's words too.** Receive's payment
+  link no longer names its standard ("ZIP-321"), and its history is "Vault history", not "on-chain".
+  The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
+  read the memo is said under the field. People explained the address as "u1…" in its warning and
+  in its field; both now say "starts with u1", like the rest of the app (#799).
+- **Vaults says when it could not read the vaults on this device.** The list is read from this
+  browser's storage, and when that read failed the screen said "No vaults yet", which invites a
+  member to create or import again over a vault that is still there. It now says the list could not
+  be read, that a failed read deletes nothing, and not to create or import again until it reads,
+  with "Try again". When the Konclave on this device answers and then cannot list its vaults, the
+  screen says those are missing from the list, not deleted, above the vaults this browser keeps.
+  On the web, where there is no such Konclave, nothing is said. A browser with no storage, or whose
+  database will not open, is a failed read too: the list used to answer those as empty (#320).
 - **Every action that saves says so.** Saving or removing a person, renaming yourself, downloading or
   copying a backup, importing or removing a vault: each now ends in the same small notice the
   payment screens already use, naming the person or the vault, so a member who was not watching

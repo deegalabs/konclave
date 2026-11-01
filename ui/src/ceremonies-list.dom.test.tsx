@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
@@ -15,6 +15,7 @@ const getLedger = vi.hoisted(() => vi.fn())
 vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), vaultCeremonies }))
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), getLedger, getSelectedVault: () => 'v' }))
 
+import { recordRead } from './read-failure'
 const { default: Ceremonies } = await import('./screens/Ceremonies')
 
 const TX1 = 'a'.repeat(64)
@@ -44,5 +45,24 @@ describe('the signing evidence names the payment it belongs to', () => {
     const row = tag.closest('li')!
     expect(row.getAttribute('aria-current')).toBe('true')
     expect(document.activeElement).toBe(row)
+  })
+
+  it('a list that could not be read is said as such, not as "no ceremonies recorded yet" (#320)', async () => {
+    vaultCeremonies.mockResolvedValueOnce(null)
+    recordRead('/api/vault/ceremonies', 'denied', 'coordinator')
+    render(<MemoryRouter><I18nProvider><Ceremonies embedded /></I18nProvider></MemoryRouter>)
+    await screen.findByText(en('ceremonies.unreadTitle'))
+    expect(screen.queryByText(en('ceremonies.empty'))).toBeNull()
+    const again = await screen.findByRole('button', { name: en('read.retry') })
+    recordRead('/api/vault/ceremonies', null)
+    fireEvent.click(again)
+    await waitFor(() => expect(screen.getByText('October rent')).toBeTruthy())
+  })
+
+  it('a ledger that could not be read makes no claim about the vault\'s books', async () => {
+    getLedger.mockResolvedValue(null)
+    render(<MemoryRouter><I18nProvider><Ceremonies embedded /></I18nProvider></MemoryRouter>)
+    await screen.findByText(en('ceremonies.broadcast'))
+    expect(screen.queryByText(en('ceremonies.noProposal'))).toBeNull()
   })
 })
