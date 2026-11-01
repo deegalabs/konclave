@@ -956,6 +956,15 @@ export async function getProposalDetail(
   return { proposal: r.proposal, lines: r.lines ?? [] }
 }
 
+/** Why the last read of a proposal failed, from the route that read it: on the web a proposal is
+ *  found in the vault's proposals (/api/vault/proposals); on the local bridge it is read by id, or,
+ *  with no id, picked from /api/proposals. `null` when that read succeeded: then a missing proposal
+ *  is really missing. Kept beside getProposalDetail so the route asked and the route reported agree. */
+export function proposalReadFailure(id: string | null): ReadFailureInfo | null {
+  if (NET) return lastReadFailure('/api/vault/proposals')
+  return lastReadFailure(id ? `/api/proposals/${encodeURIComponent(id)}` : '/api/proposals')
+}
+
 export type SendResult =
   | { ok: true; dryRun: boolean; txid?: string; sighash?: string; proposal?: Proposal }
   | { ok: false; error: string; detail?: string }

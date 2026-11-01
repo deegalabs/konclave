@@ -804,6 +804,7 @@ export const en: Record<string, string> = {
   'proposal.validSignature': 'valid signature',
   'proposal.loading': 'Loading proposal…',
   'proposal.noneTitle': 'No proposal',
+  'proposal.unreadTitle': 'Could not read this proposal',
   'proposal.noneBody': 'There is no open proposal.',
   'proposal.proposePaymentLink': 'Propose a payment →',
   'proposal.paymentTo': 'Payment to {dest}',
@@ -1346,4 +1347,5 @@ export const en: Record<string, string> = {
   'ledger.unreadTitle': 'Could not read the ledger',
   'receive.unreadTitle': 'Could not read the vault',
   'receive.holds': 'The vault’s address is recorded on this device.',
+  'ceremonies.unreadTitle': 'Could not read the signing evidence',
 }

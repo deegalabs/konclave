@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { SkeletonRows } from '../skeleton'
 import { Link, useLocation } from 'react-router-dom'
 import { PageHeader, PageFooter } from '../page'
-import { Loading, Secret } from '../components'
+import { Secret } from '../components'
+import ReadState from '../ReadState'
+import { lastReadFailure } from '../read-failure'
 import { useT, useI18n } from '../i18n'
 import { getSelectedVault, getLedger, type Proposal } from '../api'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
+import { useVaultReadable } from '../vault-readable'
 import { fmtDate, fmtZec, shortAddr } from '../format'
 import { useLoading } from '../loading'
 
@@ -22,14 +26,23 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
   // The proposals, so a record that reached the chain can name the payment it signed (same txid).
   // The join is on the screen only: the record carries no proposal id (#290).
   const [byTxid, setByTxid] = useState<Map<string, Proposal>>(new Map())
+  // Whether the ledger was read at all: "no proposal carries this transaction" is a claim about the
+  // vault's books, and it is only made from a ledger that answered. A null keeps the last good map.
+  const [ledgerRead, setLedgerRead] = useState(false)
   const loc = useLocation() as { state?: { txid?: string } }
   const hilite = loc.state?.txid
   const hiliteRef = useRef<HTMLLIElement>(null)
   // Arriving from a proposal: land on its record (focus scrolls it into view and a reader says it).
   useEffect(() => { if (records && hilite) hiliteRef.current?.focus() }, [records, hilite])
   const [busy, setBusy] = useState(true)
+  // A list that could not be read is said as such, never as "no ceremonies recorded yet" (#320).
+  const [attempt, setAttempt] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  // Locked: the records would 401 and read as a failure. Nothing is read until the passphrase lands (#439).
+  const readable = useVaultReadable()
 
   useEffect(() => {
+    if (!readable) return
     let on = true
     begin()
     void (async () => {
@@ -39,7 +52,7 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
         const [r, ps] = await Promise.all([vaultCeremonies(id), getLedger()])
         if (on) {
           setRecords(r)
-          setByTxid(new Map((ps ?? []).filter((p) => p.txid).map((p) => [p.txid as string, p])))
+          if (ps) { setByTxid(new Map(ps.filter((p) => p.txid).map((p) => [p.txid as string, p]))); setLedgerRead(true) }
           setBusy(false)
         }
       } finally {
@@ -47,14 +60,40 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
       }
     })()
     return () => { on = false }
-  }, [begin, end])
+    // Once it is readable: the loading hooks are stable in the app, and listing them re-ran the read
+    // on every render where they are not (tests), which took the read state away from under its retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readable])
+
+  // The retry reads again from the start; a retry that fails again is said again (ReadState).
+  const retry = async () => {
+    const id = getSelectedVault()
+    if (!id) return
+    setRetrying(true)
+    try {
+      const [r, ps] = await Promise.all([vaultCeremonies(id), getLedger()])
+      setRecords(r)
+      if (ps) { setByTxid(new Map(ps.filter((p) => p.txid).map((p) => [p.txid as string, p]))); setLedgerRead(true) }
+      if (r === null) setAttempt((a) => a + 1)
+    } finally {
+      setRetrying(false)
+    }
+  }
+  const unread = !busy && records === null && lastReadFailure('/api/vault/ceremonies')
 
   const list = (
+    <>
+      {/* Outside the list: a list may hold only its items, and a reader hides anything else in it. */}
+      {unread && (
+        <ReadState title={t('ceremonies.unreadTitle')} failure={unread} attempt={attempt} busy={retrying} onRetry={() => void retry()} />
+      )}
+      {busy && <SkeletonRows n={3} className="mt" />}
+      {!busy && !unread && (!records || records.length === 0) && (
+        <p className="hint">{t('ceremonies.empty')}</p>
+      )}
+      {/* The list only when it has items: an empty list is still announced as one. */}
+      {records && records.length > 0 && (
       <ul className="cer-list mt" role="list">
-        {busy && <Loading />}
-        {!busy && (!records || records.length === 0) && (
-          <p className="hint">{t('ceremonies.empty')}</p>
-        )}
         {records && records.map((c, i) => {
           const p = c.txid ? byTxid.get(c.txid) : undefined
           const doc = p ? (p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))) : ''
@@ -75,9 +114,9 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
                 <Secret sm><b>{fmtZec(p.value_zec)} ZEC</b></Secret>
                 <Link className="link" to="/proposal" state={{ id: p.id }} aria-label={`${t('ceremonies.viewProposal')} ${doc}`}>{t('ceremonies.viewProposal')}</Link>
               </div>
-            ) : (
+            ) : ledgerRead ? (
               <div className="cer-nomatch dim">{t('ceremonies.noProposal')}</div>
-            ))}
+            ) : null)}
             {/* The receipt: what a member cares about - was it sent, and where to see it on-chain. */}
             {c.txid ? (
               <div className="cer-receipt">
@@ -100,6 +139,8 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
           )
         })}
       </ul>
+      )}
+    </>
   )
 
   if (embedded) return list

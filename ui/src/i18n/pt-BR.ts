@@ -800,6 +800,7 @@ export const ptBR: Record<string, string> = {
   'proposal.validSignature': 'assinatura válida',
   'proposal.loading': 'Carregando proposta…',
   'proposal.noneTitle': 'Nenhuma proposta',
+  'proposal.unreadTitle': 'Não foi possível ler esta proposta',
   'proposal.noneBody': 'Não há proposta aberta.',
   'proposal.proposePaymentLink': 'Propor um pagamento →',
   'proposal.paymentTo': 'Pagamento a {dest}',
@@ -1342,4 +1343,5 @@ export const ptBR: Record<string, string> = {
   'ledger.unreadTitle': 'Não foi possível ler o livro',
   'receive.unreadTitle': 'Não foi possível ler o cofre',
   'receive.holds': 'O endereço do cofre está gravado neste aparelho.',
+  'ceremonies.unreadTitle': 'Não foi possível ler a evidência de assinatura',
 }

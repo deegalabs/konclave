@@ -124,6 +124,11 @@ history to tidy it is how context gets lost.
   and "Try again"; "no vault" is kept for when there really is none.
 - **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
   who was asked, what still holds, and "Try again" that says when it is trying.
+- **The signing evidence no longer reads "no ceremonies recorded yet" when the list could not be
+  read, and a proposal no longer reads "no proposal" when it could not be read.** A failed read is
+  said as such, with the reason and "Try again"; a proposal that was read and is not there still
+  says so. A locked vault is neither: both screens wait for the passphrase and read once it is
+  given (#320).
 
 ### Fixed
 
