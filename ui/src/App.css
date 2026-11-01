@@ -135,8 +135,8 @@
 .kc-toast-close{appearance:none; border:0; background:transparent; color:var(--text-muted);
   cursor:pointer; font-family:var(--font-mono); font-size:16px; line-height:1; padding:0;
   min-width:24px; min-height:24px; display:inline-grid; place-items:center; margin:-3px -4px 0 0;
-  border-radius:var(--radius-sm); opacity:.7}
-.kc-toast-close:hover{color:var(--text); opacity:1}
+  border-radius:var(--radius-sm)}
+.kc-toast-close:hover{color:var(--text)}
 .kc-toast-close:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 /* In and out along the edge it lives on, so the motion says where it came from and where it went. */
 @keyframes kc-toast-in{from{opacity:0; transform:translateX(14px)} to{opacity:1; transform:none}}

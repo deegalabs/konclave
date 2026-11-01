@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useToast } from '../toast'
 import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
@@ -30,6 +31,7 @@ import { isDesktop } from '../platform'
  */
 export default function Settings() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const nav = useNavigate()
   // Coordination mode (desktop): our helper / your own / local. Persist + reload so netMode
@@ -61,7 +63,6 @@ export default function Settings() {
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
   const [xpErr, setXpErr] = useState<string | null>(null)
-  const [xpCopied, setXpCopied] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -170,7 +171,7 @@ export default function Settings() {
     }
   }
 
-  async function runExport(): Promise<{ json: string; name: string } | null> {
+  async function runExport(): Promise<{ json: string; name: string; complete: boolean } | null> {
     setXpErr(null)
     const id = getSelectedVault()
     if (!id) { setXpErr(t('export.errNoVault')); return null }
@@ -182,24 +183,38 @@ export default function Settings() {
       const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
       if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
-      return { json: b.json, name: b.name }
+      return { json: b.json, name: b.name, complete: b.complete }
     } catch (e) {
       setXpErr(t(storageErrorKey(e, 'export.errGeneric')))
       return null
     }
   }
+  // Success closes the dialog, which also clears the typed passphrase from state, and lets the
+  // toast be the one notice on a page with no modal over it. An INCOMPLETE file is not that success:
+  // closing would clear the warning that says what the file lacks, and "Download started" would be
+  // the only thing left on the page. So the dialog stays open, with the warning, and no toast.
+  function closeExport() { setXpOpen(false); setXpPass(''); setXpErr(null) }
   async function exportDownload() {
     setXpBusy(true)
     const out = await runExport()
     setXpBusy(false)
-    if (out) downloadText(out.name, out.json)
+    if (!out) return
+    // A download the browser refused is said in the dialog, which stays open with "Copy" beside it:
+    // closing it on "Download started" left the member believing a backup existed that never did.
+    if (!downloadText(out.name, out.json)) { setXpErr(t('export.errDownload')); return }
+    if (!out.complete) return
+    closeExport(); toast.ok(t('toast.backupSaved'))
   }
   async function exportCopy() {
     setXpBusy(true)
     const out = await runExport()
     setXpBusy(false)
     if (out) {
-      try { await navigator.clipboard.writeText(out.json); setXpCopied(true); setTimeout(() => setXpCopied(false), 1500) } catch { setXpErr(t('export.errClipboard')) }
+      try {
+        await navigator.clipboard.writeText(out.json)
+        if (!out.complete) return
+        closeExport(); toast.ok(t('toast.backupCopied'))
+      } catch { setXpErr(t('export.errClipboard')) }
     }
   }
 
@@ -563,7 +578,7 @@ export default function Settings() {
           </label>
           <div className="unlock-btns">
             <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
-              {xpCopied ? t('members.fpCopied') : t('export.copy')}
+              {t('export.copy')}
             </button>
             <button className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
               {xpBusy ? t('export.busy') : t('export.download')}

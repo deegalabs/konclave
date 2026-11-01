@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useToast } from '../toast'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
@@ -36,6 +37,7 @@ type Row = { v: Vault; src: Src }
 
 export default function Vaults() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const { locale } = useI18n()
   const pt = locale === 'pt-BR'
@@ -217,6 +219,7 @@ export default function Vaults() {
       setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
       setRemoving(null)
       setRemoveWord('')
+      toast.ok(t('toast.vaultRemoved', { name: row.v.name }))
     } catch {
       // Say so and leave the dialog open. Closing silently would look like it worked, and the
       // member would believe a share is gone that is still on the device.
@@ -297,6 +300,7 @@ export default function Vaults() {
       }
       setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
       resetImport()
+      toast.ok(t('toast.vaultImported', { name: row.v.name }))
     } catch (e) {
       setImpErr(t(storageErrorKey(e, 'import.errGeneric')))
     } finally {

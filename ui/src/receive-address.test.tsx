@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+vi.mock('./toast', () => ({ useToast: () => ({ ok() {}, warn() {}, err() {}, info() {} }) }))
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'

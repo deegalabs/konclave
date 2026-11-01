@@ -5,6 +5,7 @@ import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
 import { recordRead } from './read-failure'
+vi.mock('./toast', () => ({ useToast: () => ({ ok() {}, warn() {}, err() {}, info() {} }) }))
 const en = (k: string): string => dict[k] ?? k
 
 // Receive said "No vault on this device" when the vault could not be read, which is false and

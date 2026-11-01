@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useToast } from '../toast'
 import { SkeletonRoster } from '../skeleton'
 import { Dialog } from '../components'
 import ReadState from '../ReadState'
@@ -40,6 +41,7 @@ function AddrKind({ transparent, t }: { transparent?: boolean; t: (k: string) =>
 
 export default function People() {
   const t = useT()
+  const toast = useToast()
   const [list, setList] = useState<Beneficiary[]>([])
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
@@ -99,17 +101,27 @@ export default function People() {
     if (!name.trim() || !address.trim()) { setError(t('people.errFillNameAddr')); return }
     setBusy(true)
     // Edit = add the updated entry, then drop the old one (no update endpoint).
-    const res = await addBeneficiary(name.trim(), address.trim(), memo.trim() || undefined)
-    if (res.ok && editingId) await deleteBeneficiary(editingId)
+    const who = name.trim()
+    const res = await addBeneficiary(who, address.trim(), memo.trim() || undefined)
+    // An edit is the new entry, then the old one dropped; if the drop fails, the list now holds the
+    // person twice, and "saved" would be a lie. Say what is on the list instead.
+    const oldGone = res.ok && editingId ? await deleteBeneficiary(editingId) : true
     setBusy(false)
-    if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null); void reload() }
-    else setError(humanError(t, res.error, res.detail))
+    if (res.ok) {
+      setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null)
+      if (oldGone) toast.ok(t('toast.personSaved', { name: who }))
+      else toast.warn(t('toast.personSavedOldStays', { name: who }))
+      void reload()
+    } else setError(humanError(t, res.error, res.detail))
   }
 
   async function doRemove() {
     const b = confirmDel
     setConfirmDel(null)
-    if (b && (await deleteBeneficiary(b.id))) void reload()
+    if (!b) return
+    // A removal that did not land is said as loudly as one that did: the person is still on the list.
+    if (await deleteBeneficiary(b.id)) { toast.ok(t('toast.personRemoved', { name: b.name })); void reload() }
+    else toast.err(t('toast.personRemoveFailed', { name: b.name }))
   }
 
   return (
