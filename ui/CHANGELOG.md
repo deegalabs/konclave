@@ -124,6 +124,11 @@ history to tidy it is how context gets lost.
   and "Try again"; "no vault" is kept for when there really is none.
 - **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
   who was asked, what still holds, and "Try again" that says when it is trying.
+- **The signing evidence no longer reads "no ceremonies recorded yet" when the list could not be
+  read, and a proposal no longer reads "no proposal" when it could not be read.** A failed read is
+  said as such, with the reason and "Try again"; a proposal that was read and is not there still
+  says so. A locked vault is neither: both screens wait for the passphrase and read once it is
+  given (#320).
 
 ### Fixed
 
@@ -271,6 +276,11 @@ history to tidy it is how context gets lost.
   said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
   the read the book actually makes, the vault's proposals; the first version asked for a route the
   web never reads, so the reason never showed (#320).
+- **Four strings the money-copy pass left now speak the member's words too.** Receive's payment
+  link no longer names its standard ("ZIP-321"), and its history is "Vault history", not "on-chain".
+  The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
+  read the memo is said under the field. People explained the address as "u1…" in its warning and
+  in its field; both now say "starts with u1", like the rest of the app (#799).
 - **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
   said how much was missing and that signing waited for the funds, and nothing about the funds a
   member had just sent. It now says they count once the network mines them and can be spent after
