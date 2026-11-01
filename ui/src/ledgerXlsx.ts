@@ -16,6 +16,7 @@
 
 import type { Workbook } from 'exceljs'
 import { explorerTxUrl } from './format'
+import { downloadBlob } from './download'
 
 export interface LedgerXlsxItem {
   dateISO: string // yyyy-mm-dd (sortable, locale-neutral in the cell)
@@ -35,7 +36,7 @@ export interface LedgerXlsxItem {
 
 export interface LedgerXlsxData {
   vaultName: string
-  period: string
+  period: string // the chosen period's name when one is chosen, otherwise the span of the exported rows
   /** The active filters' labels when the export is a part of the book; '' for the whole book (#302). */
   filter: string
   generatedAt: Date
@@ -180,12 +181,5 @@ export async function exportLedgerXlsx(data: LedgerXlsxData): Promise<void> {
   const wb = await buildLedgerWorkbook(data)
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  downloadBlob(`konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`, blob)
 }

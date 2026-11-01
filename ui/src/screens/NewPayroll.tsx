@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePoll } from '../usePoll'
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
@@ -11,7 +11,7 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -22,15 +22,41 @@ import { useVaultBalance } from '../useVaultBalance'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
-type Row = { label: string; address: string; value: string; memo: string }
+export type Row = { label: string; address: string; value: string; memo: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
+const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
+const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
+
+/** The sheet with one line per chosen person from the registry (name, address and memo; the value
+ *  is typed). A person whose address is already on the sheet is skipped; a single trailing empty
+ *  line is replaced rather than left above the new ones. Pure, exported for its test. */
+export function withRegistryRows(rows: Row[], benefs: readonly Beneficiary[], ids: readonly string[]): Row[] {
+  const onSheet = new Set(rows.map((r) => r.address.trim()).filter(Boolean))
+  const added: Row[] = []
+  for (const id of ids) {
+    const b = benefs.find((x) => x.id === id)
+    if (!b || onSheet.has(b.address.trim())) continue
+    onSheet.add(b.address.trim())
+    added.push({ label: b.name, address: b.address, value: '', memo: b.memo ?? '' })
+  }
+  if (added.length === 0) return rows
+  const last = rows[rows.length - 1]
+  const base = last && rowEmpty(last) ? rows.slice(0, -1) : rows
+  return [...base, ...added]
+}
 
 
-// A blocking problem with a row (null = ok); returns an i18n key. Warnings (public/sapling) separate.
-function rowIssue(r: Row): string | null {
+// A blocking problem with a row (null = ok); returns an i18n key. The public-address warning is
+// separate (the memo placeholder says it). Exported for its test; it is pure.
+export function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
-  if (k === 'unknown') return 'payroll.issueUnknown'
+  // (#294): the coordinator refuses a line it cannot pay for the whole sheet. Said on the line,
+  // before the sheet is composed, by the same rule the payment screen asks.
+  const refused = addressRefusal(r.address.trim())
+  if (refused === 'unknown') return 'payroll.issueUnknown'
+  if (refused === 'sapling') return 'payroll.cellSapling'
+  if (refused === 'transparent') return 'payroll.cellTransparent'
   if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
   const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'
@@ -48,6 +74,17 @@ export default function NewPayroll() {
   const [description, setDescription] = useState('')
   const [rows, setRows] = useState<Row[]>([emptyRow()])
   const [showImport, setShowImport] = useState(false)
+  const [showRegistry, setShowRegistry] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const registryBtn = useRef<HTMLButtonElement>(null)
+  const registryBox = useRef<HTMLDivElement>(null)
+  const [addedNote, setAddedNote] = useState('')
+  // Opening the picker moves focus into it; closing it (add or cancel) returns focus to its
+  // button, since the panel that held the focus is gone.
+  function closeRegistry() { setShowRegistry(false); setPicked(new Set()); registryBtn.current?.focus() }
+  useEffect(() => {
+    if (showRegistry) registryBox.current?.querySelector<HTMLElement>('input:not([disabled]), button')?.focus()
+  }, [showRegistry])
   const [csv, setCsv] = useState('')
   // The same balance the payment screen reads, refreshed on the same cadence (useVaultBalance): this
   // screen used to read it once, so a payroll opened while the wallet was busy stayed blocked.
@@ -211,7 +248,11 @@ export default function NewPayroll() {
   // One sentence for the block, composed once, in one live region the button points at (same
   // shape as Pay). The reserved clause stays when both a reservation and confirmations stand.
   const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const blockMsg = (() => {
+    // A flagged line disables the button too; say so here, where the button points, instead of
+    // leaving a greyed button and a red line to find above it.
+    if (anyBadTouched) return t('payroll.errFixRows')
     if (count === 0 || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
     if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
@@ -219,7 +260,6 @@ export default function NewPayroll() {
     const k = blockMessageKey(block)
     return k ? t(k, moneyVars) : null
   })()
-  const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
   async function submit() {
@@ -278,6 +318,71 @@ export default function NewPayroll() {
             </label>
           </div>
 
+          {/* The actions sit above the table, in the order they are used: the registry first (a
+              line per person, in batch), then one more line, then a CSV. */}
+          <div className="folha-actions mt-sm">
+            <button ref={registryBtn} className="btn ghost sm-btn" aria-expanded={showRegistry} aria-controls="plr-registry" onClick={() => { if (showRegistry) closeRegistry(); else { setShowRegistry(true); setShowImport(false) } }}>{t('payroll.fromRegistry')}</button>
+            <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
+            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
+                web path. Shown rather than hidden: the reader can see the product intends to do
+                this, and is told it is not ready instead of meeting a control that fails. */}
+            {IS_NET ? (
+              <Soon reason={t('payroll.importSoonWhy')}>
+                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
+              </Soon>
+            ) : (
+              <button className="btn ghost sm-btn" aria-expanded={showImport} aria-controls="plr-import" onClick={() => { setShowImport((v) => !v); setShowRegistry(false) }}>{t('payroll.importCsv')}</button>
+            )}
+          </div>
+
+          {showRegistry && (
+            <div className="plr-registry" id="plr-registry" ref={registryBox} role="group" aria-labelledby="plr-registry-title">
+              <span className="klab" id="plr-registry-title">{t('payroll.registryTitle')}</span>
+              {benefs.length === 0 ? (
+                <p className="hint">{t('payroll.registryEmpty')}</p>
+              ) : (
+                <div className="plr-registry-list" tabIndex={0} aria-labelledby="plr-registry-title">
+                  {benefs.map((b) => {
+                    const onSheet = rows.some((r) => r.address.trim() === b.address.trim())
+                    // Someone already on the sheet gets no box: a disabled, pre-checked box would read as
+                    // "selected" and count against "Add {n} lines" while being excluded from the count.
+                    return onSheet ? (
+                      <div key={b.id} className="plr-registry-row on">
+                        <span className="plr-registry-name">{b.name}</span>
+                        <span className="plr-registry-addr mono" aria-hidden="true">{shortAddrOf(b.address)}</span>
+                        <span className="plr-registry-tag">{t('payroll.registryOnSheet')}</span>
+                      </div>
+                    ) : (
+                      <label key={b.id} className="plr-registry-row">
+                        <input type="checkbox" checked={picked.has(b.id)}
+                          onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(b.id); else n.delete(b.id); return n })} />
+                        <span className="plr-registry-name">{b.name}</span>
+                        <span className="plr-registry-addr mono" aria-hidden="true">{shortAddrOf(b.address)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="folha-actions">
+                <button className="btn ok sm-btn" disabled={picked.size === 0}
+                  onClick={() => { const n = picked.size; setRows((prev) => withRegistryRows(prev, benefs, [...picked])); setAddedNote(n === 1 ? t('payroll.registryAddedOne') : t('payroll.registryAdded', { n })); closeRegistry() }}>
+                  {picked.size === 1 ? t('payroll.registryAddOne') : t('payroll.registryAdd', { n: picked.size })}
+                </button>
+                <button className="btn ghost sm-btn" onClick={closeRegistry}>{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+
+          {/* What a screen reader hears after "Add n lines": the picker is gone and the rows are below. */}
+          <div className="visually-hidden" role="status">{addedNote}</div>
+
+          {showImport && (
+            <div className="mt-sm" id="plr-import">
+              <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+              <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
+            </div>
+          )}
+
           {/* Each line uses the same recipient combobox as /pay (search a payee, paste, add inline).
               A div-grid (not a table) so the combobox dropdown can overflow the row freely. */}
           <div className="plr-head"><span>#</span><span>{t('payroll.colRecipient')}</span><span>{t('payroll.colValue')}</span><span>{t('payroll.colMemo')}</span><span aria-hidden="true"></span></div>
@@ -291,6 +396,8 @@ export default function NewPayroll() {
                   <div className="plr-to">
                     <RecipientCombobox
                       compact
+                      invalid={!!issue}
+                      describedBy={issue ? `plr-issue-${i}` : undefined}
                       benefs={benefs}
                       address={r.address}
                       name={r.label || null}
@@ -302,39 +409,20 @@ export default function NewPayroll() {
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={issue ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
-                  <input className="plr-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
-                  <button className="row-del plr-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
-                  {issue && <div className="cell-warn err plr-issue">{t(issue)}</div>}
+                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
+                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
+                  {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
+                  {issue && <div className="cell-warn err plr-issue" id={`plr-issue-${i}`} role="status">{t(issue)}</div>}
                 </div>
               )
             })}
           </div>
 
-          <div className="mt-sm folha-actions">
-            <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
-                web path. Shown rather than hidden: the reader can see the product intends to do
-                this, and is told it is not ready instead of meeting a control that fails. */}
-            {IS_NET ? (
-              <Soon reason={t('payroll.importSoonWhy')}>
-                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
-              </Soon>
-            ) : (
-              <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
-            )}
-          </div>
-          {count === 0 && !showImport && (
+          {count === 0 && !showImport && !showRegistry && (
             <div className="hint mt-sm">{tr(IS_NET ? 'payroll.startHintWeb' : 'payroll.startHint')}</div>
-          )}
-
-          {showImport && (
-            <div className="mt-sm">
-              <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
-              <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
-            </div>
           )}
         </div>
 
