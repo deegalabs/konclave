@@ -162,7 +162,9 @@ export default function Settings() {
     } catch (e) {
       // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
       // record was NOT touched - which is what the message promises.
-      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame') : t('rotate.errWrong'))
+      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
+        : e instanceof StorageError && e.code === 'sealed-field-unreadable' ? t('storage.err.sealedFieldUnreadable')
+        : t('rotate.errWrong'))
     } finally {
       setRotBusy(false)
     }
@@ -178,6 +180,8 @@ export default function Settings() {
       // restore the seat (#214/#434/#480); the share in session opens the coordinator's sealed
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
       const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
+      // A file that restores the seat and not the vault is still worth having, and has to say so.
+      if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
       return { json: b.json, name: b.name }
     } catch (e) {
       setXpErr(t(storageErrorKey(e, 'export.errGeneric')))

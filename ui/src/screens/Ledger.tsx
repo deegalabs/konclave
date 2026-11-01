@@ -12,6 +12,7 @@ import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from 
 import { useLoading } from '../loading'
 import ReadState from '../ReadState'
 import { useT, useI18n } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
@@ -24,6 +25,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
   const { begin, end } = useLoading()
+  const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   // A book that could not be read is said as such, never left on the skeleton (#320). `attempt`
   // counts the retries asked for and re-runs the read; `failed` counts the ones that failed again.
@@ -51,6 +53,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
   // guarded so calls never overlap; only the FIRST load drives the top-progress bar.
   useEffect(() => {
+    // Locked: a 401 here reads as an empty book, so nothing is read until the passphrase lands (#439).
+    if (!readable) return
     let on = true
     let inFlight = false
     const load = async (first: boolean) => {
@@ -73,10 +77,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     void load(true)
     const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
     return () => { on = false; stop() }
-    // `attempt` alone: the loading hooks are stable in the app, and listing them re-ran the read on
+    // `attempt` and `readable` alone: the loading hooks are stable in the app, and listing them re-ran the read on
     // every render where they are not (tests), which took the read state away from under its retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt])
+  }, [attempt, readable])
 
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return

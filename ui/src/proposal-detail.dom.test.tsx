@@ -52,6 +52,7 @@ describe('the proposal screen states its facts', () => {
     expect(await screen.findByText(fmtDateTime(sent.created_at, 'en'))).toBeTruthy()
     expect(screen.getByText(ADDR)).toBeTruthy()
     expect(await screen.findByText(en('proposal.confirmationsN').replace('{n}', '21'))).toBeTruthy()
+    expect(screen.getByRole('link', { name: en('proposal.viewEvidence') })).toBeTruthy() // the sent payment points at its evidence
   })
 
   it('the count moves while the screen is open: the tip is re-read with the list on each poll', async () => {
