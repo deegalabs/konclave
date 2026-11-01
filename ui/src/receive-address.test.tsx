@@ -23,7 +23,7 @@ describe('what Add funds says about the address', () => {
     expect(html).toContain('class="banner-warn rcv-warn" role="alert" id="n1"')
     expect(html).toContain('<span class="ow-ic" aria-hidden="true">⚠︎</span>') // text, not emoji
     expect(html).toContain('<b>Use only the address below.</b>')
-    expect(html).toContain('which can mean the coordinator was compromised')
+    expect(html).toContain('which can mean that server was compromised')
     expect(html).toContain('ask them to stop using it')
   })
 
@@ -43,7 +43,7 @@ describe('what Add funds says about the address', () => {
   it('says it in both languages', () => {
     expect(en['receive.addressDiffers']).toMatch(/Ask the other members to compare this address with the one their device shows/)
     expect(ptBR['receive.addressDiffers']).toMatch(/confira se era este e, se não era, peça que deixem de usá-lo/)
-    expect(ptBR['receive.addressDiffers']).toMatch(/o coordenador foi comprometido/)
+    expect(ptBR['receive.addressDiffers']).toMatch(/esse servidor foi comprometido/)
     expect(ptBR['receive.noAddress']).toMatch(/ou não conseguiu lê-lo, então não mostra nenhum/)
   })
 })

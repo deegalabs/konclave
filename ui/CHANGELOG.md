@@ -83,6 +83,24 @@ history to tidy it is how context gets lost.
   on the screen, from what the device already reads; nothing new is recorded (#290 still owns
   recording who signed and which proposal). The link lands on Activity's evidence tab, where the
   menu leads, and the record is focused and tagged "This payment" on arrival.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
+- **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
+  registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
+  are used. "From the registry" opens the people on record with a box each: the chosen ones become
+  lines with name, address and memo filled, the value left to type, and someone already on the
+  sheet is marked and skipped. Until now the key existed and no button used it: a treasurer with
+  twelve people typed twelve lines through the picker of each row. Each line's memo field and
+  remove button now carry a name with the line number for a screen reader (part of #299).
+- **The CSV export works on the web, from the rows on screen, and is safe to open.** The button
+  was "soon" on the web and, on the local build, downloaded a server file that ignored the period and
+  the filters. The CSV is now built in the browser from the same rows as the XLSX, with the period
+  and filters on screen, one row per payroll line, who proposed and approved, and all eight decimals.
+  It opens cleanly in Excel: a UTF-8 marker for accents, the delimiter and decimal mark of the
+  member's language, the entry's local date. A memo or a payee name that starts with "=", "+", "-"
+  or "@" is written so a spreadsheet cannot run it as a formula (#301, #304).
 - **A read that fails says why, and the people register no longer looks empty when it could not be
   read.** Every read in the app answered "nothing" for any failure, so a screen could not tell an
   empty list from a list it did not get, nor no network from access denied. The two read routines
@@ -97,6 +115,18 @@ history to tidy it is how context gets lost.
   and "Try again"; "no vault" is kept for when there really is none.
 
 ### Fixed
+
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
 
 - **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
   Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
@@ -219,6 +249,13 @@ history to tidy it is how context gets lost.
   contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
   group, the period name is announced when it changes, and the selected text is darker. Found by the
   accessibility pass on the period picker.
+- **The money screens speak the member's words.** The memo label said "the coordinator" can read
+  it; on screen that is "the vault's server" (the word stays in the docs and the trust panel). The
+  block for an amount split across the vault's two shielded parts named "internal pools"; it now
+  describes the split, in the same sentence whether the screen blocks it or the server refuses it,
+  and no longer sends the member to "consolidate the vault", which no button does. "u1" is
+  explained once per screen, where the address is shown or typed (on Payroll too, whose field said
+  nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
 
 ### Known limits
 
