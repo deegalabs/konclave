@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePoll } from '../usePoll'
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
 import { SkeletonForm, SkeletonRows } from '../skeleton'
 import { useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Soon } from '../components'
+import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
-  type Beneficiary, type Proposal, type Member,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getProposalDetail, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
+  type Beneficiary, type Proposal, type Member, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -22,8 +22,31 @@ import { useVaultBalance } from '../useVaultBalance'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
-type Row = { label: string; address: string; value: string; memo: string }
+/** Two marks, kept apart (#332). `copied` says the line came from a previous payroll, and stays:
+ *  it is what lets the sheet compare the line with the registry for as long as the line exists.
+ *  `check` says its address has not been looked at yet, and goes when it is. */
+export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
+const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
+const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
+
+/** The sheet with one line per chosen person from the registry (name, address and memo; the value
+ *  is typed). A person whose address is already on the sheet is skipped; a single trailing empty
+ *  line is replaced rather than left above the new ones. Pure, exported for its test. */
+export function withRegistryRows(rows: Row[], benefs: readonly Beneficiary[], ids: readonly string[]): Row[] {
+  const onSheet = new Set(rows.map((r) => r.address.trim()).filter(Boolean))
+  const added: Row[] = []
+  for (const id of ids) {
+    const b = benefs.find((x) => x.id === id)
+    if (!b || onSheet.has(b.address.trim())) continue
+    onSheet.add(b.address.trim())
+    added.push({ label: b.name, address: b.address, value: '', memo: b.memo ?? '' })
+  }
+  if (added.length === 0) return rows
+  const last = rows[rows.length - 1]
+  const base = last && rowEmpty(last) ? rows.slice(0, -1) : rows
+  return [...base, ...added]
+}
 
 
 // A blocking problem with a row (null = ok); returns an i18n key. The public-address warning is
@@ -31,11 +54,12 @@ const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 export function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
-  if (k === 'unknown') return 'payroll.issueUnknown'
-  // (#294): the vault pays Orchard receivers only, and the coordinator refuses a Sapling
-  // line for the whole sheet. Said on the line, before the sheet is composed, with the word that
-  // had been written for it and never used.
-  if (k === 'sapling') return 'payroll.cellSapling'
+  // (#294): the coordinator refuses a line it cannot pay for the whole sheet. Said on the line,
+  // before the sheet is composed, by the same rule the payment screen asks.
+  const refused = addressRefusal(r.address.trim())
+  if (refused === 'unknown') return 'payroll.issueUnknown'
+  if (refused === 'sapling') return 'payroll.cellSapling'
+  if (refused === 'transparent') return 'payroll.cellTransparent'
   if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
   const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'
@@ -43,6 +67,54 @@ export function rowIssue(r: Row): string | null {
   return null
 }
 const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
+
+/** The lines of a previous payroll as a fresh sheet: label, address, value and memo, each marked
+ *  to be checked. Nothing else of the old document comes along. Pure, exported for its test. */
+export function rowsFromPrevious(lines: readonly PayrollLine[]): Row[] {
+  return lines.map((l) => ({ label: l.label ?? '', address: l.address, value: l.value_zec, memo: l.memo ?? '', copied: true, check: true }))
+}
+
+/** One line edited. The "check" mark goes only when the ADDRESS was touched: edited, or left
+ *  after being looked at (an empty patch, sent on blur). Typing an amount or a memo retires
+ *  nothing, since "check the address" was not done. The "copied" mark never goes here: looking at
+ *  a line does not make it agree with the registry. Pure, exported for its test. */
+export function patchRow(rows: readonly Row[], i: number, patch: Partial<Row>): Row[] {
+  const looked = 'address' in patch || Object.keys(patch).length === 0
+  return rows.map((r, idx) => {
+    if (idx !== i) return r
+    if (!looked) return { ...r, ...patch }
+    const { check: _check, ...rest } = r
+    return { ...rest, ...patch }
+  })
+}
+
+/** What line `i` says under itself, as an i18n key and its values, or null. In order: a problem
+ *  that blocks the sheet; a copied line whose name the registry now holds with another address,
+ *  which is the one that can send money to an old address, so it comes before the duplicate note;
+ *  the same address as an earlier line; a copied line not yet looked at. Pure, exported for its test. */
+export function rowNote(rows: readonly Row[], i: number, benefs: readonly Beneficiary[]): { key: string; vars?: Record<string, string | number> } | null {
+  const r = rows[i]
+  if (!r) return null
+  const issue = rowTouched(r) ? rowIssue(r) : null
+  if (issue) return { key: issue }
+  const name = r.label.trim()
+  if (r.copied && name && benefs.some((b) => b.name === name && b.address.trim() !== r.address.trim())) {
+    return { key: 'payroll.rowStale', vars: { name } }
+  }
+  const dup = duplicateOf(rows, i)
+  if (dup !== null) return { key: 'payroll.rowDuplicate', vars: { n: dup + 1 } }
+  if (r.check) return { key: 'payroll.rowCopied' }
+  return null
+}
+
+/** The first earlier line that holds the same address as line `i`, or null. A repeated recipient
+ *  is flagged, not silently paid twice (#295). */
+export function duplicateOf(rows: readonly Row[], i: number): number | null {
+  const a = rows[i]?.address.trim()
+  if (!a) return null
+  const first = rows.findIndex((r) => r.address.trim() === a)
+  return first >= 0 && first < i ? first : null
+}
 
 export default function NewPayroll() {
   const t = useT()
@@ -53,6 +125,17 @@ export default function NewPayroll() {
   const [description, setDescription] = useState('')
   const [rows, setRows] = useState<Row[]>([emptyRow()])
   const [showImport, setShowImport] = useState(false)
+  const [showRegistry, setShowRegistry] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  const registryBtn = useRef<HTMLButtonElement>(null)
+  const registryBox = useRef<HTMLDivElement>(null)
+  const [addedNote, setAddedNote] = useState('')
+  // Opening the picker moves focus into it; closing it (add or cancel) returns focus to its
+  // button, since the panel that held the focus is gone.
+  function closeRegistry() { setShowRegistry(false); setPicked(new Set()); registryBtn.current?.focus() }
+  useEffect(() => {
+    if (showRegistry) registryBox.current?.querySelector<HTMLElement>('input:not([disabled]), button')?.focus()
+  }, [showRegistry])
   const [csv, setCsv] = useState('')
   // The same balance the payment screen reads, refreshed on the same cadence (useVaultBalance): this
   // screen used to read it once, so a payroll opened while the wallet was busy stayed blocked.
@@ -75,6 +158,44 @@ export default function NewPayroll() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
+  const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
+  const [pendingFrom, setPendingFrom] = useState<Proposal | null>(null)
+  const competenceRef = useRef<HTMLInputElement>(null)
+  const docName = (f: Proposal) => f.memo || t('kind.payroll')
+  // Start a new payroll from a previous one: its lines, each marked to be checked, and nothing
+  // else. The period is never copied ("April" carried into May is a document that lies about
+  // itself): it keeps whatever the member typed for this payroll, empty if nothing. Approvals,
+  // txid and the funding check belong to the old one (#332).
+  const [startingFrom, setStartingFrom] = useState<string | null>(null)
+  const pendingBtn = useRef<HTMLButtonElement | null>(null)
+  const confirmBox = useRef<HTMLDivElement>(null)
+  async function startFromPrevious(f: Proposal) {
+    setError(null)
+    setStartingFrom(f.id)
+    const d = await getProposalDetail(f.id)
+    setStartingFrom(null)
+    if (!d) { setError(t('payroll.errPrevious')); return }
+    if (d.lines.length === 0) { setError(t('payroll.errPreviousEmpty')); return }
+    // Only the lines come. The period and the description are this payroll's own: whatever the
+    // member typed there stays, and nothing of the old document reaches them.
+    setRows(rowsFromPrevious(d.lines))
+    setCopiedFrom(docName(f))
+    setAddedNote('')
+    setTimeout(() => setAddedNote(t('payroll.copiedFrom', { doc: docName(f) })), 0)
+    setPendingFrom(null)
+    setShowImport(false); setShowRegistry(false)
+    competenceRef.current?.focus()
+    window.scrollTo({ top: 0 })
+  }
+  // Typed lines are never replaced without a yes; the question takes focus, and a no returns it.
+  function askStartFrom(f: Proposal, btn: HTMLButtonElement) {
+    pendingBtn.current = btn
+    if (rows.some(rowTouched)) setPendingFrom(f)
+    else void startFromPrevious(f)
+  }
+  function cancelStartFrom() { setPendingFrom(null); pendingBtn.current?.focus() }
+  useEffect(() => { if (pendingFrom) confirmBox.current?.focus() }, [pendingFrom])
+  const uncheckedCount = rows.filter((r) => r.check).length
   // Neutral placeholder while the real vault name loads (never a fake name).
   const [vaultName, setVaultName] = useState('…')
   const [membersList, setMembersList] = useState<Member[]>([])
@@ -90,15 +211,16 @@ export default function NewPayroll() {
         setCompetencia(d.competencia ?? '')
         setDescription(d.description ?? '')
         if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows)
+        if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
   }, [])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows }))
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows, copiedFrom }))
     setSaved(true)
-  }, [competencia, description, rows])
+  }, [competencia, description, rows, copiedFrom])
 
   useEffect(() => {
     let on = true
@@ -142,7 +264,7 @@ export default function NewPayroll() {
   useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
 
   function updateRow(i: number, patch: Partial<Row>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+    setRows((prev) => patchRow(prev, i, patch))
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
   const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
@@ -279,12 +401,81 @@ export default function NewPayroll() {
         <div className="payroll-doc">
           <div className="doc-head">
             <label className="field inline"><span>{t('payroll.competence')}</span>
-              <input className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+              <input ref={competenceRef} className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
             </label>
             <label className="field inline wide"><span>{t('payroll.description')}</span>
               <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
             </label>
           </div>
+
+          {/* The actions sit above the table, in the order they are used: the registry first (a
+              line per person, in batch), then one more line, then a CSV. */}
+          <div className="folha-actions mt-sm">
+            <button ref={registryBtn} className="btn ghost sm-btn" aria-expanded={showRegistry} aria-controls="plr-registry" onClick={() => { if (showRegistry) closeRegistry(); else { setShowRegistry(true); setShowImport(false) } }}>{t('payroll.fromRegistry')}</button>
+            <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
+            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
+                web path. Shown rather than hidden: the reader can see the product intends to do
+                this, and is told it is not ready instead of meeting a control that fails. */}
+            {IS_NET ? (
+              <Soon reason={t('payroll.importSoonWhy')}>
+                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
+              </Soon>
+            ) : (
+              <button className="btn ghost sm-btn" aria-expanded={showImport} aria-controls="plr-import" onClick={() => { setShowImport((v) => !v); setShowRegistry(false) }}>{t('payroll.importCsv')}</button>
+            )}
+          </div>
+
+          {showRegistry && (
+            <div className="plr-registry" id="plr-registry" ref={registryBox} role="group" aria-labelledby="plr-registry-title">
+              <span className="klab" id="plr-registry-title">{t('payroll.registryTitle')}</span>
+              {benefs.length === 0 ? (
+                <p className="hint">{t('payroll.registryEmpty')}</p>
+              ) : (
+                <div className="plr-registry-list" tabIndex={0} aria-labelledby="plr-registry-title">
+                  {benefs.map((b) => {
+                    const onSheet = rows.some((r) => r.address.trim() === b.address.trim())
+                    // Someone already on the sheet gets no box: a disabled, pre-checked box would read as
+                    // "selected" and count against "Add {n} lines" while being excluded from the count.
+                    return onSheet ? (
+                      <div key={b.id} className="plr-registry-row on">
+                        <span className="plr-registry-name">{b.name}</span>
+                        <span className="plr-registry-addr mono" aria-hidden="true">{shortAddrOf(b.address)}</span>
+                        <span className="plr-registry-tag">{t('payroll.registryOnSheet')}</span>
+                      </div>
+                    ) : (
+                      <label key={b.id} className="plr-registry-row">
+                        <input type="checkbox" checked={picked.has(b.id)}
+                          onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(b.id); else n.delete(b.id); return n })} />
+                        <span className="plr-registry-name">{b.name}</span>
+                        <span className="plr-registry-addr mono" aria-hidden="true">{shortAddrOf(b.address)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="folha-actions">
+                <button className="btn ok sm-btn" disabled={picked.size === 0}
+                  onClick={() => { const n = picked.size; setRows((prev) => withRegistryRows(prev, benefs, [...picked])); setAddedNote(n === 1 ? t('payroll.registryAddedOne') : t('payroll.registryAdded', { n })); closeRegistry() }}>
+                  {picked.size === 1 ? t('payroll.registryAddOne') : t('payroll.registryAdd', { n: picked.size })}
+                </button>
+                <button className="btn ghost sm-btn" onClick={closeRegistry}>{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+
+          {copiedFrom && uncheckedCount > 0 && (
+            <div className="hint mt-sm">{t('payroll.copiedFrom', { doc: copiedFrom })}</div>
+          )}
+
+          {/* What a screen reader hears after "Add n lines": the picker is gone and the rows are below. */}
+          <div className="visually-hidden" role="status">{addedNote}</div>
+
+          {showImport && (
+            <div className="mt-sm" id="plr-import">
+              <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+              <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
+            </div>
+          )}
 
           {/* Each line uses the same recipient combobox as /pay (search a payee, paste, add inline).
               A div-grid (not a table) so the combobox dropdown can overflow the row freely. */}
@@ -292,15 +483,18 @@ export default function NewPayroll() {
           <div className="plr-list">
             {rows.map((r, i) => {
               const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
+              const said = rowNote(rows, i, benefs)
               const issue = rowTouched(r) ? rowIssue(r) : null
+              const note = said ? t(said.key, said.vars) : null
               return (
-                <div key={i} className={'plr-line' + (issue ? ' bad' : '')}>
+                <div key={i} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
                   <span className="plr-n mono">{i + 1}</span>
-                  <div className="plr-to">
+                  {/* Leaving the address field after looking at it retires the "check" mark (blur bubbles). */}
+                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(i, {}) }}>
                     <RecipientCombobox
                       compact
                       invalid={!!issue}
-                      describedBy={issue ? `plr-issue-${i}` : undefined}
+                      describedBy={note ? `plr-issue-${i}` : undefined}
                       benefs={benefs}
                       address={r.address}
                       name={r.label || null}
@@ -312,40 +506,20 @@ export default function NewPayroll() {
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={issue ? `plr-issue-${i}` : undefined} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
-                  <input className="plr-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
-                  <button className="row-del plr-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
+                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
+                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
                   {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
-                  {issue && <div className="cell-warn err plr-issue" id={`plr-issue-${i}`} role="status">{t(issue)}</div>}
+                  {note && <div className={'cell-warn plr-issue' + (issue ? ' err' : ' warn')} id={`plr-issue-${i}`} role={issue ? 'status' : undefined}>{note}</div>}
                 </div>
               )
             })}
           </div>
 
-          <div className="mt-sm folha-actions">
-            <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
-                web path. Shown rather than hidden: the reader can see the product intends to do
-                this, and is told it is not ready instead of meeting a control that fails. */}
-            {IS_NET ? (
-              <Soon reason={t('payroll.importSoonWhy')}>
-                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
-              </Soon>
-            ) : (
-              <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
-            )}
-          </div>
-          {count === 0 && !showImport && (
+          {count === 0 && !showImport && !showRegistry && (
             <div className="hint mt-sm">{tr(IS_NET ? 'payroll.startHintWeb' : 'payroll.startHint')}</div>
-          )}
-
-          {showImport && (
-            <div className="mt-sm">
-              <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
-              <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
-            </div>
           )}
         </div>
 
@@ -413,6 +587,7 @@ export default function NewPayroll() {
         {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
             block appear, change and clear. */}
         <div role="status" id="payroll-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
+        {uncheckedCount > 0 && <div className="hint mt-sm">{uncheckedCount === 1 ? t('payroll.copiedUncheckedOne') : t('payroll.copiedUnchecked', { n: uncheckedCount })}</div>}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending
@@ -425,17 +600,31 @@ export default function NewPayroll() {
           <div className="past-folhas mt">
             <span className="klab">{t('payroll.pastPayrolls')}</span>
             {pastFolhas.slice(0, 4).map((f) => (
-              <div className="pf-row" key={f.id} role="button" tabIndex={0}
-                onClick={() => nav('/proposal', { state: { id: f.id } })}
-                onKeyDown={activateOnKey(() => nav('/proposal', { state: { id: f.id } }))}>
-                <span className="pf-name">{f.memo || t('kind.payroll')}</span>
+              <div className="pf-row" key={f.id}>
+                <button type="button" className="pf-open" onClick={() => nav('/proposal', { state: { id: f.id } })}>
+                  <span className="pf-name">{docName(f)}</span>
+                  <span className="pf-go" aria-hidden="true">→</span>
+                </button>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
                   <span className={'pf-st ' + f.state}>{t('state.' + f.state)}</span>
-                  <span className="pf-go">→</span>
                 </span>
+                <button type="button" className="btn ghost sm-btn pf-start" disabled={startingFrom !== null} aria-busy={startingFrom === f.id}
+                  onClick={(e) => askStartFrom(f, e.currentTarget)} aria-label={`${t('payroll.startFromThis')}: ${docName(f)}`}>
+                  {t('payroll.startFromThis')}
+                </button>
               </div>
             ))}
+            {pendingFrom && (
+              <div className="pf-confirm" role="group" aria-labelledby="pf-confirm-q" ref={confirmBox} tabIndex={-1}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancelStartFrom() } }}>
+                <p id="pf-confirm-q" className="hint">{t('payroll.replaceLinesQ', { doc: docName(pendingFrom) })}</p>
+                <div className="folha-actions">
+                  <button type="button" className="btn ok sm-btn" onClick={() => void startFromPrevious(pendingFrom)}>{t('payroll.replaceLines')}</button>
+                  <button type="button" className="btn ghost sm-btn" onClick={cancelStartFrom}>{t('common.cancel')}</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         </>)}

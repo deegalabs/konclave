@@ -83,13 +83,69 @@ history to tidy it is how context gets lost.
   on the screen, from what the device already reads; nothing new is recorded (#290 still owns
   recording who signed and which proposal). The link lands on Activity's evidence tab, where the
   menu leads, and the record is focused and tagged "This payment" on arrival.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
+- **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
+  registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
+  are used. "From the registry" opens the people on record with a box each: the chosen ones become
+  lines with name, address and memo filled, the value left to type, and someone already on the
+  sheet is marked and skipped. Until now the key existed and no button used it: a treasurer with
+  twelve people typed twelve lines through the picker of each row. Each line's memo field and
+  remove button now carry a name with the line number for a screen reader (part of #299).
+- **The CSV export works on the web, from the rows on screen, and is safe to open.** The button
+  was "soon" on the web and, on the local build, downloaded a server file that ignored the period and
+  the filters. The CSV is now built in the browser from the same rows as the XLSX, with the period
+  and filters on screen, one row per payroll line, who proposed and approved, and all eight decimals.
+  It opens cleanly in Excel: a UTF-8 marker for accents, the delimiter and decimal mark of the
+  member's language, the entry's local date. A memo or a payee name that starts with "=", "+", "-"
+  or "@" is written so a spreadsheet cannot run it as a formula (#301, #304).
+- **A read that fails says why, and the people register no longer looks empty when it could not be
+  read.** Every read in the app answered "nothing" for any failure, so a screen could not tell an
+  empty list from a list it did not get, nor no network from access denied. The two read routines
+  now leave the reason behind (no network, took too long, access refused, nothing there, server did
+  not answer, unreadable answer), and a shared "could not read" state says it, with what still holds
+  and "Try again", naming who was asked: the Konclave on this device, or the vault's server. The
+  people register is the first screen to use it, keeps the people it already read when a refresh
+  fails, and does not offer to register someone into a list it cannot see; the others follow one by
+  one.
+- **A payroll can start from a previous one.** Each past payroll at the foot of the screen gains
+  "Start from this one": the sheet is filled with its lines (name, address, value, memo), each
+  marked "copied, check address and amount" until its address is looked at, and nothing else comes
+  along: the period and the approvals start fresh, and whether it fits the balance is asked again.
+  A copied line whose person now has a different address in the registry says so. Typed lines are
+  never replaced without a yes, and the sheet counts the copied lines still unchecked beside the
+  button. A line whose address repeats an earlier line now says so. Until now a new payroll
+  started empty every month, and an address retyped by hand is the riskiest moment in the product
+  (#332).
+- **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
+  sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
+  and "Try again"; "no vault" is kept for when there really is none.
+- **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
+  who was asked, what still holds, and "Try again" that says when it is trying.
 
 ### Fixed
 
-- **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
-  said how much was missing and that signing waited for the funds, and nothing about the funds a
-  member had just sent. It now says they count once the network mines them and can be spent after
-  10 confirmations (about 12 minutes), and that nothing is lost, in both languages (#710).
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
+
+- **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
+  Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
+  showed an empty book: those screens read at once, before the shell had found the vault locked, and
+  the refused read looked like a failure. Approvals, the ledger, Signers and Add funds now wait for
+  the same unlock rule the shell uses, read nothing while the vault is locked, and read once the
+  passphrase is given (#292).
+
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
   page was up, a reload of the desk still showed a spinner, and the movements and the balance each
@@ -102,6 +158,8 @@ history to tidy it is how context gets lost.
   the relay "sees only public material"; a signing request, with who the vault pays and how much,
   crosses it unsealed until every device in the vault has registered its key. Each sentence now
   says what happens, in both languages (#802).
+- A passphrase change could drop an encrypted viewing key that did not open, a regression from #781 that was never released.
+  The change is now refused and the vault is left as it was.
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
@@ -202,6 +260,21 @@ history to tidy it is how context gets lost.
   contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
   group, the period name is announced when it changes, and the selected text is darker. Found by the
   accessibility pass on the period picker.
+- **The money screens speak the member's words.** The memo label said "the coordinator" can read
+  it; on screen that is "the vault's server" (the word stays in the docs and the trust panel). The
+  block for an amount split across the vault's two shielded parts named "internal pools"; it now
+  describes the split, in the same sentence whether the screen blocks it or the server refuses it,
+  and no longer sends the member to "consolidate the vault", which no button does. "u1" is
+  explained once per screen, where the address is shown or typed (on Payroll too, whose field said
+  nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
+- **The book no longer stays on its loading skeleton when it could not be read.** A failed read is
+  said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
+  the read the book actually makes, the vault's proposals; the first version asked for a route the
+  web never reads, so the reason never showed (#320).
+- **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
+  said how much was missing and that signing waited for the funds, and nothing about the funds a
+  member had just sent. It now says they count once the network mines them and can be spent after
+  a few blocks, and that nothing is lost, in both languages (#710).
 
 ### Known limits
 

@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason } from './send-outcome'
 import {
@@ -185,9 +186,13 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
-    if (!res.ok) return null
-    return (await res.json()) as T
-  } catch {
+    if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'bridge'); return null }
+    const data = (await res.json()) as T
+    recordRead(path, null)
+    return data
+  } catch (error) {
+    // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
+    recordRead(path, classifyRead({ error }), 'bridge')
     return null
   } finally {
     clearTimeout(t)
@@ -491,6 +496,19 @@ export function classifyAddress(addr: string): AddressKind {
   return 'unknown'
 }
 
+/** Why the vault cannot pay this address, or null. ONE rule for the payment and the payroll line
+ *  (#294), and it is the path's. The hosted coordinator pays only an address with an Orchard
+ *  receiver (`payment_plan`, orchestrator/src/helper.rs), so on the web a transparent one is refused
+ *  too; the local bridge pays a transparent one as a warned public payment (`is_payable`,
+ *  orchestrator/src/server.rs). This reads the prefix only: the coordinator still decodes the whole
+ *  address, and a u1 with no Orchard receiver is refused by it alone. */
+export function addressRefusal(addr: string, net: boolean = NET): 'unknown' | 'sapling' | 'transparent' | null {
+  const k = classifyAddress(addr)
+  if (k === 'unknown' || k === 'sapling') return k
+  if (k === 'transparent' && net) return k
+  return null
+}
+
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
  * (§6.11 "human-readable errors"). Matches on the backend's English error CODES; returns a
@@ -691,6 +709,13 @@ export async function getLedger(): Promise<Proposal[] | null> {
   }
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
   return r?.ledger ?? null
+}
+
+/** Why the last getLedger read failed, from the route it actually asked: on the web the book is the
+ *  vault's proposals (/api/vault/proposals), on the local bridge it is /api/ledger. Kept beside
+ *  getLedger so the route asked and the route reported cannot drift apart. */
+export function ledgerReadFailure(): ReadFailureInfo | null {
+  return lastReadFailure(NET ? '/api/vault/proposals' : '/api/ledger')
 }
 
 /** URL of the CSV export the browser downloads (handed to the accountant). */

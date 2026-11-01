@@ -1,17 +1,23 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
-import { Secret, RevealButton, activateOnKey, Soon } from '../components'
+import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
+import { getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
-import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
+import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
+import { exportLedgerCsv } from '../ledgerCsv'
 import { isOpen } from '../desk'
 import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
 import { useLoading } from '../loading'
+import ReadState from '../ReadState'
 import { useT, useI18n } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
+// Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
+// outside both totals; shown with its own state and no outflow sign, because the money never left.
+const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
 // "Open" (awaiting or ready) is `isOpen` from desk.ts: one rule for the dashboard, this screen's
 // total and filter, and the export, so a refused or expired row cannot count as open in one of them.
 
@@ -19,22 +25,36 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
   const { begin, end } = useLoading()
+  const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
+  // A book that could not be read is said as such, never left on the skeleton (#320). `attempt`
+  // counts the retries asked for and re-runs the read; `failed` counts the ones that failed again.
+  const [unread, setUnread] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [failed, setFailed] = useState(0)
+  const [retrying, setRetrying] = useState(false)
+  // Rows that stopped refreshing: two polls in a row failed after a good read. The compact line's
+  // retry is a one-off read, not the first-load path.
+  const [stale, setStale] = useState(false)
+  const misses = useRef(0)
+  const loadRef = useRef<((first: boolean) => Promise<void>) | null>(null)
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [threshold, setThreshold] = useState(2)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
-  const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
+  const [fState, setFState] = useState<'all' | 'settled' | 'openp' | 'closed'>('all')
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
   // The period window: by month, quarter or year, walked with an offset; entries placed by creation date.
   const [pKind, setPKind] = useState<PeriodKind>('all')
   const [pOffset, setPOffset] = useState(0)
-  const [xlsxBusy, setXlsxBusy] = useState(false)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'csv'>(null)
 
   // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
   // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
   // guarded so calls never overlap; only the FIRST load drives the top-progress bar.
   useEffect(() => {
+    // Locked: a 401 here reads as an empty book, so nothing is read until the passphrase lands (#439).
+    if (!readable) return
     let on = true
     let inFlight = false
     const load = async (first: boolean) => {
@@ -44,17 +64,23 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       try {
         const [l, v] = await Promise.all([getLedger(), getVault()])
         if (!on) return
-        if (l) setRows(l)
+        if (l) { setRows(l); setUnread(false); misses.current = 0; setStale(false) }
+        else if (first) { setUnread(true); if (attempt > 0) setFailed((f) => f + 1) }
+        else { misses.current += 1; if (misses.current >= 2) setStale(true) }
         if (v) { setVaultName(v.name); setThreshold(v.threshold) }
       } finally {
         inFlight = false
-        if (first) end()
+        if (first) { end(); setRetrying(false) }
       }
     }
+    loadRef.current = load
     void load(true)
     const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
     return () => { on = false; stop() }
-  }, [begin, end])
+    // `attempt` and `readable` alone: the loading hooks are stable in the app, and listing them re-ran the read on
+    // every render where they are not (tests), which took the read state away from under its retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt, readable])
 
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return
@@ -67,11 +93,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  async function exportXlsx() {
-    if (xlsxBusy) return
-    setXlsxBusy(true)
-    try {
-      const iso = (ts?: number) => (ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '')
+  // The rows and labels both exports share (#302, #301): built once, from what the screen shows.
+  async function exportData(): Promise<LedgerXlsxData> {
+      // The entry's local date, the one the table shows, not the UTC day (#304).
+      const iso = (ts?: number) => {
+        if (!ts) return ''
+        const d = new Date(ts * 1000)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      }
       const items: LedgerXlsxItem[] = []
       // Itemize: a payment = one row; a payroll = one row per beneficiary (fetch its lines if not
       // already open), mirroring the CSV export. Runs from the ledger data already in memory, and
@@ -100,7 +129,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
         }
       }
-      await exportLedgerXlsx({
+      return {
         vaultName: vaultName ?? 'Konclave',
         period: win ? winLabel : periodOf(filtered),
         filter: filterLabel,
@@ -116,9 +145,18 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
           colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
         },
-      })
+      }
+  }
+
+  async function exportAs(kind: 'xlsx' | 'csv') {
+    if (exporting) return
+    setExporting(kind)
+    try {
+      const data = await exportData()
+      if (kind === 'xlsx') await exportLedgerXlsx(data)
+      else await exportLedgerCsv(data, locale)
     } finally {
-      setXlsxBusy(false)
+      setExporting(null)
     }
   }
 
@@ -152,28 +190,21 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   }
   const period = win ? winLabel : periodOf(ledger)
   const filtered = inWin.filter((p) => {
-    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : isOpen(p))
+    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : fState === 'closed' ? CLOSED(p) : isOpen(p))
     return stOk && knOk(p)
   })
   // The active filters in the chips' own words, so a filtered export says it is a part of the book.
   const filterLabel = [
-    fState === 'settled' ? t('ledger.filterSettled') : fState === 'openp' ? t('ledger.open') : '',
+    fState === 'settled' ? t('ledger.filterSettled') : fState === 'openp' ? t('ledger.open') : fState === 'closed' ? t('ledger.filterClosed') : '',
     fKind === 'payment' ? t('ledger.filterPayments') : fKind === 'payroll' ? t('ledger.filterPayrolls') : '',
   ].filter(Boolean).join(' · ')
 
   const exportActions = (
     <>
-      {/* The CSV comes from the bridge's endpoint and is dead on the primary path (#301), and that
-          endpoint does not know the screen's filters, so the CSV is always the whole book (#302).
-          The XLSX and the print view are built in the browser and work everywhere. */}
-      {IS_NET ? (
-        <Soon reason={t('ledger.exportSoonWhy')}>
-          <span className="btn ghost sm-btn">{t('ledger.exportCsv')}</span>
-        </Soon>
-      ) : (
-        <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv" title={win ? t('ledger.csvWholeBook') : undefined}>{t('ledger.exportCsv')}</a>
-      )}
-      <button className="btn ghost sm-btn" disabled={xlsxBusy} title={t('ledger.xlsxIncludes')} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
+      {/* Both files are built in the browser from the rows on screen, so they work on every path
+          and honour the period and the filters (#301, #302). */}
+      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.csvIncludes')} onClick={() => void exportAs('csv')}>{exporting === 'csv' ? t('ledger.exporting') : t('ledger.exportCsv')}</button>
+      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.xlsxIncludes')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
     </>
   )
@@ -186,17 +217,24 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? '…'}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
-            <div><span className="klab">{t('ledger.entries')}</span><b>{inWin.length}</b></div>
+            <div><span className="klab">{t('ledger.entries')}</span><b>{rows === null ? '—' : inWin.length}</b></div>
           </div>
           <div className="db-totals">
-            <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">−{fmtZecExact(Number(totalOut))}</b></Secret></div>
-            <div className="db-t"><span className="klab">{t('ledger.open')}</span><Secret sm><b className="dim">{fmtZecExact(Number(totalPending))}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">{rows === null ? '—' : `−${fmtZecExact(Number(totalOut))}`}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.open')}</span><Secret sm><b className="dim">{rows === null ? '—' : fmtZecExact(Number(totalPending))}</b></Secret></div>
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
         {/* The period hint is on screen, not visually hidden: a hidden box that clips its text reads as a cropped control at 320px. */}
         <div className="cap">{t('ledger.capLive')}<br /><span id="ledger-period-hint">{t('ledger.periodHint')}</span> <span>{t('ledger.xlsxIncludes')}</span></div>
 
+        {/* Nothing to filter until the book was read: the state sits above the filters, not under them. */}
+        {rows === null && unread && (
+          <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} attempt={failed} busy={retrying} onRetry={() => { setRetrying(true); setAttempt((a) => a + 1) }} />
+        )}
+        {stale && rows !== null && (
+          <ReadState compact title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => void loadRef.current?.(false)} />
+        )}
         <div className="filters">
           <span className="chip-group" role="group" aria-labelledby="ledger-period-label" aria-describedby="ledger-period-hint">
             <span className="chip-glabel" id="ledger-period-label" title={t('ledger.periodHint')}>{t('ledger.periodLabel')}</span>
@@ -218,6 +256,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <button className={'chip' + (fState === 'all' ? ' on' : '')} aria-pressed={fState === 'all'} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
             <button className={'chip' + (fState === 'settled' ? ' on' : '')} aria-pressed={fState === 'settled'} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
             <button className={'chip' + (fState === 'openp' ? ' on' : '')} aria-pressed={fState === 'openp'} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
+            <button className={'chip' + (fState === 'closed' ? ' on' : '')} aria-pressed={fState === 'closed'} onClick={() => setFState('closed')}>{t('ledger.filterClosed')}</button>
           </span>
           <span className="chip-group" role="group" aria-labelledby="ledger-kind-label">
             <span className="chip-glabel" id="ledger-kind-label">{t('ledger.filterKindLabel')}</span>
@@ -232,7 +271,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         <table className="tbl razao mt">
           <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
           <tbody>
-            {rows === null && (
+            {rows === null && !unread && (
               <tr><td colSpan={4}><SkeletonRows n={5} /></td></tr>
             )}
             {rows !== null && ledger.length === 0 && (
@@ -252,12 +291,13 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                 + ' · ' + t('ledger.approvalsOf', { count: p.approvals.length, total: threshold })
                 + (selfOnly ? ' · ' + t('ledger.selfApproved') : '')
               const settledRow = SETTLED(p.state)
+              const closedRow = CLOSED(p)
               const isOpen = open.has(p.id)
               const lines = linesById[p.id]
               return (
                 <Fragment key={p.id}>
                   <tr
-                    className={isPayroll ? 'doc-row' : ''}
+                    className={[isPayroll ? 'doc-row' : '', closedRow ? 'closed' : ''].filter(Boolean).join(' ')}
                     onClick={() => toggle(p)}
                     style={isPayroll ? { cursor: 'pointer' } : undefined}
                     {...(isPayroll ? { role: 'button' as const, tabIndex: 0, 'aria-expanded': isOpen, onKeyDown: activateOnKey(() => toggle(p)) } : {})}
@@ -272,12 +312,13 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                       </div>
                     </td>
                     <td className="by">{who}</td>
-                    <td className="num out">
-                      <Secret sm><span>−{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
+                    <td className={closedRow ? 'num dim' : 'num out'}>
+                      <Secret sm><span>{closedRow ? '' : '−'}{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
                           ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
                           : t('state.' + p.state)}
+                        {closedRow && <span className="closed-tag">{t('ledger.closedNoMoney')}</span>}
                       </div>
                     </td>
                   </tr>
