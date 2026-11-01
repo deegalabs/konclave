@@ -276,6 +276,11 @@ history to tidy it is how context gets lost.
   said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
   the read the book actually makes, the vault's proposals; the first version asked for a route the
   web never reads, so the reason never showed (#320).
+- **Four strings the money-copy pass left now speak the member's words too.** Receive's payment
+  link no longer names its standard ("ZIP-321"), and its history is "Vault history", not "on-chain".
+  The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
+  read the memo is said under the field. People explained the address as "u1…" in its warning and
+  in its field; both now say "starts with u1", like the rest of the app (#799).
 
 ### Known limits
 
