@@ -122,6 +122,8 @@ history to tidy it is how context gets lost.
 - **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
   sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
   and "Try again"; "no vault" is kept for when there really is none.
+- **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
+  who was asked, what still holds, and "Try again" that says when it is trying.
 
 ### Fixed
 
