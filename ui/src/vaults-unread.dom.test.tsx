@@ -1,0 +1,104 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import 'fake-indexeddb/auto'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { I18nProvider } from './i18n'
+import { ToastProvider } from './toast'
+import { en as dict } from './i18n/en'
+const en = (k: string): string => dict[k] ?? k
+
+// #320: the Vaults list is read from this browser's storage. When that read failed, the list came
+// back empty and the screen said "No vaults yet", which invites a member to create or import again
+// over a vault that is still there. This mounts the real screen over the real store (fake-indexeddb),
+// makes the store fail the two ways a browser does (no IndexedDB, a database that will not open),
+// and reads what a member sees at each step. The store is not mocked: a mocked list that rejects
+// passed while the real one answered [] on exactly these failures.
+const health = vi.hoisted(() => vi.fn(async () => false))
+const getVaults = vi.hoisted(() => vi.fn(async () => null))
+const net = vi.hoisted(() => ({ on: false }))
+vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), health, getVaults, get IS_NET() { return net.on } }))
+
+const { default: Vaults } = await import('./screens/Vaults')
+// The message is found by its component, not by role: the toast provider keeps live regions of its
+// own on the page, an alert among them, so "the alert" is not one element there.
+const said = () => document.querySelector('.read-state')
+const mount = () => render(<MemoryRouter><I18nProvider><ToastProvider><Vaults /></ToastProvider></I18nProvider></MemoryRouter>)
+
+const { saveVault, deleteVault } = await import('./storage')
+const GK = 'ab'.repeat(32)
+const saveTreasury = () => saveVault(GK, {
+  name: 'Treasury', governance: 'quorum', myName: 'Ana', creatorName: 'Ana',
+  groupKey: new Uint8Array(32).fill(0xab), address: 'u1test', roster: ['Ana', 'Bia'],
+  sealedShare: new Uint8Array(32).fill(1),
+}, 'correct horse')
+// The database will not open: what a browser does when the profile's storage is broken or blocked.
+const refuseOpen = () => vi.spyOn(indexedDB, 'open').mockImplementation(() => { throw new Error('storage closed') })
+
+describe('the Vaults screen when this browser could not read its vaults (#320)', () => {
+  beforeEach(() => { net.on = false; health.mockReset(); health.mockResolvedValue(false); getVaults.mockReset(); getVaults.mockResolvedValue(null) })
+  afterEach(async () => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); await deleteVault(GK).catch(() => {}) })
+
+  it('says it could not read, never "No vaults yet", and warns against creating again', async () => {
+    refuseOpen()
+    mount()
+    expect(await screen.findByText(en('vaults.unreadTitle'))).toBeTruthy()
+    expect(said()!.textContent).toContain(en('vaults.unreadHolds'))
+    expect(said()!.textContent).toContain(en('read.unavailable').replace('{who}', en('read.who.device')))
+    expect(screen.queryByText(en('vaults.empty'))).toBeNull()
+  })
+
+  it('a browser with no IndexedDB is said the same way, not as an empty list', async () => {
+    vi.stubGlobal('indexedDB', undefined)
+    mount()
+    expect(await screen.findByText(en('vaults.unreadTitle'))).toBeTruthy()
+    expect(screen.queryByText(en('vaults.empty'))).toBeNull()
+  })
+
+  it('reads again on "Try again", and the list replaces the message', async () => {
+    await saveTreasury()
+    const open = refuseOpen()
+    mount()
+    await screen.findByText(en('vaults.unreadTitle'))
+    open.mockRestore()
+    fireEvent.click(await screen.findByRole('button', { name: en('read.retry') }))
+    expect(await screen.findByText('Treasury')).toBeTruthy()
+    expect(screen.queryByText(en('vaults.unreadTitle'))).toBeNull()
+  })
+
+  it('a retry that fails again is said again and takes focus', async () => {
+    refuseOpen()
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: en('read.retry') }))
+    await waitFor(() => expect(document.activeElement?.classList.contains('read-state')).toBe(true))
+  })
+
+  it('an empty storage still says "No vaults yet"', async () => {
+    mount()
+    expect(await screen.findByText(en('vaults.empty'))).toBeTruthy()
+    expect(screen.queryByText(en('vaults.unreadTitle'))).toBeNull()
+  })
+
+  it('a local Konclave that answers its health check and then not the list says what is missing', async () => {
+    await saveTreasury()
+    health.mockResolvedValue(true)
+    mount()
+    expect(await screen.findByText('Treasury')).toBeTruthy()
+    const text = said()!.textContent
+    expect(text).toContain(en('vaults.unreadBridgeTitle'))
+    expect(text).toContain(en('vaults.unreadBridgeHolds'))
+    // the rows on screen were read just now: never "showing the last read"
+    expect(text).not.toContain(en('read.stale'))
+    expect(screen.queryByText(en('vaults.empty'))).toBeNull()
+  })
+
+  it('on the web, where there is no local Konclave to list, nothing is said to have failed', async () => {
+    net.on = true
+    await saveTreasury()
+    health.mockResolvedValue(true) // on the web this is the vault's server answering
+    mount()
+    expect(await screen.findByText('Treasury')).toBeTruthy()
+    expect(said()).toBeNull()
+    expect(getVaults).not.toHaveBeenCalled()
+  })
+})

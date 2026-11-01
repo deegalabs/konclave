@@ -281,6 +281,14 @@ history to tidy it is how context gets lost.
   The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
   read the memo is said under the field. People explained the address as "u1…" in its warning and
   in its field; both now say "starts with u1", like the rest of the app (#799).
+- **Vaults says when it could not read the vaults on this device.** The list is read from this
+  browser's storage, and when that read failed the screen said "No vaults yet", which invites a
+  member to create or import again over a vault that is still there. It now says the list could not
+  be read, that a failed read deletes nothing, and not to create or import again until it reads,
+  with "Try again". When the Konclave on this device answers and then cannot list its vaults, the
+  screen says those are missing from the list, not deleted, above the vaults this browser keeps.
+  On the web, where there is no such Konclave, nothing is said. A browser with no storage, or whose
+  database will not open, is a failed read too: the list used to answer those as empty (#320).
 - **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
   said how much was missing and that signing waited for the funds, and nothing about the funds a
   member had just sent. It now says they count once the network mines them and can be spent after
