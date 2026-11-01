@@ -1345,4 +1345,5 @@ export const en: Record<string, string> = {
   'people.unreadTitle': 'Could not read the people register',
   'people.holds': 'Registered people were not deleted.',
   'people.registerLater': 'Register after the list is back.',
+  'ledger.unreadTitle': 'Could not read the ledger',
 }

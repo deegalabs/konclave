@@ -262,6 +262,10 @@ history to tidy it is how context gets lost.
   and no longer sends the member to "consolidate the vault", which no button does. "u1" is
   explained once per screen, where the address is shown or typed (on Payroll too, whose field said
   nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
+- **The book no longer stays on its loading skeleton when it could not be read.** A failed read is
+  said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
+  the read the book actually makes, the vault's proposals; the first version asked for a route the
+  web never reads, so the reason never showed (#320).
 
 ### Known limits
 

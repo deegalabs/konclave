@@ -5,7 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
-import { recordRead, classifyRead } from './read-failure'
+import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason } from './send-outcome'
 import {
@@ -709,6 +709,13 @@ export async function getLedger(): Promise<Proposal[] | null> {
   }
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
   return r?.ledger ?? null
+}
+
+/** Why the last getLedger read failed, from the route it actually asked: on the web the book is the
+ *  vault's proposals (/api/vault/proposals), on the local bridge it is /api/ledger. Kept beside
+ *  getLedger so the route asked and the route reported cannot drift apart. */
+export function ledgerReadFailure(): ReadFailureInfo | null {
+  return lastReadFailure(NET ? '/api/vault/proposals' : '/api/ledger')
 }
 
 /** URL of the CSV export the browser downloads (handed to the accountant). */

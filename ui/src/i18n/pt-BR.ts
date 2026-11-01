@@ -1341,4 +1341,5 @@ export const ptBR: Record<string, string> = {
   'people.unreadTitle': 'Não foi possível ler o cadastro de pessoas',
   'people.holds': 'As pessoas cadastradas não foram apagadas.',
   'people.registerLater': 'Cadastre depois que a lista voltar.',
+  'ledger.unreadTitle': 'Não foi possível ler o livro',
 }
