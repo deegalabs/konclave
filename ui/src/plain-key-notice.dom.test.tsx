@@ -13,7 +13,7 @@ const en = (k: string): string => dict[k] ?? k
 
 const listVaults = vi.hoisted(() => vi.fn())
 const loadVault = vi.hoisted(() => vi.fn())
-vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults, loadVault }))
+vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults, readVaults: listVaults, loadVault }))
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), health: async () => false, getVaults: async () => [], isVaultUnlocked: () => false }))
 vi.mock('./screens/NetVault', () => ({ default: () => null }))
 
