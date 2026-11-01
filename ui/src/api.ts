@@ -5,7 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
-import { recordRead, classifyRead } from './read-failure'
+import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason } from './send-outcome'
 import {
@@ -711,6 +711,13 @@ export async function getLedger(): Promise<Proposal[] | null> {
   return r?.ledger ?? null
 }
 
+/** Why the last getLedger read failed, from the route it actually asked: on the web the book is the
+ *  vault's proposals (/api/vault/proposals), on the local bridge it is /api/ledger. Kept beside
+ *  getLedger so the route asked and the route reported cannot drift apart. */
+export function ledgerReadFailure(): ReadFailureInfo | null {
+  return lastReadFailure(NET ? '/api/vault/proposals' : '/api/ledger')
+}
+
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
   return `${BASE}${withVault('/api/ledger.csv')}`
@@ -947,6 +954,15 @@ export async function getProposalDetail(
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return null
   return { proposal: r.proposal, lines: r.lines ?? [] }
+}
+
+/** Why the last read of a proposal failed, from the route that read it: on the web a proposal is
+ *  found in the vault's proposals (/api/vault/proposals); on the local bridge it is read by id, or,
+ *  with no id, picked from /api/proposals. `null` when that read succeeded: then a missing proposal
+ *  is really missing. Kept beside getProposalDetail so the route asked and the route reported agree. */
+export function proposalReadFailure(id: string | null): ReadFailureInfo | null {
+  if (NET) return lastReadFailure('/api/vault/proposals')
+  return lastReadFailure(id ? `/api/proposals/${encodeURIComponent(id)}` : '/api/proposals')
 }
 
 export type SendResult =
