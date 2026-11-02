@@ -11,21 +11,21 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getProposalDetail, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
+  previewPayroll, createPayroll, getSelectedVault, getBeneficiaries, getLedger, getProposals, getProposalDetail, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
+import { draftKey } from '../payroll-draft'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
 import { useVaultBalance } from '../useVaultBalance'
 
-const DRAFT_KEY = 'konclave.folha.rascunho'
 
 /** Two marks, kept apart (#332). `copied` says the line came from a previous payroll, and stays:
  *  it is what lets the sheet compare the line with the registry for as long as the line exists.
  *  `check` says its address has not been looked at yet, and goes when it is. */
-export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean }
+export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean; vouched?: boolean }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
 const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
@@ -83,10 +83,20 @@ export function patchRow(rows: readonly Row[], i: number, patch: Partial<Row>): 
   return rows.map((r, idx) => {
     if (idx !== i) return r
     if (!looked) return { ...r, ...patch }
-    const { check: _check, ...rest } = r
-    return { ...rest, ...patch }
+    const { check: _check, vouched, ...rest } = r
+    // A new address is not the one the member vouched for: the confirm is asked again.
+    return { ...rest, ...('address' in patch ? {} : { vouched }), ...patch }
   })
 }
+
+/** A copied line whose ADDRESS this device's registry does not hold, whatever its label says, and
+ *  that the member has not confirmed with the line's own button (blur does not count). Copying a
+ *  previous payroll is where an address nobody re-read gets paid again. Pure, exported for its test. */
+export function needsVouch(r: Row, benefs: readonly Beneficiary[]): boolean {
+  const a = r.address.trim()
+  return !!r.copied && !r.vouched && !!a && !benefs.some((b) => b.address.trim() === a)
+}
+export const unvouchedCount = (rows: readonly Row[], benefs: readonly Beneficiary[]) => rows.filter((r) => needsVouch(r, benefs)).length
 
 /** What line `i` says under itself, as an i18n key and its values, or null. In order: a problem
  *  that blocks the sheet; a copied line whose name the registry now holds with another address,
@@ -101,6 +111,7 @@ export function rowNote(rows: readonly Row[], i: number, benefs: readonly Benefi
   if (r.copied && name && benefs.some((b) => b.name === name && b.address.trim() !== r.address.trim())) {
     return { key: 'payroll.rowStale', vars: { name } }
   }
+  if (needsVouch(r, benefs)) return { key: 'payroll.rowUnregistered' }
   const dup = duplicateOf(rows, i)
   if (dup !== null) return { key: 'payroll.rowDuplicate', vars: { n: dup + 1 } }
   if (r.check) return { key: 'payroll.rowCopied' }
@@ -202,9 +213,11 @@ export default function NewPayroll() {
   const [proposer, setProposer] = useState('Alice')
   const [loaded, setLoaded] = useState(false)
 
+  // The draft belongs to the vault this screen opened in; with none selected nothing is kept.
+  const [draftAt] = useState(() => { const id = getSelectedVault(); return id ? draftKey(id) : null })
   // Restore the local draft.
   useEffect(() => {
-    const raw = localStorage.getItem(DRAFT_KEY)
+    const raw = draftAt ? localStorage.getItem(draftAt) : null
     if (raw) {
       try {
         const d = JSON.parse(raw)
@@ -214,13 +227,14 @@ export default function NewPayroll() {
         if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
-  }, [])
+  }, [draftAt])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows, copiedFrom }))
+    if (!draftAt) return
+    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows, copiedFrom }))
     setSaved(true)
-  }, [competencia, description, rows, copiedFrom])
+  }, [competencia, description, rows, copiedFrom, draftAt])
 
   useEffect(() => {
     let on = true
@@ -330,32 +344,35 @@ export default function NewPayroll() {
   // against an unknown balance.
   const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools, reservedZat })
   // When the whole shortfall is confirmations, say that, not "exceeds the balance" (#352).
-  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, totalZat, feeZat)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat ?? 0, totalZat, feeZat)
   const overBalance = block === 'over-balance' && !onlyConfirming
   // The "after" figure subtracts from FREE funds; while a reservation or confirmations are the
   // block, a negative figure beside "the vault has the funds" would contradict it: a dash.
   const hideAfter = block === 'reserved' || onlyConfirming
   // One sentence for the block, composed once, in one live region the button points at (same
   // shape as Pay). The reserved clause stays when both a reservation and confirmations stand.
-  const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact((reservedZat ?? 0) / 1e8), held: String(openHolding) }
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
+  const unvouched = unvouchedCount(rows, benefs)
   const blockMsg = (() => {
     // A flagged line disables the button too; say so here, where the button points, instead of
     // leaving a greyed button and a red line to find above it.
     if (anyBadTouched) return t('payroll.errFixRows')
+    if (unvouched > 0) return t('payroll.blockUnvouched', { n: unvouched })
     if (count === 0 || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
-    if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
+    if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
     if (block === 'over-balance') return t('payroll.warnExceeds')
     const k = blockMessageKey(block)
     return k ? t(k, moneyVars) : null
   })()
-  const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
+  const canSubmit = count > 0 && !anyBadTouched && unvouched === 0 && !busy && block === null
 
   async function submit() {
     setError(null)
     if (count === 0) { setError(t('payroll.errNoRows')); return }
     if (anyBadTouched) { setError(t('payroll.errFixRows')); return }
+    if (unvouched > 0) { setError(t('payroll.blockUnvouched', { n: unvouched })); return }
     setBusy(true)
     const desc = competencia.trim()
       ? `${t('payroll.docPrefix')} · ${competencia.trim()}${description.trim() ? ` · ${description.trim()}` : ''}`
@@ -367,7 +384,7 @@ export default function NewPayroll() {
     )
     setBusy(false)
     if (res.ok) {
-      localStorage.removeItem(DRAFT_KEY)
+      if (draftAt) localStorage.removeItem(draftAt)
       // We navigate away, so the confirmation has to travel with the reader.
       toast.ok(t('toast.payrollSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
@@ -513,6 +530,7 @@ export default function NewPayroll() {
                   <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
                   {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
                   {note && <div className={'cell-warn plr-issue' + (issue ? ' err' : ' warn')} id={`plr-issue-${i}`} role={issue ? 'status' : undefined}>{note}</div>}
+                  {needsVouch(r, benefs) && <button className="btn ghost sm-btn" aria-describedby={`plr-issue-${i}`} onClick={() => updateRow(i, { vouched: true })}>{t('payroll.vouchBtn', { n: i + 1 })}</button>}
                 </div>
               )
             })}

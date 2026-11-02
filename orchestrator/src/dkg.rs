@@ -63,6 +63,13 @@ fn make_tmpfs_dir() -> Result<std::path::PathBuf, ToolError> {
     Ok(dir)
 }
 
+/// A quorum the signing library accepts: frost-core refuses `min_signers < 2` (#589). The UI's
+/// `quorumIsPossible` (`ui/src/dkg-ceremony.ts`) states the same floor; this is the bridge's copy,
+/// read by both this function and `server::create_vault_dkg_handler`.
+pub fn quorum_is_possible(threshold: u16, members: usize) -> bool {
+    threshold >= 2 && (threshold as usize) <= members && (2..=32).contains(&members)
+}
+
 /// Create a `threshold`-of-`members.len()` vault by DKG.
 pub fn create_vault_dkg(
     sc: &SendConfig,
@@ -79,7 +86,7 @@ pub fn create_vault_dkg(
         .as_ref()
         .ok_or_else(|| err("dkg", "vaults_dir not configured"))?;
     let n = member_names.len();
-    if n < 2 || threshold < 1 || threshold as usize > n {
+    if !quorum_is_possible(threshold, n) {
         return Err(err("dkg", format!("invalid quorum {threshold}-of-{n}")));
     }
 

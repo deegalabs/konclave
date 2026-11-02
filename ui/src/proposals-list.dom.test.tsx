@@ -118,6 +118,14 @@ describe('the proposals list (#292)', () => {
     await waitFor(() => expect(screen.queryByText('Sent rent')).toBeNull())
   })
 
+  it('a transaction list that could not be read leaves a sent proposal UNKNOWN, never "awaiting a block"', async () => {
+    readTransactions.mockResolvedValue(null)
+    mount()
+    await screen.findByText('Sent rent')
+    expect(screen.queryByText(en('proposals.sentAwaiting'))).toBeNull()
+    expect(titlesUnder(en('proposals.sentUnknown'))).toEqual(['Sent rent'])
+  })
+
   it('says when the list could not be read, instead of drawing an empty desk, and tries again', async () => {
     getProposals.mockResolvedValueOnce(null)
     mount()
