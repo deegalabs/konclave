@@ -58,13 +58,7 @@ explicitly accepted.
 
 ### Fixed
 
-- Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
-- Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
-- One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
-- Creating a vault on the desktop bridge offered and accepted a quorum of 1, which the signing library refuses; the screen and the bridge now ask the same floor of 2 as the DKG.
-- Ledger: the lines of a refused or expired payroll showed an outflow sign, as if the money had left.
-- Payroll copied from a previous one: a line whose address is not in this device's registry is flagged whatever its label says, and Propose waits for that line's own confirmation (leaving the field no longer counts).
-- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault and cleared on both.
+- Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
 
 ## [0.16.0] 2026-10-30
 
