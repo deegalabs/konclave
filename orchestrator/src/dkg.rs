@@ -372,6 +372,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn quorum_floor_is_two_and_the_roster_cap_is_32() {
+        // frost-core refuses min_signers < 2 (#589): a quorum of one is never possible.
+        assert!(!quorum_is_possible(1, 2));
+        assert!(!quorum_is_possible(1, 5));
+        assert!(!quorum_is_possible(0, 3));
+        // From 2 up to the member count, every quorum is accepted.
+        for n in 2..=32usize {
+            for t in 2..=n as u16 {
+                assert!(quorum_is_possible(t, n), "{t}-of-{n} must be accepted");
+            }
+            assert!(
+                !quorum_is_possible(n as u16 + 1, n),
+                "a quorum above the roster is refused"
+            );
+        }
+        // More than 32 members is refused, whatever the quorum.
+        assert!(!quorum_is_possible(2, 33));
+        assert!(!quorum_is_possible(33, 33));
+    }
+
+    #[test]
     fn parses_group_pubkey() {
         let out = "Group \"Konclave DKG vault\"\nPublic key 0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34\nThreshold: 2\n";
         assert_eq!(

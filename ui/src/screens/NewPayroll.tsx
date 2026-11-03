@@ -3,7 +3,8 @@ import { usePoll } from '../usePoll'
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
 import { SkeletonForm, SkeletonRows } from '../skeleton'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
+import type { VaultLockContext } from '../Layout'
 import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
@@ -215,8 +216,17 @@ export default function NewPayroll() {
 
   // The draft belongs to the vault this screen opened in; with none selected nothing is kept.
   const [draftAt] = useState(() => { const id = getSelectedVault(); return id ? draftKey(id) : null })
+  // Locked behind the overlay: `Layout` decides the lock after this screen mounted and clears the
+  // vault's draft then, so the screen must neither hold what it restored nor write it back. Outside
+  // `Layout` there is no overlay, and nothing is locked.
+  const locked = !!useOutletContext<VaultLockContext | undefined>()?.locked
+  useEffect(() => {
+    if (!locked) return
+    setRows([emptyRow()]); setCompetencia(''); setDescription(''); setCopiedFrom(null); setPendingFrom(null)
+  }, [locked])
   // Restore the local draft.
   useEffect(() => {
+    if (locked) return
     const raw = draftAt ? localStorage.getItem(draftAt) : null
     if (raw) {
       try {
@@ -227,14 +237,14 @@ export default function NewPayroll() {
         if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
-  }, [draftAt])
+  }, [draftAt, locked])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
-    if (!draftAt) return
+    if (!draftAt || locked) return
     localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows, copiedFrom }))
     setSaved(true)
-  }, [competencia, description, rows, copiedFrom, draftAt])
+  }, [competencia, description, rows, copiedFrom, draftAt, locked])
 
   useEffect(() => {
     let on = true

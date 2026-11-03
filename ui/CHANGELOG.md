@@ -138,7 +138,7 @@ history to tidy it is how context gets lost.
 - Creating a vault offered a quorum of 1, which the signing library refuses; the screen now offers 2 or more and checks the same rule as the DKG.
 - Ledger: the lines of a refused or expired payroll showed an outflow sign, as if the money had left.
 - Payroll copied from a previous one: a line whose address is not in this device's registry is flagged whatever its label says, and Propose waits for that line's own confirmation (leaving the field no longer counts).
-- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault and cleared on both.
+- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault and cleared on both, and the payroll screen behind the lock overlay neither shows it nor writes it back.
 - **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
   recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
   "Older shielded address", and a transparent one still says "Transparent address".
