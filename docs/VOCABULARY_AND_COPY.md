@@ -1,6 +1,8 @@
 # Vocabulary and copy
 
-> **Status:** draft of 2026-10-30, revised the same day after review. It becomes the reference for
+> **Status:** draft of 2026-10-30, revised the same day after review; accepted on 2026-11-03, with the
+> counts redone on staging `5571690` that day and the signing sentence brought to what the code does.
+> It becomes the reference for
 > screen copy when Daniel accepts it.
 > **What it is:** the words the product uses on screen, where they come from, and what stays off the
 > everyday screens. Portuguese terms are kept as they appear on screen.
@@ -40,9 +42,9 @@
 | memo | **memo** (encrypted note) | community wallets: "Write encrypted message here" | "memo"; the field says it is encrypted and that a transparent destination has no memo |
 | viewing key (Incoming / Full) | **chave de visualização** | community wallets: Export Viewing Key, "cannot be undone" | "chave de visualização" (Settings, export); the vault has one key today; Incoming/Full does not apply |
 | view-only | **somente leitura** | community wallets: View Only Account | **to check**: the product reads without unlocking; the name "somente leitura" does not appear yet |
-| payment request (ZIP 321) | **pedido de pagamento** | community wallets: Receive, Request, "What's this for?" | in use on Receive; "ZIP 321" only in the detail |
+| payment request (ZIP 321) | **pedido de pagamento** | community wallets: Receive, Request, "What's this for?" | Receive says "Link de pagamento" (#804); "ZIP 321" no longer appears on screen |
 | server / lightwalletd | **servidor** | community wallets: Choose a Server, host:port | Konclave chooses no server; **"o servidor do cofre"** is the on-screen name for the coordinator (Daniel, 2026-10-30) |
-| ledger | **livro** | the accountant's term is "livro-razão"; the plain word is "livro" | **"Livro"** on the menu, the title and the tab (Daniel, 2026-10-30); "Ledger" in English |
+| ledger | **livro** | the accountant's term is "livro-razão"; the plain word is "livro" | **"Livro"** on the menu, the title and the tab (Daniel, 2026-10-30); "Ledger" in English. Decided, not yet on screen: on `5571690` the menu still says "Registro" and the title "Razão" |
 | seed + wallet birthday | **frase + altura** | community wallets: "Estimate my block height" | the export already carries the viewing key and the birthday together (#447, #480) |
 | sync | **sincronizar** | community wallets: Syncing 42%, Synced | **missing**: the screen does not say when it has not read the chain yet (feedback ruler, class 5) |
 | send flow | Revisar, Confirmar, Enviando, Enviado | community wallets | in use: preview, confirm, Enviado |
@@ -66,7 +68,7 @@
 | 3 | Two viewing keys (Incoming for the accountant, Full for audit) | does not apply today; one key |
 | 4 | "Somente leitura" is the name of the read mode | the name is missing |
 | 5 | A server picker like the wallets' | does not apply; the trust panel says what each service sees |
-| 6 | Payment request = ZIP 321 ("Pedir ZEC", "Para que é?") | done on Receive |
+| 6 | Payment request = ZIP 321 ("Pedir ZEC", "Para que é?") | done on Receive ("Link de pagamento") |
 | 7 | Memo: placeholder, limit, "transparent has no memo" | to check on the memo fields |
 | 8 | Backup = phrase plus height, together; the part treated like a seed | the export joins them; the warning about the part, to check |
 | 9 | Sync visible and honest | missing (feedback ruler, class 5) |
@@ -81,24 +83,25 @@
 
 ## 3. Engine words: off the everyday screens
 
-Where it is today = prefixes of the pt-BR dictionary on 2026-10-30. Substitute = what the screen says
+Where it is today = lines of the pt-BR dictionary that hold the word, by key prefix, on staging
+`5571690` (2026-11-03). Substitute = what the screen says
 instead. Where it may appear = the place a member goes looking for the technical name.
 
 | Word | Where it is today | Substitute on screen | Where it may appear |
 |---|---|---|---|
-| FROST, DKG | landing, net, ceremony | "assinatura em grupo", "criação do cofre" | docs; the landing, once, as credit to the Foundation |
+| FROST, DKG | net (4), landing (3), signer (2), ceremony (1), lv (1) | "assinatura em grupo", "criação do cofre" | docs; the landing, once, as credit to the Foundation |
 | relay | net (6), settings (5), dashboard (2) | "a ligação entre os aparelhos"; in an error: "não deu para alcançar os outros aparelhos" | trust panel: "serviço de mensagens (relay): carries sealed or public material; until every member's device has registered its key, a signing request crosses it unsealed" |
-| coordenador | signing (8), error (5), registration (4), net (3) | **"o servidor do cofre"** (Daniel, 2026-10-30) | trust panel and docs, with what that server sees and what it does not |
+| coordenador | signing (8), error (5), registration (4), net (3), vaults (2) | **"o servidor do cofre"** (Daniel, 2026-10-30) | trust panel and docs, with what that server sees and what it does not |
 | assento | net (4), error (2), dashboard (2), vaults (1) | "membro" (the person); "aparelho do membro" (the seat) | docs |
-| cerimônia | proposal, net, ceremonies, signing | "assinatura" (of a payment); "criação do cofre" | the evidence screen could be called "Assinaturas" instead of "Registro de cerimônias" (a proposal; the screen is Daniel's) |
-| key share | 31 uses as "sua parte" | **"sua parte"** stays, as the one name, defined once on the backup screen | never "share", "fragmento", "chave parcial" |
-| Orchard, Sapling, Ironwood (pools) | landing, signer, error, dashboard | "blindado"; "blindado antigo (Sapling)" (#127) | technical detail and docs |
+| cerimônia | proposal (2), net (2), ceremonies (2), signing, signer, settings, nav, lv (1 each) | "assinatura" (of a payment); "criação do cofre" | the evidence screen could be called "Assinaturas" instead of "Registro de cerimônias" (a proposal; the screen is Daniel's) |
+| key share | "sua parte" on 31 lines (32 uses) | **"sua parte"** stays, as the one name, defined once on the backup screen | never "share", "fragmento", "chave parcial" |
+| Orchard, Sapling, Ironwood (pools) | payment (3), rec (2), landing (2), and one line each in signer, receive, people, payroll, error, dashboard, ceremony | "blindado"; "blindado antigo (Sapling)" (#127) | technical detail and docs |
 | sighash | ceremonies (2), net (1) | nothing in everyday use | evidence: "resumo assinado (sighash)" (#127) |
-| ZIP 321 | 1 use | "pedido de pagamento" | the detail of Receive |
+| ZIP 321 | none since #804 | "Link de pagamento" | docs |
 | mainnet | proposal (4), error (1) | "a rede Zcash"; in money warnings, "ZEC de verdade" | docs, PROOF |
-| nonce, round 1 and 2, package, randomizer | none | never | docs |
+| nonce, round 1 and 2, package, randomizer | "nonces" on one line, the signer lab (`signer.lead`) | never | docs |
 
-**Stays as it is:** "quórum" (42 uses) is the community's word and the product's. Always with the
+**Stays as it is:** "quórum" (40 lines) is the community's word and the product's. Always with the
 number: "2 de 3 aprovações", never "quórum atingido" on its own.
 
 ---
@@ -128,8 +131,11 @@ export; the colours are tokens of the visual layer, never a loose colour inside 
 2. **Money never leaves on one click.** Preview, then confirmation; the confirmation says the
    amount, the recipient and what happens next. Approving and signing are two moments with two
    sentences: approving is your yes to the proposal ("Ao aprovar, você diz sim a este pagamento");
-   signing is your part of the key at work, and the last signature sends ("Quem aprovou assina; a
-   última assinatura envia").
+   signing is your part of the key at work. Today any member of the vault can sign, on their own
+   device, with a click for that payment, whether or not they approved it; the payment goes out once
+   as many members as the quorum have signed ("Qualquer membro do cofre pode assinar; o pagamento sai
+   quando o quórum assinou"). This sentence changes when the new signing rule (#567) is in the code;
+   until then the copy says how it works today.
 3. **Guarantee and lock, each with its name.** "2 de 3 precisam assinar" is the guarantee of the
    signature; "precisa de 2 aprovações" and "o saldo desta proposta fica reservado" are the product's
    locks. Never "a rede impede" for a product lock.
