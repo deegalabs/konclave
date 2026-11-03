@@ -132,6 +132,11 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
+  "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
+  Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
+  showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
+  live formula (#812).
 - **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
   recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
   "Older shielded address", and a transparent one still says "Transparent address".
