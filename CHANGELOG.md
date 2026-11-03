@@ -56,6 +56,30 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **The dependency supply-chain settings are now in force; until now they did nothing.**
+  `pnpm-workspace.yaml` has carried `minimumReleaseAge` (refuse a package published less than 24
+  hours ago), `trustPolicy: no-downgrade` (refuse a version with weaker trust evidence than an
+  earlier one) and `blockExoticSubdeps` (refuse git and tarball sources below a direct dependency).
+  pnpm reads them from 10.16, 10.21 and 10.26, and the workspace pinned pnpm 9.15.0, which ignores
+  them without a warning. That was the hole: every dependency added or updated while they sat there
+  got none of those checks. The workspace now pins pnpm 10.34.7, and CI installs that version.
+  Measured on a copy of the repository: pnpm 9.15.0 accepted a TypeScript build published six hours
+  earlier, and 10.34.7 refuses it. Two locked packages fail the trust check and are excluded by exact
+  version, each with its reason in the file: `semver@6.3.1` (a backport, a false positive of the
+  publish-date ordering) and `@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1` (a fork that
+  `workbox-build` requires, published without the provenance its previous release had).
+  For contributors: pnpm 9 switches itself to the pinned 10.34.7, and `pnpm add` or `pnpm update`
+  can now be refused.
+
+### Known limits
+
+- **CI does not enforce these settings.** They act when pnpm resolves dependencies, and CI installs
+  with `--frozen-lockfile`, which does not. A lockfile that already holds something they would have
+  refused still installs in CI. They guard the moment a contributor changes the lockfile, not the
+  lockfile itself.
+
 ## [0.16.0] 2026-10-30
 
 > **Services deployed when this was cut (2026-10-30):** coordinator `e47215d`, relay `f8dc88d0970337a3`.
