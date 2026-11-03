@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import init, { DeviceKey, CreationSession, sealTo } from './wasm-pkg/konclave_wasm.js'
-import { DkgCeremony, DKG_VERSION, type DkgConfig, type DkgMsg } from './dkg-ceremony'
+import { DkgCeremony, DKG_VERSION, quorumIsPossible, type DkgConfig, type DkgMsg } from './dkg-ceremony'
 import { b64, unb64, bytesEqual } from './net'
 import { codeAt } from './source-scan'
 import { signVaultSecret } from './room-auth'
@@ -239,6 +239,26 @@ describe('vault creation, version 2', () => {
       drain(relay, [ds[1]!])
       expect(ds[1]!.c.aborted).toBe('conflict')
     }
+  })
+
+  it('a quorum of 1 from the creator never reaches the session (#589)', () => {
+    // The signing library refuses min_signers < 2; before this, the config passed and the refusal
+    // came only once every member had gathered, as an unhandled throw.
+    for (const bad of [{ n: 2, t: 1 }, { n: 3, t: 1 }, { n: 3, t: 4 }]) {
+      const relay = new Relay()
+      const ds = [device('p-a', 'Ana'), device('p-b', 'Bia'), device('p-c', 'Caio')].slice(0, bad.n)
+      relay.post(ds[0]!.c.myTag, { type: 'config', v: DKG_VERSION, ...bad }) // as a creator would
+      for (const d of ds.slice(1)) relay.post(d.c.myTag, hello(d))
+      drain(relay, ds.slice(1))
+      for (const d of ds.slice(1)) {
+        expect(d.c.aborted).toBe('conflict')
+        expect(d.c.session).toBeNull()
+      }
+    }
+    expect(quorumIsPossible(1, 3)).toBe(false)
+    expect(quorumIsPossible(2, 2)).toBe(true)
+    expect(quorumIsPossible(3, 2)).toBe(false)
+    expect(quorumIsPossible(2, 3)).toBe(true)
   })
 
   it('a device of the previous version in the room stops it', () => {

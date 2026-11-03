@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useToast } from '../toast'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
-import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
+import { readVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { storageErrorKey } from '../storage-errors'
 import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
@@ -19,6 +20,10 @@ import { unlockOnDevice, importAndUnlock } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
+import PlainKeyNotice from '../PlainKeyNotice'
+import ReadState from '../ReadState'
+import { lastReadFailure, type ReadFailureInfo } from '../read-failure'
+import { holdsPlainViewingKey } from '../plain-key'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
 import { addressText } from '../approved-payment'
@@ -32,6 +37,7 @@ type Row = { v: Vault; src: Src }
 
 export default function Vaults() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const { locale } = useI18n()
   const pt = locale === 'pt-BR'
@@ -47,6 +53,13 @@ export default function Vaults() {
   const netMode = helperConfigured()
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
+  // #320: the two reads this list is made of, each able to fail on its own. A list read as empty
+  // because this browser's storage did not answer is the one that hurts: "No vaults yet" invites a
+  // member to create or import again over a vault that is still there.
+  const [deviceUnread, setDeviceUnread] = useState(false)
+  const [bridgeUnread, setBridgeUnread] = useState<ReadFailureInfo | null>(null)
+  const [readAttempt, setReadAttempt] = useState(0)
+  const [rereading, setRereading] = useState(false)
   const [unlocking, setUnlocking] = useState<Row | null>(null)
   // #446 C: this device may hold a passkey-wrapped copy of the vault's read secret. Offered, never
   // automatic - an authenticator prompt nobody asked for is worse than typing a passphrase.
@@ -77,6 +90,7 @@ export default function Vaults() {
   // Finishing a registration that did not finish (REG-RESUME). The device's own records, by id, are
   // what decide whether a card offers it (`resumable`); nothing here re-derives that.
   const [recs, setRecs] = useState<Record<string, VaultPublic>>({})
+  const [plainKey, setPlainKey] = useState<Record<string, boolean>>({})
   const [resumeFor, setResumeFor] = useState<string | null>(null)
   const [resumePass, setResumePass] = useState('')
   const [resumeAck, setResumeAck] = useState(false)
@@ -205,6 +219,7 @@ export default function Vaults() {
       setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
       setRemoving(null)
       setRemoveWord('')
+      toast.ok(t('toast.vaultRemoved', { name: row.v.name }))
     } catch {
       // Say so and leave the dialog open. Closing silently would look like it worked, and the
       // member would believe a share is gone that is still on the device.
@@ -285,6 +300,7 @@ export default function Vaults() {
       }
       setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
       resetImport()
+      toast.ok(t('toast.vaultImported', { name: row.v.name }))
     } catch (e) {
       setImpErr(t(storageErrorKey(e, 'import.errGeneric')))
     } finally {
@@ -340,12 +356,22 @@ export default function Vaults() {
       //             never leaves storage; no global helper enumeration).
       //  - 'local' → the local orchestrator/bridge's vaults (present on desktop/local server).
       // On the plain web the bridge is absent, so this degrades to the net-only list (as before).
-      const [saved, bridgeOk] = await Promise.all([
-        listVaults().catch(() => [] as Awaited<ReturnType<typeof listVaults>>),
+      const [savedOrNull, bridgeOk] = await Promise.all([
+        readVaults().catch(() => null),
         health().catch(() => false),
       ])
-      const bridge = bridgeOk ? ((await getVaults().catch(() => null)) ?? []) : []
+      // On the web `health` asks the vault's server and there is no local Konclave to list: that is
+      // no source, not a failed one.
+      const bridgeRead = bridgeOk && !IS_NET ? await getVaults().catch(() => null) : []
       if (!on) return
+      const saved = savedOrNull ?? []
+      const bridge = bridgeRead ?? []
+      setDeviceUnread(savedOrNull === null)
+      // The bridge answered its health check and then not the list: that is a failed read, not an
+      // empty one. No bridge at all (the plain web) is not a failure.
+      setBridgeUnread(bridgeRead === null ? (lastReadFailure('/api/vaults') ?? { reason: 'unavailable', source: 'bridge' }) : null)
+      if (savedOrNull === null || bridgeRead === null) setReadAttempt((n) => (rereading ? n + 1 : n))
+      setRereading(false)
       const netRows: Row[] = saved.map((s) => ({
         src: 'net',
         v: {
@@ -369,6 +395,8 @@ export default function Vaults() {
       const merged = [...netRows, ...localRows].filter((r) => (seen.has(r.v.id) ? false : (seen.add(r.v.id), true)))
       setRows(merged)
       setRecs(Object.fromEntries(saved.map((s) => [s.id, s])))
+      // #784: which records still hold the viewing key in the clear (presence only, never the value).
+      setPlainKey(Object.fromEntries(saved.filter(holdsPlainViewingKey).map((s) => [s.id, true])))
       setLoaded(true)
     })()
     return () => { on = false }
@@ -410,6 +438,19 @@ export default function Vaults() {
           </button>
         </div>
 
+        {loaded && deviceUnread && (
+          <ReadState title={t('vaults.unreadTitle')} failure={{ reason: 'unavailable', source: 'device' }}
+            attempt={readAttempt} busy={rereading} holds={t('vaults.unreadHolds')}
+            onRetry={() => { setRereading(true); setReload((r) => r + 1) }} />
+        )}
+        {loaded && !deviceUnread && bridgeUnread && (
+          // Not the compact "showing the last read": the rows below are this browser's, read now, and
+          // what is missing is the local Konclave's, which were never read.
+          <ReadState title={t('vaults.unreadBridgeTitle')} failure={bridgeUnread} attempt={readAttempt}
+            busy={rereading} holds={t('vaults.unreadBridgeHolds')}
+            onRetry={() => { setRereading(true); setReload((r) => r + 1) }} />
+        )}
+
         {(rows.length > 0 || !loaded) && <div className="rd-vlabel">{t('vaults.onThisDevice')}</div>}
 
         <div className="rd-grid">
@@ -435,6 +476,7 @@ export default function Vaults() {
                 {v.secured === true && <span className="rd-sectag safe" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>}
                 {v.secured === false && <span className="rd-sectag open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
                 <h3>{v.name}</h3>
+                {plainKey[v.id] && <PlainKeyNotice vaultId={v.id} onSealed={() => setPlainKey((m) => ({ ...m, [v.id]: false }))} />}
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
@@ -563,7 +605,7 @@ export default function Vaults() {
           })}
         </div>
 
-        {loaded && rows.length === 0 && (
+        {loaded && rows.length === 0 && !deviceUnread && !bridgeUnread && (
           <div className="rd-empty">{t('vaults.empty')}</div>
         )}
 

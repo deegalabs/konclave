@@ -1,10 +1,16 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import init from './wasm-pkg/konclave_wasm.js'
 import { OwnerSigning } from './owner-signing'
 import { ARM_TTL_MS } from './signing-gate'
 import { readSigned, type RecordStore } from './signed-record'
+import { pinClock, unpinClock } from './test-vectors'
+
+// What the device did with an earlier transaction depends on the clock (WASM reads `Date.now()`), so
+// these tests run at a pinned instant. On the real clock they pass until the upgrade and fail after.
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))

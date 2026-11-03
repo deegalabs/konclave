@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rankDesk, bandOf, isOpen } from './desk'
+import { rankDesk, bandOf, isOpen, expiredByClock, stampKey } from './desk'
 import type { Proposal } from './api'
 
 // A proposal with only the fields the desk reads. Everything else is filler.
@@ -28,6 +28,30 @@ describe('isOpen', () => {
     for (const s of ['sent', 'confirmed', 'expired', 'cancelled', 'rejected', 'superseded']) {
       expect(isOpen(p({ id: 'x', state: s }))).toBe(false)
     }
+  })
+})
+
+describe('expiredByClock', () => {
+  const past = Math.floor(Date.now() / 1000) - 60
+  const future = Math.floor(Date.now() / 1000) + 3600
+  it('covers a READY proposal past its deadline, not only an awaiting one: the coordinator expires both', () => {
+    expect(expiredByClock(p({ id: 'a', state: 'awaiting', expiry_unix: past }))).toBe(true)
+    expect(expiredByClock(p({ id: 'b', state: 'ready', expiry_unix: past }))).toBe(true)
+  })
+  it('leaves alone what is not past its deadline, has none, or is already closed', () => {
+    expect(expiredByClock(p({ id: 'a', state: 'ready', expiry_unix: future }))).toBe(false)
+    expect(expiredByClock(p({ id: 'b', state: 'awaiting' }))).toBe(false)
+    expect(expiredByClock(p({ id: 'c', state: 'sent', expiry_unix: past }))).toBe(false)
+    expect(expiredByClock(p({ id: 'd', state: 'rejected', expiry_unix: past }))).toBe(false)
+  })
+})
+
+describe('stampKey', () => {
+  it('speaks of the person only when the device knows who it is', () => {
+    expect(stampKey('vote', true)).toBe('desk.band.vote')
+    expect(stampKey('sign', true)).toBe('desk.band.sign')
+    expect(stampKey('vote', false)).toBe('stamp.awaiting')
+    expect(stampKey('sign', false)).toBe('stamp.ready')
   })
 })
 
