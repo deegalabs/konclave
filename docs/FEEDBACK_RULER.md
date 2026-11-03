@@ -1,7 +1,8 @@
 # Feedback ruler: one vehicle per class of event
 
-> **Status:** draft of 2026-10-30, revised the same day after review; accepted in direction. The
-> feedback-layer work follows from it, one issue per screen when the work starts.
+> **Status:** draft of 2026-10-30, revised the same day after review; accepted on 2026-11-03, with
+> the inventory recounted on staging that day. The feedback-layer work follows from it, one issue per
+> screen when the work starts.
 > **What it is:** the rule that decides **how** the product tells the member what happened. The
 > class of the event picks the vehicle; the screen never picks.
 > **What it is not:** it changes neither the money path nor the inline messages it already has. It
@@ -11,7 +12,9 @@
 > confirmation when proposing a payment, no notification when sending for approval, and no error
 > notifications. They are the same mistake seen three times: the vehicle is chosen screen by screen,
 > so one event looks one way on one screen, another way on the next, and is silent on the third.
-> The inventory below was checked in the code on 2026-10-30 (`ui/src`, staging `c0be197`).
+> The inventory below was first taken on 2026-10-30 and recounted in the code on 2026-11-03
+> (`ui/src`, staging `5571690`), after the "could not read" state reached the book, the proposals and
+> five other screens (#766 to #771, #801).
 
 ---
 
@@ -49,12 +52,12 @@ comes in.
 | Vehicle | Where | What it already does |
 |---|---|---|
 | Toast | `ui/src/toast.tsx` | four kinds (ok, info, warning, error); lasts 3.5 s, 3.5 s, 6 s and 9 s; at most 3 in the stack; a repeat replaces instead of stacking; hovering or focusing holds the clock; Esc closes the newest; warning and error are announced assertively to a screen reader; colour never alone (each kind has a sign) |
-| Skeleton | `ui/src/skeleton.tsx` | `Skeleton`, `SkeletonStat`, `SkeletonRows`; announces "Carregando" once |
+| Skeleton | `ui/src/skeleton.tsx` | `Skeleton` and seven shapes (`SkeletonStatus`, `SkeletonStat`, `SkeletonRows`, `SkeletonRoster`, `SkeletonForm`, `SkeletonDetail`, `SkeletonQr`); announces "Carregando" once per screen (#765) |
 | Progress bar | `ui/src/loading.tsx` | a thin bar at the top while any screen fetches; each screen holds its content until `ready` |
-| Standing banner | `BannerWarn` in `ui/src/components.tsx` | used on the dashboard (open vault) and on Receive (address differs from the one on record) |
-| "Em breve" with a reason | `Soon` in `ui/src/components.tsx` | used on Intro (2), the ledger (CSV export on the web) and New payroll (CSV import on the web) |
-| "Could not read" state | `ui/src/screens/Members.tsx` (#315) | title, one line, "Tentar de novo"; focus moves to the message when it returns; says the vault and the part are still on the device |
-| Generic spinner | `Loading` in `ui/src/components.tsx` | a ring with "Carregando"; the vehicle the ruler retires wherever the content has a shape |
+| Standing banner | `BannerWarn` in `ui/src/components.tsx` | used on the dashboard (open vault) and on Receive (address differs from the one on record); the dashboard's network-upgrade notice is its own element (`upgrade-notice.ts`) |
+| "Em breve" with a reason | `Soon` in `ui/src/components.tsx` | used on Intro (2) and New payroll (CSV import on the web); the book's CSV export now runs on the web and no longer needs it |
+| "Could not read" state | `ui/src/ReadState.tsx` (#766), reasons in `ui/src/read-failure.ts` | title, why and who was asked, what still holds, "Tentar de novo"; focus moves to the message after a retry that fails; a compact form above rows kept from an earlier read. Used by seven screens; Members keeps its own version of the same state (#315), the one `ReadState` was modelled on |
+| Generic spinner | `Loading` in `ui/src/components.tsx` | a ring with "Carregando". Still exported, used by **no screen** since the loading shapes replaced it (#765, #766, #767, #768, #800) |
 | Unlock veil | `ui/src/LockOverlay.tsx` | asks for the passphrase in place, without sending the member to the list |
 | Error screen and 404 | `ui/src/ErrorBoundary.tsx`, `screens/NotFound.tsx` | in the member's language, reading the dictionary directly (#318) |
 | New-build notice | `ui/src/UpdatePrompt.tsx` | says a new build exists and offers to reload |
@@ -63,29 +66,35 @@ comes in.
 
 ## 3. Where each class stands today, screen by screen
 
-Counts from 2026-10-30. A "0" is not a defect by itself: it means the screen has no action of that
-class, or the vehicle is missing. The last column says which.
+Counts from staging `5571690` (2026-11-03). How they were taken, so the next recount compares like
+with like: **toast** = calls to `toast.ok`, `.warn`, `.err` or `.info` in the screen's file (a call
+site, not a message seen); **skeleton** = elements `<Skeleton…>` of any shape; **spinner** = elements
+`<Loading>`; **state 5** = whether the screen says a failed read. The 30/10 table counted another way
+and its numbers do not reproduce, so the two tables are not compared line by line. A "0" is not a
+defect by itself: it means the screen has no action of that class, or the vehicle is missing. The
+last column says which.
 
 | Screen | Toast (1) | Skeleton (4) | Generic spinner | State 5 | Situation |
 |---|---|---|---|---|---|
-| Dashboard | 0 | 3 | 2 | to check | Daniel's file; has banners (open vault, network upgrade) |
-| Ledger | 0 | 2 | 0 | **no** | a failed read leaves the skeleton forever (`rows` stays `null`) |
-| Proposals | 0 | 2 | 0 | **no** | a failed read becomes an empty list ("nenhuma proposta"), which is false |
-| Proposal | 5 | 0 | 1 | to check | has toasts for approve and refuse |
-| New payment | 4 | 0 | 1 | to check | has toasts for sent and for errors |
-| New payroll | 6 | 0 | 1 | to check | has toasts for imported, partial and sent |
-| Members | 0 | 0 | 1 | **yes** (#315) | the model for class 5 |
-| People | 0 | 0 | 1 | to check | save and edit without a notice: to check whether it is class 1 without a vehicle |
-| Receive | 0 | 0 | 2 | to check | "Copiado" announced through a live region (#320); has a banner |
-| Settings | 0 | 6 | 1 | to check | rename, rotate passphrase, export: to check whether there is a notice |
-| Vaults | 0 | 0 | 0 | to check | import and remove: to check |
-| Evidence (Ceremonies) | 0 | 0 | 1 | to check | the list of signatures |
-| Activity | 0 | 0 | 0 | to check | the natural home of class 2 (counter and list) |
-| Signing panel | 8 | 0 | 0 | yes (its own) | Daniel's file; money path |
+| Dashboard | 0 | 3 | 0 | to check | Daniel's file; a failed poll keeps what the screen has; banner for an open vault, notice for a network upgrade |
+| Ledger | 0 | 1 | 0 | **yes** (#770) | a failed first read says so; failed refreshes after a good read show the compact line above the rows |
+| Proposals | 0 | 1 | 0 | **yes** (#769) | a failed read is no longer an empty list |
+| Proposal | 2 | 1 | 0 | **yes** (#768) | toasts for approve or refuse, and for a vote that failed |
+| New payment | 2 | 1 | 0 | **no** | toasts for sent and for a failed send; a failed read of the vault is not said (the vault name stays "…") |
+| New payroll | 4 | 2 | 0 | **no** | toasts for imported, partly imported, sent, and a failed send; a failed read of the vault is not said |
+| Members | 2 | 1 | 0 | **yes** (#315, its own) | toast for a saved name |
+| People | 4 | 1 | 0 | **yes** (#766) | toasts for saved, saved with the old entry kept, removed, and a removal that failed |
+| Receive | 1 | 3 | 0 | **yes** (#767) | "Copiado" announced through a live region, and a toast when the copy fails; has a banner |
+| Settings | 2 | 8 | 0 | **no** | toasts for the backup saved or copied; rotating the passphrase: to check whether it says so; a failed read of the vault: to check what it shows |
+| Vaults | 2 | 0 | 0 | **yes** (#801) | toasts for a vault removed and imported |
+| Evidence (Ceremonies) | 0 | 1 | 0 | **yes** (#768) | the list of signatures |
+| Proof | 2 | 0 | 0 | not a read | toasts for copied and for a copy that failed |
+| Activity | 0 | 0 | 0 | not a read | a tab bar over the lists; the natural home of class 2 (counter and list) |
+| Signing panel | 4 | 0 | 0 | yes (its own) | Daniel's file; money path |
 
-Facts checked: `Ledger.tsx:43` keeps the rows only when the read succeeded, so a failure leaves the
-skeleton; `Proposals.tsx:35` stores `[]` when the read fails. Nine screens still use the generic
-spinner somewhere. Only Members has the "could not read" state.
+Facts checked on `5571690`: the generic spinner appears on no screen; `ReadState` is used by
+Ceremonies, Ledger, People, Proposal, Proposals, Receive and Vaults; Members has its own state
+(`members.retry`); New payment, New payroll and Settings read the vault without saying a failure.
 
 ---
 
@@ -138,12 +147,14 @@ feature that exists on one path only appears with "Em breve" and the reason, nev
 
 ## 6. What follows from the ruler
 
-- **The root:** one component for class 5 (`ReadState` or a name like it), used by Ledger, Proposals,
-  People and Evidence, with the skeleton that becomes "could not read" when its deadline passes. A
-  source scan guarantees that every screen that reads uses it.
-- Replace the generic spinner with the skeleton wherever the content has a shape; give a notice
-  (class 1) to the actions that end in silence today, after checking each one; a banner for "no link
-  to the vault's server".
+- **The root is built:** `ReadState` (#766) is the one component for class 5, used by seven screens,
+  and a read that takes more than 4 s is cut and said as a timeout (`getJson` in `ui/src/api.ts`), so
+  a skeleton no longer waits forever. What is left: New payment, New payroll and Settings, which read
+  the vault without saying a failure; Members, which could move to the shared component; and a source
+  scan that every screen that reads uses it. Today each screen has its own test, not a scan.
+- The generic spinner is gone from the screens; what is left is removing the unused `Loading` export.
+  Give a notice (class 1) to the actions that end in silence today, after checking each one; a banner
+  for "no link to the vault's server".
 - The counter and the "since last time" list (class 2), per vault, on Activity and on the dashboard
   when Daniel frees that file.
 - Each item becomes a neutral issue, named for the screen or the defect, when the work starts.
