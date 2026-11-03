@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { isDesktop } from './platform'
 import { useReveal } from './reveal'
 import { UpdatePrompt } from './UpdatePrompt'
+import { RouteFocus } from './route-focus'
 import Layout from './Layout'
 import WasmSigner from './screens/WasmSigner'
 import NetVault from './screens/NetVault'
@@ -35,6 +36,8 @@ export default function App() {
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
       <UpdatePrompt />
+      {/* On a route change, focus goes to the new screen's heading (#662). */}
+      <RouteFocus />
       <ErrorBoundary>
       <Routes>
         {/* Onboarding - standalone, no rail */}

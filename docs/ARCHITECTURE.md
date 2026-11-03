@@ -163,13 +163,22 @@ EXTRACT and INJECT exist in **two** places, each checked against real-mainnet go
 - **native** - `konclave-signer` (audit C6 tests), used by the desktop/orchestrator path;
 - **WASM** - `konclave-wasm::pczt_bridge` (parity tests), used by the browser path.
 
-> **The vectors are not actually shared, and this said they were** (#365). The two directories
-> (`konclave-signer/tests/vectors/`, `konclave-wasm/tests/vectors/`) hold byte-identical **copies**:
-> distinct inodes, no symlink, each crate `include_bytes!`s its own, and **nothing in the build or
-> in CI enforces that they stay equal**. The cross-check sighash is a hardcoded constant in both.
-> The duplication is the right design - two independent implementations checked against one vector
-> is the correct answer for a byte-exact bridge across two runtimes - but its whole value rests on
-> the vector genuinely being one, which today is a convention rather than a guarantee.
+> **The vectors are copies, and since #365 something checks that they stay equal.** The two
+> directories (`konclave-signer/tests/vectors/`, `konclave-wasm/tests/vectors/`) hold
+> byte-identical **copies**: distinct inodes, no symlink, each crate `include_bytes!`s its own. The
+> cross-check sighash (`332de126…`, the Ironwood single-spend vector) is a literal typed in both
+> crates. The duplication is the right design - two independent implementations checked against one
+> vector is the correct answer for a byte-exact bridge across two runtimes - but its whole value
+> rests on the vector genuinely being one. Until 2026-11-02 that was a convention: nothing in the
+> build or in CI compared them, and this section said the vectors were "shared".
+> `ui/src/golden-vectors.test.ts` (run by the existing UI unit-test step in CI) now fails if any
+> vector `konclave-signer` `include_bytes!`s is missing from `konclave-wasm` or differs from it by a
+> single byte, and if the sighash literal `konclave-signer`'s extract test asserts differs from
+> `konclave-wasm`'s `IW_SIGHASH` (or the two are pinned to different `IW_PROVEN` files). It compares
+> the files and the literals as text; it does **not** run either implementation, so it guarantees the
+> two crates are checked against the same thing, not that both pass (each crate's own tests do that).
+> The vectors only `konclave-wasm` carries are not compared, since `konclave-signer` has nothing to
+> compare them with.
 
 ## 8. Two shells, one core (delivery)
 

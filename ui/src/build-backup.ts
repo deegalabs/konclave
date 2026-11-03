@@ -21,7 +21,8 @@ export async function buildVaultBackup(
   vaultId: string,
   passphrase: string,
   share: VaultLoaded | undefined,
-  vaultName: string | undefined,
+  // Kept so the callers do not change; the name no longer carries it (#587).
+  _vaultName: string | undefined,
 ): Promise<VaultBackup> {
   // The WASM has to be up before the device key is derived or the envelope opened (#483).
   await ensureWasm()
@@ -37,7 +38,7 @@ export async function buildVaultBackup(
   const exp = await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday)
   return {
     json: JSON.stringify(exp, null, 2),
-    name: backupFileName(vaultName, new Date()),
+    name: backupFileName(new Date()), // neutral: the name says nothing about the vault (#587)
     complete: Boolean(keys?.ufvk && keys?.birthday !== undefined),
   }
 }

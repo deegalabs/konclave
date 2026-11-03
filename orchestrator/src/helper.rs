@@ -3717,6 +3717,52 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// A sync past its deadline is an error, and nothing is read after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_sync_that_never_returns_is_an_error_within_its_deadline() {
+        let _serial = serial();
+        let dir = tmp("settle-wallet-sync-hangs");
+        let (fake, log) = fake_settle_devtool(&dir, false);
+        // The fake's sync waits 8 s (exec: the shell is replaced, so killing it ends the wait).
+        let mut script = std::fs::read_to_string(&fake).unwrap();
+        script = script.replacen(
+            "echo \"$4\" >> ",
+            "[ \"$4\" = sync ] && exec sleep 8\necho \"$4\" >> ",
+            1,
+        );
+        std::fs::write(&fake, script).unwrap();
+        crate::wallet::set_sync_within_for_test(Some(std::time::Duration::from_millis(400)));
+        let started = std::time::Instant::now();
+        let r = settle_wallet(
+            &fake,
+            "/w",
+            "zec.rocks:443",
+            &dir.join("vaults"),
+            "ffff6666",
+        );
+        let took = started.elapsed();
+        crate::wallet::set_sync_within_for_test(None);
+        match r.err() {
+            Some(ToolError::Io(e)) => assert_eq!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut,
+                "the sync was stopped by its deadline: {e}"
+            ),
+            other => panic!("a sync past its deadline is a timeout, not {other:?}"),
+        }
+        assert!(
+            took < std::time::Duration::from_secs(4),
+            "it returned in {took:?}"
+        );
+        let ran = calls(&log);
+        assert!(
+            !ran.contains(&"balance".to_string()) && !ran.contains(&"list-tx".to_string()),
+            "nothing is read after a sync that did not finish: {ran:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_sync_that_fails_is_an_error_and_never_a_stale_view() {

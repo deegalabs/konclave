@@ -113,6 +113,7 @@ describe('stripComments', () => {
       'signed-record.test.ts': 'the WASM binary',
       'owner-signing.test.ts': 'the WASM binary',
       'epoch-reply.test.ts': 'Rust source (the coordinator\'s reasons)',
+      'golden-vectors.test.ts': 'Rust source and the signers\' test vectors',
     }
     const dir = new URL('./', import.meta.url)
     const unlisted: string[] = []

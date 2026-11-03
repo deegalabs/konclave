@@ -8,7 +8,7 @@
 # Built in WSL2/Ubuntu with rustc 1.96.1.
 
 format = 2
-network_target = "NU6.3"                                          # Ironwood; mainnet activation 2026-07-28 (block 3,428,143)
+network_target = "NU7"                                            # NU6.3 (Ironwood, mainnet 2026-07-28, block 3,428,143) until block 3,543,405, NU7 from it
 reference_tutorial = "https://frost.zfnd.org/zcash/ywallet-demo.html"
 ciphersuite = "redpallas"                                         # pass `-C redpallas` -> Rerandomized FROST
 
@@ -104,7 +104,7 @@ patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e
 #   To rebuild: export 539ae81d, `git apply` the patch, `cargo build --release --locked`.
 # Superseded: 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7 (2026-08-22, rc pins).
 
-# THE NU7 DEVTOOL (recorded 2026-10-26, BEFORE any build of it; local branch, nothing deployed).
+# THE NU7 DEVTOOL (recorded 2026-10-26, BEFORE any build of it; deployed to production on 2026-10-30, see `status`).
 # zcash-devtool upstream has no build that follows NU7 on mainnet: its `main` still pins the
 # `-pre.N` crates and a librustzcash git rev, and `zcash_protocol 0.11.0-pre.1` has no mainnet NU7
 # height. The released stable line (2026-10-21: zcash_protocol 0.11.0 = NU7 at 3,543,405, branch
@@ -117,7 +117,7 @@ patch        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.patch"
 patch_sha256 = "7fa2670a2d2418ea7aaa8f7b3413dedc1d627d0d407aaddfa9891c4ae6f19d0c"
 lockfile        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.Cargo.lock"
 lockfile_sha256 = "250569dfaab9520804b0b76b251635c54d860d0ea7949eb4f97f76ff8c5dfe18"
-status       = "built 2026-10-26 from the recorded inputs, NOT deployed anywhere"
+status       = "built 2026-10-26 from the recorded inputs; on staging since 2026-10-30 15:00 BRT (deployment 80e5a9ed) and on production since 2026-10-30 19:28 BRT (deployment f6553ee8, engine B); unchanged by the coordinator hotfix of 2026-10-31"
 built_sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
 built_bytes  = 103881728
 # Built from an export of 0b3436bb plus the patch and the lockfile above, `cargo build --release
@@ -130,8 +130,18 @@ built_bytes  = 103881728
 # of the subcommands Konclave calls (8 of them, plus `pczt inspect`, `wallet list-accounts` and
 # `wallet get-info`, which are only inspected) is identical, `balance --json` has the same keys, and a
 # COPY of an EMPTY view-only wallet written by the previous engine opens and migrates (71 to 75
-# migrations, one new table) and syncs. A wallet WITH history has not been rehearsed yet: until it is,
-# the upgrade of a vault's wallet is not proven on real notes, and that is a blocker for production.
+# migrations, one new table) and syncs. A wallet WITH history was rehearsed on 2026-10-30, on a copy
+# and then for real. On staging, the pre-deploy copy of a vault with 12 send records and 21 listed
+# transactions (Ironwood notes only) was read by the previous devtool (26,000 zat), upgraded by this
+# one on a second copy ("Wallet successfully upgraded!", migrated marker yes, the same 26,000 zat); the
+# previous devtool then opened and synced a copy of the live, migrated wallet (exit 0, the same
+# balance), and a copy of the pre-deploy wallet put back with `mv -T` and `cp -a` caught up to the live
+# balance. On production the first reads after the deploy migrate a vault's wallet in place (one way):
+# the S5b probe of 2026-10-30 ~19:41 BRT read one wallet migrated and four not, and a real send from
+# a vault whose wallet the first read had migrated followed (`cca888cd...`, block 3,536,349, V6),
+# then another after the hotfix (`38fdbd9a...`, block 3,536,637). NOT rehearsed: a wallet with Sapling
+# or transparent history (the three migrations that cannot be reverted rewrite rows only where that
+# history exists), and the restore on production itself.
 # What the patch does: the 11 pre-release pins of the manifest go to the released crates (protocol
 # 0.11.0, primitives 0.31.0, backend 0.25.0, sqlite 0.23.0, pczt 0.10.0, keys 0.17.0, address 0.14.0,
 # transparent 0.11.0, zip321 0.10.0, pool_migration 0.2.0, proofs 0.31.0), the `[patch.crates-io]`
@@ -210,30 +220,30 @@ zcash_client_backend = "0.24.0-rc.1"
 # engine is not a binary swap (deploy/helper/README.md, "the upgrade is one-way").
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
-date        = "2026-10-24"
-commit      = "c08c935"
-line        = "released crates.io (pczt 0.9.3 / zcash_client_backend 0.24.0 / zcash_primitives 0.30.1 / orchard 0.15.5)"
+date        = "2026-10-31"
+commit      = "aa778cd"
+line        = "released crates.io (pczt 0.10.0 / zcash_client_backend 0.25.0 / zcash_primitives 0.31.0 / zcash_protocol 0.11.0, NU7 at 3,543,405)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
-sha256 = "d9201668309ddcdd0a5f41be2f7183828265db137a6a315a6b4fb3eebf259d67"
-bytes  = 7976752
-role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3)"
+sha256 = "a8dfee2eb242d21a46a395f635193fa41b0cc5485338b37115b182aef6620444"
+bytes  = 8228592
+role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); built from commit c0be197 (engine B), unchanged by the hotfix"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "be7f0d36d204e2fead0920888a7cf5750606a28a25d78383669454c4eb9accf3"
-bytes  = 3500480
+sha256 = "8d33bd522a172c0ac1e69dc9b6554f3f5ae80281865866cee9a681aa4ec70c65"
+bytes  = 3638416
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
-# The external tools used alongside them in the helper image. zcash-devtool is the build recorded
-# under [source.zcash-devtool] (upstream 539ae81d plus the re-pin patch); zcash-sign is the
-# frost-tools #593 build recorded under [[binary]] above.
+# The external tools used alongside them in the helper image. zcash-devtool is the NU7 build recorded
+# under [source.zcash-devtool-stable] (upstream 0b3436bb plus the stable-crates patch);
+# zcash-sign is the frost-tools #593 build recorded under [[binary]] above.
 [[deploy_binary]]
 name   = "zcash-devtool"
-sha256 = "8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153"
-bytes  = 98152456
-role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
+sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
+bytes  = 103881728
+role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238); wallet commands for sync, upgrade, balance and list-tx"
 
 [[deploy_binary]]
 name   = "zcash-sign"
@@ -241,7 +251,55 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
-# The current [deploy_build] above is the coordinator built from commit c08c935 and deployed to
+# The current [deploy_build] is the coordinator of the hotfix, commit aa778cd. It is a public commit:
+# it is in `main` since the merge 5baac38 (PR #782). Deployed to production on 2026-10-31 01:12 BRT
+# (Railway deployment e41dbf39); `/api/health` reports aa778cd, built 2026-10-31T01:58:16Z. The other
+# three files are those of engine B (set bin.engine-c0be197, built from commit c0be197), deployed to
+# production on 2026-10-30 19:28 BRT (deployment f6553ee8); the hotfix changed helper-server alone and
+# left konclave-signer, zcash-devtool and zcash-sign byte-identical to engine B (`cmp`). Between the
+# two, release A (coordinator e47215d, the NU7 row of the table) ran on production from 2026-10-30
+# 11:18 BRT (deployment 0647ac4d) with the previous devtool and signer, and the 0.15.0 build below
+# ran until then. The sha256 above are those of the files in the deploy folder, checked with
+# `sha256sum -c` before each `railway up`; they were NOT hashed inside the running container (health
+# reports the coordinator's commit only). The wallets of the vaults are migrated in place by the first
+# read after the engine B deploy, one vault at a time, and that does not go back (`deploy/helper/README.md`,
+# "the upgrade is one-way"); the platform backup of 2026-10-30 19:26 BRT (1.29 GB, locked) and the
+# wallet-only copies of that day are the way back. The first sends on this line: `cca888cd...`
+# (engine B, block 3,536,349) and `38fdbd9a...` (the hotfix, block 3,536,637).
+# PREVIOUS DEPLOY RECORD (0.15.0, commit c08c935, 2026-10-24), kept as comments, because a second
+# [deploy_build] table would make the file ambiguous:
+#   [deploy_build]
+#   date        = "2026-10-24"
+#   commit      = "c08c935"
+#   line        = "released crates.io (pczt 0.9.3 / zcash_client_backend 0.24.0 / zcash_primitives 0.30.1 / orchard 0.15.5)"
+#
+#   [[deploy_binary]]
+#   name   = "konclave-signer"
+#   sha256 = "d9201668309ddcdd0a5f41be2f7183828265db137a6a315a6b4fb3eebf259d67"
+#   bytes  = 7976752
+#   role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3)"
+#
+#   [[deploy_binary]]
+#   name   = "helper-server"
+#   sha256 = "be7f0d36d204e2fead0920888a7cf5750606a28a25d78383669454c4eb9accf3"
+#   bytes  = 3500480
+#   role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
+#
+#   # The external tools used alongside them in the helper image. zcash-devtool is the build recorded
+#   # under [source.zcash-devtool] (upstream 539ae81d plus the re-pin patch); zcash-sign is the
+#   # frost-tools #593 build recorded under [[binary]] above.
+#   [[deploy_binary]]
+#   name   = "zcash-devtool"
+#   sha256 = "8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153"
+#   bytes  = 98152456
+#   role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
+#
+#   [[deploy_binary]]
+#   name   = "zcash-sign"
+#   sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
+#   bytes  = 2793296
+#   role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
+# The 0.15.0 [deploy_build] above is the coordinator built from commit c08c935 and deployed to
 # production on 2026-10-24 (Railway deployment c305750a, created 17:49 BRT); `/api/health` reports
 # c08c935, built 2026-10-23T12:16:26Z. HONEST NOTE ON THAT COMMIT: c08c935 is a LOCAL merge commit
 # (the tip of a local build branch that merged four local item branches onto the 0.14.0 `staging`

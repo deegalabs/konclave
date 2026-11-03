@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Dialog, Loading } from '../components'
+import { useToast } from '../toast'
+import { SkeletonRoster } from '../skeleton'
+import { Dialog } from '../components'
+import ReadState from '../ReadState'
+import { lastReadFailure } from '../read-failure'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
@@ -37,6 +41,7 @@ function AddrKind({ transparent, t }: { transparent?: boolean; t: (k: string) =>
 
 export default function People() {
   const t = useT()
+  const toast = useToast()
   const [list, setList] = useState<Beneficiary[]>([])
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
@@ -45,6 +50,10 @@ export default function People() {
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  // A read that failed is said, not drawn as an empty register (#320): null until it is known.
+  const [unread, setUnread] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [retrying, setRetrying] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Beneficiary | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
@@ -52,9 +61,17 @@ export default function People() {
   async function reload() {
     const b = await getBeneficiaries()
     if (b) setList(b)
+    const failed = b === null
+    // A retry that fails again counts, so the message is said again and takes focus (ReadState).
+    if (failed && loaded) setAttempt((a) => a + 1)
+    setUnread(failed)
     setLoaded(true)
     // First time / empty registry: open the form so there's an obvious next step.
     if (b && b.length === 0) setShowForm(true)
+  }
+  async function retry() {
+    setRetrying(true)
+    try { await reload() } finally { setRetrying(false) }
   }
   useEffect(() => {
     void reload()
@@ -84,17 +101,27 @@ export default function People() {
     if (!name.trim() || !address.trim()) { setError(t('people.errFillNameAddr')); return }
     setBusy(true)
     // Edit = add the updated entry, then drop the old one (no update endpoint).
-    const res = await addBeneficiary(name.trim(), address.trim(), memo.trim() || undefined)
-    if (res.ok && editingId) await deleteBeneficiary(editingId)
+    const who = name.trim()
+    const res = await addBeneficiary(who, address.trim(), memo.trim() || undefined)
+    // An edit is the new entry, then the old one dropped; if the drop fails, the list now holds the
+    // person twice, and "saved" would be a lie. Say what is on the list instead.
+    const oldGone = res.ok && editingId ? await deleteBeneficiary(editingId) : true
     setBusy(false)
-    if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null); void reload() }
-    else setError(humanError(t, res.error, res.detail))
+    if (res.ok) {
+      setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null)
+      if (oldGone) toast.ok(t('toast.personSaved', { name: who }))
+      else toast.warn(t('toast.personSavedOldStays', { name: who }))
+      void reload()
+    } else setError(humanError(t, res.error, res.detail))
   }
 
   async function doRemove() {
     const b = confirmDel
     setConfirmDel(null)
-    if (b && (await deleteBeneficiary(b.id))) void reload()
+    if (!b) return
+    // A removal that did not land is said as loudly as one that did: the person is still on the list.
+    if (await deleteBeneficiary(b.id)) { toast.ok(t('toast.personRemoved', { name: b.name })); void reload() }
+    else toast.err(t('toast.personRemoveFailed', { name: b.name }))
   }
 
   return (
@@ -104,11 +131,15 @@ export default function People() {
 
         {/* List first - it is what gets consulted */}
         {!loaded ? (
-          <Loading />
+          <SkeletonRoster n={3} />
+        ) : unread && list.length === 0 ? (
+          <ReadState title={t('people.unreadTitle')} failure={lastReadFailure('/api/beneficiaries')} attempt={attempt} busy={retrying} onRetry={() => void retry()} holds={t('people.holds')} />
         ) : list.length === 0 ? (
           <div className="empty-note mt">{t('people.empty')}</div>
         ) : (
           <div className="people mt">
+            {/* A refresh that failed after a good read: the rows stay, the line above says so. */}
+            {unread && <ReadState compact title={t('people.unreadTitle')} failure={lastReadFailure('/api/beneficiaries')} busy={retrying} onRetry={() => void retry()} />}
             {list.map((b) => (
               <div className="who-row" key={b.id}>
                 <Identicon seed={b.address || b.name} size={34} />
@@ -132,7 +163,8 @@ export default function People() {
         )}
 
         <div className="mt">
-          <button className="btn ghost sm-btn" onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
+          {/* While the list could not be read, a new person could duplicate one the member cannot see. */}
+          <button className="btn ghost sm-btn" disabled={unread && list.length === 0} title={unread && list.length === 0 ? t('people.registerLater') : undefined} onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
             {showForm ? t('people.close') : t('people.register')}
           </button>
         </div>
@@ -145,7 +177,7 @@ export default function People() {
                 <input className="input" placeholder={t('people.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="field inline"><span>{t('people.address')}</span>
-                <input className="input mono" placeholder={t('payroll.addrPlaceholder')} value={address} onChange={(e) => setAddress(e.target.value)} />
+                <input className="input mono" placeholder={t('people.addrPlaceholder')} value={address} onChange={(e) => setAddress(e.target.value)} />
               </label>
               <label className="field inline"><span>{t('people.defaultMemo')}</span>
                 <input className="input" placeholder={t('people.memoPlaceholder')} value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
