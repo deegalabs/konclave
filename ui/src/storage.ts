@@ -9,6 +9,7 @@
 // No dependencies: raw IndexedDB + crypto.subtle, with feature detection and explicit errors so a
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
+import { clearPayrollDraft } from './payroll-draft'
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
@@ -1158,6 +1159,7 @@ export async function forgetVault(id: string): Promise<boolean> {
 }
 
 export async function deleteVault(id: string): Promise<void> {
+  clearPayrollDraft(id) // the vault's typed payroll goes with it, whatever the store says next
   if (!storageAvailable()) return
   const db = await openDb()
   try {

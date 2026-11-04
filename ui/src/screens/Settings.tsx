@@ -17,6 +17,7 @@ import { readSecretFor, getUnlockedShare } from '../session'
 import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, forgetVault, type Governance } from '../storage'
+import { clearPayrollDraft } from '../payroll-draft'
 import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -241,7 +242,7 @@ export default function Settings() {
     }
     const res = await deleteVault(undefined, confirmName.trim())
     setBusy(false)
-    if (res.ok) { nav('/vaults'); return }
+    if (res.ok) { clearPayrollDraft(vault.id); nav('/vaults'); return }
     setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
   }
 

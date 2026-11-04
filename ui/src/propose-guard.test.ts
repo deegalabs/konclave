@@ -16,6 +16,11 @@ const FEE = 15_000
 const ZEC = 100_000_000
 
 describe('proposeBlock - money fails closed', () => {
+  it('blocks when the open proposals could not be read (null reserved), with its own message', () => {
+    expect(proposeBlock({ amountZat: ZEC, availableZat: 2 * ZEC, feeZat: FEE, reservedZat: null })).toBe('reserved-unknown')
+    expect(blockMessageKey('reserved-unknown')).toBe('money.blockReservedUnknown')
+  })
+
   it('lets a fundable payment through', () => {
     expect(proposeBlock({ amountZat: ZEC, availableZat: 2 * ZEC, feeZat: FEE })).toBeNull()
   })

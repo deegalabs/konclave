@@ -200,4 +200,16 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     fireEvent.click(again)
     await screen.findByText('October rent')
   })
+
+  it('a refused payroll\'s lines carry no outflow sign, like its row', async () => {
+    const refused = { ...payroll, id: 'p9', state: 'rejected', memo: 'Payroll refused', txid: undefined }
+    getLedger.mockResolvedValue([refused])
+    getProposalDetail.mockResolvedValue({ proposal: refused, lines })
+    mount()
+    fireEvent.click(await screen.findByText('Payroll refused'))
+    await screen.findByText(/Alice Oct/)
+    const amounts = [...document.querySelectorAll('.li-sub .num')].map((el) => el.textContent ?? '')
+    expect(amounts.length).toBe(2)
+    for (const a of amounts) expect(a).not.toMatch(/^\u2212/)
+  })
 })
