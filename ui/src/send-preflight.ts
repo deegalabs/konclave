@@ -200,6 +200,13 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
     const m = epochMessage(end.epoch)
     return { pt: interpolate(ptBR[m.key] ?? m.key, m.vars), en: interpolate(en[m.key] ?? m.key, m.vars), stop: true }
   }
+  // #821: too large to sign. The same counts and the same words as the signing panel, through the
+  // same function, from both dictionaries.
+  if (end.why === 'error' && end.tooLarge) {
+    const tl = end.tooLarge
+    const from = (d: Record<string, string>): TFn => (k, vars) => interpolate(d[k] ?? k, vars)
+    return { pt: tooLargeText(from(ptBR), tl), en: tooLargeText(from(en), tl), stop: true }
+  }
   const raw = end.why === 'not-sendable' ? `${end.raw} (${end.state})` : end.raw
   return { pt: `Falha ao executar: ${raw}`, en: `Execute failed: ${raw}`, stop: true }
 }

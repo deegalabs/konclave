@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { humanError, tooLargeText } from './api'
-import { tooLargeOf } from './helper'
+import { TOO_MANY_ACTIONS, tooLargeOf } from './helper'
 import { readReply } from './send-outcome'
-import { panelStep } from './send-preflight'
+import { netReplyText, panelStep } from './send-preflight'
 import { codeOf } from './source-scan'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
@@ -46,7 +47,7 @@ describe('the coordinator’s refusal is read with its counts', () => {
 })
 
 describe('the message names the counts and the remedy for the plan', () => {
-  it('a payroll is told to use fewer lines, a payment a smaller amount', () => {
+  it('a payroll is told to split into smaller payrolls, a payment to send a smaller amount', () => {
     expect(tooLargeText(t, { actions: 7, max: 5, plan: 'payroll' })).toBe('error.tooLargePayroll {"actions":7,"max":5}')
     expect(tooLargeText(t, { actions: 7, max: 5, plan: 'payment' })).toBe('error.tooLargePayment {"actions":7,"max":5}')
   })
@@ -72,6 +73,38 @@ describe('at the send, the refusal ends as a failure worded from the counts', ()
   })
 })
 
+describe('one contract with the coordinator', () => {
+  // The precedent is send-preflight.test.ts: the app's side of a wire contract is read against the
+  // coordinator's own source, so a rename on either side is a failing test, not a silent fallback.
+  const rust = readFileSync(new URL('../../helper-server/src/main.rs', import.meta.url), 'utf8')
+
+  it('the error code is the coordinator\u2019s constant', () => {
+    const m = /const TOO_MANY_ACTIONS: &str = "([^"]+)";/.exec(rust)
+    expect(m?.[1], 'helper-server declares TOO_MANY_ACTIONS').toBe(TOO_MANY_ACTIONS)
+  })
+
+  it('and the fields are the ones it writes', () => {
+    const at = rust.indexOf('fn too_many_actions_resp(')
+    expect(at).toBeGreaterThan(-1)
+    const body = rust.slice(at, rust.indexOf('\n}\n', at))
+    expect(body).toMatch(/"error": TOO_MANY_ACTIONS,/)
+    expect(body).toMatch(/"actions": t\.actions,/)
+    expect(body).toMatch(/"max_actions": t\.max,/)
+    expect(body).toMatch(/"plan": plan,/)
+    expect(body).toMatch(/if t\.payroll \{ "payroll" \} else \{ "payment" \}/)
+  })
+})
+
+describe('/net says the same as the signing panel', () => {
+  it('worded from the counts, in both languages, through the same function', () => {
+    const tl = { actions: 7, max: 6, plan: 'payroll' as const }
+    const said = netReplyText(readReply({ error: TOO_MANY_ACTIONS, tooLarge: tl }))
+    expect(said.stop).toBe(true)
+    expect(said.en).toBe(en['error.tooLargePayroll']!.replace('{actions}', '7').replace('{max}', '6'))
+    expect(said.pt).toBe(ptBR['error.tooLargePayroll']!.replace('{actions}', '7').replace('{max}', '6'))
+  })
+})
+
 describe('the counts are carried on every path that meets the refusal', () => {
   it('the helper records them on a failed write and on a refused send', () => {
     const helper = codeOf('helper.ts')
@@ -83,7 +116,7 @@ describe('the counts are carried on every path that meets the refusal', () => {
     const api = codeOf('api.ts')
     for (const fn of ['createProposal', 'createPayroll']) {
       const body = api.split(`export async function ${fn}`)[1]?.split('\nexport ')[0] ?? ''
-      expect(body, fn).toMatch(/if \(f\?\.tooLarge\) return \{ ok: false, error: f\.error \?\? 'too many actions', tooLarge: f\.tooLarge \}/)
+      expect(body, fn).toMatch(/if \(f\?\.tooLarge\) return \{ ok: false, error: f\.error \?\? TOO_MANY_ACTIONS, tooLarge: f\.tooLarge \}/)
     }
     for (const screen of ['screens/NewPayment.tsx', 'screens/NewPayroll.tsx']) {
       expect(codeOf(screen), screen).toMatch(/humanError\(t, res\.error, res\.detail, res\.tooLarge\)/)
@@ -112,6 +145,9 @@ describe('the copy', () => {
         const s = (d[k] ?? '').replace(/\{actions\}|\{max\}/g, '')
         expect(s, `${name} ${k}`).not.toMatch(/\d/)
         expect(s, `${name} ${k}`).not.toMatch(/action|pool|note|consolid|coordinat|coordenad|relay/i)
+        // The cause of a large payroll can be the many small amounts the vault pays it from, not its
+        // lines: "fewer lines" would send the member to cut people who are not the problem.
+        expect(s, `${name} ${k}`).not.toMatch(/fewer lines|menos linhas/i)
       }
     }
   })

@@ -206,12 +206,16 @@ async function getJson<T>(path: string): Promise<T | null> {
  *  so there is no interleaving to worry about. */
 let lastPostFailure: HelperPostFailure | null = null
 
+/** The code of the coordinator's size refusal (#821): `TOO_MANY_ACTIONS` in `helper-server`, which
+ *  `too-large.test.ts` reads, so the two cannot drift apart. */
+export const TOO_MANY_ACTIONS = 'too many actions'
+
 /** The coordinator's `422 too many actions`, read from its answer, or undefined. The numbers are what
  *  the message is made of, so an answer without two whole counts and a known plan is not one. */
 export function tooLargeOf(body: unknown): TooLarge | undefined {
   if (!body || typeof body !== 'object') return undefined
   const b = body as { error?: unknown; actions?: unknown; max_actions?: unknown; plan?: unknown }
-  if (b.error !== 'too many actions') return undefined
+  if (b.error !== TOO_MANY_ACTIONS) return undefined
   const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
   if (!whole(b.actions) || !whole(b.max_actions)) return undefined
   if (b.plan !== 'payment' && b.plan !== 'payroll') return undefined
