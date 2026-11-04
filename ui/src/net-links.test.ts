@@ -8,10 +8,9 @@ import { codeOf } from './source-scan'
 // appearing while the page is being taken apart: only NetVault.tsx itself may name /net as a place
 // to go. The route in App.tsx is a definition, not a link, and is not matched.
 //
-// BackgroundSignerLab.tsx is allowed until the change removing its lab link lands (another piece
-// of #627). The list is deliberately tolerant: an entry that no longer matches does not fail, so
-// that change needs nothing from this one. Whichever of the two merges second removes the entry.
-const ALLOWED = new Set(['screens/NetVault.tsx', 'screens/BackgroundSignerLab.tsx'])
+// BackgroundSignerLab.tsx was allowed here until its lab link went (#833, which now points the lab
+// at /vaults). The entry is gone with it, so the lab is held to the rule like every other screen.
+const ALLOWED = new Set(['screens/NetVault.tsx'])
 
 // A navigation to /net (or #/net, /#/net), with or without a query: a router call, a link or
 // anchor attribute, or a location write. Help text naming `/net` in quotes is not a navigation.
