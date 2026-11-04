@@ -944,6 +944,26 @@ pub fn load_write_keys(
     }
 }
 
+/// The most seats a vault can have, and so the most devices a signing request is sealed to (#821).
+///
+/// The app's own limit (`MAX_SEATS` in `ui/src/dkg-ceremony.ts`, bound to this one by
+/// `the_seat_cap_is_the_apps`): the coordinator refuses a vault registered with more, and a device
+/// record past it. Each device adds a box to the sealed signing request, so an unbounded registry
+/// would let the request outgrow the relay; with this bound, what a proposal is checked against at
+/// creation is never smaller than what its send is sealed to.
+pub const MAX_SEATS: u16 = 32;
+
+/// The most devices a send of this vault can be sealed to, as far as the registry can tell now: the
+/// devices on record, or the seats still to register, whichever is more (a send is sealed only once
+/// every seat has a device). An unreadable registry counts as full: a guess that is too small would
+/// let a proposal through that its send cannot carry.
+pub fn sealing_devices_upper_bound(vaults_dir: &Path, vault: &str, total: u16) -> usize {
+    match load_device_records(vaults_dir, vault) {
+        Ok(recs) => recs.len().max(total as usize),
+        Err(_) => MAX_SEATS as usize,
+    }
+}
+
 /// Why a device registration did not go through. The coordinator maps each to one status; the
 /// reasons carry no mechanism.
 #[derive(Debug)]
@@ -1187,6 +1207,14 @@ pub fn upsert_device(
             }
         }
         None => {
+            // #821. A new device adds a box to every signing request this vault sends; past the
+            // most seats a vault can have, a registration is refused rather than letting the
+            // request outgrow the relay.
+            if recs.len() >= MAX_SEATS as usize {
+                return Err(DeviceError::Conflict(
+                    "this vault already has as many devices as it can hold".into(),
+                ));
+            }
             recs.push(DeviceRecord {
                 comms: comms.to_string(),
                 seat: write.map(|(s, _)| s),
@@ -2789,6 +2817,59 @@ mod tests {
         // Idempotent: the same registration again changes nothing.
         assert!(!upsert_device(&dir, &v, "aabb", Some((1, "11"))).unwrap());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // #821. Past MAX_SEATS a new device is refused, so no signing request is sealed to more devices
+    // than a proposal was checked against. A device already on record still re-registers.
+    #[test]
+    fn a_vault_holds_at_most_max_seats_devices() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-cap-{}", std::process::id()));
+        let v = "e".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        for i in 0..MAX_SEATS {
+            assert!(upsert_device(&dir, &v, &format!("{i:064x}"), None).unwrap());
+        }
+        let over = upsert_device(&dir, &v, &format!("{:064x}", MAX_SEATS), None);
+        assert!(matches!(over, Err(DeviceError::Conflict(_))), "{over:?}");
+        assert_eq!(
+            load_device_keys(&dir, &v).unwrap().len(),
+            MAX_SEATS as usize
+        );
+        // A device on record binding its seat is not a new device.
+        assert!(upsert_device(&dir, &v, &format!("{:064x}", 0), Some((1, "aa"))).unwrap());
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), MAX_SEATS as usize);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_sealing_bound_is_the_records_or_the_seats_whichever_is_more() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-bound-{}", std::process::id()));
+        let v = "f".repeat(64);
+        // No registry yet: the seats still to register.
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), 3);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        std::fs::write(dir.join(&v).join("device-keys.json"), r#"["aa","bb"]"#).unwrap();
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), 3);
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 0), 2);
+        // Unreadable: counted as full, never as empty.
+        std::fs::write(dir.join(&v).join("device-keys.json"), "not json").unwrap();
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), MAX_SEATS as usize);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// One number on both sides: the app offers no vault the coordinator would refuse, and the
+    /// coordinator sizes the signing request for no fewer devices than the app allows.
+    #[test]
+    fn the_seat_cap_is_the_apps() {
+        let ui = include_str!("../../ui/src/dkg-ceremony.ts");
+        let n: u16 = ui
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("const MAX_SEATS = "))
+            .expect("ui/src/dkg-ceremony.ts declares MAX_SEATS")
+            .trim()
+            .parse()
+            .expect("a number");
+        assert_eq!(n, MAX_SEATS);
     }
 
     #[test]

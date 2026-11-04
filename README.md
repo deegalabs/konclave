@@ -112,7 +112,7 @@ block explorers - or open any of them from [docs/PROOF.md](docs/PROOF.md).
 | | |
 |---|---|
 | **Quorum payment** | Propose a payment → members approve → at quorum the vault signs (FROST) and sends a shielded transaction (the Ironwood pool, since NU6.3). One click never moves money; every fund-moving action has a preview and an explicit confirmation. |
-| **Private payroll** | Enter the beneficiaries (or import a CSV, in the local build) → one shielded transaction with N outputs, approved **once**. Each payslip rides in an **encrypted memo** that outsiders and the chain cannot read (the recipient, the members and the coordinator can). |
+| **Private payroll** | Enter the beneficiaries (or import a CSV, in the local build) → one shielded transaction with N outputs, approved **once**. Each payslip rides in an **encrypted memo** that outsiders and the chain cannot read (the recipient, the members and the coordinator can). On the web today N is small: about 5 lines per payroll, fewer when the vault pays from many small notes, because the signing request still travels in one relay message ([#821](https://github.com/deegalabs/konclave/issues/821)); a larger one is refused when proposed, with the numbers. |
 | **Accounting** | A full internal ledger (who proposed, who approved, states, dates) plus an **itemized CSV export** (a payroll of N is N line-items). Transparent inside, private outside. |
 
 ## Using it: step by step
@@ -135,6 +135,8 @@ The whole flow, in the app's own words (hide the cryptography, expose the trust)
 6. **Payroll, optional** (`/payroll`). Enter the beneficiaries (or import a CSV, in the local build)
    → one shielded transaction with N outputs, approved **once**, each payslip in an encrypted memo
    that outsiders and the chain cannot read (the recipient, the members and the coordinator can).
+   For now N is about 5 on the web, fewer when the vault pays from many small notes
+   ([#821](https://github.com/deegalabs/konclave/issues/821)).
 7. **Account** (`/ledger`). Every action lands in the internal ledger (who proposed, who approved,
    states, dates), with an itemized CSV export for the accountant.
 
@@ -318,7 +320,7 @@ without overstatement.
 | Amounts and recipients private on chain | n/a | no | yes | **yes (our hosted coordinator reads them, [#516](https://github.com/deegalabs/konclave/issues/516))** |
 | Group makeup hidden on-chain | n/a | no | yes | **yes** |
 | Usable without a command line | yes | yes | **no** | **yes** |
-| Private payroll (N outputs, one approval) | no | no | no | **yes** |
+| Private payroll (N outputs, one approval) | no | no | no | **yes (about 5 lines on the web for now, [#821](https://github.com/deegalabs/konclave/issues/821))** |
 | Internal audit trail + itemized export | yes | no | no | **yes** |
 | Multi-device / in the browser | n/a | wallet-dependent | no | **yes (DKG live)** |
 

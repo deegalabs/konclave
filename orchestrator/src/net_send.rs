@@ -81,11 +81,6 @@ pub struct SealedRequest {
 /// also the ceiling on how large a payment the devices can be asked to sign (#821).
 pub const RELAY_MAX_DATA: usize = konclave_http::RELAY_MAX_DATA;
 
-/// The most devices a signing request is sealed to that [`MAX_SIGNABLE_ACTIONS`] is sized for: the
-/// largest vault the app lets anyone create (`MAX_SEATS` in `ui/src/dkg-ceremony.ts`). Each device
-/// adds a box to the sealed request, so sizing for fewer would let a large vault through to a 413.
-pub const SIZED_FOR_DEVICES: usize = 32;
-
 /// The published PCZT's size, modelled as a fixed part plus a part per action, in bytes.
 ///
 /// An UPPER bound on every vector in the repo, fitted on the LARGEST per-action size seen
@@ -95,17 +90,55 @@ pub const SIZED_FOR_DEVICES: usize = 32;
 pub const PCZT_FIXED_BYTES: usize = 3_150;
 pub const PCZT_BYTES_PER_ACTION: usize = 4_506;
 
-/// The most actions a transaction can carry and still have its sealed signing request fit the relay,
-/// sealed to [`SIZED_FOR_DEVICES`] devices, at the modelled size. Derived from the real sealing by
-/// `the_largest_signable_transaction_is_derived_from_the_real_sealing`, which fails if the sealing
-/// grows (this no longer fits) or shrinks (one more would).
+/// The length of the signing request for a transaction of `actions` actions at the modelled size,
+/// sealed by the real sealing to `devices` devices (none: the plaintext request). Every action is
+/// taken to be a real spend with a large index, the largest a request of that many actions can be.
+fn sealed_len_at_model(actions: usize, devices: usize) -> usize {
+    let pczt = vec![0x5a; PCZT_FIXED_BYTES + PCZT_BYTES_PER_ACTION * actions];
+    let req = SignRequest {
+        kind: REQUEST_KIND.into(),
+        sighash: "cd".repeat(32),
+        spends: (0..actions)
+            .map(|i| SpendReq {
+                index: u32::MAX - i as u32,
+                alpha: "ab".repeat(32),
+            })
+            .collect(),
+        pczt_hex: hexenc(&pczt),
+    };
+    let pubs: Vec<String> = (0..devices)
+        .map(|_| hexenc(&konclave_seal::DeviceKey::generate().public_bytes()))
+        .collect();
+    // The sealing of a well-formed request to fresh keys does not fail; if it ever did, the length
+    // of nothing would answer "fits", so it answers "does not fit" instead.
+    seal_request_wire(&req, &pubs).map_or(usize::MAX, |w| w.len())
+}
+
+/// The most actions a transaction can carry and still have its signing request, sealed to `devices`
+/// devices, fit the relay at the modelled size (#821). Asked of the real sealing, not of a formula
+/// beside it, and remembered per device count up to [`crate::helper::MAX_SEATS`].
 ///
-/// A count, so it can be asked of the UNPROVEN transaction at proposal time, before anyone approves.
-/// The exact answer is the sealed request's own length, which the send checks before publishing.
-pub const MAX_SIGNABLE_ACTIONS: usize = 5;
+/// It depends on the vault: each device adds a box to the request, so a 2-of-3 can sign a larger
+/// transaction than a 32-seat vault. A count, so it can be asked of the UNPROVEN transaction at
+/// proposal time; the exact answer is the sealed request's own length, which the send checks before
+/// publishing. Pinned per device count by `the_largest_signable_transaction_per_vault_size`.
+pub fn max_signable_actions(devices: usize) -> usize {
+    const SEATS: usize = crate::helper::MAX_SEATS as usize;
+    static KNOWN: [std::sync::OnceLock<usize>; SEATS + 1] =
+        [const { std::sync::OnceLock::new() }; SEATS + 1];
+    let derive = || {
+        (1..)
+            .find(|&n| sealed_len_at_model(n, devices) > RELAY_MAX_DATA)
+            .map_or(0, |over| over - 1)
+    };
+    match KNOWN.get(devices) {
+        Some(cell) => *cell.get_or_init(derive),
+        None => derive(),
+    }
+}
 
 /// A transaction too large to be signed in one request: it carries `actions` and the request can
-/// carry at most `max`. `payroll` says which remedy applies (fewer lines, or a smaller amount).
+/// carry at most `max`. `payroll` says which plan it is, so the app words the remedy for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TooLarge {
     pub actions: usize,
@@ -256,16 +289,6 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
         crate::envelope::seal_to_devices(SEALED_REQUEST_KIND, plaintext.as_bytes(), device_pubs)?
             .ok_or_else(|| "no devices to seal to".to_string())?;
     serde_json::to_string(&env).map_err(|e| format!("encode sealed request: {e}"))
-}
-
-/// Publish a signing request into the relay room, sealed to `device_pubs` (or plaintext if none).
-/// Returns the sequence it was posted at, so the caller polls strictly after it.
-pub fn publish_sealed_request<T: Transport>(
-    client: &RelayClient<T>,
-    req: &SignRequest,
-    device_pubs: &[String],
-) -> Result<u64, String> {
-    client.post(&seal_request_wire(req, device_pubs)?)
 }
 
 /// The most candidate answers one poll looks at. Each is verified by trial-injecting it, a
@@ -833,39 +856,23 @@ mod tests {
         assert!(sigs.is_some(), "this payment's own response is collected");
     }
 
-    // #821. The sealed request for a transaction of `actions` actions at the modelled size, every
-    // action a real spend (the request lists only real spends, so this is the largest it can be), with
-    // large indexes, sealed to `devices` fresh device keys by the real sealing. Its length in bytes.
-    fn sealed_len_at_model(actions: usize, devices: usize) -> usize {
-        let pczt = vec![0x5a; PCZT_FIXED_BYTES + PCZT_BYTES_PER_ACTION * actions];
-        let req = SignRequest {
-            kind: REQUEST_KIND.into(),
-            sighash: "cd".repeat(32),
-            spends: (0..actions)
-                .map(|i| SpendReq {
-                    index: u32::MAX - i as u32,
-                    alpha: "ab".repeat(32),
-                })
-                .collect(),
-            pczt_hex: hexenc(&pczt),
-        };
-        let pubs: Vec<String> = (0..devices)
-            .map(|_| hexenc(&konclave_seal::DeviceKey::generate().public_bytes()))
-            .collect();
-        seal_request_wire(&req, &pubs).unwrap().len()
-    }
-
+    // #821. The numbers themselves, so a sealing that grows or shrinks shows up here as a changed
+    // limit rather than quietly moving what a vault may propose. A 2-of-3 signs a 5-line payroll
+    // (six actions with its change) as it did before the limit existed; only the largest vaults are
+    // held to five.
     #[test]
-    fn the_largest_signable_transaction_is_derived_from_the_real_sealing() {
-        // The constant fits, at the largest vault, and one more action does not. If the sealing grows
-        // this fails on the first line; if it shrinks enough for one more, on the second, and the
-        // constant should be raised.
-        let fits = sealed_len_at_model(MAX_SIGNABLE_ACTIONS, SIZED_FOR_DEVICES);
-        assert!(fits <= RELAY_MAX_DATA, "{fits} > {RELAY_MAX_DATA}");
-        let over = sealed_len_at_model(MAX_SIGNABLE_ACTIONS + 1, SIZED_FOR_DEVICES);
-        assert!(over > RELAY_MAX_DATA, "{over} fits: raise the constant");
-        // Fewer devices never make it larger.
-        assert!(sealed_len_at_model(MAX_SIGNABLE_ACTIONS, 1) < fits);
+    fn the_largest_signable_transaction_per_vault_size() {
+        for (devices, max) in [(0, 13), (1, 6), (2, 6), (3, 6), (5, 6), (31, 6), (32, 5)] {
+            assert_eq!(max_signable_actions(devices), max, "{devices} devices");
+        }
+        // And each answer is the edge: it fits, one more does not.
+        for devices in [0, 3, 32] {
+            let max = max_signable_actions(devices);
+            assert!(sealed_len_at_model(max, devices) <= RELAY_MAX_DATA);
+            assert!(sealed_len_at_model(max + 1, devices) > RELAY_MAX_DATA);
+        }
+        // Past the seats the app offers it is still answered, never cached out of bounds.
+        assert!(max_signable_actions(64) <= 5);
     }
 
     #[test]

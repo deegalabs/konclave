@@ -841,53 +841,72 @@ fn refuse_if_unfunded(
     // it holds the real destinations. Wipe it whatever happens (#297).
     let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, reg, work_dir);
-    match funding_check(&sc, plan) {
-        Ok(Funding::Ok) => Ok(None),
-        // #427. The vault HOLDS the money; it just cannot move it in one payment, because the
-        // amount needs notes from both shielded pools and the signing bridge refuses to sign such a
-        // transaction. 422 like the shortfall, because the request is well-formed and cannot be
-        // satisfied - but with its own error code and its own remedy, since "you are short" would
-        // send a member hunting for funds they already have.
-        //
-        // This refusal used to arrive at the SEND, after the proposal existed and the quorum had
-        // approved it. Here it arrives while the proposal is being created.
-        Ok(Funding::CrossesPools) => Ok(Some(resp(
-            422,
-            json!({
-                "error": "crosses shielded pools",
-                "detail": "the vault holds this amount, but split across two shielded pools, and one payment can only draw on one of them. Send it as two smaller payments, or consolidate the vault first.",
-            })
-            .to_string(),
-        ))),
-        // #821. Built, and too large for the devices to be asked to sign: its signing request would not
-        // fit the one relay message it crosses as. Refused while it is being created, not after the
-        // quorum approved it, which is where it used to die.
-        Ok(Funding::TooLarge { actions, max }) => Ok(Some(too_many_actions_resp(
-            orchestrator::net_send::TooLarge {
-                actions,
-                max,
-                payroll: matches!(plan, SpendPlan::Payroll { .. }),
-            },
-        ))),
-        Ok(Funding::Short {
-            available,
-            required,
-        }) => Ok(Some(resp(
-            422,
-            json!({
-                "error": "insufficient funds",
-                "available_zat": available,
-                "required_zat": required,
-                "short_zat": required.saturating_sub(available),
-                "detail": format!(
-                    "the vault holds {available} zatoshi and this needs {required} (amount plus the network fee)"
-                ),
-            })
-            .to_string(),
-        ))),
+    // #821. How large a transaction this vault can still sign depends on how many devices its send is
+    // sealed to: the devices on record or the seats still to register, whichever is more.
+    let devices = orchestrator::helper::sealing_devices_upper_bound(
+        &cfg.vaults_dir,
+        &reg.vault_id,
+        reg.total,
+    );
+    match funding_check(&sc, plan, devices) {
+        Ok(f) => Ok(funding_answer(f, plan)),
         Err(e) => Err(e.to_string()),
     }
 }
+
+/// The refusal a funding answer becomes, or `None` when the vault can pay `plan`. Its own function
+/// so every answer, the size refusal (#821) included, is pinned without a real wallet.
+fn funding_answer(f: Funding, plan: &SpendPlan) -> Option<Resp> {
+    match f {
+    Funding::Ok => None,
+            // #427. The vault HOLDS the money; it just cannot move it in one payment, because the
+            // amount needs notes from both shielded pools and the signing bridge refuses to sign such a
+            // transaction. 422 like the shortfall, because the request is well-formed and cannot be
+            // satisfied - but with its own error code and its own remedy, since "you are short" would
+            // send a member hunting for funds they already have.
+            //
+            // This refusal used to arrive at the SEND, after the proposal existed and the quorum had
+            // approved it. Here it arrives while the proposal is being created.
+            Funding::CrossesPools => Some(resp(
+                422,
+                json!({
+                    "error": "crosses shielded pools",
+                    "detail": "the vault holds this amount, but split across two shielded pools, and one payment can only draw on one of them. Send it as two smaller payments, or consolidate the vault first.",
+                })
+                .to_string(),
+            )),
+            // #821. Built, and too large for the devices to be asked to sign: its signing request would not
+            // fit the one relay message it crosses as. Refused while it is being created, not after the
+            // quorum approved it, which is where it used to die.
+            Funding::TooLarge { actions, max } => Some(too_many_actions_resp(
+                orchestrator::net_send::TooLarge {
+                    actions,
+                    max,
+                    payroll: matches!(plan, SpendPlan::Payroll { .. }),
+                },
+            )),
+            Funding::Short {
+                available,
+                required,
+            } => Some(resp(
+                422,
+                json!({
+                    "error": "insufficient funds",
+                    "available_zat": available,
+                    "required_zat": required,
+                    "short_zat": required.saturating_sub(available),
+                    "detail": format!(
+                        "the vault holds {available} zatoshi and this needs {required} (amount plus the network fee)"
+                    ),
+                })
+                .to_string(),
+            )),
+    }
+}
+
+/// The code of the size refusal (#821). The app matches it exactly, and reads it from here in a test
+/// (`ui/src/too-large.test.ts`), so the two cannot drift apart.
+const TOO_MANY_ACTIONS: &str = "too many actions";
 
 /// The answer to a payment or payroll too large to be signed in one request (#821), wherever it is
 /// found: at creation, at the send's last gate, or inside the send before the request is published.
@@ -898,7 +917,7 @@ fn too_many_actions_resp(t: orchestrator::net_send::TooLarge) -> Resp {
     resp(
         422,
         json!({
-            "error": "too many actions",
+            "error": TOO_MANY_ACTIONS,
             "actions": t.actions,
             "max_actions": t.max,
             "plan": plan,
@@ -2217,6 +2236,15 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
             json!({ "error": "threshold must be between 1 and total" }).to_string(),
         ));
     }
+    // #821. The app offers at most this many seats, and the signing request is sized for it: a vault
+    // with more could not seal its sends to every device within the relay's message.
+    if req.total > orchestrator::helper::MAX_SEATS {
+        return Err(resp(
+            400,
+            json!({ "error": format!("a vault has at most {} seats", orchestrator::helper::MAX_SEATS) })
+                .to_string(),
+        ));
+    }
     Ok(Registration {
         group_key: req.group_key,
         name: req.name,
@@ -2882,6 +2910,70 @@ mod tests {
             orchestrator::tools::ToolError::parse("ceremony", "a device refused"),
         ));
         assert_eq!(r.status, 502);
+    }
+
+    /// #821. The funding check at creation and at the send's last gate is sized for this vault's
+    /// devices. A source scan, because no vector the repo holds is large enough to be refused for a
+    /// vault the coordinator now admits (at most 32 devices); the decision itself is tested in
+    /// `orchestrator` (`the_funding_check_sizes_the_cap_for_the_vaults_devices`).
+    #[test]
+    fn the_funding_check_is_sized_for_the_vaults_devices() {
+        let src = include_str!("main.rs");
+        let body = src
+            .split("fn refuse_if_unfunded(")
+            .nth(1)
+            .and_then(|b| b.split("\nfn ").next())
+            .expect("refuse_if_unfunded");
+        // Whitespace removed, so the formatter's line breaks do not decide the answer.
+        let code: String = body.split_whitespace().collect();
+        let want = |s: &str| s.split_whitespace().collect::<String>();
+        assert!(code.contains(&want(
+            "let devices = orchestrator::helper::sealing_devices_upper_bound(&cfg.vaults_dir, &reg.vault_id, reg.total"
+        )));
+        assert!(code.contains(&want("funding_check(&sc, plan, devices)")));
+    }
+
+    /// #821. Every funding answer, the size refusal for both plans included, without a wallet.
+    #[test]
+    fn a_funding_answer_maps_to_one_refusal() {
+        let body = |r: Resp| serde_json::from_str::<serde_json::Value>(&r.body).unwrap();
+        let payment = SpendPlan::Payment {
+            to: "u1x".into(),
+            value_zat: 1,
+            memo: None,
+        };
+        let payroll = SpendPlan::Payroll { lines: vec![] };
+        assert!(funding_answer(Funding::Ok, &payment).is_none());
+        for (plan, name) in [(&payment, "payment"), (&payroll, "payroll")] {
+            let r =
+                funding_answer(Funding::TooLarge { actions: 7, max: 6 }, plan).expect("refused");
+            assert_eq!(r.status, 422);
+            let b = body(r);
+            assert_eq!(
+                (
+                    b["error"].as_str(),
+                    b["actions"].as_u64(),
+                    b["max_actions"].as_u64(),
+                    b["plan"].as_str()
+                ),
+                (Some(TOO_MANY_ACTIONS), Some(7), Some(6), Some(name))
+            );
+        }
+        let r = funding_answer(Funding::CrossesPools, &payment).expect("refused");
+        assert_eq!(
+            (r.status, body(r)["error"].as_str()),
+            (422, Some("crosses shielded pools"))
+        );
+        let r = funding_answer(
+            Funding::Short {
+                available: 1,
+                required: 3,
+            },
+            &payment,
+        )
+        .expect("refused");
+        assert_eq!(r.status, 422);
+        assert_eq!(body(r)["short_zat"].as_u64(), Some(2));
     }
 
     #[test]
@@ -6005,6 +6097,24 @@ mod tests {
             let r = handle(&st, &cfg(), &Method::Post, "/api/vault", b.as_bytes());
             assert_eq!(r.status, 400, "an unusable quorum must not register: {b}");
         }
+    }
+
+    /// #821: the signing request is sized for at most `MAX_SEATS` devices, so no vault has more seats.
+    #[test]
+    fn a_vault_with_more_seats_than_the_app_offers_is_refused() {
+        let max = orchestrator::helper::MAX_SEATS;
+        let body = |total: u16| {
+            format!(
+                r#"{{"group_key":"{}","threshold":2,"total":{total}}}"#,
+                "a".repeat(64)
+            )
+        };
+        assert!(parse_registration(body(max).as_bytes()).is_ok());
+        let r = parse_registration(body(max + 1).as_bytes())
+            .err()
+            .expect("refused");
+        assert_eq!(r.status, 400);
+        assert!(r.body.contains("at most 32 seats"), "{}", r.body);
     }
 
     #[test]

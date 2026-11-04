@@ -62,13 +62,17 @@ explicitly accepted.
 - **A payment or payroll too large to be signed could be proposed and approved, and then fail at the
   send (#821).** The signing request crosses the relay as one message, capped at 128 KiB, and it grows
   with the number of actions the transaction carries (each payee, each note spent, the change, and
-  padding). Past about six actions, estimated and not measured live, the relay refused the request
-  after the quorum had approved and the transaction had been built and proved. Nothing moved, but the
-  approved proposal could not complete. The shared core now counts a transaction's actions in both
-  shielded pools, and the largest it lets a vault sign is one constant, 5. That number comes from the
-  real sealing, sized for a 32-seat vault and for the largest PCZT per action in the repo. It is read
-  from the same crate as the relay's cap. The repo holds no transaction above five actions, so the
-  refusal is tested with a lowered cap; at send time, the request's exact size is the guard.
+  padding) and with the number of devices it is sealed to. Past about six actions, estimated and not
+  measured live, the relay refused the request after the quorum had approved and the transaction had
+  been built and proved. Nothing moved, but the approved proposal could not complete. The shared core
+  now counts a transaction's actions in both shielded pools, and asks the real sealing how many a
+  vault of a given size can sign: 6 for every vault of up to 31 devices (a 2-of-3 keeps sending the
+  5-line payrolls it sends today), 5 for a 32-seat vault. The size it assumes per action is the
+  largest of any PCZT in the repo, and the relay's cap is read from the same crate as the relay. A
+  vault now has at most 32 seats and 32 devices, the same number as the app, so what a proposal is
+  checked against is never smaller than what its send is sealed to. The repo holds no transaction
+  above five actions, so the refusal is tested with a lowered cap; at send time, the request's exact
+  size is the guard.
 
 ## [0.16.0] 2026-10-30
 
