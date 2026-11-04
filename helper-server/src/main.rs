@@ -6119,6 +6119,177 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // ---- §8 on the hosted path: a Sapling-only destination is refused at every entry ----
+    //
+    // These run on a MAINNET coordinator config (the test config is testnet, and inside these tests
+    // only). On testnet a mainnet `zs1` address is refused as the wrong network before the pool is
+    // ever looked at, which would keep these green whatever the Orchard check said. So each one also
+    // asserts the refusal TEXT: a 400 alone is what the wrong-network refusal answers too.
+
+    // A real mainnet Sapling-only address: the same vector as `SAPLING` in orchestrator's
+    // `address.rs` tests (`sapling_only_is_not_payable_lock_risk`), which another crate cannot reach.
+    const MAIN_SAPLING: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
+    // A real mainnet Unified address with an Orchard receiver (the slice vault's, as in
+    // orchestrator's `address.rs` and `helper.rs` tests).
+    const MAIN_ORCHARD_UA: &str = "u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr";
+    // `SendReject::NotOrchard`'s text, as a literal, so a change to it is seen here.
+    const NOT_ORCHARD_TEXT: &str = "this address cannot receive shielded Orchard funds";
+
+    fn mainnet(mut c: HelperConfig) -> HelperConfig {
+        c.network = "main".into();
+        c
+    }
+
+    fn assert_refused_as_not_orchard(r: &Resp) {
+        assert_eq!(r.status, 400, "{}", r.body);
+        let b: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(b["error"], NOT_ORCHARD_TEXT, "{}", r.body);
+    }
+
+    fn no_proposal_stored(c: &HelperConfig, vault: &str) {
+        assert!(
+            orchestrator::helper::list_proposals(&c.vaults_dir, vault, now_unix()).is_empty(),
+            "a refused destination must leave nothing on the desk"
+        );
+        assert!(!orchestrator::helper::proposals_dir(&c.vaults_dir, vault).exists());
+    }
+
+    #[test]
+    fn a_payment_to_a_sapling_only_address_is_refused_and_stores_nothing() {
+        let c = mainnet(cfg());
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{MAIN_SAPLING}","amount_zat":1000}}"#
+        );
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        assert_refused_as_not_orchard(&r);
+        no_proposal_stored(&c, "aaaa");
+    }
+
+    #[test]
+    fn a_payroll_with_one_sapling_only_line_is_refused_and_stores_nothing() {
+        let c = mainnet(cfg());
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        // The Sapling line sits between two good ones: one line is enough to refuse the payroll.
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","lines":[{{"label":"Rent","to":"{MAIN_ORCHARD_UA}","amount_zat":1000}},{{"label":"Ana","to":"{MAIN_SAPLING}","amount_zat":2000}},{{"to":"{MAIN_ORCHARD_UA}","amount_zat":3000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/payroll",
+            body.as_bytes(),
+        );
+        assert_refused_as_not_orchard(&r);
+        no_proposal_stored(&c, "aaaa");
+    }
+
+    /// The control for the two refusals: on the same mainnet config, the same requests with Orchard
+    /// destinations are stored. So what refused them is the pool, not the network or the vault.
+    #[test]
+    fn the_same_requests_to_an_orchard_receiver_are_stored_on_mainnet() {
+        let c = mainnet(cfg());
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let payment = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{MAIN_ORCHARD_UA}","amount_zat":1000}}"#
+        );
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals",
+            payment.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let payroll = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","lines":[{{"to":"{MAIN_ORCHARD_UA}","amount_zat":1000}},{{"to":"{MAIN_ORCHARD_UA}","amount_zat":2000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/payroll",
+            payroll.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert_eq!(
+            orchestrator::helper::list_proposals(&c.vaults_dir, "aaaa", now_unix()).len(),
+            2
+        );
+    }
+
+    /// The send re-validates what it spends (`send_plan_for`), so a ready proposal whose stored
+    /// destination is Sapling-only - however it got there - is refused before anything is built.
+    #[cfg(unix)]
+    #[test]
+    fn a_ready_payment_to_a_sapling_only_address_is_refused_at_the_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = mainnet(cfg());
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let p = HelperProposal {
+            to: MAIN_SAPLING.into(),
+            ..load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap()
+        };
+        orchestrator::helper::save_proposal(&c.vaults_dir, &p).unwrap();
+
+        let r = real_send(&st, &c);
+        assert_refused_as_not_orchard(&r);
+        assert!(!std::fs::read_to_string(&log)
+            .map(|t| t.contains("pczt"))
+            .unwrap_or(false));
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "ready", "a refused send changes nothing");
+        assert!(saved.txid.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_ready_payroll_with_a_sapling_only_line_is_refused_at_the_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = mainnet(cfg());
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let line = |to: &str, amount_zat: u64| orchestrator::helper::PayrollLine {
+            label: String::new(),
+            to: to.into(),
+            amount_zat,
+            memo: None,
+        };
+        let p = HelperProposal {
+            kind: "payroll".into(),
+            to: String::new(),
+            amount_zat: 3000,
+            lines: vec![line(MAIN_ORCHARD_UA, 1000), line(MAIN_SAPLING, 2000)],
+            ..load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap()
+        };
+        orchestrator::helper::save_proposal(&c.vaults_dir, &p).unwrap();
+
+        let r = real_send(&st, &c);
+        assert_refused_as_not_orchard(&r);
+        assert!(!std::fs::read_to_string(&log)
+            .map(|t| t.contains("pczt"))
+            .unwrap_or(false));
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "ready", "a refused send changes nothing");
+        assert!(saved.txid.is_none());
+    }
+
     #[test]
     fn a_stranger_cannot_replace_a_vault_roster() {
         // The roster check on votes is only as strong as who may write the roster. This endpoint is
