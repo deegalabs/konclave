@@ -1002,6 +1002,7 @@ export const en: Record<string, string> = {
   'ledger.yes': 'yes',
   'ledger.no': 'no',
   'ledger.pdf': '↓ PDF',
+  'ledger.printHidden': 'Amounts are hidden. To print them, show them on screen first.',
   'ledger.title': 'Ledger',
   'ledger.vault': 'Vault',
   'ledger.period': 'Period',

@@ -132,6 +132,15 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The book's PDF is a document, the same from a phone and from a computer (#811).** The "PDF"
+  button prints the page, and the page printed as laid out: from a phone that was the stacked cards
+  with the menu and the filter buttons, and a table that broke across pages. Printed, the book now
+  has a full-width table whose header repeats on each page, rows that never split across a page, the
+  totals and rows the screen shows, the active filter written out, and no menu or buttons. Amounts
+  hidden on screen stay hidden on paper (browsers drop backgrounds when printing, which would have
+  printed the figures under their bars), and the page says to show them before printing. The XLSX
+  export does not change.
+
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
