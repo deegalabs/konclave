@@ -24,6 +24,16 @@ jobs:
           - platform: ubuntu-22.04      # .deb + .AppImage
           - platform: macos-latest      # .dmg (Apple Silicon)
     runs-on: ${{ matrix.platform }}
+    # The coordinator and relay the desktop app talks to (#664). Vite inlines `VITE_*` at build time,
+    # and the release used to build with neither set, so the helper base was '' ("Konclave-hosted"
+    # never showed) and the relay fell back to the app's own origin, where none answers. These are the
+    # production values the web build carries (read from the live bundle at www.konclave.xyz; the web
+    # takes them from the Vercel project's env, DEPLOY.md). Public addresses, not secrets. Change them
+    # here and in DEPLOY.md together, and keep each one in the CSP's connect-src
+    # (orchestrator/src/csp.rs, mirrored into src-tauri/tauri.conf.json); a test checks that.
+    env:
+      VITE_HELPER_BASE: https://helper.konclave.xyz
+      VITE_RELAY_BASE: https://relay.konclave.xyz
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -63,8 +73,27 @@ jobs:
       # beforeBuildCommand: tauri-action runs before-commands from a different cwd than a local
       # `tauri build`, and no single relative --prefix works for both. So beforeBuildCommand is
       # empty and the frontend is built here, cwd-unambiguously, from the repo root.
+      #
+      # KONCLAVE_DESKTOP_BUILD=1 makes the bundle's service worker a self-destroying one
+      # (ui/vite.config.ts): the desktop app has no use for a worker, and the one v0.15.0 left in
+      # the WebView profile opened v0.16.0 to a blank window on Windows. Without it the installers
+      # ship the web's worker again.
       - name: Build UI
+        env:
+          KONCLAVE_DESKTOP_BUILD: '1'
         run: pnpm -C ui run build
+
+      # The flag is checked by what it produced, not trusted: the installers must carry the
+      # self-destroying sw.js (unregisters itself, precaches nothing). A web worker here would put the
+      # blank-window defect back into every installer. The rule and its tests: scripts/check-sw.mjs.
+      - name: Check the service worker is the self-destroying one
+        run: node scripts/check-sw-cli.mjs desktop ui/dist/sw.js
+
+      # Fails the release when the bundle does not carry both addresses (#664): an empty or invalid
+      # variable, or one the build never inlined. The rule is in the script, with tests
+      # (ui/src/desktop-bundle-check.test.ts), not written as shell here.
+      - name: Check the bundle carries the coordinator and relay
+        run: node scripts/check-desktop-bundle-cli.mjs
 
       # Pull the release notes for this tag from CHANGELOG.md so the GitHub release matches the
       # in-app version.
@@ -101,6 +130,8 @@ jobs:
             node scripts/release.mjs --notes "$TAG"
             echo ''
             echo 'Desktop installers (Windows / macOS / Linux) are attached below.'
+            echo ''
+            echo "Built to use the coordinator at $VITE_HELPER_BASE and the relay at $VITE_RELAY_BASE."
             echo 'KONCLAVE_EOF'
           } >> "$GITHUB_OUTPUT"
 

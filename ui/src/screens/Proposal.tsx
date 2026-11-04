@@ -3,7 +3,7 @@ import { SkeletonDetail } from '../skeleton'
 import ReadState from '../ReadState'
 import type { ReadFailureInfo } from '../read-failure'
 import { usePoll } from '../usePoll'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
@@ -37,7 +37,6 @@ export default function Proposal() {
   const { locale } = useI18n()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
-  const nav = useNavigate()
   const { open: openSigning } = useVaultSigner()
   const [p, setP] = useState<Proposal | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -166,10 +165,6 @@ export default function Proposal() {
 
   async function send(dryRun: boolean) {
     if (!p) return
-    // Browser-native vault: signing happens in /net, where this device's share lives. Instead of a
-    // server-side ceremony, take the operator to the signing screen (the approved proposal shows up
-    // there under "Proposals ready to sign").
-    if (IS_NET) { nav('/net'); return }
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)

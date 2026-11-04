@@ -35,7 +35,10 @@ export default function App() {
   const { revealed } = useReveal()
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
-      <UpdatePrompt />
+      {/* The web's service worker and its update banner. The desktop app has neither: its version
+          comes with the installer, and a worker left in the WebView profile opened it blank
+          (desktop-worker.ts). */}
+      {!isDesktop && <UpdatePrompt />}
       {/* On a route change, focus goes to the new screen's heading (#662). */}
       <RouteFocus />
       <ErrorBoundary>
