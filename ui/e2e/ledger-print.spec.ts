@@ -77,10 +77,27 @@ test('a filter applied on screen is written on the printed page, with the rows i
   await expect(page.locator('.ledger-print-filter')).toContainText('Filter: Settled')
 })
 
-test('hidden amounts stay hidden on paper, and the page says how to print them', async ({ page }) => {
+const AMOUNTS = ['0.1000', '0.2000', '0.0500', '0.3000']
+
+test('hidden amounts are not on the paper at all, and the page says how to print them', async ({ page }) => {
   await printed(page, 1280, 900)
   // Browsers drop backgrounds when printing, which would print the amount under its bar.
   const bar = page.locator('.doc-band .secret .bar').first()
   expect(await bar.evaluate((el) => getComputedStyle(el).printColorAdjust)).toBe('exact')
   await expect(page.locator('.ledger-print-hidden')).toBeVisible()
+  // A bar over drawn text still leaves the text in the PDF, where it can be selected and copied.
+  // innerText is the text the page draws (it skips what is not visible): no amount is in it.
+  const paper = await page.evaluate(() => document.body.innerText)
+  expect(paper).toContain('Rent')
+  for (const a of AMOUNTS) expect(paper).not.toContain(a)
+})
+
+test('revealed amounts are printed, with the totals', async ({ page }) => {
+  await page.goto('/#/ledger')
+  await expect(page.locator('table.razao tbody tr')).toHaveCount(3)
+  await page.locator('.db-reveal').getByRole('button', { name: 'Reveal' }).click()
+  await page.emulateMedia({ media: 'print' })
+  const paper = await page.evaluate(() => document.body.innerText)
+  for (const a of AMOUNTS) expect(paper).toContain(a)
+  await expect(page.locator('.ledger-print-hidden')).toBeHidden()
 })

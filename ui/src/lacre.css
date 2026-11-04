@@ -463,7 +463,9 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
     font-size:10.5pt; grid-column:auto; order:0; text-align:left}
   .tbl.razao td.num{text-align:right}
 
-  /* A hidden amount stays hidden on paper. Browsers drop backgrounds when printing, which would
-     print the figure under its bar; the bar is kept as the screen shows it. */
+  /* A hidden amount stays hidden on paper, on any page. Browsers drop backgrounds when printing,
+     which would print the figure under its bar, so the bar is kept as the screen shows it; and the
+     figure under it is not drawn, since drawn text stays in the PDF even when a bar covers it. */
   .secret .bar{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  .secret:not(.on) .secret-val{visibility:hidden}
 }

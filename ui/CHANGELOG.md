@@ -137,9 +137,10 @@ history to tidy it is how context gets lost.
   with the menu and the filter buttons, and a table that broke across pages. Printed, the book now
   has a full-width table whose header repeats on each page, rows that never split across a page, the
   totals and rows the screen shows, the active filter written out, and no menu or buttons. Amounts
-  hidden on screen stay hidden on paper (browsers drop backgrounds when printing, which would have
-  printed the figures under their bars), and the page says to show them before printing. The XLSX
-  export does not change.
+  hidden on screen are not in the PDF at all, from any page: until now the figure was drawn under
+  its bar, so even with the bar printed it could be selected and copied out of the file, and a
+  browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
+  printing. The XLSX export does not change.
 
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
