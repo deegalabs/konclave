@@ -26,7 +26,13 @@ ciphersuite = "redpallas"                                         # pass `-C red
 # line, plus zcash_protocol 0.10.6 (its only change from 0.10.5 is experimental NuTachyon items behind
 # `--cfg zcash_unstable="nutachyon"`, absent from a default build).
 #
-# The linked (not invoked) librustzcash / orchard crate set:
+# The linked (not invoked) librustzcash / orchard crate set, as `Cargo.lock` pins it since the move
+# to the stable NU7 line (#744, 2026-10-30), the same line [deploy_build] below records as deployed:
+#       pczt 0.10.0 · zcash_client_backend 0.25.0 · zcash_primitives 0.31.0 ·
+#       zcash_client_sqlite 0.23.0 · zcash_protocol 0.11.0 · zcash_keys 0.17.0 · zcash_address
+#       0.14.0 · zip321 0.10.0 · zcash_transparent 0.11.0 · zcash_pool_migration 0.2.0
+#       orchard 0.16.0
+# Until #744 it was the set of the 2026-10-01 re-cut:
 #       pczt 0.9.3 · zcash_client_backend 0.24.0 (carries #2778, the ZIP-32 stamping fix for the
 #       Orchard migration-dummy, which survived rc.6 into the final) · zcash_primitives 0.30.1 ·
 #       zcash_client_sqlite 0.22.0 · zcash_protocol 0.10.6 · zcash_keys 0.16.1 · zcash_address
