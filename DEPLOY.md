@@ -31,6 +31,11 @@ connected to `deegalabs/konclave`. A push to `main` builds and promotes to produ
 - Root Directory `ui`, framework `vite`, build `npm run build` → `dist`
 - `VITE_RELAY_BASE = https://relay.konclave.xyz` (read from the live bundle on 2026-10-03; builds
   before the custom domain carried `https://konclave-relay-production.up.railway.app`)
+- `VITE_HELPER_BASE = https://helper.konclave.xyz` (read from the live bundle on 2026-11-04)
+- **The desktop release builds with the same two values**, written as plain env in
+  `.github/workflows/desktop-release.yml` because the workflow cannot read Vercel's (#664). Change
+  them in both places together; the release fails when its bundle does not carry both
+  (`scripts/check-desktop-bundle.mjs`).
 - `ui/src/wasm-pkg/` is committed, so the build needs no Rust toolchain
 
 **Verify:** the footer shows `v<version> · <commit>`. Compare the commit with `main`.

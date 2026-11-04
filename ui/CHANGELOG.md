@@ -144,6 +144,7 @@ history to tidy it is how context gets lost.
   language, notifications or navigation) fails, it now shows the "something broke" screen with
   Reload, instead of a white page; a failing screen already did. The web keeps its offline copy and
   its "new version" banner.
+- Desktop: "This device only" (in the create dialog and in Settings) opened the old ceremony that needs the local bridge, which the desktop app does not include yet (#212), so the vault could not be created or read. It is hidden on desktop until #212, and a desktop that had saved that choice now uses the Konclave-hosted coordinator (#664).
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
