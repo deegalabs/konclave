@@ -17,8 +17,7 @@ import { readSecretFor, getUnlockedShare } from '../session'
 import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
-import { removeVaultFromDevice } from '../remove-vault'
-import { clearPayrollDraft } from '../payroll-draft'
+import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
@@ -240,7 +239,7 @@ export default function Settings() {
     }
     const res = await deleteVault(undefined, confirmName.trim())
     setBusy(false)
-    if (res.ok) { clearPayrollDraft(vault.id); nav('/vaults'); return }
+    if (res.ok) { clearVaultTraces(vault.id); nav('/vaults'); return }
     setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
   }
 

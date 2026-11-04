@@ -138,8 +138,9 @@ history to tidy it is how context gets lost.
   device, so one vault offered another vault's payees. The confirm said it removed "records,
   proposals and people", which a member could read as nothing being left, and proposals were never on
   the device. Removing now also takes the saved people, the passkey shortcut and the vault's recent
-  addresses, the same from Settings and from the vault list, and the confirm says what goes, in both
-  places. It also says what stays: the device's record of the payments it signed
+  addresses, the same from Settings and from the vault list, and on the desktop's local bridge as on
+  the web (there it cleared only the payroll draft). The confirm says what goes, in both places. It
+  also says what stays: the device's record of the payments it signed
   (summaries and dates, no names or amounts), which stops it signing a second, different transaction
   for the same payment. The recent addresses are now kept per vault; the shared list of earlier
   versions is dropped, since whose vault it belonged to cannot be known.

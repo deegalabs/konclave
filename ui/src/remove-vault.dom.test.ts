@@ -14,7 +14,7 @@ import { ptBR } from './i18n/pt-BR'
 vi.setConfig({ testTimeout: 30_000 })
 
 import { saveVault, listVaults, type VaultData } from './storage'
-import { removeVaultFromDevice } from './remove-vault'
+import { removeVaultFromDevice, clearVaultTraces } from './remove-vault'
 import { setSelectedVault, getSelectedVault } from './api'
 import { setReadSecret, readSecretFor } from './session'
 import { savePrfWrap } from './prf-store'
@@ -96,5 +96,68 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     expect(en['dashboard.deleteConfirmBody']).toMatch(/keeps/)
     expect(ptBR['dashboard.deleteConfirmBody']).toMatch(/pessoas salvas/)
     expect(ptBR['dashboard.deleteConfirmBody']).toMatch(/Fica/)
+  })
+
+  it('on the local bridge, where the orchestrator deletes the record, the browser clears the same as on the web', () => {
+    // It cleared only the payroll draft, while the confirm promised the recent addresses too.
+    seedLocal(B)
+    seedLocal(A)
+    clearVaultTraces(A)
+    expect(keysWith(A)).toEqual([`konclave.signed.${A}`])
+    expect(getSelectedVault()).toBeNull()
+    expect(readSecretFor(A)).toBeUndefined()
+    expect(keysWith(B)).toHaveLength(5)
+    const settings = codeOf('screens/Settings.tsx')
+    expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(vault\.id\)/)
+    // No screen clears a part of a vault's leftovers on its own: that is how the two lists drifted.
+    for (const part of ['clearPayrollDraft', 'clearRecentPayees']) expect(settings, part).not.toMatch(new RegExp(`\\b${part}\\(`))
+  })
+})
+
+// Every place the app writes to this browser's storage, and what removing a vault does with it.
+// A new write fails the test below until it is listed here. A key that belongs to one vault is
+// cleared in `clearVaultTraces` (remove-vault.ts) and gets a line in `seedLocal` above, so the first
+// test proves it goes; or it is kept on purpose, with the reason.
+type Fate = 'device' | 'cleared' | 'kept'
+const STORAGE_WRITES: Record<string, Record<string, Fate>> = {
+  'api.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */, k: 'cleared' /* the payee book */ },
+  'helper.ts': { MODE_KEY: 'device', URL_KEY: 'device' },
+  'i18n/index.tsx': { LOCALE_KEY: 'device' },
+  'net.ts': { RELAY_MODE_KEY: 'device', RELAY_URL_KEY: 'device' },
+  'prf-store.ts': { 'KEY(vaultId)': 'cleared' },
+  'price.ts': { KEY_ENABLED: 'device', KEY_CACHE: 'device' },
+  'recent-payees.ts': { 'recentPayeesKey(id)': 'cleared' },
+  'screens/NewPayroll.tsx': { draftAt: 'cleared' /* the payroll draft */ },
+  'signed-record.ts': { k: 'kept' /* what this device signed: hashes and expiries, refuses a second tx */ },
+  'storage.ts': { 'beneficiariesKey(id)': 'cleared' },
+  'theme.ts': { KEY: 'device' },
+}
+
+describe('every storage key the app writes has a stated fate when a vault is removed (#813)', () => {
+  it('lists each write to localStorage or sessionStorage, and no other IndexedDB store', async () => {
+    const { readdirSync, statSync } = await import('node:fs')
+    const { join, relative, sep } = await import('node:path')
+    const src = join(process.cwd(), 'src') // vitest runs from ui/
+    const files: string[] = []
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n)
+        if (statSync(p).isDirectory()) walk(p)
+        else if (/\.tsx?$/.test(n) && !/\.test\.|\.d\.ts$/.test(n)) files.push(relative(src, p).split(sep).join('/'))
+      }
+    }
+    walk(src)
+    const found: Record<string, Record<string, Fate>> = {}
+    for (const f of files) {
+      const code = codeOf(f)
+      for (const m of code.matchAll(/(?:localStorage|sessionStorage)\.setItem\(\s*([^,]+?)\s*,/g)) {
+        const key = m[1] ?? ''
+        found[f] ??= {}
+        found[f][key] = STORAGE_WRITES[f]?.[key] ?? ('UNLISTED: say whether it belongs to a vault' as Fate)
+      }
+    }
+    expect(found).toEqual(STORAGE_WRITES)
+    // The record store is the one the removal deletes from. A second store would need its own line.
+    expect(codeOf('storage.ts').match(/createObjectStore\(/g)).toHaveLength(1)
   })
 })
