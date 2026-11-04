@@ -6,7 +6,8 @@
 > **What it is:** the rule that decides **how** the product tells the member what happened. The
 > class of the event picks the vehicle; the screen never picks.
 > **What it is not:** it changes neither the money path nor the inline messages it already has. It
-> does not touch Daniel's files; the ruler applies to them too, and the changes there are his.
+> does not touch the maintainer's files; the ruler applies to them too, and the changes there are
+> the maintainer's.
 >
 > **Where it comes from:** the product owner's review of 2026-07-01 named three gaps: no success
 > confirmation when proposing a payment, no notification when sending for approval, and no error
@@ -76,7 +77,7 @@ last column says which.
 
 | Screen | Toast (1) | Skeleton (4) | Generic spinner | State 5 | Situation |
 |---|---|---|---|---|---|
-| Dashboard | 0 | 3 | 0 | to check | Daniel's file; a failed poll keeps what the screen has; banner for an open vault, notice for a network upgrade |
+| Dashboard | 0 | 3 | 0 | to check | the maintainer's file; a failed poll keeps what the screen has; banner for an open vault, notice for a network upgrade |
 | Ledger | 0 | 1 | 0 | **yes** (#770) | a failed first read says so; failed refreshes after a good read show the compact line above the rows |
 | Proposals | 0 | 1 | 0 | **yes** (#769) | a failed read is no longer an empty list |
 | Proposal | 2 | 1 | 0 | **yes** (#768) | toasts for approve or refuse, and for a vote that failed |
@@ -90,7 +91,7 @@ last column says which.
 | Evidence (Ceremonies) | 0 | 1 | 0 | **yes** (#768) | the list of signatures |
 | Proof | 2 | 0 | 0 | not a read | toasts for copied and for a copy that failed |
 | Activity | 0 | 0 | 0 | not a read | a tab bar over the lists; the natural home of class 2 (counter and list) |
-| Signing panel | 4 | 0 | 0 | yes (its own) | Daniel's file; money path |
+| Signing panel | 4 | 0 | 0 | yes (its own) | the maintainer's file; money path |
 
 Facts checked on `5571690`: the generic spinner appears on no screen; `ReadState` is used by
 Ceremonies, Ledger, People, Proposal, Proposals, Receive and Vaults; Members has its own state
@@ -156,14 +157,14 @@ feature that exists on one path only appears with "Em breve" and the reason, nev
   Give a notice (class 1) to the actions that end in silence today, after checking each one; a banner
   for "no link to the vault's server".
 - The counter and the "since last time" list (class 2), per vault, on Activity and on the dashboard
-  when Daniel frees that file.
+  when the maintainer frees that file.
 - Each item becomes a neutral issue, named for the screen or the defect, when the work starts.
 
 ---
 
 ## 7. What the ruler does not decide
 
-- How the money path speaks: the inline messages of signing and sending are Daniel's.
+- How the money path speaks: the inline messages of signing and sending are the maintainer's.
 - The text of each notice: that belongs to the vocabulary guide
   ([VOCABULARY_AND_COPY.md](VOCABULARY_AND_COPY.md)).
 - The look of the vehicles: tokens, shadow and motion belong to the visual layer. Here, only the
