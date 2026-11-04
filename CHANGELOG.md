@@ -66,13 +66,23 @@ explicitly accepted.
   measured live, the relay refused the request after the quorum had approved and the transaction had
   been built and proved. Nothing moved, but the approved proposal could not complete. The shared core
   now counts a transaction's actions in both shielded pools, and asks the real sealing how many a
-  vault of a given size can sign: 6 for every vault of up to 31 devices (a 2-of-3 keeps sending the
-  5-line payrolls it sends today), 5 for a 32-seat vault. The size it assumes per action is the
-  largest of any PCZT in the repo, and the relay's cap is read from the same crate as the relay. A
-  vault now has at most 32 seats and 32 devices, the same number as the app, so what a proposal is
-  checked against is never smaller than what its send is sealed to. The repo holds no transaction
-  above five actions, so the refusal is tested with a lowered cap; at send time, the request's exact
-  size is the guard.
+  vault of a given size can sign: 6 for every vault of up to 31 devices, 5 for a 32-seat vault, so
+  nothing a vault of up to 31 devices could send before is refused now. The size it assumes per
+  action is the largest of any PCZT in the repo, and the relay's cap is read from the same crate as
+  the relay. A vault has at most 32 seats, the same number as the app, and at most 32 device records;
+  device records no longer block a seat: a device registering for a seat always has room, and records
+  without a seat are limited to the vault's seat count. The repo holds no transaction above five
+  actions, so the refusal is tested with a lowered cap; at send time, the request's exact size is the
+  guard.
+
+### Known limits
+
+- **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
+  message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
+  about 4 to 5 lines: 5 when the vault pays from Ironwood notes, 4 when it pays from Orchard notes,
+  and fewer when it pays from many small notes. Such a proposal is refused when it is created, with
+  the numbers, instead of after approval. The limit stays until the signing request no longer
+  travels inside one relay message.
 
 ## [0.16.0] 2026-10-30
 

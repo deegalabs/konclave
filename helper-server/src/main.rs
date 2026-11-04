@@ -922,7 +922,7 @@ fn too_many_actions_resp(t: orchestrator::net_send::TooLarge) -> Resp {
             "max_actions": t.max,
             "plan": plan,
             "detail": format!(
-                "this {plan} needs {} parts and one payment can carry at most {}",
+                "this {plan} needs {} parts and one transaction can carry at most {}",
                 t.actions, t.max
             ),
         })
@@ -2912,25 +2912,125 @@ mod tests {
         assert_eq!(r.status, 502);
     }
 
-    /// #821. The funding check at creation and at the send's last gate is sized for this vault's
-    /// devices. A source scan, because no vector the repo holds is large enough to be refused for a
-    /// vault the coordinator now admits (at most 32 devices); the decision itself is tested in
-    /// `orchestrator` (`the_funding_check_sizes_the_cap_for_the_vaults_devices`).
+    /// Stand-ins for the engine a funding check runs, in `dir`: the devtool answers a balance and
+    /// prints `unproven` for `pczt create`; `konclave-signer build-payroll` writes it to its `--out`
+    /// (the ninth argument); everything else succeeds silently.
+    #[cfg(unix)]
+    fn funding_engine(dir: &std::path::Path, unproven: &[u8]) -> HelperConfig {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(dir).unwrap();
+        let pczt = dir.join("unproven.pczt");
+        std::fs::write(&pczt, unproven).unwrap();
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\nexit 0\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            // A freshly written script can be busy for a moment (ETXTBSY); wait it out.
+            for _ in 0..200 {
+                match std::process::Command::new(&path).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    _ => break,
+                }
+            }
+            path
+        };
+        let mut c = cfg();
+        c.devtool = script(
+            "devtool",
+            format!(
+                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then cat {p}; fi",
+                p = pczt.display()
+            ),
+        );
+        c.konclave_signer = script(
+            "signer",
+            format!(
+                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$1\" = build-payroll ]; then cp {p} \"$9\"; fi",
+                p = pczt.display()
+            ),
+        );
+        c.vaults_dir = dir.join("vaults");
+        std::fs::create_dir_all(&c.vaults_dir).unwrap();
+        c
+    }
+
+    /// A payment and a payroll on a 2-of-3 whose registry holds `keys` device records, built by the
+    /// stand-ins as the five-action NU7 vector. The two answers, status and body.
+    #[cfg(unix)]
+    fn propose_five_actions(tag: &str, keys: usize) -> [(u16, serde_json::Value); 2] {
+        let dir = std::env::temp_dir().join(format!("konclave-size-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let c = funding_engine(
+            &dir,
+            include_bytes!("../../konclave-wasm/tests/vectors/nu7_testnet.proven.pczt"),
+        );
+        let st = HelperState::new();
+        let vault = format!("size{tag}");
+        seed(&st, &vault);
+        let _ = orchestrator::helper::claim_members(
+            &c.vaults_dir,
+            &vault,
+            &["alice".into(), "bob".into(), "carol".into()],
+        );
+        // Written straight to disk, as a registry from before the limit would be.
+        let flat: Vec<String> = (0..keys).map(|i| format!("{i:064x}")).collect();
+        std::fs::create_dir_all(c.vaults_dir.join(&vault)).unwrap();
+        std::fs::write(
+            c.vaults_dir.join(&vault).join("device-keys.json"),
+            serde_json::to_string(&flat).unwrap(),
+        )
+        .unwrap();
+        let payment = format!(
+            r#"{{"vault":"{vault}","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+        );
+        let payroll = format!(
+            r#"{{"vault":"{vault}","proposer":"alice","lines":[{{"label":"a","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,"memo":null}}]}}"#
+        );
+        let answer = |path: &str, body: &str| {
+            let r = handle(&st, &c, &Method::Post, path, body.as_bytes());
+            (r.status, serde_json::from_str(&r.body).unwrap_or_default())
+        };
+        let out = [
+            answer("/api/vault/proposals", &payment),
+            answer("/api/vault/payroll", &payroll),
+        ];
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    }
+
+    /// #821, through the router. The creation check is sized for the devices the vault's sends will
+    /// be sealed to, which here is the registry on disk (98 records), not the seats (3) and not none:
+    /// 98 devices lower the cap to 4, so the five-action transaction is refused, as a payment and as a
+    /// payroll, with the counts and the plan.
+    #[cfg(unix)]
     #[test]
-    fn the_funding_check_is_sized_for_the_vaults_devices() {
-        let src = include_str!("main.rs");
-        let body = src
-            .split("fn refuse_if_unfunded(")
-            .nth(1)
-            .and_then(|b| b.split("\nfn ").next())
-            .expect("refuse_if_unfunded");
-        // Whitespace removed, so the formatter's line breaks do not decide the answer.
-        let code: String = body.split_whitespace().collect();
-        let want = |s: &str| s.split_whitespace().collect::<String>();
-        assert!(code.contains(&want(
-            "let devices = orchestrator::helper::sealing_devices_upper_bound(&cfg.vaults_dir, &reg.vault_id, reg.total"
-        )));
-        assert!(code.contains(&want("funding_check(&sc, plan, devices)")));
+    fn a_proposal_too_large_for_the_vaults_devices_is_refused_at_creation() {
+        assert_eq!(orchestrator::net_send::max_signable_actions(98), 4);
+        let [payment, payroll] = propose_five_actions("many", 98);
+        for ((status, body), plan) in [(payment, "payment"), (payroll, "payroll")] {
+            assert_eq!(status, 422, "{plan}: {body}");
+            assert_eq!(body["error"], TOO_MANY_ACTIONS, "{plan}");
+            assert_eq!(
+                (
+                    body["actions"].as_u64(),
+                    body["max_actions"].as_u64(),
+                    body["plan"].as_str()
+                ),
+                (Some(5), Some(4), Some(plan))
+            );
+        }
+    }
+
+    /// The control: the same transaction on a vault whose sends are sealed to its three devices fits
+    /// (cap 6), so the check refuses only what is too large, and the proposals are created.
+    #[cfg(unix)]
+    #[test]
+    fn the_same_proposal_on_a_vault_with_few_devices_is_created() {
+        let [payment, payroll] = propose_five_actions("few", 3);
+        assert_eq!(payment.0, 200, "{}", payment.1);
+        assert_eq!(payroll.0, 200, "{}", payroll.1);
     }
 
     /// #821. Every funding answer, the size refusal for both plans included, without a wallet.
