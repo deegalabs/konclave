@@ -230,6 +230,19 @@ pub(crate) fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError>
     crate::tools::run(devtool, &args, None).map(|_| ())
 }
 
+#[cfg(test)]
+thread_local! {
+    static SYNC_WITHIN_FOR_TEST: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Test only: the deadline of this thread's `sync`. Thread-local, so a test that shortens it cannot
+/// shorten another test's.
+#[cfg(test)]
+pub(crate) fn set_sync_within_for_test(within: Option<std::time::Duration>) {
+    SYNC_WITHIN_FOR_TEST.with(|c| c.set(within));
+}
+
 /// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` - bring the wallet's
 /// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
 /// stdout is progress noise (not JSON); only success/failure matters here.
@@ -239,8 +252,20 @@ pub(crate) fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError>
 pub(crate) fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
     let s = server_args(server);
     let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
-    crate::tools::run(devtool, &args, None)?;
+    crate::tools::run_within(devtool, &args, None, sync_within())?;
     Ok(())
+}
+
+/// How long one `wallet sync` may run before it is stopped. Half of `epoch::BUILD_PROVE_SECS`, which
+/// budgets the sync, the build and the proof together.
+pub const SYNC_WITHIN: std::time::Duration = std::time::Duration::from_secs(300);
+
+fn sync_within() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(d) = SYNC_WITHIN_FOR_TEST.with(|c| c.get()) {
+        return d;
+    }
+    SYNC_WITHIN
 }
 
 /// `zcash-devtool wallet -w <dir> balance --json`

@@ -63,6 +63,13 @@ fn make_tmpfs_dir() -> Result<std::path::PathBuf, ToolError> {
     Ok(dir)
 }
 
+/// A quorum the signing library accepts: frost-core refuses `min_signers < 2` (#589). The UI's
+/// `quorumIsPossible` (`ui/src/dkg-ceremony.ts`) states the same floor; this is the bridge's copy,
+/// read by both this function and `server::create_vault_dkg_handler`.
+pub fn quorum_is_possible(threshold: u16, members: usize) -> bool {
+    threshold >= 2 && (threshold as usize) <= members && (2..=32).contains(&members)
+}
+
 /// Create a `threshold`-of-`members.len()` vault by DKG.
 pub fn create_vault_dkg(
     sc: &SendConfig,
@@ -79,7 +86,7 @@ pub fn create_vault_dkg(
         .as_ref()
         .ok_or_else(|| err("dkg", "vaults_dir not configured"))?;
     let n = member_names.len();
-    if n < 2 || threshold < 1 || threshold as usize > n {
+    if !quorum_is_possible(threshold, n) {
         return Err(err("dkg", format!("invalid quorum {threshold}-of-{n}")));
     }
 
@@ -363,6 +370,27 @@ fn short_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quorum_floor_is_two_and_the_roster_cap_is_32() {
+        // frost-core refuses min_signers < 2 (#589): a quorum of one is never possible.
+        assert!(!quorum_is_possible(1, 2));
+        assert!(!quorum_is_possible(1, 5));
+        assert!(!quorum_is_possible(0, 3));
+        // From 2 up to the member count, every quorum is accepted.
+        for n in 2..=32usize {
+            for t in 2..=n as u16 {
+                assert!(quorum_is_possible(t, n), "{t}-of-{n} must be accepted");
+            }
+            assert!(
+                !quorum_is_possible(n as u16 + 1, n),
+                "a quorum above the roster is refused"
+            );
+        }
+        // More than 32 members is refused, whatever the quorum.
+        assert!(!quorum_is_possible(2, 33));
+        assert!(!quorum_is_possible(33, 33));
+    }
 
     #[test]
     fn parses_group_pubkey() {

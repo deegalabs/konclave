@@ -42,6 +42,24 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **A payment that moves funds from one shielded pool to another could have been built in the last
+  hours before the network upgrade, if the coordinator's source of block heights was out of date.
+  Nobody was affected.** Before the next network upgrade (NU7, at block 3,543,405) the coordinator
+  refuses to build such a payment in the last 288 blocks (about six hours), because the vault's
+  wallet would keep the payment's notes reserved for weeks if the upgrade arrived before the payment
+  was mined. The coordinator learned the current block height from one place only, the Zcash server
+  it syncs from (lightwalletd), and checked it against nothing, so a server out of date by enough
+  would have let such a payment through. The harm would have been funds reserved for weeks, not
+  funds moved or lost. This could happen from 2026-10-30 11:18 (UTC-3), when the coordinator first
+  knew about NU7 (before that there was no later upgrade, so the refusal could not apply), until
+  2026-10-31 01:12 (UTC-3), when the fix went live. Throughout that time the chain was more than
+  five days of blocks before the point where the refusal starts (block 3,543,117; the chain was near
+  block 3,536,600), so no payment of this kind could have been near the upgrade. The coordinator now
+  also estimates the height from its own clock and uses the larger of the two; if it cannot read the
+  clock, it refuses these payments. Other payments are built as before, and their shorter pause
+  before the upgrade still reads the height from the Zcash server alone. The clock's estimate runs
+  about 500 blocks ahead of the chain today, so the refusal begins about 16 hours before the upgrade
+  rather than 6. The hosted coordinator has run this since 2026-10-31.
 - **The hosted send takes no practice run.** A send request could ask for a practice run. It no longer does: a request that asks for one
   (`dry_run` true), or does not say which it wants, is answered 400 before the relay, the vault or
   the engine is looked at, and only a request with `dry_run` false goes on. The app's send always
@@ -66,20 +84,20 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log
   says when it did not take the value given. The app never sent the field, so a member sees no
   difference. The hosted coordinator has run this since 2026-10-24.
-- **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing
-  changes today: the table has no row for the next upgrade (NU7), so none of this can act. Once the
-  row is added it will refuse to build a new payment in the last blocks before the upgrade ("the
-  network is upgrading", 409, `reason: epoch`), refuse a cross-pool payment further out, refuse a
-  transaction the engine built on the wrong branch ("the coordinator has not been updated for the
-  network upgrade"), and tell a payment whose earlier attempt the upgrade ended that it needs a new
+- **The coordinator knows about the next network upgrade (#638).** Since the coordinator of
+  2026-10-30, its list of network upgrades includes NU7 (activation block 3,543,405), so it refuses
+  to build a new payment in the last blocks before the upgrade ("the network is upgrading", 409,
+  `reason: epoch`), refuses a cross-pool payment further out, refuses a transaction the engine built
+  for the wrong network version ("the coordinator has not been updated for the
+  network upgrade"), and tells a payment whose earlier attempt the upgrade ended that it needs a new
   signature, naming the block its funds are held until when the wallet still reserves them. Each of
   these answers carries a stable `reason` (`hold`, `crossing_hold`, `not_updated`,
   `needs_new_signature`) and `held_until`, which the app decides by; the English text is only for a
   reader of the reply. A proposal that expired in the meantime is answered as not ready, not as
   needing a new signature. A send record with no branch (every record written before this) is never
-  ended by an upgrade. The boot log now says whether the cap on a transaction's life is on and why;
-  with the engine that runs today it is off, because the engine has no `next-upgrade` command to
-  confirm the height (the boot check gives it five seconds and no input). The ceremony ceiling (600
+  ended by an upgrade. The boot log says whether the cap on a transaction's life is on and why;
+  it is off today, because the engine does not yet report the upgrade's height to confirm the
+  table's (the boot check gives it five seconds and no input). The ceremony ceiling (600
   polls) is one constant shared with the hold.
 - The coordinator builds its request-limit keys in the same place as the relay, scoped to the client
   address it attributes to the request. Different spellings of one address, such as upper or lower
@@ -88,6 +106,16 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A wallet sync that never returned held a vault's wallet and one of the coordinator's workers
+  until the coordinator restarted.** The coordinator put no time limit on the engine's wallet sync,
+  and the engine's own connection has none. While a sync hung, that vault's later reads and sends
+  could not proceed. It was a known limit for reads since 2026-10-17 (see 0.13.2 below), and a send
+  was exposed to it too: it read the balance first, which syncs when the last sync is older than 15
+  seconds. From 2026-10-30 11:18 (UTC-3), the date of the Security entry above, every send also
+  forced a sync before building, because the coordinator then asks for the chain height, and a sync
+  that fails stops the send. A sync that runs past 300 seconds is now stopped, and the read or the
+  send fails with an error; the blocks it had scanned are kept, and the next sync carries on from
+  there. The hosted coordinator has run this since 2026-10-31.
 - **A send looked at one candidate answer per poll.** While a send waits for the devices, the
   coordinator and the operator's command line now look at more than one candidate message in a
   poll. The hosted coordinator has run this since 2026-10-24; the command line has it when next
@@ -97,6 +125,26 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   that runs past it counts as a failed poll, which ends the wait, as any failed poll already did.
   The wait is still counted in polls and not in minutes. The hosted coordinator has run this since
   2026-10-24.
+
+### Known limits
+
+- **The 300-second limit covers the wallet sync only.** Every other call to the engine still has
+  none: the step that upgrades a vault's wallet, the balance and history reads that follow a sync,
+  the build and proof of a payment or a payroll, and the broadcast of a send.
+- **A send can pass through up to three syncs of up to 300 seconds each** (two in the usual case),
+  so one send can hold its vault for up to about fifteen minutes before it fails.
+- **The first sync of a restored vault with an old birthday can need more than one attempt.** The
+  engine scans in batches of 10,000 blocks and keeps each batch it finishes, so the next attempt
+  carries on. It would fail for good only if a single batch took longer than 300 seconds; a batch
+  took about 20 seconds in a measurement, on one machine, which is not the hosted coordinator's.
+- **Only the refusal of a payment between pools reads the coordinator's clock.** The shorter pause
+  before the upgrade for other payments, and the check that the engine built a transaction for the
+  right network version, still read the height from the Zcash server alone.
+- **The refusal before the upgrade is made by the coordinator alone.** A device refuses a payment
+  between pools only after the upgrade, and the operator's command line (`orchestrate_send`) has no
+  such refusal, so a payment built or signed outside the coordinator is not stopped by it.
+- **A coordinator clock that runs fast makes these payments be refused earlier than needed;** one
+  that runs slow does not lower the height, because the larger of the two is used.
 
 ## [0.13.2] 2026-10-17
 

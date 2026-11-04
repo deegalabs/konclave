@@ -7,6 +7,7 @@ import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, 
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
 import { listVaults } from './storage'
+import { clearPayrollDraft } from './payroll-draft'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import { startVisiblePoll } from './usePoll'
@@ -107,6 +108,7 @@ export default function Layout() {
         // were, but the round trip still happened - the vault they were inside disappeared, they
         // picked it out of a list again, and only then got the field. A reload shuts the door; it
         // does not move them to another room. `src` is 'net' unless the bridge owns the lock.
+        clearPayrollDraft(v.id) // a locked vault leaves no typed payroll behind on the device
         setLocked({ id: v.id, name: v.name || t('settings.vault'), src: v.locked ? 'local' : 'net' })
         setVault(v) // the rail still names the vault behind the overlay
         return

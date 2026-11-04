@@ -40,6 +40,96 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **A restored vault kept its viewing key readable on the device (#599).** From 2026-09-06 (#447), a
+  device that imported a backup carrying the viewing key stored that key unencrypted in the app's local
+  storage, next to the encrypted share and read secret. Anyone able to read that storage could read
+  it without the passphrase: malware or another user on the computer, an extension with access to the site, or a copy of the browser profile. It cannot move funds, but it reads the vault's whole history,
+  memos and payslips included. It is now encrypted under the passphrase, and a record that holds it
+  in the clear is rewritten the next time the passphrase is typed on that device. Devices that never
+  imported a backup, and the backup files themselves, were not affected.
+
+### Added
+
+- **A proposal states its facts.** Under the amount, the screen now says when the proposal was
+  created, until when it can be approved (or that it has no deadline), the whole destination address
+  with a copy button, and, once sent, how many confirmations the payment has, counted from the
+  chain, or that it is not in a block yet. The address used to be shortened everywhere, the deadline
+  appeared only in the list, and confirmations were nowhere on this screen. The deadline is given
+  as a date and hour with the time left beside it; while the chain has not answered the screen says
+  nothing rather than "not confirmed"; and the copy button names what it copies and announces
+  "Copied" to a screen reader.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
+- **The book can be read by period.** Month, quarter or year, walked back and forth, or all time;
+  entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
+  follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
+  export carries the period's name as its period. Until now the period was only read off
+  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+- **The signing evidence names the payment it belongs to, and a sent payment points at its
+  evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
+  recognises; now each record that reached the chain shows the proposal with the same transaction
+  id (its document and amount) with a link to it, and says when no proposal on this device matches.
+  The sent proposal links to its evidence record, which is highlighted on arrival. The join happens
+  on the screen, from what the device already reads; nothing new is recorded (#290 still owns
+  recording who signed and which proposal). The link lands on Activity's evidence tab, where the
+  menu leads, and the record is focused and tagged "This payment" on arrival.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
+- **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
+  registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
+  are used. "From the registry" opens the people on record with a box each: the chosen ones become
+  lines with name, address and memo filled, the value left to type, and someone already on the
+  sheet is marked and skipped. Until now the key existed and no button used it: a treasurer with
+  twelve people typed twelve lines through the picker of each row. Each line's memo field and
+  remove button now carry a name with the line number for a screen reader (part of #299).
+- **The CSV export works on the web, from the rows on screen, and is safe to open.** The button
+  was "soon" on the web and, on the local build, downloaded a server file that ignored the period and
+  the filters. The CSV is now built in the browser from the same rows as the XLSX, with the period
+  and filters on screen, one row per payroll line, who proposed and approved, and all eight decimals.
+  It opens cleanly in Excel: a UTF-8 marker for accents, the delimiter and decimal mark of the
+  member's language, the entry's local date. A memo or a payee name that starts with "=", "+", "-"
+  or "@" is written so a spreadsheet cannot run it as a formula (#301, #304).
+- **A read that fails says why, and the people register no longer looks empty when it could not be
+  read.** Every read in the app answered "nothing" for any failure, so a screen could not tell an
+  empty list from a list it did not get, nor no network from access denied. The two read routines
+  now leave the reason behind (no network, took too long, access refused, nothing there, server did
+  not answer, unreadable answer), and a shared "could not read" state says it, with what still holds
+  and "Try again", naming who was asked: the Konclave on this device, or the vault's server. The
+  people register is the first screen to use it, keeps the people it already read when a refresh
+  fails, and does not offer to register someone into a list it cannot see; the others follow one by
+  one.
+- **A payroll can start from a previous one.** Each past payroll at the foot of the screen gains
+  "Start from this one": the sheet is filled with its lines (name, address, value, memo), each
+  marked "copied, check address and amount" until its address is looked at, and nothing else comes
+  along: the period and the approvals start fresh, and whether it fits the balance is asked again.
+  A copied line whose person now has a different address in the registry says so. Typed lines are
+  never replaced without a yes, and the sheet counts the copied lines still unchecked beside the
+  button. A line whose address repeats an earlier line now says so. Until now a new payroll
+  started empty every month, and an address retyped by hand is the riskiest moment in the product
+  (#332).
+- **Receive no longer says "No vault on this device" when the vault could not be read.** That sentence
+  sent a member to re-import a vault they hold. A failed read is now said as such, with the reason
+  and "Try again"; "no vault" is kept for when there really is none.
+- **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
+  who was asked, what still holds, and "Try again" that says when it is trying.
+- **The signing evidence no longer reads "no ceremonies recorded yet" when the list could not be
+  read, and a proposal no longer reads "no proposal" when it could not be read.** A failed read is
+  said as such, with the reason and "Try again"; a proposal that was read and is not there still
+  says so. A locked vault is neither: both screens wait for the passphrase and read once it is
+  given (#320).
+
 ### Changed
 
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
@@ -49,14 +139,210 @@ history to tidy it is how context gets lost.
   caption "Livro ao vivo" and the in-app docs), the plain word over the accounting term. English
   already used one word, "Ledger". A test keeps the menu entry, the screen title and the activity
   tab equal in every language.
-  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
-  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
-  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
-  payment can be built. The refusal withdraws the signatures that were given, which "your approval
-  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
+
+### Fixed
+
+- Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
+- Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
+- One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
+- Creating a vault offered a quorum of 1, which the signing library refuses; the screen now offers 2 or more and checks the same rule as the DKG.
+- Ledger: the lines of a refused or expired payroll showed an outflow sign, as if the money had left.
+- Payroll copied from a previous one: a line whose address is not in this device's registry is flagged whatever its label says, and Propose waits for that line's own confirmation (leaving the field no longer counts).
+- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault and cleared on both, and the payroll screen behind the lock overlay neither shows it nor writes it back.
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
+
+- **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
+  Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
+  showed an empty book: those screens read at once, before the shell had found the vault locked, and
+  the refused read looked like a failure. Approvals, the ledger, Signers and Add funds now wait for
+  the same unlock rule the shell uses, read nothing while the vault is locked, and read once the
+  passphrase is given (#292).
+
+- **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
+  it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
+  page was up, a reload of the desk still showed a spinner, and the movements and the balance each
+  announced their loading, so a screen reader heard it twice. It now draws the vault's name, the
+  desk, the movements and the balance as placeholders where they will be, and the word is heard
+  once; a balance that is only syncing still says it on its own (#320).
+- **Six sentences no longer promise more than the code does.** The two landing pages said the key
+  "never leaves the device", and the signing panel said the share "never leaves this device"; a
+  share does leave, sealed under the passphrase, inside the backup a member exports. Settings said
+  the relay "sees only public material"; a signing request, with who the vault pays and how much,
+  crosses it unsealed until every device in the vault has registered its key. Each sentence now
+  says what happens, in both languages (#802).
+- A passphrase change could drop an encrypted viewing key that did not open, a regression from #781 that was never released.
+  The change is now refused and the vault is left as it was.
+- **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
+  address and the payment link) and on the proof page (transaction ids), the copy button said
+  "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
+  permission denied, an insecure context) still read as success, and a member could paste a stale
+  clipboard value where they believed the address was. Both screens now wait for the write, say
+  "Copied" only when it was confirmed, and otherwise say that it could not copy and to select the
+  text by hand. The creation invite already did this (#313).
+- **Moving between screens moves keyboard focus to the new screen's heading, and the tab says
+  where you are.** The app replaces the content without reloading, so focus stayed on the link that
+  was used or on the page body, and a screen-reader or keyboard user had no sign that the page had
+  changed. On every route change focus now goes to the main heading, without scrolling the page
+  away from the top, and the browser tab is named after it; the first load and a change made while
+  a dialog is open are left alone (#662).
+- **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
+  quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
+  screen still listed "1 of 3", a config built by hand or by an older client still reached the
+  ceremony, and when the library finally refused it, after every member had joined, the screen stayed
+  on the roster with no message. Now the floor is written once (`quorumIsPossible`), read by the
+  screen and by the ceremony: the `/net` select starts at 2, creating with an impossible quorum says
+  so before anything is sent to the room, and a failure at the start of the ceremony is shown as a
+  failed creation instead of disappearing. Still open: on the coordinator, registration accepts
+  `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
+  the ceremony, which then refuses it (#589).
+- **The spreadsheet shows every amount to the zatoshi, and the book's totals are exact.** The XLSX
+  formatted amounts with four decimals, so a small stipend (0.00001234 ZEC) read as 0.0000 in the
+  accountant's copy, and the book on screen rounded each row and its totals to four places; and the
+  screen's "Settled out" and "Open" totals added the decimal amounts as floating-point numbers, which
+  drifts over dozens of eight-place entries. The workbook now carries eight decimals on every row,
+  the total and the summary; the book's rows and totals show every place down to the zatoshi; and
+  the totals are summed in whole zatoshi and formatted once. A test forbids the Ledger from adding
+  amounts as floating point (#303).
+
+- **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
+  sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
+  whose money never left, was added to "Open", and the figure disagreed with the one the screen
+  shows. The Movements sheet now carries an "Open" column (yes for a proposal still awaiting
+  approval or ready to sign), the Summary's "Open" sums that column, and the screen's total, its
+  filter and the export read one rule. The TOTAL row of the Movements sheet added every row,
+  refused and expired ones included, so it agreed with neither summary total; it is now what
+  moved plus what can still move, the two summary totals added together (#302).
+- **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
+  spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
+  the signers, label and field for a form, headed sections for Settings), so the content lands
+  where the placeholder was; only the caption line, when it appears, takes a line of its own. On
+  these four screens a screen reader hears the word once, from one live region, not once per grey
+  block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
+  outline under forced colours (#320).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
+- **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
+  payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
+  read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
+  They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **The members popover on the vault home closes with Escape.** Hovering or focusing "N members"
+  opens the roster and the quorum; a keyboard user who tabbed onto the link got the popover over
+  the page and could only close it by moving focus away. It now opens on hover and on focus and
+  closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
+  no longer closes it on the way to it (#602).
+- **The backup file's name no longer says which vault it is.** The export's contents reveal nothing
+  without the passphrase, not even which vault the file belongs to, but the file was named after
+  the vault, so a downloads folder, a synced drive, a mail attachment or a USB stick showed the
+  vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
+  from every screen that offers a backup; the date and time tell copies apart. Open the file in
+  the app, or with the opener script, to see which vault it is (#587).
+- **A device that only unlocks with the passkey is told when it still holds the viewing key
+  unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
+  encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
+  the key is encrypted under), so a member who only used the passkey kept the old record with
+  nothing on screen saying so. The vault list now carries a short notice on that vault's card
+  asking for the passphrase once on this device; typing it runs the same rewrite, and the notice
+  goes away. The check reads only whether the field is present, never its value (#784).
+
+- **The spreadsheet export says who proposed and who approved each movement.** The screen shows it
+  on every row and the caption promises it is on record, but the XLSX carried neither, so the
+  accountant's copy of the book could not say who authorised a payment. Two columns now carry the
+  names, "Proposed by" and "Approved by", as the vault records them; a payroll's rows share them.
+  When each approval was given is not recorded yet (#290), so the sheet does not pretend to know
+  it (#302).
+- **A payroll line with an older shielded (Sapling) address is refused on the line.** The vault
+  pays current shielded (u1) receivers only; the payee picker said so under the field, but the
+  line still counted as valid, the sheet composed, and the coordinator refused the whole payroll.
+  The line now carries the problem itself ("older shielded (Sapling) address, ask for a u1
+  address"), the sheet cannot be sent while it stands, and the picker no longer repeats the
+  sentence under a payroll line. The note under the sheet now says why the button is off when a
+  line is flagged, and each flagged line is marked invalid and linked to its own note, so a screen
+  reader hears it on the line (#294).
+- **The ledger's filter chips say which one is selected, and the groups have names.** A screen reader
+  read "Mês" or "Liquidados" as plain buttons, with nothing to tell which was active and no group
+  boundary between PERIOD, STATE and KIND; the selected chip's blue text also fell just under the
+  contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
+  group, the period name is announced when it changes, and the selected text is darker. Found by the
+  accessibility pass on the period picker.
+- **The money screens speak the member's words.** The memo label said "the coordinator" can read
+  it; on screen that is "the vault's server" (the word stays in the docs and the trust panel). The
+  block for an amount split across the vault's two shielded parts named "internal pools"; it now
+  describes the split, in the same sentence whether the screen blocks it or the server refuses it,
+  and no longer sends the member to "consolidate the vault", which no button does. "u1" is
+  explained once per screen, where the address is shown or typed (on Payroll too, whose field said
+  nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
+- **The book no longer stays on its loading skeleton when it could not be read.** A failed read is
+  said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
+  the read the book actually makes, the vault's proposals; the first version asked for a route the
+  web never reads, so the reason never showed (#320).
+- **Four strings the money-copy pass left now speak the member's words too.** Receive's payment
+  link no longer names its standard ("ZIP-321"), and its history is "Vault history", not "on-chain".
+  The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
+  read the memo is said under the field. People explained the address as "u1…" in its warning and
+  in its field; both now say "starts with u1", like the rest of the app (#799).
+- **Vaults says when it could not read the vaults on this device.** The list is read from this
+  browser's storage, and when that read failed the screen said "No vaults yet", which invites a
+  member to create or import again over a vault that is still there. It now says the list could not
+  be read, that a failed read deletes nothing, and not to create or import again until it reads,
+  with "Try again". When the Konclave on this device answers and then cannot list its vaults, the
+  screen says those are missing from the list, not deleted, above the vaults this browser keeps.
+  On the web, where there is no such Konclave, nothing is said. A browser with no storage, or whose
+  database will not open, is a failed read too: the list used to answer those as empty (#320).
+- **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
+  said how much was missing and that signing waited for the funds, and nothing about the funds a
+  member had just sent. It now says they count once the network mines them and can be spent after
+  a few blocks, and that nothing is lost, in both languages (#710).
+- **Every action that saves says so.** Saving or removing a person, renaming yourself, downloading or
+  copying a backup, importing or removing a vault: each now ends in the same small notice the
+  payment screens already use, naming the person or the vault, so a member who was not watching
+  the list knows the write landed, and one that did not land says that instead: a removal the
+  register refused names the person still on the list, and a backup download the browser refused
+  keeps the export dialog open with "Copy" rather than announcing a file that never came. The
+  export dialog closes on success, so the notice is the one signal on the page. A backup that is
+  incomplete is not that success: the dialog stays open with the warning that the file restores the
+  seat and not the vault, and no "Download started". The rename's own line, which vanished after two seconds, is gone, and the
+  field empties with the new name as its placeholder. The passphrase change keeps its panel, which
+  already says what happened and carries the export reminder. A screen reader hears each notice
+  from a region that exists from the first paint, instead of a row inserted already filled, which
+  many readers skip (#320).
+- **"Copied" was said before the clipboard answered.** The Receive page (the vault's address and the
+  payment link) and the proof page (the txids) fired the clipboard write and claimed success at
+  once; a denied permission or an unfocused tab refuses that write, and the member would paste
+  whatever the clipboard held before, believing it was the vault's address. Both now wait for the
+  answer; a refusal stays beside the button and asks for a copy by hand (#313).
+
+### Known limits
+
+- **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
+  key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
+  field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
+  passkey does not rewrite the record, because a passkey does not open what the key is encrypted
+  under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+
 ## [0.16.0] 2026-10-30
 
 ### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
 
 - **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
   machine takes a signing request only from the device assembling the signature and does not let a
@@ -98,10 +384,11 @@ history to tidy it is how context gets lost.
   What a member sees is unchanged, and the device's own recompute of the signature hash still matches
   the signer on the transactions it matched before.
 - **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
-  around the upgrade block, nothing was built, the approval stands, try again after the upgrade. After
-  it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
-  stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
-  upgrade block was mined, which is not true while the coordinator is still on the previous engine.
+  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
+  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
+  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
+  payment can be built. The refusal withdraws the signatures that were given, which "your approval
+  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
 
 ### Fixed
 
@@ -171,6 +458,7 @@ history to tidy it is how context gets lost.
   that depends on the update. A payment that moves funds between pools, built shortly before the
   upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
   funds are available again" is not promised.
+
 - **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
   loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
   cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
@@ -181,6 +469,7 @@ history to tidy it is how context gets lost.
   clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
   sees the chain, already says the payment needs a new signature. A release that anchors the clock to
   the real time of the upgrade block shortens this.
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed

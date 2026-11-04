@@ -40,7 +40,17 @@ describe('what a new payment may draw on', () => {
 
   it('treats confirming funds as not yet drawable', () => {
     // 1000 held, 400 confirmed: a payment can draw on 400, whatever the headline says.
-    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, null)).toBe(400)
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [])).toBe(400)
+  })
+
+  it('an open-proposal list not read yet is unknown, never "nothing reserved"', () => {
+    expect(reservedZatOf(null)).toBeNull()
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, null)).toBeNull()
+  })
+
+  it('a proposal whose deadline passed on this clock holds nothing', () => {
+    const late = { ...p('awaiting', 100), expiry_unix: 1 } as Proposal
+    expect(reservedZatOf([late, p('ready', 50)])).toBe(50)
   })
 })
 

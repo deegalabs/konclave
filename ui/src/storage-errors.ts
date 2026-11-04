@@ -16,6 +16,7 @@ export type StorageErrorCode =
   | 'unsupported-version'
   | 'already-exists'
   | 'same-passphrase'
+  | 'sealed-field-unreadable'
 
 export class StorageError extends Error {
   readonly code: StorageErrorCode
@@ -43,6 +44,7 @@ const KEY: Record<StorageErrorCode, string> = {
   'unsupported-version': 'storage.err.unsupportedVersion',
   'already-exists': 'storage.err.alreadyExists',
   'same-passphrase': 'storage.err.samePassphrase',
+  'sealed-field-unreadable': 'storage.err.sealedFieldUnreadable',
 }
 
 export function storageErrorKey(e: unknown, fallbackKey: string): string {

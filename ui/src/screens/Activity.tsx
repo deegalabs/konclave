@@ -4,6 +4,7 @@
 // (via the `embedded` prop, which drops the per-screen chrome).
 
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { PageHeader } from '../page'
 import { useT } from '../i18n'
 import Proposals from './Proposals'
@@ -14,7 +15,9 @@ const TABS: Tab[] = ['proposals', 'evidence']
 
 export default function Activity() {
   const t = useT()
-  const [tab, setTab] = useState<Tab>('proposals')
+  // A caller may ask for a tab (the sent proposal points at its evidence): read it once, from state.
+  const loc = useLocation() as { state?: { tab?: Tab } }
+  const [tab, setTab] = useState<Tab>(loc.state?.tab === 'evidence' ? 'evidence' : 'proposals')
 
   return (
     <main className="page">
