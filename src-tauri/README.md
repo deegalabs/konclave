@@ -34,6 +34,13 @@ never crosses that boundary. The exact JS contract is in
 | `src/main.rs` | Desktop entry point that calls `run()`. |
 | `tauri.conf.json` | `frontendDist` -> `../ui/dist`; window; CSP is `null` in the scaffold (must be tightened). |
 | `capabilities/default.json` | Core default permissions only. |
+| `windows/hooks.nsh` | NSIS uninstall hook: asks before "Delete the application data" deletes the vaults on this computer. |
+| `tests/config_contract.rs` | Fails if the identifier, the webview scheme, the NSIS-only target, the per-user install mode or the tauri-cli pin the hook was checked against changes. |
+
+**Do not change `identifier` or `useHttpsScheme`.** The sealed shares live in the webview's
+IndexedDB, which is kept per profile folder (named by the identifier) and per origin (on Windows,
+`http://tauri.localhost` while `useHttpsScheme` is false). Changing either makes the next version
+open an empty profile: nothing is deleted, but every vault on the computer looks gone.
 
 ## Prerequisites (all hosts)
 
@@ -60,7 +67,7 @@ cargo tauri dev
 cargo tauri build
 ```
 
-- **Windows** (`.msi` / `.exe` via WiX/NSIS), PLAN-ONLY. Needs a Windows host with MSVC
+- **Windows** (`.exe` via NSIS only, per-user install; no `.msi` since v0.17.0), PLAN-ONLY. Needs a Windows host with MSVC
   build tools + WebView2. Not run here.
 - **macOS** (`.app` / `.dmg`), NEEDS HARDWARE. Needs a Mac with Xcode command-line tools;
   signing/notarization need an Apple Developer ID. Not run here.

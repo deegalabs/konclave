@@ -56,9 +56,50 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Added
+
+- **Every desktop release carries a `SHA256SUMS` file** listing the SHA-256 of each file attached to
+  it, written once all three platforms have uploaded (a release where one platform failed gets none,
+  rather than sums for part of its files). Check a download against the line for its file:
+  `sha256sum -c SHA256SUMS --ignore-missing` on Linux, `shasum -a 256 <file>` on macOS,
+  `Get-FileHash <file>` on Windows (#606).
+
+### Changed
+
+- **Windows: the installer is the `.exe` only; the `.msi` is no longer built.** It installs for the
+  current user, as the v0.16.0 `.exe` did. Installing v0.17.0 over a v0.16.0 `.msi` first runs the
+  `.msi`'s own uninstaller (Windows asks for permission), which removes the program and leaves the
+  vaults, then installs per user, where the same vaults are found. One installer is one upgrade path
+  to keep right.
+- **Uninstalling on Windows asks before it deletes your vaults.** The uninstaller's "Delete the
+  application data" box deletes the app's folder, and the sealed key share of every vault on this
+  computer is in it; nothing said so. With the box ticked, the uninstaller now says that it deletes
+  the vaults stored on this computer, that each one should be exported first (Settings, "Export this
+  vault"), and asks. "No" uninstalls the app and keeps the vaults, and so does a silent uninstall.
+  An uninstall run by an update never deletes them, as before.
+- **New desktop icons**, drawn from the app's own icon at every size Windows asks for, and set on the
+  installer and the uninstaller as well.
+
 ### Fixed
 
 - Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
+
+### Known limits
+
+- **Export your vaults before you uninstall.** The vaults on this computer live in the app's data
+  folder, and an export (Settings, "Export this vault") is the only copy of this computer's seat
+  that survives the folder being deleted.
+- **Upgrading from v0.16.0 on Windows: do NOT tick "Delete the application data" if the installer
+  offers to uninstall the old version.** That uninstaller is v0.16.0's: it does not ask, and it
+  deletes the vaults stored on this computer. The question above protects uninstalls from v0.17.0
+  on.
+- **`SHA256SUMS` shows that a download is the file the release workflow attached, not who built it.**
+  The sums sit on the same release, under the same account, and the installers are still unsigned
+  and carry no build attestation (#606).
+- **The uninstall question is in English only**, as the rest of the Windows installer is.
+- **The Windows changes are checked against the installer's source and compiled, not yet run on a
+  Windows machine** (#212): the upgrade over a v0.16.0 `.msi`, the uninstall question, and that the
+  vaults are still there afterwards.
 
 ## [0.16.0] 2026-10-30
 
