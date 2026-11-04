@@ -20,7 +20,7 @@ import { listVaults, type Governance } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
-import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
+import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
 /**
@@ -269,7 +269,11 @@ export default function Settings() {
                   <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{t('settings.coordHosted')}</button>
                 )}
                 <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{t('settings.coordCustom')}</button>
-                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{t('settings.coordLocal')}</button>
+                {/* Hidden on desktop until #212: the shell embeds no local bridge, so "local" would
+                    route the whole vault to nothing (#664). */}
+                {localCoordAvailable() && (
+                  <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{t('settings.coordLocal')}</button>
+                )}
               </span>
             </div>
             {coord === 'custom' && (

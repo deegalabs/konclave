@@ -116,8 +116,8 @@ const BASE: string = ENV.VITE_API_BASE ?? ''
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
 // the local bridge, so the same polished app operates the browser-born vault.
 const NET = helperConfigured()
-/** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
- *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
+/** True when the app operates a browser-native vault via the hosted helper. Screens use it to
+ *  open the signing panel (the share lives on this device) instead of a server-side ceremony. */
 export const IS_NET = NET
 
 /** Map a helper proposal state to the lowercase states the PWA screens expect. */
@@ -970,20 +970,12 @@ export type SendResult =
   | { ok: false; error: string; detail?: string }
 
 /**
- * Run the FROST ceremony for a Ready proposal. `dryRun` signs without broadcasting.
+ * Run the FROST ceremony for a Ready proposal on the LOCAL BRIDGE. `dryRun` signs without
+ * broadcasting. The hosted path never calls this: there the Proposal screen opens the signing
+ * panel, where this device's share signs (#627).
  * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30-60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
-  if (NET) {
-    // Executing a /net proposal needs the FROST ceremony (the share + a signing session over the
-    // relay), which lives on the /net screen. From the PWA we cannot sign, so point the operator
-    // there. (Bringing the ceremony into the Dashboard is the next slice.)
-    return {
-      ok: false,
-      error: 'sign in /net',
-      detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
-    }
-  }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
       method: 'POST',
