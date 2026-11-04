@@ -29,7 +29,7 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished, beneficiariesKey } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -865,7 +865,7 @@ export type Beneficiary = { id: string; name: string; address: string; memo: str
 // stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
 function benefKey(): string | null {
   const id = getSelectedVault()
-  return id ? `konclave.benef.${id}` : null
+  return id ? beneficiariesKey(id) : null
 }
 function netBenefList(): Beneficiary[] {
   const k = benefKey()

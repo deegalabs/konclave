@@ -132,6 +132,18 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Removing a vault from a device removes what the device kept for it (#813).** It removed only
+  the vault's record: the people saved for the vault, the passkey shortcut and the last addresses
+  paid stayed in the browser's storage, and the recent addresses were shared by every vault on the
+  device, so one vault offered another vault's payees. The confirm said it removed "records,
+  proposals and people", which a member could read as nothing being left, and proposals were never on
+  the device. Removing now also takes the saved people, the passkey shortcut and the vault's recent
+  addresses, the same from Settings and from the vault list, and the confirm says what goes, in both
+  places. It also says what stays: the device's record of the payments it signed
+  (summaries and dates, no names or amounts), which stops it signing a second, different transaction
+  for the same payment. The recent addresses are now kept per vault; the shared list of earlier
+  versions is dropped, since whose vault it belonged to cannot be known.
+
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.

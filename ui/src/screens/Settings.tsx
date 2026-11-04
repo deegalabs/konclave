@@ -15,10 +15,10 @@ import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor, getUnlockedShare } from '../session'
 import { buildVaultBackup } from '../build-backup'
-import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, forgetVault, type Governance } from '../storage'
+import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
+import { listVaults, type Governance } from '../storage'
+import { removeVaultFromDevice } from '../remove-vault'
 import { clearPayrollDraft } from '../payroll-draft'
-import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
@@ -232,11 +232,9 @@ export default function Settings() {
     // device's ability to sign. On the local bridge the orchestrator owns the record and deletes
     // it. Either way the member typed the vault's name to get here.
     if (IS_NET) {
-      const gone = await forgetVault(vault.id).catch(() => false)
+      const gone = await removeVaultFromDevice(vault.id)
       setBusy(false)
       if (!gone) { setErr(t('settings.removeFail')); return }
-      clearUnlockedShare(vault.id)
-      clearSelectedVault()
       nav('/vaults')
       return
     }
@@ -459,6 +457,8 @@ export default function Settings() {
         ) : (
           <div className="set-confirm">
             {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
+            {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
+            <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
             <label className="field">
               {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
