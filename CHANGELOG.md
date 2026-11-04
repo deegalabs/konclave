@@ -58,6 +58,13 @@ explicitly accepted.
 
 ### Fixed
 
+- **The browser module answers "what expiry would an honest builder set now" from the epoch table
+  (`ordinaryExpiry`, `konclave-wasm`).** The background-signing lab needs that number to place its
+  test transaction in the window a device accepts. Its first fix carried the anchor height, time and
+  block spacing in the app, a second copy of the table #638 keeps in one place; it now asks the
+  table. The committed browser module (`ui/src/wasm-pkg`) was rebuilt for the new export (wasm-pack
+  0.13.1, rustc 1.97.0, wasm-opt from binaryen 117; `konclave_wasm_bg.wasm` sha256 `100ab608c12c85c96664953247b1010be74b8198f96a809978ce32cf248cb8b9`).
+  The app-side change is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
 - Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
 
 ## [0.16.0] 2026-10-30
