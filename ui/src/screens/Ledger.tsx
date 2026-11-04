@@ -328,7 +328,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                         <td></td>
                         <td className="mono dim">↳ {l.label || shortAddr(l.address)}<div className="by">{shortAddr(l.address)}{l.is_public ? t('ledger.publicSuffix') : ''}{l.memo ? ` · ${l.memo}` : ''}</div></td>
                         <td></td>
-                        <td className="num"><Secret sm><span>−{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
+                        <td className={closedRow ? 'num dim' : 'num'}><Secret sm><span>{closedRow ? '' : '−'}{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
                       </tr>
                     ))
                     : <tr className="li-sub"><td></td><td className="by" colSpan={3}>{t('ledger.loadingBeneficiaries')}</td></tr>

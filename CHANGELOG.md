@@ -56,6 +56,11 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop release: the app was built without the coordinator and relay addresses, so "Konclave-hosted" never appeared when creating a vault and the app looked for its relay at its own address, where none answers. The release now builds with the production addresses (`https://helper.konclave.xyz`, `https://relay.konclave.xyz`), says so in its notes, and fails when the built app does not carry them (#664). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
+- Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
+
 ## [0.16.0] 2026-10-30
 
 > **Services deployed when this was cut (2026-10-30):** coordinator `e47215d`, relay `f8dc88d0970337a3`.

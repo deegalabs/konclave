@@ -172,18 +172,18 @@ export default function NewPayment() {
   // When the whole shortfall is confirmations, say that, not "more than the vault can spend" (#352).
   // Derived from total minus spendable: `pending_zat` is never filled on the web path.
   const confirmingZat = confirmingZatOf(bal)
-  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, amountZat, feeZat)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat ?? 0, amountZat, feeZat)
   // The balance-after figure subtracts from FREE funds; while a reservation or confirmations are
   // the block, a negative "after" beside "the vault has the funds" would contradict it: a dash.
   const hideAfter = block === 'reserved' || onlyConfirming
   // One sentence for the block, composed once, in one live region the button points at. The
   // reserved clause stays when both a reservation and confirmations stand, since the holder's name
   // is the one thing the member can act on (#293).
-  const moneyVars = { free: fmtZecExact((freeZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const moneyVars = { free: fmtZecExact((freeZat ?? 0) / 1e8), reserved: fmtZecExact((reservedZat ?? 0) / 1e8), held: String(openHolding) }
   const blockMsg = (() => {
     if (value.trim() === '' || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
-    if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
+    if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
     if (block === 'over-balance') return t('payment.warnOverBalance')
     const k = blockMessageKey(block)
     return k ? t(k, moneyVars) : null

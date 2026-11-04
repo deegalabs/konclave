@@ -43,6 +43,9 @@ export type ProposeBlock =
    *  is holding their money, never a bare "not enough". */
   | 'reserved'
   | 'crosses-pools'
+  /** The open proposals could not be read, so what they hold is unknown. Fails closed like
+   *  `balance-unknown`: the free figure would otherwise include funds a colleague's proposal holds. */
+  | 'reserved-unknown'
   | null
 
 export interface ProposeInput {
@@ -55,8 +58,8 @@ export interface ProposeInput {
    *  disagreed with the Dashboard about whether the vault could pay. */
   availableZat: number | null
   /** Held by open proposals, for telling "the vault is short" apart from "your colleagues got
-   *  there first". Omitted where there is no ledger to consult. */
-  reservedZat?: number
+   *  there first". Omitted where there is no ledger to consult; `null` = the list was not read. */
+  reservedZat?: number | null
   /** The fee estimate this screen applies. */
   feeZat: number
   /** Memo over the 512-byte limit. */
@@ -100,6 +103,8 @@ export function blockMessageKey(b: ProposeBlock): string | null {
       return 'money.blockReserved'
     case 'crosses-pools':
       return 'money.blockCrossesPools'
+    case 'reserved-unknown':
+      return 'money.blockReservedUnknown'
     default:
       return null
   }
@@ -129,6 +134,7 @@ export function proposeBlock(input: ProposeInput): ProposeBlock {
   if (memoOver) return 'memo'
   if (amountAmbiguous) return 'amount-ambiguous'
   if (amountZat === null || amountZat <= 0) return 'amount'
+  if (reservedZat === null) return 'reserved-unknown'
   if (availableZat === null) return 'balance-unknown'
   if (availableZat === 0) return reservedZat > 0 ? 'reserved' : 'no-funds'
   if (availableZat - amountZat - feeZat < 0) {

@@ -808,12 +808,21 @@ describe('BackgroundSession - who sends, with clocks that disagree (#626)', () =
       await d.session.onMessage(m.from, m.data)
     }
   }
-  async function pair(skewA: number, skewB: number) {
+  // One real 2-of-3 DKG for every pair() in this describe (#694). The straddle test pairs 25 times,
+  // and a fresh WASM DKG per pair took it past vitest's 5 s timeout under load. What it checks is
+  // the tally, which a fresh Bus and fresh sessions per pair keep independent; the key material
+  // plays no part in who is named. Each call hands out a copy, so no session can alter another's.
+  let keys: { kp0: Uint8Array; kp1: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }
+  beforeAll(() => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    keys = { kp0: s0.keyPackage(), kp1: s1.keyPackage(), groupVk, pubkeys }
+  })
+  async function pair(skewA: number, skewB: number) {
+    const { kp0, kp1, groupVk, pubkeys } = keys
     const bus = new Bus()
     const open: GovernanceGate = () => true
-    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open, undefined, skewA)
-    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open, undefined, skewB)
+    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: kp0.slice(), groupVk: groupVk.slice(), pubkeys: pubkeys.slice() }), open, undefined, skewA)
+    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: kp1.slice(), groupVk: groupVk.slice(), pubkeys: pubkeys.slice() }), open, undefined, skewB)
     await A.session.start()
     await B.session.start()
     await run([A, B], bus)

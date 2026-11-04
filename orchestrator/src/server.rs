@@ -720,7 +720,7 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
     if req.members.len() < 2 {
         return bad("a vault needs at least 2 members", "too few members");
     }
-    if req.threshold < 1 || req.threshold as usize > req.members.len() {
+    if !crate::dkg::quorum_is_possible(req.threshold, req.members.len()) {
         return bad(
             format!("invalid quorum {}-of-{}", req.threshold, req.members.len()),
             "invalid quorum",
@@ -3680,6 +3680,18 @@ mod tests {
             "a send from a vault the ceremony isn't configured for must be refused"
         );
         assert_eq!(body_json(&s)["error"], "vault not signable here");
+    }
+
+    #[test]
+    fn dkg_refuses_a_quorum_of_one() {
+        // frost-core refuses min_signers < 2 (#589); the bridge used to accept 1-of-n here and
+        // only fail inside the ceremony, as a 502.
+        let mut cfg = seeded_cfg(None);
+        cfg.ceremony = Some(dummy_ceremony());
+        let body = br#"{"name":"Caixa","threshold":1,"members":["Ana","Bia"]}"#;
+        let r = handle(&cfg, "POST", "/api/vault/dkg", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid quorum");
     }
 
     #[test]
