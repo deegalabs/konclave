@@ -84,7 +84,7 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     const { join } = await import('node:path')
     const dir = join(process.cwd(), 'src', 'screens') // vitest runs from ui/
     const screens = readdirSync(dir).filter((n) => /\.tsx?$/.test(n) && !/\.test\./.test(n))
-    const callers = screens.filter((n) => /forgetVault\(/.test(codeOf(`screens/${n}`)))
+    const callers = screens.filter((n) => /\bforgetVault\(/.test(codeOf(`screens/${n}`)))
     expect(callers).toEqual([])
   })
 
