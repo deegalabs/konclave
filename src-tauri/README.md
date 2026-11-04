@@ -39,6 +39,9 @@ never crosses that boundary. The exact JS contract is in
 
 - Rust (repo uses 1.95) and the Tauri CLI: `cargo install tauri-cli --version "^2"` (or `npm i -g @tauri-apps/cli@2`).
 - Build the UI at least once so `../ui/dist` exists: `npm --prefix ../ui ci && npm --prefix ../ui run build`.
+  For an installer, build it with `KONCLAVE_DESKTOP_BUILD=1` (as `desktop-release.yml` does): the bundle
+  then ships a self-destroying service worker instead of the web's, which a desktop profile must not keep
+  (a worker left by v0.15.0 opened v0.16.0 to a blank window on Windows).
 - Generate app icons once (bundling requires them): `npx tauri icon path/to/icon-1024.png`.
 
 ## Per-target commands and honest status

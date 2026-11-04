@@ -7,6 +7,14 @@ import { readFileSync } from 'node:fs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
 // fall back to git; never fail the build if neither is present.
+// The desktop build (desktop-release.yml sets this) ships a SELF-DESTROYING service worker in place of
+// the web's: an `sw.js` that unregisters itself and empties the caches. The desktop app has no use for
+// a worker, and the one an earlier version left in the WebView profile opened the window blank after
+// an upgrade (desktop-worker.ts). The browser fetches `sw.js` by itself while checking the old worker
+// for an update, so this reaches a profile even when the page the old worker serves never runs.
+// Exactly '1', so a stray value cannot flip the web build.
+const desktopBuild = process.env.KONCLAVE_DESKTOP_BUILD === '1'
+
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 const commitSha = (() => {
   if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7)
@@ -35,6 +43,8 @@ export default defineConfig({
     // useRegisterSW hook owns activation when the user taps update.
     VitePWA({
       registerType: 'prompt',
+      // Desktop only: see `desktopBuild` above. The web keeps its worker.
+      selfDestroying: desktopBuild,
       // The <UpdatePrompt/> useRegisterSW hook owns registration; don't also auto-inject a script.
       injectRegister: false,
       // The `mark-*` set is drawn from the same geometry as the live <Mark/> emblem

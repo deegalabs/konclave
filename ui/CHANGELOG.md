@@ -132,6 +132,16 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The desktop app could open to a blank window.** On Windows, installing v0.16.0 over v0.15.0 kept
+  the app's browser profile, and with it the offline copy (a service worker) v0.15.0 had saved there.
+  The window then opened white, with nothing to click. The desktop app no longer keeps an offline
+  copy: the installer brings the new version, and on its first launch the app removes the one an
+  earlier version left, with no tap needed. Your vaults, shares and settings in that profile are not
+  touched. If you renamed or moved the `EBWebView` folder to get the window back, keep that folder:
+  the vaults saved on that computer are inside it. If the part of the app around the screens (its
+  language, notifications or navigation) fails, it now shows the "something broke" screen with
+  Reload, instead of a white page; a failing screen already did. The web app is unchanged:
+  it keeps its offline copy and its "new version" banner.
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
