@@ -205,7 +205,7 @@ export default function NewPayment() {
       toast.ok(t('toast.paymentSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
     } else {
-      const msg = humanError(t, res.error, res.detail)
+      const msg = humanError(t, res.error, res.detail, res.tooLarge)
       setError(msg)
       toast.err(msg)
     }

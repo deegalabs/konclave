@@ -7,7 +7,7 @@
 
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
-import type { EpochEnding, EpochReason } from './send-outcome'
+import type { EpochEnding, EpochReason, TooLarge } from './send-outcome'
 import {
   helperConfigured,
   helperHealth,
@@ -402,7 +402,7 @@ export type NewProposal = {
 
 export type CreateResult =
   | { ok: true; proposal: Proposal }
-  | { ok: false; error: string; detail?: string }
+  | { ok: false; error: string; detail?: string; tooLarge?: TooLarge }
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 /** The #288 proof for a governance write, when this device can make one.
@@ -468,6 +468,8 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     // that is right here and was simply not used. One rule, two callers, one of them fixed.
     const f = lastHelperPostFailure()
     if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // #821: too large to sign. The two counts travel with it, since the message is made of them.
+    if (f?.tooLarge) return { ok: false, error: f.error ?? 'too many actions', tooLarge: f.tooLarge }
     // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
     // it recognises and shows the rest verbatim, which is still better than a wrong translation.
     if (f?.error) return { ok: false, error: f.error }
@@ -554,7 +556,19 @@ export function epochMessage(e: EpochEnding): { key: string; vars?: Record<strin
   return { key: EPOCH_KEYS[e.reason] }
 }
 
-export function humanError(t: TFn, error?: string, detail?: string): string {
+/** The message for a payment or payroll too large to be signed in one go (#821), with its remedy:
+ *  fewer lines for a payroll, a smaller amount or several payments for a payment. No line count is
+ *  promised, because how many lines fit depends on the vault's own funds. */
+export function tooLargeText(t: TFn, tl: TooLarge): string {
+  const vars = { actions: tl.actions, max: tl.max }
+  return tl.plan === 'payroll' ? t('error.tooLargePayroll', vars) : t('error.tooLargePayment', vars)
+}
+
+export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: TooLarge): string {
+  // #821. Before every rule that reads text: the counts are the message, and its detail must never be
+  // mistaken for another refusal.
+  if (tooLarge) return tooLargeText(t, tooLarge)
+  if ((error ?? '').toLowerCase() === 'too many actions') return t('error.tooLarge')
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
   const has = (s: string) => e.includes(s) || d.includes(s)
@@ -787,6 +801,8 @@ export async function createPayroll(
     // the payroll went on reporting every failure as a bad address, a refused seat included.
     const f = lastHelperPostFailure()
     if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // #821: too large to sign. The two counts travel with it, since the message is made of them.
+    if (f?.tooLarge) return { ok: false, error: f.error ?? 'too many actions', tooLarge: f.tooLarge }
     if (f?.error) return { ok: false, error: f.error }
     return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
   }

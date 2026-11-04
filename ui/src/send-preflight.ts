@@ -11,7 +11,7 @@ import { readOutcome, type PanelResult, type ReplyEnd, type Resolution, type Sen
 import type { SendEnd } from './send-attempt'
 import { startVisiblePoll } from './usePoll'
 import type { TFn } from './i18n'
-import { epochMessage, humanError, netState } from './api'
+import { epochMessage, humanError, netState, tooLargeText } from './api'
 import { interpolate } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
@@ -105,6 +105,8 @@ export function panelStep(end: ReplyEnd, t: TFn): PanelStep {
     const m = epochMessage(end.epoch)
     return { do: 'fail', text: t(m.key, m.vars), raw: end.raw }
   }
+  // #821: too large to sign. Nothing was published, so it ends as a failure, worded from the counts.
+  if (end.tooLarge) return { do: 'fail', text: tooLargeText(t, end.tooLarge), raw: end.raw }
   // Through humanError, so the money path never shows a binary path and a Rust struct.
   return { do: 'fail', text: humanError(t, end.raw), raw: end.raw }
 }
