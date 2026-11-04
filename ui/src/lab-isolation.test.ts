@@ -9,6 +9,7 @@
 // modules stay in the graph of the lab through the signing core, as they do for every screen. That
 // the lab never CALLS them is held by a run, in lab-vault.test.ts, with the network and IndexedDB
 // taken away.
+import { readdirSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { codeOf } from './source-scan'
@@ -94,6 +95,39 @@ describe('the lab pages never reach a real vault', () => {
     sf.forEachChild((n) => { if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) mods.push(n.moduleSpecifier.text) })
     expect(mods.filter((m) => FORBIDDEN_MODULES.includes(m))).toEqual(['../storage', '../session', '../unlock', '../useBackgroundSigner'])
     expect(FORBIDDEN_CALLS.filter((name) => new RegExp(`\\b${name}\\b`).test(codeOf('./VaultSigner.tsx')))).toContain('useBackgroundSigner')
+  })
+
+  // The lab vault holds a DKG driver of its own, exempt from the rule that app code creates vaults
+  // through CreationSession (dkg-ceremony.test.ts). That exemption is safe only while the lab is the
+  // one thing that can reach it: one importer, and a fixed set of exports that hands out no DKG.
+  it('only the lab screen imports the lab vault', () => {
+    const SRC = new URL('.', import.meta.url).pathname
+    const importers: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(SRC + dir, { withFileTypes: true })) {
+        if (e.isDirectory()) { if (e.name !== 'wasm-pkg') walk(`${dir}${e.name}/`); continue }
+        if (!/\.(ts|tsx)$/.test(e.name) || /\.test\.tsx?$/.test(e.name)) continue
+        const path = `./${dir}${e.name}`
+        if (importsOf(path).some((m) => /(^|\/)lab-vault(\.ts)?$/.test(m))) importers.push(path)
+      }
+    }
+    walk('')
+    expect(importers).toEqual(['./screens/BackgroundSignerLab.tsx'])
+  })
+
+  it('the lab vault exports exactly its fixed list, and re-exports nothing', () => {
+    const sf = ts.createSourceFile('lab-vault.ts', codeOf('./lab-vault.ts'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const names: string[] = []
+    let reexports = 0
+    sf.forEachChild((n) => {
+      if (ts.isExportDeclaration(n) || ts.isExportAssignment(n)) { reexports++; return }
+      const exported = ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+      if (!exported) return
+      if (ts.isVariableStatement(n)) n.declarationList.declarations.forEach((d) => names.push(d.name.getText(sf)))
+      else if ((ts.isClassDeclaration(n) || ts.isFunctionDeclaration(n) || ts.isInterfaceDeclaration(n) || ts.isTypeAliasDeclaration(n)) && n.name) names.push(n.name.text)
+    })
+    expect(reexports).toBe(0)
+    expect(names.sort()).toEqual(['LabDevice', 'LabVault', 'LabVaultOptions'])
   })
 
   it('the lab vault itself opens no relay, no coordinator and no storage', () => {

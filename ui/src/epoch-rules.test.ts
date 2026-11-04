@@ -9,12 +9,14 @@ import { codeOf } from './source-scan'
 
 const SRC = new URL('.', import.meta.url).pathname
 
+// `demo-vector.ts` ships, so it is scanned like any app file: it carries the vector, never a row of
+// the table (the lab asks WASM for its expiry). Only the test oracle in `test-vectors.ts` is exempt.
 function appFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
     if (name === 'wasm-pkg' || name === 'node_modules') continue
     if (statSync(p).isDirectory()) appFiles(p, out)
-    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.|test-vectors|demo-vector/.test(name)) out.push(p)
+    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.|test-vectors/.test(name)) out.push(p)
   }
   return out
 }

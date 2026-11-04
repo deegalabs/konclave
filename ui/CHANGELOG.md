@@ -142,11 +142,15 @@ history to tidy it is how context gets lost.
   where the other members' signers received it and refused it. Nothing could be signed or sent from
   the lab, but it was a demonstration acting on a real vault. The page now makes a vault of its own:
   a 2-of-3 created on the page by a real key generation between three simulated devices, signing
-  over an in-memory channel, with no storage, no relay and no coordinator. Two of the devices approve
-  and sign the test transaction to a verifying signature, and the third stays seated without
-  signing. A test drives the lab vault with the network and storage removed, and a source check
-  keeps every lab page from importing what reaches a real vault. The page's link to `/net` is now a
-  link to your vaults.
+  over an in-memory channel, with no storage, no relay and no coordinator. Each device runs the app's
+  own signer and the app's own owner rules: it puts its share in only after its owner signs, within
+  ten minutes, for the one transaction it then cleared, and only if that transaction pays exactly
+  what was approved. What the lab cannot run without a coordinator is said on the page's source: the
+  approval is the test transaction's own reading, and the request is not sealed. The automatic
+  signing mode the page used to offer is gone, because the app has none. A test drives the lab vault
+  with the network and the browser's storage removed and counted, and a source check keeps every lab
+  page from importing what reaches a real vault. The page's link to `/net` is now a link to your
+  vaults.
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
@@ -344,7 +348,7 @@ history to tidy it is how context gets lost.
 - **The background-signing lab signs a NU6.3 test transaction, and stops once the network passes
   NU6.3.** Each device reads its own clock to decide which transactions it accepts. After the next
   network upgrade activates, every lab device refuses the test transaction, correctly, and the page
-  shows that refusal until a newer test transaction replaces it. The tests run at a pinned date.
+  says the test transaction predates the upgrade, until a newer one replaces it.
 
 ## [0.16.0] 2026-10-30
 

@@ -6,9 +6,26 @@
 
 import { vi } from 'vitest'
 
-// The expiry patch is pure and lives with the vector, because /lab/background-signer signs it too
-// and app code cannot import a file that imports vitest. One copy, re-exported for the tests.
-export { VECTOR_EXPIRY, honestExpiry, withExpiry } from './demo-vector'
+import { VECTOR_EXPIRY, vectorWithExpiry } from './demo-vector'
+
+// The byte patch lives with the vector, because /lab/background-signer moves the expiry too. WHICH
+// expiry stays here: an oracle written out independently of the epoch table (konclave-seal::epochs),
+// which the app reads through WASM and the tests check it against (lab-vault.test.ts). This file is
+// test only, and the only place outside the table that names the anchor.
+export { VECTOR_EXPIRY }
+
+const ANCHOR_HEIGHT = 3_428_143
+const ANCHOR_UNIX = 1_785_247_643
+
+/** The expiry an honest mainnet builder would set now: the estimated tip plus 40. */
+export function honestExpiry(nowMs = Date.now()): number {
+  return ANCHOR_HEIGHT + Math.floor((nowMs / 1000 - ANCHOR_UNIX) / 75) + 40
+}
+
+/** `pczt` with its expiry moved to `expiry` (default: an honest one now). */
+export function withExpiry(pczt: Uint8Array, expiry = honestExpiry()): Uint8Array {
+  return vectorWithExpiry(pczt, expiry)
+}
 
 /** The instant the tests that sign a vector run at: 2026-10-26 12:00 UTC, well inside the NU6.3 epoch
  *  and before the NU7 activation (block 3,543,405, about 6 November 2026). WASM reads the clock

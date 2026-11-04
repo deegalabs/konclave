@@ -621,7 +621,7 @@ describe('sealing during vault creation has one implementation', () => {
       .filter((p) => !(p in EXEMPT))
     expect(offenders).toEqual([])
     const lab = codeAt(join(SRC, 'lab-vault.ts'))
-    expect(lab).not.toMatch(/\b(sealTo|sealToSeat|DeviceKey|CreationSession)\b/)
+    expect(lab).not.toMatch(/\b(sealTo|sealToSeat|sealBody|DeviceKey|CreationSession)\b/)
     expect(lab).toMatch(/sessions\[j\]!\.addRound2\(ids\[i\]!, s\.round2Package\(k\)\)/)
   })
 })

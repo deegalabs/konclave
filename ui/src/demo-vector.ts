@@ -26,13 +26,13 @@ export const dkgBroadcastSig = (): Uint8Array => b64(SIG_B64)
 // mainnet window its own clock allows. NU6.3's branch id is the same on both networks, so a vector
 // whose expiry field alone is moved into that window is one a mainnet device accepts: the sighash,
 // recomputed by the device, covers the new expiry, and every other check runs on the vector as it is.
-// Used by the tests (through `test-vectors.ts`) and by /lab/background-signer.
+//
+// WHICH expiry is not this file's question. The app's caller (/lab/background-signer) asks the
+// epoch table through WASM (`ordinaryExpiry`), so the app carries no anchor, spacing or delta of its
+// own (#638); the tests compute theirs with an independent oracle in `test-vectors.ts`.
 
 /** The vectors' own expiry (`ironwood_single_spend.proven.pczt`, the demo vector). */
 export const VECTOR_EXPIRY = 4_203_034
-
-const ANCHOR_HEIGHT = 3_428_143
-const ANCHOR_UNIX = 1_785_247_643
 
 function leb128(n: number): number[] {
   const out: number[] = []
@@ -45,14 +45,9 @@ function leb128(n: number): number[] {
   return out
 }
 
-/** The expiry an honest mainnet builder would set now: the estimated tip plus 40. */
-export function honestExpiry(nowMs = Date.now()): number {
-  return ANCHOR_HEIGHT + Math.floor((nowMs / 1000 - ANCHOR_UNIX) / 75) + 40
-}
-
-/** `pczt` with its expiry moved to `expiry` (default: an honest one now). The field is found by its
- *  encoding and must occur exactly once, or this throws rather than patch the wrong bytes. */
-export function withExpiry(pczt: Uint8Array, expiry = honestExpiry()): Uint8Array {
+/** `pczt` with its expiry field moved to `expiry`. The field is found by its encoding and must occur
+ *  exactly once, or this throws rather than patch the wrong bytes. */
+export function vectorWithExpiry(pczt: Uint8Array, expiry: number): Uint8Array {
   const from = leb128(VECTOR_EXPIRY)
   const to = leb128(expiry)
   if (from.length !== to.length) throw new Error('expiry encodings differ in length')
