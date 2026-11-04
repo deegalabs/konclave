@@ -167,6 +167,11 @@ history to tidy it is how context gets lost.
   promised, since how many lines fit depends on the vault and its funds. Needs the coordinator change
   from the same issue to appear; until it is deployed, nothing changes.
 
+- **A device the vault's server did not register for its seat now says so (#821).** That device
+  cannot sign payments or vote until it is registered, and the only trace was in the browser
+  console. The vault screen now shows a warning, with its own words when the seat is registered to
+  another device. It clears once a registration lands.
+
 - **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
   recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
   "Older shielded address", and a transparent one still says "Transparent address".
@@ -348,6 +353,10 @@ history to tidy it is how context gets lost.
   answer; a refusal stays beside the button and asks for a copy by hand (#313).
 
 ### Known limits
+
+- **A payroll is limited to a few lines (#821).** One payment can carry at most 6 parts (5 in a
+  32-seat vault), so a payroll of about 4 to 5 lines, fewer when the vault pays from many small
+  amounts. The app refuses a larger one when it is proposed and says how many parts it needs.
 
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
