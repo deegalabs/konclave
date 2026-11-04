@@ -93,7 +93,7 @@ jobs:
       # variable, or one the build never inlined. The rule is in the script, with tests
       # (ui/src/desktop-bundle-check.test.ts), not written as shell here.
       - name: Check the bundle carries the coordinator and relay
-        run: node scripts/check-desktop-bundle.mjs
+        run: node scripts/check-desktop-bundle-cli.mjs
 
       # Pull the release notes for this tag from CHANGELOG.md so the GitHub release matches the
       # in-app version.

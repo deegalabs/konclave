@@ -8,16 +8,13 @@
 //
 // It asks two things of the build, and both are needed:
 //   1. both variables are set, non-empty, and https origins (nothing after the host);
-//   2. each value is actually present in the built JavaScript in `ui/dist/assets`. A variable set on
-//      the wrong step, or a build that ignored it, passes 1 and fails 2.
+//   2. the built JavaScript in `ui/dist/assets` carries each one as Vite inlines it: the variable's
+//      own key with exactly that value, `VITE_HELPER_BASE:"https://helper.konclave.xyz"` (any quote
+//      Vite picks). The URL in a comment, under another key, or as the start of a longer host does
+//      not count. A variable set on the wrong step, or a build that ignored it, passes 1 and fails 2.
 //
-// Usage (from the repo root, after `pnpm -C ui run build`, with the same env the build had):
-//   node scripts/check-desktop-bundle.mjs [distDir]
-// Exit 0 when the bundle carries both; 1 with a reason otherwise. The rule is exported for the tests.
-
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+// The rule only; the workflow runs `scripts/check-desktop-bundle-cli.mjs`, which has no "am I the
+// main module?" test to get wrong (see check-sw-cli.mjs for why that matters on Windows).
 
 /** The variables the desktop bundle must carry, in the order they are reported. */
 export const REQUIRED = ['VITE_HELPER_BASE', 'VITE_RELAY_BASE']
@@ -32,6 +29,15 @@ export function invalidBase(name, value) {
   return null
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** True when `source` carries `name` inlined with exactly `value`: `name: "value"`, the key bare or
+ *  quoted, the value in any JS quote, and the closing quote right after the value. */
+export function carries(source, name, value) {
+  const re = new RegExp(`(?:^|[^\\w$])(["'\`]?)${escapeRe(name)}\\1\\s*:\\s*(["'\`])${escapeRe(value)}\\2`)
+  return re.test(source)
+}
+
 /** Every problem with this env and these built sources; an empty list means the bundle is good. */
 export function bundleProblems(env, sources) {
   const problems = []
@@ -39,25 +45,7 @@ export function bundleProblems(env, sources) {
     const value = env[name]
     const bad = invalidBase(name, value)
     if (bad) { problems.push(bad); continue }
-    if (!sources.some((s) => s.includes(value))) problems.push(`${name}=${value} is set but not in the built bundle`)
+    if (!sources.some((s) => carries(s, name, value))) problems.push(`${name}=${value} is set but not in the built bundle`)
   }
   return problems
 }
-
-function main() {
-  const dist = process.argv[2] ?? join('ui', 'dist')
-  const assets = join(dist, 'assets')
-  if (!existsSync(assets)) {
-    console.error(`no built bundle at ${assets}: run \`pnpm -C ui run build\` first`)
-    process.exit(1)
-  }
-  const sources = readdirSync(assets).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(assets, f), 'utf8'))
-  const problems = bundleProblems(process.env, sources)
-  if (problems.length) {
-    for (const p of problems) console.error(`desktop bundle: ${p}`)
-    process.exit(1)
-  }
-  for (const name of REQUIRED) console.log(`desktop bundle: ${name}=${process.env[name]}`)
-}
-
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main()

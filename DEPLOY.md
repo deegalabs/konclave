@@ -35,7 +35,7 @@ connected to `deegalabs/konclave`. A push to `main` builds and promotes to produ
 - **The desktop release builds with the same two values**, written as plain env in
   `.github/workflows/desktop-release.yml` because the workflow cannot read Vercel's (#664). Change
   them in both places together; the release fails when its bundle does not carry both
-  (`scripts/check-desktop-bundle.mjs`).
+  (`scripts/check-desktop-bundle-cli.mjs`).
 - `ui/src/wasm-pkg/` is committed, so the build needs no Rust toolchain
 
 **Verify:** the footer shows `v<version> · <commit>`. Compare the commit with `main`.
