@@ -77,35 +77,92 @@ fn nsis_installs_per_user() {
     );
 }
 
+// The tauri-cli the release bundles with, which the hook below was checked against.
+const PINNED_CLI: &str = "2.12.4";
+
+/// The release workflow's build steps, parsed: a comment or a commented-out line cannot satisfy it.
+fn release_steps() -> Vec<yaml_rust2::Yaml> {
+    let docs = yaml_rust2::YamlLoader::load_from_str(RELEASE_WORKFLOW).expect("valid YAML");
+    docs[0]["jobs"]["build"]["steps"]
+        .as_vec()
+        .expect("jobs.build.steps is a list")
+        .clone()
+}
+
+// The release installs the pinned CLI with a step of its own, and tauri-action runs that CLI
+// (`tauriScript`), after it. Without `tauriScript`, tauri-action installs the newest 2.x itself and
+// the pin is decoration.
+#[test]
+fn release_bundles_with_the_pinned_cli() {
+    let steps = release_steps();
+    let install = format!("cargo install tauri-cli --version {PINNED_CLI} --locked");
+    let pin = steps.iter().position(|s| {
+        s["run"]
+            .as_str()
+            .is_some_and(|r| r.lines().any(|l| l.trim() == install))
+    });
+    let action = steps.iter().position(|s| {
+        s["uses"]
+            .as_str()
+            .is_some_and(|u| u.starts_with("tauri-apps/tauri-action@"))
+    });
+    let (pin, action) = (
+        pin.expect("a step runs the pinned install"),
+        action.expect("a step uses tauri-action"),
+    );
+    assert!(
+        pin < action,
+        "the CLI is installed before tauri-action runs"
+    );
+    assert_eq!(
+        steps[action]["with"]["tauriScript"].as_str(),
+        Some("cargo tauri"),
+        "tauri-action runs the installed CLI, not one it installs itself"
+    );
+}
+
 // The uninstall hook reads two variables internal to Tauri's NSIS template. makensis does not
 // fail on an unknown variable, it warns, so a renamed variable would silently disable the
 // question that protects the vaults. They were read in tauri-bundler 2.10.4, which tauri-cli
-// 2.12.4 pins exactly. Moving the CLI pin fails this test on purpose: re-read the template
-// (src/bundle/windows/nsis/installer.nsi) and update both together.
+// 2.12.4 pins exactly. Moving PINNED_CLI is a decision to re-read the template
+// (src/bundle/windows/nsis/installer.nsi) and this hook together.
 #[test]
-fn uninstall_hook_matches_the_pinned_cli() {
-    assert!(
-        RELEASE_WORKFLOW.contains("cargo install tauri-cli --version 2.12.4 --locked"),
-        "the release builds with the tauri-cli the hook was checked against"
-    );
+fn uninstall_hook_asks_before_deleting() {
     assert_eq!(
         conf()["bundle"]["windows"]["nsis"]["installerHooks"],
         "windows/hooks.nsh"
     );
-    // Only code lines count: the file's own comments name every one of these, and a check they
-    // could satisfy would pass with the code gone.
-    let code: String = HOOKS
-        .lines()
-        .filter(|l| !l.trim_start().starts_with(';'))
-        .collect::<Vec<_>>()
-        .join("\n");
-    for needle in [
+    // Code only: the file's own comments name every line below, and a check a comment could
+    // satisfy passes with the code gone. NSIS comments are `;`, `#` and `/* ... */`.
+    let mut code = String::new();
+    let mut in_block = false;
+    for line in HOOKS.lines() {
+        let t = line.trim_start();
+        if in_block || t.starts_with("/*") {
+            in_block = !t.contains("*/");
+        } else if !t.starts_with(';') && !t.starts_with('#') {
+            code.push_str(line);
+            code.push('\n');
+        }
+    }
+    // In this order: only when the box was ticked and this is not an update, ask with "No" as the
+    // default (also a silent uninstall's answer), and on "No" clear the choice before the template
+    // reads it.
+    let mut at = 0;
+    for step in [
         "!macro NSIS_HOOK_PREUNINSTALL",
         "${If} $DeleteAppDataCheckboxState = 1",
         "${AndIf} $UpdateMode <> 1",
-        "/SD IDNO IDYES",
+        "MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2",
+        "/SD IDNO IDYES konclave_delete_confirmed",
         "StrCpy $DeleteAppDataCheckboxState 0",
+        "konclave_delete_confirmed:",
+        "${EndIf}",
+        "!macroend",
     ] {
-        assert!(code.contains(needle), "hooks.nsh code has {needle}");
+        let found = code[at..]
+            .find(step)
+            .unwrap_or_else(|| panic!("hooks.nsh code has `{step}`, after the lines before it"));
+        at += found + step.len();
     }
 }

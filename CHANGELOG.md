@@ -66,6 +66,12 @@ explicitly accepted.
 
 ### Changed
 
+- **Upgrading from 0.16.0: do NOT tick 'Delete the application data'.** On Windows the v0.17.0
+  installer finds 0.16.0 with "Uninstall before installing" already selected, and Next runs
+  0.16.0's own uninstaller. That one shows the box and does not ask: ticked, it deletes the vaults
+  stored on this computer. Leave it unticked and the upgraded app finds the same vaults. Export
+  each vault first anyway (Settings, "Export this vault"). From v0.17.0 on the uninstaller asks
+  (below).
 - **Windows: the installer is the `.exe` only; the `.msi` is no longer built.** It installs for the
   current user, as the v0.16.0 `.exe` did. Installing v0.17.0 over a v0.16.0 `.msi` first runs the
   `.msi`'s own uninstaller (Windows asks for permission), which removes the program and leaves the
@@ -77,8 +83,10 @@ explicitly accepted.
   the vaults stored on this computer, that each one should be exported first (Settings, "Export this
   vault"), and asks. "No" uninstalls the app and keeps the vaults, and so does a silent uninstall.
   An uninstall run by an update never deletes them, as before.
-- **New desktop icons**, drawn from the app's own icon at every size Windows asks for, and set on the
-  installer and the uninstaller as well.
+- **New desktop icon: the app's current mark.** The 12-ray mark on a dark rounded square, as the
+  web app's home-screen icon shows it, replaces the older 8-ray drawing, at every size Windows asks
+  for, and on the installer and the uninstaller as well. At 16 pixels the rays are too thin to see
+  (Known limits).
 
 ### Fixed
 
@@ -89,14 +97,14 @@ explicitly accepted.
 - **Export your vaults before you uninstall.** The vaults on this computer live in the app's data
   folder, and an export (Settings, "Export this vault") is the only copy of this computer's seat
   that survives the folder being deleted.
-- **Upgrading from v0.16.0 on Windows: do NOT tick "Delete the application data" if the installer
-  offers to uninstall the old version.** That uninstaller is v0.16.0's: it does not ask, and it
-  deletes the vaults stored on this computer. The question above protects uninstalls from v0.17.0
-  on.
+- **The question before deleting the vaults protects uninstalls from v0.17.0 on, not the upgrade
+  from 0.16.0**, which runs 0.16.0's uninstaller (first entry under Changed).
 - **`SHA256SUMS` shows that a download is the file the release workflow attached, not who built it.**
   The sums sit on the same release, under the same account, and the installers are still unsigned
   and carry no build attestation (#606).
 - **The uninstall question is in English only**, as the rest of the Windows installer is.
+- **At 16 pixels the icon's rays do not show.** The ring and the blue keyhole carry it; the rays
+  reach about a fifth of their contrast at 16 px and about three quarters at 32 px.
 - **The Windows changes are checked against the installer's source and compiled, not yet run on a
   Windows machine** (#212): the upgrade over a v0.16.0 `.msi`, the uninstall question, and that the
   vaults are still there afterwards.

@@ -130,6 +130,11 @@ history to tidy it is how context gets lost.
   says so. A locked vault is neither: both screens wait for the passphrase and read once it is
   given (#320).
 
+### Changed
+
+- **The landing names the Windows installer as the `.exe`.** Its install dialog said `.msi`, and
+  from the desktop's v0.17.0 no `.msi` is built (see the root changelog).
+
 ### Fixed
 
 - **The desktop app could open to a blank window.** On Windows, installing v0.16.0 over v0.15.0 kept
