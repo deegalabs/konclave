@@ -66,9 +66,17 @@ describe('the provider hands the gate its answer (#610)', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/setInterval\(\(\) => \{\s*const s = sessionRef\.current\s*if \(!s\) return\s*setArmedSeats\(s\.armedSeats\(\)\)\s*setClock\(\(n\) => n \+ 1\)\s*\}, 15_000\)/)
   })
 
-  it('the hook hands the decision to the session as is, and the lab never answers match', () => {
+  // The lab used to call this hook on a REAL vault and pin its answer to 'unknown', so it could never
+  // say `match` about a payment it knew nothing of. It now has a vault of its own (lab-vault.ts), so
+  // the guard moved: the lab may not reach the hook at all, and its answer is a comparison with what
+  // it approved, never a constant.
+  it('the hook hands the decision to the session as is, and the lab never decides on a real vault', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s/)
-    expect(codeOf('./screens/BackgroundSignerLab.tsx')).toMatch(/useBackgroundSigner\(unlocked, gate, \(\) => 'unknown', \(\) => false, async \(\) => \{ throw new Error\('the lab never signs'\) \}, \(\) => \{\}\)/)
+    expect(codeOf('./screens/BackgroundSignerLab.tsx')).not.toMatch(/useBackgroundSigner/)
+    expect(codeOf('./lab-vault.ts')).toMatch(/decideApproval: \(outputs\) => gateDecision\(\{ approved, ourReceivers: \[\] \}, outputs\),/)
+    expect(codeOf('./lab-vault.ts')).not.toMatch(/=> 'match'/)
+    // And the hook no longer has a way to publish into a vault's room: `inject` went with the lab.
+    expect(codeOf('./useBackgroundSigner.ts')).not.toMatch(/relayPost|inject/)
   })
 })
 

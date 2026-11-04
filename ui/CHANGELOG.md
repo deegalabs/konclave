@@ -132,6 +132,21 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The background-signing lab no longer touches your vaults.** `/lab/background-signer` used to
+  list the vaults saved on the device and offer to unlock one. Unlocking there did what unlocking
+  does anywhere: the share went into the page's session, and the device's read key and write key
+  were registered with the hosted coordinator. On the first unlock of a protected vault, that switches
+  its read gate on. If any vault was already unlocked in the tab, the page took it without a click.
+  It then joined that vault's real signing room, announced a seat there signed with the vault's
+  share, and its "Inject a test sign-request" button published a test transaction into that room,
+  where the other members' signers received it and refused it. Nothing could be signed or sent from
+  the lab, but it was a demonstration acting on a real vault. The page now makes a vault of its own:
+  a 2-of-3 created on the page by a real key generation between three simulated devices, signing
+  over an in-memory channel, with no storage, no relay and no coordinator. Two of the devices approve
+  and sign the test transaction to a verifying signature, and the third stays seated without
+  signing. A test drives the lab vault with the network and storage removed, and a source check
+  keeps every lab page from importing what reaches a real vault. The page's link to `/net` is now a
+  link to your vaults.
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
@@ -326,6 +341,10 @@ history to tidy it is how context gets lost.
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
   passkey does not rewrite the record, because a passkey does not open what the key is encrypted
   under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+- **The background-signing lab signs a NU6.3 test transaction, and stops once the network passes
+  NU6.3.** Each device reads its own clock to decide which transactions it accepts. After the next
+  network upgrade activates, every lab device refuses the test transaction, correctly, and the page
+  shows that refusal until a newer test transaction replaces it. The tests run at a pinned date.
 
 ## [0.16.0] 2026-10-30
 
