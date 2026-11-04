@@ -103,6 +103,7 @@ describe('stripComments', () => {
       'room-auth.test.ts': 'the WASM binary',
       'background-signer.test.ts': 'the WASM binary',
       'background-session.test.ts': 'the WASM binary',
+      'lab-vault.test.ts': 'the WASM binary',
       'device-key.test.ts': 'the WASM binary',
       'net-sign.test.ts': 'the WASM binary',
       'net-flow.test.ts': 'the WASM binary',

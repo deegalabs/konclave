@@ -257,6 +257,14 @@ export function injectSigs(pczt: Uint8Array, sighash: Uint8Array, sigs: Uint8Arr
 export function openBody(key: Uint8Array, sealed: Uint8Array): Uint8Array;
 
 /**
+ * The expiry an honest builder gives an ordinary transaction built now, by the DEVICE's own
+ * clock, from this build's table (`ordinary_expiry`); 0 for a clock earlier than the network
+ * this app signs for. The lab reads it to place its test vector in the window the device
+ * accepts, so the app types no anchor, spacing or expiry delta of its own (#638).
+ */
+export function ordinaryExpiry(): number;
+
+/**
  * Participant device, round 1 (JS): from the local key-package bytes.
  */
 export function participantRound1(kp_bytes: Uint8Array): Round1;
@@ -388,6 +396,7 @@ export interface InitOutput {
     readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
     readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
     readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly ordinaryExpiry: () => number;
     readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
     readonly readForSigning: (a: number, b: number) => [number, number, number, number];
     readonly readPayment: (a: number, b: number) => [number, number, number, number];
@@ -404,6 +413,7 @@ export interface InitOutput {
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly upgradeHeight: () => number;
+    readonly selftest: () => [number, number];
     readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
@@ -452,7 +462,6 @@ export interface InitOutput {
     readonly signWrite: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
-    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;

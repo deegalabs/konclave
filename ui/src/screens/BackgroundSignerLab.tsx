@@ -1,72 +1,69 @@
 import { ensureWasm } from '../wasm-ready'
-// /lab/background-signer - a laboratory surface to watch Stage 3 (issue #49) run live: unlock a
-// saved vault, and its share signs a payment IN THE BACKGROUND (no /net screen). Two browser tabs
-// on the same saved vault seat each other over the vault's signing room, and an injected test
-// sign-request (standing in for the helper) is signed by both. Isolated from the product, like the
-// rest of /lab. The signed message here is a TEST digest (the demo vector), never a broadcast.
-import { useEffect, useState } from 'react'
+// /lab/background-signer - watch background signing (issue #49, Stage 3) run, on a vault that exists
+// only in this page: a 2-of-3 made by a real DKG between three simulated devices, talking over an
+// in-memory bus. It never lists, unlocks or joins a vault a member owns, never opens the relay and
+// never calls the coordinator (lab-vault.ts says what the devices run and what they skip;
+// lab-isolation.test.ts holds the page to it). The signed message is a test transaction's sighash,
+// never a broadcast.
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
-import { pcztSighash } from '../wasm-pkg/konclave_wasm.js'
-import { listVaults, type VaultPublic } from '../storage'
-import { getUnlockedShare } from '../session'
-import { unlockOnDevice } from '../unlock'
-import { parseAlphas } from '../signing'
-import { bytesToHex } from '../net-sign'
-import { dkgProvenPczt } from '../demo-vector'
-import { useBackgroundSigner } from '../useBackgroundSigner'
-import { makeSigningGate, type SigningMode } from '../signing-gate'
+import { useT } from '../i18n'
+import { LabVault, type LabDevice } from '../lab-vault'
 import { fmtZecExact, shortAddr } from '../format'
 
-function testRequest(): string {
-  const pczt = dkgProvenPczt()
-  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
-  return JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) })
-}
+/** The refusals a device gives a transaction whose network version or validity window it does not
+ *  accept. In the lab, past the upgrade, that is the test transaction's age and not the device. */
+const UPGRADE_REFUSALS = new Set(['net.err.network', 'net.err.expiry'])
 
 export default function BackgroundSignerLab() {
-  const [vaults, setVaults] = useState<VaultPublic[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [pass, setPass] = useState('')
-  const [unlocked, setUnlocked] = useState<{ id: string } | null>(null)
+  const t = useT()
+  const [lab, setLab] = useState<LabVault | null>(null)
+  const [devices, setDevices] = useState<LabDevice[]>([])
+  const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  // Governance policy, demonstrated live: the lab treats the demo request as quorum-approved
-  // (isApproved: true), so `auto` signs on inject and `manual` waits until you arm it.
-  const [mode, setMode] = useState<SigningMode>('manual')
-  const [armed, setArmed] = useState(false)
-  const gate = makeSigningGate({ mode: () => mode, isApproved: () => true, isArmed: () => armed })
-  // #281: the lab has no proposal, so it cannot know what was approved, and answers `unknown`: the
-  // device reads the injected request and refuses it before any share moves. It never answers
-  // `match`, because this route joins the vault's real signing room.
-  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown', () => false, async () => { throw new Error('the lab never signs') }, () => {})
+  // The current vault, for its callbacks: one from a vault replaced by "New lab vault" is ignored.
+  const labRef = useRef<LabVault | null>(null)
 
-  useEffect(() => {
-    void (async () => {
-      await ensureWasm()
-      const vs = await listVaults()
-      setVaults(vs)
-      const already = vs.find((v) => getUnlockedShare(v.id))
-      if (already) setUnlocked({ id: already.id })
-    })()
-  }, [])
-
-  async function unlock() {
-    if (!selected) return
+  async function create() {
+    setBusy(true)
     setMsg('')
     try {
-      // `unlockOnDevice`, not a fourth copy of it. The copy that was here diverged: it never called
-      // `markVaultUnlocked`, and `VaultSigner` then gated the signer on `isVaultUnlocked`, which left
-      // this lab's signer inert while looking unlocked. That was the first sighting of the bug fixed on
-      // 16/10: the signer now asks `unlockedHere` (the share in this session), so marking is no longer
-      // what starts it. Kept on `unlockOnDevice` because it is the one unlock path, not as a workaround.
-      const r = await unlockOnDevice(selected, 'net', pass)
-      if (!r.ok) { setMsg('Could not unlock: wrong passphrase'); return }
-      setUnlocked({ id: selected })
-      setPass('')
+      await ensureWasm()
+      const next: LabVault = new LabVault({ onChange: () => { if (labRef.current === next) setDevices(next.view()) } })
+      labRef.current = next
+      setLab(next)
+      setDevices(next.view())
+      await next.seat()
     } catch (e) {
-      setMsg('Could not unlock: ' + String(e))
+      setMsg('Could not create the lab vault: ' + String(e))
+    } finally {
+      setBusy(false)
     }
   }
+
+  async function step(f: (l: LabVault) => Promise<void>) {
+    if (!lab) return
+    setBusy(true)
+    try {
+      await f(lab)
+    } catch (e) {
+      setMsg(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The vault dies with the page.
+  useEffect(() => () => { labRef.current = null }, [])
+
+  const approved = devices.filter((d) => d.approved).length
+  // What the devices read the request to pay (each reads it on its own; they read the same bytes).
+  const what = devices.find((d) => d.what)?.what ?? null
+  const refusal = (key: string) =>
+    UPGRADE_REFUSALS.has(key) && lab?.vectorPredatesUpgrade()
+      ? 'Refused, correctly: the lab\'s test transaction was built for the network version before the latest upgrade, which this device knows has activated. Nothing is wrong with this device; the lab needs a newer test transaction.'
+      : t(key)
 
   return (
     <>
@@ -74,83 +71,69 @@ export default function BackgroundSignerLab() {
       <main className="page" style={{ maxWidth: 640, margin: '0 auto' }}>
         <h1 className="klab" style={{ fontSize: 24, marginTop: 12 }}>Background signing (Stage 3)</h1>
         <p className="dim" style={{ marginTop: 6 }}>
-          An unlocked vault signs a payment in the background, seated over the vault&apos;s signing room.
-          Open this in two tabs on the same saved vault to watch them seat and co-sign. The message is a
-          test digest (demo vector), never a broadcast.
+          Three simulated devices hold a 2-of-3 vault that exists only in this page: made here by a real
+          key generation, signing over an in-memory channel. No vault of yours is listed, unlocked or
+          touched, and nothing leaves this page. The payment is a test transaction, never broadcast.
+        </p>
+        <p className="dim" style={{ fontSize: 12.5, marginTop: 4 }}>
+          To use your own vaults, go to <Link to="/vaults">your vaults</Link>.
         </p>
 
-        {!unlocked && (
+        {!lab && (
           <div className="confirm mt">
-            {vaults.length === 0 ? (
-              <p className="dim">No saved vaults on this device. Create + save one via <Link to="/net">/net</Link> first.</p>
-            ) : (
-              <>
-                <div className="who-name mb-sm">Unlock a saved vault</div>
-                {vaults.map((v) => (
-                  <label key={v.id} className="field" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input type="radio" name="vault" checked={selected === v.id} onChange={() => setSelected(v.id)} />
-                    <span className="mono">{v.name || shortAddr(v.id, 8, 6)}</span>
-                  </label>
-                ))}
-                <div className="field">
-                  <input className="input mono" type="password" placeholder="Passphrase" value={pass}
-                    onChange={(e) => setPass(e.target.value)} />
-                </div>
-                <button className="btn ok sm-btn" disabled={!selected || !pass} onClick={() => void unlock()}>Unlock</button>
-                {msg && <p className="dim" style={{ color: 'var(--danger-text)' }}>{msg}</p>}
-              </>
-            )}
+            <button className="btn ok sm-btn" disabled={busy} onClick={() => void create()}>
+              {busy ? 'Creating…' : 'Create a lab vault (2 of 3)'}
+            </button>
+            {msg && <p className="dim" style={{ color: 'var(--danger-text)' }}>{msg}</p>}
           </div>
         )}
 
-        {unlocked && (
+        {lab && (
           <div className="fp-card mt">
             <div className="fp-head">
-              <span className="klab">Signing room</span>
-              <span className="mono dim">{bg.room ? shortAddr(bg.room, 8, 6) : '…'}</span>
+              <span className="klab">Lab vault</span>
+              <span className="mono dim">{shortAddr(lab.groupKeyHex, 8, 6)}</span>
             </div>
-            <div className="db-meta" style={{ display: 'flex', gap: 20, marginTop: 8 }}>
-              <div><span className="klab">Seats</span><br /><b>{bg.seatCount}</b></div>
-              <div><span className="klab">State</span><br /><b>{bg.phase}</b></div>
-              <div><span className="klab">Ready</span><br /><b>{bg.ready ? 'yes' : '…'}</b></div>
-            </div>
-            {bg.what && (
+
+            {devices.map((d) => (
+              <div key={d.seat} className="db-meta" style={{ display: 'flex', gap: 20, marginTop: 8, flexWrap: 'wrap' }}>
+                <div><span className="klab">Device</span><br /><b>{d.seat}</b></div>
+                <div><span className="klab">Seats seen</span><br /><b>{d.seats}</b></div>
+                <div><span className="klab">Signed by owner</span><br /><b>{d.approved ? 'yes' : 'no'}</b></div>
+                <div><span className="klab">State</span><br /><b>{d.phase}</b></div>
+                {d.signature && (
+                  <div style={{ color: d.signature.ok ? 'var(--success)' : 'var(--danger-text)' }}>
+                    <span className="klab">Signature</span><br />
+                    {d.signature.ok ? '✓ verifies' : '✗ did not verify'} <span className="mono">{shortAddr(d.signature.hex, 10, 8)}</span>
+                  </div>
+                )}
+                {d.error && <p className="dim" style={{ color: 'var(--danger-text)', flexBasis: '100%', margin: 0 }}>{refusal(d.error)}</p>}
+              </div>
+            ))}
+
+            {what && (
               <p className="dim mt-sm">
-                signing: {bg.what.outputs.map((o) => `${fmtZecExact(o.zat / 1e8)} ZEC → ${o.addr ? shortAddr(o.addr, 10, 6) : 'no label'}`).join(', ')} · fee {fmtZecExact(bg.what.feeZat / 1e8)} ZEC
+                signing: {what.outputs.map((o) => `${fmtZecExact(o.zat / 1e8)} ZEC → ${o.addr ? shortAddr(o.addr, 10, 6) : 'no label'}`).join(', ')} · fee {fmtZecExact(what.feeZat / 1e8)} ZEC
               </p>
             )}
-            {bg.signature && (
-              <p className="mt-sm" style={{ color: bg.signature.ok ? 'var(--success)' : 'var(--danger-text)' }}>
-                {bg.signature.ok ? '✓ verifying signature' : '✗ signature did not verify'}: <span className="mono">{shortAddr(bg.signature.hex, 10, 8)}</span>
-              </p>
-            )}
-            {bg.error && <p className="dim" style={{ color: 'var(--danger-text)' }}>{bg.error}</p>}
 
-            <div className="mt-sm" style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-              <span className="klab">Signing mode</span>
-              {(['auto', 'manual'] as SigningMode[]).map((m) => (
-                <label key={m} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                  <input type="radio" name="mode" checked={mode === m} onChange={() => { setMode(m); setArmed(false) }} />
-                  <span className="mono">{m}</span>
-                </label>
-              ))}
-            </div>
-            <p className="dim" style={{ fontSize: 12.5, marginTop: 4 }}>
-              {mode === 'auto'
-                ? 'auto: an approved payment signs on its own.'
-                : 'manual: an approved payment waits until you arm it (a single click never fires money).'}
-            </p>
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button className="btn ghost sm-btn" disabled={!bg.ready} onClick={() => { setArmed(false); void bg.inject(testRequest()) }}>
-                Inject a test sign-request
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="btn ok sm-btn" disabled={busy || approved >= 2} onClick={() => void step((l) => l.approve([1, 2]))}>
+                Owners of devices 1 and 2 sign
               </button>
-              {mode === 'manual' && (
-                <button className="btn ok sm-btn" disabled={!bg.ready || armed} onClick={() => { setArmed(true); void bg.retry() }}>
-                  Approve &amp; sign
-                </button>
-              )}
+              <button className="btn ghost sm-btn" disabled={busy || approved < 2} onClick={() => void step((l) => l.request())}>
+                Send the test sign-request
+              </button>
+              <button className="btn ghost sm-btn" disabled={busy} onClick={() => void create()}>
+                New lab vault
+              </button>
             </div>
+            <p className="dim" style={{ fontSize: 12.5, marginTop: 8 }}>
+              As in the app, a device puts its share in only for an owner who signed, within ten minutes,
+              and only for the one transaction it then cleared. Device 3 stays seated and never signs: its
+              owner did not sign.
+            </p>
+            {msg && <p className="dim" style={{ color: 'var(--danger-text)' }}>{msg}</p>}
           </div>
         )}
       </main>

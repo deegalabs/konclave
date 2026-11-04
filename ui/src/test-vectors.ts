@@ -6,42 +6,25 @@
 
 import { vi } from 'vitest'
 
-/** The vectors' own expiry (`ironwood_single_spend.proven.pczt`, the demo vector). */
-export const VECTOR_EXPIRY = 4_203_034
+import { VECTOR_EXPIRY, vectorWithExpiry } from './demo-vector'
+
+// The byte patch lives with the vector, because /lab/background-signer moves the expiry too. WHICH
+// expiry stays here: an oracle written out independently of the epoch table (konclave-seal::epochs),
+// which the app reads through WASM and the tests check it against (lab-vault.test.ts). This file is
+// test only, and the only place outside the table that names the anchor.
+export { VECTOR_EXPIRY }
 
 const ANCHOR_HEIGHT = 3_428_143
 const ANCHOR_UNIX = 1_785_247_643
-
-function leb128(n: number): number[] {
-  const out: number[] = []
-  do {
-    let b = n & 0x7f
-    n >>>= 7
-    if (n) b |= 0x80
-    out.push(b)
-  } while (n)
-  return out
-}
 
 /** The expiry an honest mainnet builder would set now: the estimated tip plus 40. */
 export function honestExpiry(nowMs = Date.now()): number {
   return ANCHOR_HEIGHT + Math.floor((nowMs / 1000 - ANCHOR_UNIX) / 75) + 40
 }
 
-/** `pczt` with its expiry moved to `expiry` (default: an honest one now). The field is found by its
- *  encoding and must occur exactly once, or this throws rather than patch the wrong bytes. */
+/** `pczt` with its expiry moved to `expiry` (default: an honest one now). */
 export function withExpiry(pczt: Uint8Array, expiry = honestExpiry()): Uint8Array {
-  const from = leb128(VECTOR_EXPIRY)
-  const to = leb128(expiry)
-  if (from.length !== to.length) throw new Error('expiry encodings differ in length')
-  const at: number[] = []
-  for (let i = 0; i + from.length <= pczt.length; i++) {
-    if (from.every((b, j) => pczt[i + j] === b)) at.push(i)
-  }
-  if (at.length !== 1) throw new Error(`the vector's expiry occurs ${at.length} times`)
-  const out = pczt.slice()
-  to.forEach((b, j) => { out[at[0]! + j] = b })
-  return out
+  return vectorWithExpiry(pczt, expiry)
 }
 
 /** The instant the tests that sign a vector run at: 2026-10-26 12:00 UTC, well inside the NU6.3 epoch

@@ -608,10 +608,21 @@ describe('sealing during vault creation has one implementation', () => {
       }
       return out
     }
+    // One exemption, by name and with its reason. /lab/background-signer makes a vault that exists
+    // only in its page: three simulated devices in one process, whose round-2 packages are handed
+    // over in memory and never sealed, sent or stored, so there is no key for a secret to go to.
+    // It may use the plain DkgSession and nothing that seals; the check below holds it to that.
+    const EXEMPT: Record<string, string> = {
+      'lab-vault.ts': 'the in-memory lab vault: no package crosses a wire, nothing is sealed',
+    }
     const offenders = files(SRC)
       .filter((p) => /import\s*\{[^}]*\b(sealTo|DkgSession)\b[^}]*\}\s*from\s*['"][^'"]*wasm-pkg/.test(codeAt(p)))
       .map((p) => relative(SRC, p))
+      .filter((p) => !(p in EXEMPT))
     expect(offenders).toEqual([])
+    const lab = codeAt(join(SRC, 'lab-vault.ts'))
+    expect(lab).not.toMatch(/\b(sealTo|sealToSeat|sealBody|DeviceKey|CreationSession)\b/)
+    expect(lab).toMatch(/sessions\[j\]!\.addRound2\(ids\[i\]!, s\.round2Package\(k\)\)/)
   })
 })
 

@@ -19,3 +19,44 @@ const SIG_B64 = 'LgxxtjJcPE7J9M0y0ffiAGXZ+xjLCcIX2FgspJZ4UjZiqEaL2+YeVx4T9TJxvzO
 const b64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 export const dkgProvenPczt = (): Uint8Array => b64(PROVEN_B64)
 export const dkgBroadcastSig = (): Uint8Array => b64(SIG_B64)
+
+// ---- the vector's expiry, moved into a mainnet window ----
+//
+// The vector is a testnet PCZT, and a signing device checks a transaction's expiry against the
+// mainnet window its own clock allows. NU6.3's branch id is the same on both networks, so a vector
+// whose expiry field alone is moved into that window is one a mainnet device accepts: the sighash,
+// recomputed by the device, covers the new expiry, and every other check runs on the vector as it is.
+//
+// WHICH expiry is not this file's question. The app's caller (/lab/background-signer) asks the
+// epoch table through WASM (`ordinaryExpiry`), so the app carries no anchor, spacing or delta of its
+// own (#638); the tests compute theirs with an independent oracle in `test-vectors.ts`.
+
+/** The vectors' own expiry (`ironwood_single_spend.proven.pczt`, the demo vector). */
+export const VECTOR_EXPIRY = 4_203_034
+
+function leb128(n: number): number[] {
+  const out: number[] = []
+  do {
+    let b = n & 0x7f
+    n >>>= 7
+    if (n) b |= 0x80
+    out.push(b)
+  } while (n)
+  return out
+}
+
+/** `pczt` with its expiry field moved to `expiry`. The field is found by its encoding and must occur
+ *  exactly once, or this throws rather than patch the wrong bytes. */
+export function vectorWithExpiry(pczt: Uint8Array, expiry: number): Uint8Array {
+  const from = leb128(VECTOR_EXPIRY)
+  const to = leb128(expiry)
+  if (from.length !== to.length) throw new Error('expiry encodings differ in length')
+  const at: number[] = []
+  for (let i = 0; i + from.length <= pczt.length; i++) {
+    if (from.every((b, j) => pczt[i + j] === b)) at.push(i)
+  }
+  if (at.length !== 1) throw new Error(`the vector's expiry occurs ${at.length} times`)
+  const out = pczt.slice()
+  to.forEach((b, j) => { out[at[0]! + j] = b })
+  return out
+}

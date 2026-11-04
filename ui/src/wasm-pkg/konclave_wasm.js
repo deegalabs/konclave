@@ -1074,6 +1074,18 @@ export function openBody(key, sealed) {
 }
 
 /**
+ * The expiry an honest builder gives an ordinary transaction built now, by the DEVICE's own
+ * clock, from this build's table (`ordinary_expiry`); 0 for a clock earlier than the network
+ * this app signs for. The lab reads it to place its test vector in the window the device
+ * accepts, so the app types no anchor, spacing or expiry delta of its own (#638).
+ * @returns {number}
+ */
+export function ordinaryExpiry() {
+    const ret = wasm.ordinaryExpiry();
+    return ret >>> 0;
+}
+
+/**
  * Participant device, round 1 (JS): from the local key-package bytes.
  * @param {Uint8Array} kp_bytes
  * @returns {Round1}

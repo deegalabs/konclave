@@ -2589,6 +2589,19 @@ pub mod pczt_bridge {
         rules.epochs.last().map_or(0, |row| row.activation_height)
     }
 
+    /// The expiry an honest builder gives an ORDINARY transaction built now, by this device's clock:
+    /// the estimated height plus the expiry delta of the row that height falls in. `None` for a clock
+    /// before the anchor, which confirms nothing. The app reads it to move a test vector's expiry into
+    /// the window the device accepts (/lab/background-signer), so the app carries no anchor, spacing
+    /// or delta of its own: the table is the one home of them (#638).
+    pub fn ordinary_expiry(rules: &NetworkRules, now_unix: i64) -> Option<u32> {
+        if now_unix < rules.anchor.unix {
+            return None;
+        }
+        let est = rules.height_bounds(now_unix).est;
+        Some(est.saturating_add(rules.epoch_of(est).expiry_delta))
+    }
+
     /// What a new transaction is, for an approval this device already put its share into: `signed`
     /// is this device's record of those transactions (their sighash, expiry and branch). `Same` is a
     /// ceremony restarted on the same transaction; `AfterExpiry` a new one once every earlier one can
@@ -4623,6 +4636,24 @@ pub mod pczt_bridge {
         const T_A_MAIN: i64 = T_ANCHOR + 75 * (A_MAIN as i64 - 3_428_143);
 
         #[test]
+        fn an_ordinary_expiry_is_the_estimate_plus_the_delta_of_its_own_row() {
+            // At the anchor: NU6.3's 40 blocks.
+            assert_eq!(ordinary_expiry(&MAINNET, T_ANCHOR), Some(3_428_143 + 40));
+            // A day later, still NU6.3: 75 s a block.
+            let t = T_ANCHOR + 86_400;
+            assert_eq!(
+                ordinary_expiry(&MAINNET, t),
+                Some(3_428_143 + 86_400 / 75 + 40)
+            );
+            // From NU7's estimated moment on, NU7's 120.
+            assert_eq!(ordinary_expiry(&MAINNET, T_A_MAIN), Some(A_MAIN + 120));
+            // A clock before the anchor confirms nothing.
+            assert_eq!(ordinary_expiry(&MAINNET, T_ANCHOR - 1), None);
+            // And an ordinary NU6.3 header at that expiry is one the device accepts.
+            assert!(check_header(&MAINNET, &hdr(NU6_3, 3_428_143 + 86_400 / 75 + 40), t).is_ok());
+        }
+
+        #[test]
         fn the_app_is_told_the_height_of_the_last_upgrade_in_the_table() {
             // The dashboard's notice reads it through WASM, so the app carries no height of its own.
             assert_eq!(latest_upgrade_height(&MAINNET), A_MAIN);
@@ -6218,6 +6249,16 @@ mod js_pczt {
     #[wasm_bindgen(js_name = upgradeHeight)]
     pub fn upgrade_height() -> u32 {
         pczt_bridge::latest_upgrade_height(&pczt_bridge::MAINNET)
+    }
+
+    /// The expiry an honest builder gives an ordinary transaction built now, by the DEVICE's own
+    /// clock, from this build's table (`ordinary_expiry`); 0 for a clock earlier than the network
+    /// this app signs for. The lab reads it to place its test vector in the window the device
+    /// accepts, so the app types no anchor, spacing or expiry delta of its own (#638).
+    #[wasm_bindgen(js_name = ordinaryExpiry)]
+    pub fn ordinary_expiry() -> u32 {
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        pczt_bridge::ordinary_expiry(&pczt_bridge::MAINNET, now_unix).unwrap_or(0)
     }
 
     /// What a new transaction is for an approval this device already signed (`approval_decision`),

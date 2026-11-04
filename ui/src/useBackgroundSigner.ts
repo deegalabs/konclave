@@ -2,11 +2,13 @@
 // into the tested BackgroundSession, so an unlocked vault SIGNS IN THE BACKGROUND. All the logic
 // lives in the tested core (SigningMachine/BackgroundSigner/SigningSeats/BackgroundSession); this
 // hook is only lifecycle glue - open the room on mount, seat, stop on unmount, and hold the
-// singleton lock so two tabs never double-sign. The Dashboard will consume this; /lab validates it.
+// singleton lock so two tabs never double-sign. VaultSigner is its one caller. /lab no longer uses
+// it: the lab runs its own in-memory vault (lab-vault.ts), and the hook's `inject`, which published a
+// test request into a REAL vault's signing room for it, is gone.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ensureWasm } from './wasm-ready'
-import { RelaySession, relayPost, ephemeralTag } from './net'
+import { RelaySession, ephemeralTag } from './net'
 import { getUnlockedShare } from './session'
 import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
@@ -54,8 +56,6 @@ export interface BackgroundSignerState {
   setProposal: (id: string | null) => void
   /** Re-drive after arming a manual-mode payment (a gate-pending request then proceeds). */
   retry: () => Promise<void>
-  /** DEV/validation: publish a raw sign-request into the room (the helper does this in production). */
-  inject: (requestJson: string) => Promise<void>
 }
 
 /**
@@ -129,7 +129,6 @@ export function useBackgroundSigner(
     }, 15_000)
     return () => window.clearInterval(id)
   }, [])
-  const roomRef = useRef('')
   const gateRef = useRef(gate)
   gateRef.current = gate
   const withdrewRef = useRef(onPeerWithdrew)
@@ -170,7 +169,6 @@ export function useBackgroundSigner(
           ? await signingRoomFromSecret(loaded.accessSecret)
           : await signingRoom(hex(loaded.groupKey))
         if (stopped) return
-        roomRef.current = r
         setRoom(r)
         const myTag = ephemeralTag()
         // Who sends is decided by the room's ordered log, not by who clicked first: the device whose
@@ -252,8 +250,5 @@ export function useBackgroundSigner(
     what,
     error,
     retry: async () => { await sessionRef.current?.retry() },
-    inject: async (requestJson: string) => {
-      if (roomRef.current) await relayPost(roomRef.current, 'lab-helper', requestJson)
-    },
   }
 }
