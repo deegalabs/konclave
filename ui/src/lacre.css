@@ -452,6 +452,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   body:has(table.razao) .applayout .page,
   body:has(table.razao) .page{max-width:none; margin:0; padding:0}
   .print-only{display:block}
+  .ledger-print-filter, .ledger-print-hidden{margin:4px 0 10px; font-size:10pt}
 
   /* A table at every width: the phone's card layout (above, max-width 640px) is undone here. */
   .tbl.razao{display:table !important; width:100%; border-collapse:collapse}
