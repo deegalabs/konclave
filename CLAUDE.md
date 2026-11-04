@@ -125,8 +125,8 @@ Facts (verified 2026-06-30):
   and lightwalletd aware of the upgrade).
 - **Update (2026-08):** mainnet has since activated **NU6.3 "Ironwood"** (2026-07-28, block
   3,428,143), which adds the **Ironwood shielded pool** (V6 transactions). Ironwood is **live and
-  safe**, and the consensus target is **NU6.3** until **NU7** at block 3,543,405 (below) (build against it; the RedPallas/FROST
-  spend-authorization scheme is unchanged, so the signing core carries over). The NU6.2 text above
+  safe**, and the consensus target is **NU6.3** until **NU7** at block 3,543,405 (see below). Build against it; the RedPallas/FROST
+  spend-authorization scheme is unchanged, so the signing core carries over. The NU6.2 text above
   is the historical context for the June 2026 Orchard episode.
 - **Update (2026-08-26), verified against primary sources.** Each item below was checked at
   zips.z.cash / the Zcash forum / the issuing body; anything that could only be found on social
@@ -193,7 +193,7 @@ Facts (verified 2026-06-30):
     [#206](https://github.com/deegalabs/konclave/issues/206)).
   - **The fee drops after NU7, by wallet convention, not consensus.** [ZIP 2009](https://zips.z.cash/zip-2009)
     (**Proposed**, Standards / Wallet) is Revision 2 of ZIP 317: `marginal_fee` goes from 5,000 to
-    **1,000** zatoshis (minimum fee 10,000 -> 2,000) from **Mainnet block 3,590,000**, which it
+    **1,000** zatoshis (minimum fee 10,000 to 2,000) from **Mainnet block 3,590,000**, which it
     expects around 2026-11-19, and wallets SHOULD switch at that height rather than when a release
     ships, because a fee that changes at different times reveals the wallet. Also touches #206.
     Verified 2026-11-04.
