@@ -3,7 +3,7 @@
 > **Status:** draft of 2026-10-30, revised the same day after review; accepted on 2026-11-03, with the
 > counts redone on staging `5571690` that day and the signing sentence brought to what the code does.
 > It becomes the reference for
-> screen copy when Daniel accepts it.
+> screen copy when the maintainer accepts it.
 > **What it is:** the words the product uses on screen, where they come from, and what stays off the
 > everyday screens. Portuguese terms are kept as they appear on screen.
 > **What it is not:** it changes no engine, no screen, and decides no new field.
@@ -43,8 +43,8 @@
 | viewing key (Incoming / Full) | **chave de visualização** | community wallets: Export Viewing Key, "cannot be undone" | "chave de visualização" (Settings, export); the vault has one key today; Incoming/Full does not apply |
 | view-only | **somente leitura** | community wallets: View Only Account | **to check**: the product reads without unlocking; the name "somente leitura" does not appear yet |
 | payment request (ZIP 321) | **pedido de pagamento** | community wallets: Receive, Request, "What's this for?" | Receive says "Link de pagamento" (#804); "ZIP 321" no longer appears on screen |
-| server / lightwalletd | **servidor** | community wallets: Choose a Server, host:port | Konclave chooses no server; **"o servidor do cofre"** is the on-screen name for the coordinator (Daniel, 2026-10-30) |
-| ledger | **livro** | the accountant's term is "livro-razão"; the plain word is "livro" | **"Livro"** on the menu, the title and the tab (Daniel, 2026-10-30); "Ledger" in English. Decided, not yet on screen: on `5571690` the menu still says "Registro" and the title "Razão" |
+| server / lightwalletd | **servidor** | community wallets: Choose a Server, host:port | Konclave chooses no server; **"o servidor do cofre"** is the on-screen name for the coordinator (the maintainer, 2026-10-30) |
+| ledger | **livro** | the accountant's term is "livro-razão"; the plain word is "livro" | **"Livro"** on the menu, the title and the tab (the maintainer, 2026-10-30); "Ledger" in English. Decided, not yet on screen: on `5571690` the menu still says "Registro" and the title "Razão" |
 | seed + wallet birthday | **frase + altura** | community wallets: "Estimate my block height" | the export already carries the viewing key and the birthday together (#447, #480) |
 | sync | **sincronizar** | community wallets: Syncing 42%, Synced | **missing**: the screen does not say when it has not read the chain yet (feedback ruler, class 5) |
 | send flow | Revisar, Confirmar, Enviando, Enviado | community wallets | in use: preview, confirm, Enviado |
@@ -91,9 +91,9 @@ instead. Where it may appear = the place a member goes looking for the technical
 |---|---|---|---|
 | FROST, DKG | net (4), landing (3), signer (2), ceremony (1), lv (1) | "assinatura em grupo", "criação do cofre" | docs; the landing, once, as credit to the Foundation |
 | relay | net (6), settings (5), dashboard (2) | "a ligação entre os aparelhos"; in an error: "não deu para alcançar os outros aparelhos" | trust panel: "serviço de mensagens (relay): carries sealed or public material; until every member's device has registered its key, a signing request crosses it unsealed" |
-| coordenador | signing (8), error (5), registration (4), net (3), vaults (2) | **"o servidor do cofre"** (Daniel, 2026-10-30) | trust panel and docs, with what that server sees and what it does not |
+| coordenador | signing (8), error (5), registration (4), net (3), vaults (2) | **"o servidor do cofre"** (the maintainer, 2026-10-30) | trust panel and docs, with what that server sees and what it does not |
 | assento | net (4), error (2), dashboard (2), vaults (1) | "membro" (the person); "aparelho do membro" (the seat) | docs |
-| cerimônia | proposal (2), net (2), ceremonies (2), signing, signer, settings, nav, lv (1 each) | "assinatura" (of a payment); "criação do cofre" | the evidence screen could be called "Assinaturas" instead of "Registro de cerimônias" (a proposal; the screen is Daniel's) |
+| cerimônia | proposal (2), net (2), ceremonies (2), signing, signer, settings, nav, lv (1 each) | "assinatura" (of a payment); "criação do cofre" | the evidence screen could be called "Assinaturas" instead of "Registro de cerimônias" (a proposal; the screen is the maintainer's) |
 | key share | "sua parte" on 31 lines (32 uses) | **"sua parte"** stays, as the one name, defined once on the backup screen | never "share", "fragmento", "chave parcial" |
 | Orchard, Sapling, Ironwood (pools) | payment (3), rec (2), landing (2), and one line each in signer, receive, people, payroll, error, dashboard, ceremony | "blindado"; "blindado antigo (Sapling)" (#127) | technical detail and docs |
 | sighash | ceremonies (2), net (1) | nothing in everyday use | evidence: "resumo assinado (sighash)" (#127) |
@@ -173,6 +173,6 @@ export; the colours are tokens of the visual layer, never a loose colour inside 
 ## 7. What this guide does not decide
 
 - Fields that do not exist in the product, and anything that changes what a device signs.
-- The titles of the screens that are Daniel's (dashboard, signing, ceremony). The guide proposes; he
-  decides.
+- The titles of the screens that are the maintainer's (dashboard, signing, ceremony). The guide
+  proposes; the maintainer decides.
 - The colour tokens. Here, only what each colour means.
