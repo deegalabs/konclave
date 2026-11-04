@@ -13,3 +13,19 @@ describe('the ledger has one name per language', () => {
     })
   }
 })
+
+// The word, not only the three labels: a Portuguese text elsewhere that still says "razão" (or sends a
+// member to "o registro" for the book) gives the book a second name back.
+describe('the book is "Livro" in every Portuguese text', () => {
+  it('no Portuguese string or in-app doc calls the book "razão"', async () => {
+    const { SECTIONS } = await import('./docs/content')
+    const docs = JSON.stringify(SECTIONS)
+    const hits = Object.entries(ptBR).filter(([, v]) => /raz[ãa]o/i.test(v)).map(([k]) => k)
+    expect(hits).toEqual([])
+    expect(docs.match(/[^"]{0,30}raz[ãa]o[^"]{0,30}/gi) ?? []).toEqual([])
+  })
+  it('the crash screen sends the member to the book by its name', () => {
+    expect(en['crash.lead']).toMatch(/ledger/)
+    expect(ptBR['crash.lead']).toMatch(/livro/)
+  })
+})

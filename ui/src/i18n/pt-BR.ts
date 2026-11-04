@@ -1236,7 +1236,7 @@ export const ptBR: Record<string, string> = {
   'notFound.how': 'Como funciona',
   'crash.label': 'Algo quebrou',
   'crash.title': 'A tela encontrou um erro inesperado.',
-  'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o registro antes de tentar de novo.',
+  'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o livro antes de tentar de novo.',
   'crash.reload': 'Recarregar',
   'crash.vaults': 'Meus cofres',
   // Members: the list could not be read (#315)
