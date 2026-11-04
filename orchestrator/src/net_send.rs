@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::relay_client::{RelayClient, Transport};
 use crate::signer::SigningInput;
+use crate::tools::ToolError;
 
 /// One spend the ceremony must authorize: its action index and the Orchard/Ironwood randomizer
 /// (alpha) it must sign under. Both are public.
@@ -74,6 +75,80 @@ pub struct SealedRequest {
     pub kind: String,
     pub body: String,
     pub boxes: std::collections::BTreeMap<String, String>,
+}
+
+/// The largest message the relay accepts. The signing request crosses it as ONE message, so this is
+/// also the ceiling on how large a payment the devices can be asked to sign (#821).
+pub const RELAY_MAX_DATA: usize = konclave_http::RELAY_MAX_DATA;
+
+/// The most devices a signing request is sealed to that [`MAX_SIGNABLE_ACTIONS`] is sized for: the
+/// largest vault the app lets anyone create (`MAX_SEATS` in `ui/src/dkg-ceremony.ts`). Each device
+/// adds a box to the sealed request, so sizing for fewer would let a large vault through to a 413.
+pub const SIZED_FOR_DEVICES: usize = 32;
+
+/// The published PCZT's size, modelled as a fixed part plus a part per action, in bytes.
+///
+/// An UPPER bound on every vector in the repo, fitted on the LARGEST per-action size seen
+/// (`nu7_testnet.proven.pczt`: 5 actions, 25,679 bytes published, so (25,679 - 3,150) / 5 rounded up).
+/// A fit through the two mainnet vectors alone (4,390 a action) undershoots that vector by 579 bytes,
+/// which is why it is not used. Pinned by `the_size_model_bounds_every_vector_in_the_repo`.
+pub const PCZT_FIXED_BYTES: usize = 3_150;
+pub const PCZT_BYTES_PER_ACTION: usize = 4_506;
+
+/// The most actions a transaction can carry and still have its sealed signing request fit the relay,
+/// sealed to [`SIZED_FOR_DEVICES`] devices, at the modelled size. Derived from the real sealing by
+/// `the_largest_signable_transaction_is_derived_from_the_real_sealing`, which fails if the sealing
+/// grows (this no longer fits) or shrinks (one more would).
+///
+/// A count, so it can be asked of the UNPROVEN transaction at proposal time, before anyone approves.
+/// The exact answer is the sealed request's own length, which the send checks before publishing.
+pub const MAX_SIGNABLE_ACTIONS: usize = 5;
+
+/// A transaction too large to be signed in one request: it carries `actions` and the request can
+/// carry at most `max`. `payroll` says which remedy applies (fewer lines, or a smaller amount).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TooLarge {
+    pub actions: usize,
+    pub max: usize,
+    pub payroll: bool,
+}
+
+/// The marker a [`TooLarge`] refusal carries through [`ToolError`], so the coordinator can answer it
+/// as a refusal of its own and not as a failed send.
+const TOO_LARGE: &str = "too-large";
+
+impl TooLarge {
+    /// The refusal as the send path returns it.
+    pub fn into_error(self) -> ToolError {
+        let kind = if self.payroll { "payroll" } else { "payment" };
+        ToolError::parse(
+            format!("{TOO_LARGE}:{kind}:{}:{}", self.actions, self.max),
+            format!(
+                "this transaction needs {} actions and one signing request can carry at most {}",
+                self.actions, self.max
+            ),
+        )
+    }
+
+    /// The refusal `e` is, if it is one.
+    pub fn of(e: &ToolError) -> Option<TooLarge> {
+        let ToolError::Parse { what, .. } = e else {
+            return None;
+        };
+        let mut parts = what.strip_prefix(TOO_LARGE)?.strip_prefix(':')?.split(':');
+        let payroll = match parts.next()? {
+            "payroll" => true,
+            "payment" => false,
+            _ => return None,
+        };
+        let actions = parts.next()?.parse().ok()?;
+        let max = parts.next()?.parse().ok()?;
+        parts.next().is_none().then_some(TooLarge {
+            actions,
+            max,
+            payroll,
+        })
+    }
 }
 
 /// Inject-ready signatures: one `(action_index, 64-byte redpallas signature)` per real spend.
@@ -756,5 +831,109 @@ mod tests {
             .unwrap();
         let (sigs, _) = collect_response(&helper, &req, since, |_| true).unwrap();
         assert!(sigs.is_some(), "this payment's own response is collected");
+    }
+
+    // #821. The sealed request for a transaction of `actions` actions at the modelled size, every
+    // action a real spend (the request lists only real spends, so this is the largest it can be), with
+    // large indexes, sealed to `devices` fresh device keys by the real sealing. Its length in bytes.
+    fn sealed_len_at_model(actions: usize, devices: usize) -> usize {
+        let pczt = vec![0x5a; PCZT_FIXED_BYTES + PCZT_BYTES_PER_ACTION * actions];
+        let req = SignRequest {
+            kind: REQUEST_KIND.into(),
+            sighash: "cd".repeat(32),
+            spends: (0..actions)
+                .map(|i| SpendReq {
+                    index: u32::MAX - i as u32,
+                    alpha: "ab".repeat(32),
+                })
+                .collect(),
+            pczt_hex: hexenc(&pczt),
+        };
+        let pubs: Vec<String> = (0..devices)
+            .map(|_| hexenc(&konclave_seal::DeviceKey::generate().public_bytes()))
+            .collect();
+        seal_request_wire(&req, &pubs).unwrap().len()
+    }
+
+    #[test]
+    fn the_largest_signable_transaction_is_derived_from_the_real_sealing() {
+        // The constant fits, at the largest vault, and one more action does not. If the sealing grows
+        // this fails on the first line; if it shrinks enough for one more, on the second, and the
+        // constant should be raised.
+        let fits = sealed_len_at_model(MAX_SIGNABLE_ACTIONS, SIZED_FOR_DEVICES);
+        assert!(fits <= RELAY_MAX_DATA, "{fits} > {RELAY_MAX_DATA}");
+        let over = sealed_len_at_model(MAX_SIGNABLE_ACTIONS + 1, SIZED_FOR_DEVICES);
+        assert!(over > RELAY_MAX_DATA, "{over} fits: raise the constant");
+        // Fewer devices never make it larger.
+        assert!(sealed_len_at_model(MAX_SIGNABLE_ACTIONS, 1) < fits);
+    }
+
+    #[test]
+    fn the_size_model_bounds_every_vector_in_the_repo() {
+        let vectors: [(&str, &[u8]); 5] = [
+            (
+                "ironwood_single_spend",
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/ironwood_single_spend.proven.pczt"
+                ),
+            ),
+            (
+                "ironwood_dummy_sk_spend",
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/ironwood_dummy_sk_spend.proven.pczt"
+                ),
+            ),
+            (
+                "orchard_mainnet_two_spend",
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt"
+                ),
+            ),
+            (
+                "orchard_mainnet_dkg_single_spend",
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/orchard_mainnet_dkg_single_spend.proven.pczt"
+                ),
+            ),
+            (
+                "nu7_testnet",
+                include_bytes!("../../konclave-wasm/tests/vectors/nu7_testnet.proven.pczt"),
+            ),
+        ];
+        for (name, v) in vectors {
+            let published = crate::pczt::published_copy(v).unwrap().len();
+            let actions = crate::pczt::action_count_of(v).unwrap();
+            let model = PCZT_FIXED_BYTES + PCZT_BYTES_PER_ACTION * actions;
+            assert!(published <= model, "{name}: {published} > {model}");
+        }
+    }
+
+    #[test]
+    fn a_too_large_refusal_survives_the_trip_through_a_tool_error() {
+        for t in [
+            TooLarge {
+                actions: 7,
+                max: 5,
+                payroll: true,
+            },
+            TooLarge {
+                actions: 12,
+                max: 5,
+                payroll: false,
+            },
+        ] {
+            assert_eq!(TooLarge::of(&t.into_error()), Some(t));
+        }
+        // Anything else is not one, including an engine error that happens to mention the word.
+        assert_eq!(TooLarge::of(&ToolError::parse("relay", "too-large")), None);
+        assert_eq!(TooLarge::of(&ToolError::parse("too-large:x:7:5", "")), None);
+        assert_eq!(
+            TooLarge::of(&ToolError::parse("too-large:payment:7", "")),
+            None
+        );
+        assert_eq!(
+            TooLarge::of(&ToolError::parse("too-large:payment:7:5:9", "")),
+            None
+        );
     }
 }

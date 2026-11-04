@@ -859,6 +859,16 @@ fn refuse_if_unfunded(
             })
             .to_string(),
         ))),
+        // #821. Built, and too large for the devices to be asked to sign: its signing request would not
+        // fit the one relay message it crosses as. Refused while it is being created, not after the
+        // quorum approved it, which is where it used to die.
+        Ok(Funding::TooLarge { actions, max }) => Ok(Some(too_many_actions_resp(
+            orchestrator::net_send::TooLarge {
+                actions,
+                max,
+                payroll: matches!(plan, SpendPlan::Payroll { .. }),
+            },
+        ))),
         Ok(Funding::Short {
             available,
             required,
@@ -877,6 +887,28 @@ fn refuse_if_unfunded(
         ))),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// The answer to a payment or payroll too large to be signed in one request (#821), wherever it is
+/// found: at creation, at the send's last gate, or inside the send before the request is published.
+/// 422 like the other "well-formed and cannot be satisfied" answers, with the two numbers the app
+/// words its own message from (`actions`, `max_actions`) and which remedy applies (`plan`).
+fn too_many_actions_resp(t: orchestrator::net_send::TooLarge) -> Resp {
+    let plan = if t.payroll { "payroll" } else { "payment" };
+    resp(
+        422,
+        json!({
+            "error": "too many actions",
+            "actions": t.actions,
+            "max_actions": t.max,
+            "plan": plan,
+            "detail": format!(
+                "this {plan} needs {} parts and one payment can carry at most {}",
+                t.actions, t.max
+            ),
+        })
+        .to_string(),
+    )
 }
 
 /// WHAT THE GATE PROVED, besides the name: `signed` is true only when a seat's signature was checked
@@ -1442,6 +1474,12 @@ fn send_result_resp(result: SendResult<Resp>) -> Resp {
                 409,
                 json!({ "error": kind.text(), "reason": kind.reason() }).to_string(),
             )
+        }
+        // #821. The send counted the transaction again, or measured its signing request, and the
+        // devices could not be asked to sign it. Nothing was published or broadcast; the same 422 as
+        // at creation, not a 502 "send failed".
+        SendResult::PrepareFailed(e) if orchestrator::net_send::TooLarge::of(&e).is_some() => {
+            too_many_actions_resp(orchestrator::net_send::TooLarge::of(&e).expect("checked above"))
         }
         SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
         SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
@@ -2725,6 +2763,7 @@ mod tests {
         "testnet address",
         "cannot receive shielded",
         "crosses shielded pools",
+        "too many actions",
         "payroll has no lines",
     ];
 
@@ -2802,6 +2841,41 @@ mod tests {
             );
             assert!(b.get("state").is_none(), "{text}");
             assert!(text.len() < 140, "the screen shows it verbatim: {text}");
+        }
+        // #821. Too large to sign, found inside the send: the same 422 as at creation, with the numbers
+        // and the plan the app words its message from.
+        for (payroll, plan) in [(true, "payroll"), (false, "payment")] {
+            let r = send_result_resp(SendResult::PrepareFailed(
+                orchestrator::net_send::TooLarge {
+                    actions: 7,
+                    max: 5,
+                    payroll,
+                }
+                .into_error(),
+            ));
+            assert_eq!(r.status, 422);
+            let b = body(r);
+            assert_eq!(
+                (
+                    b["error"].as_str(),
+                    b["actions"].as_u64(),
+                    b["max_actions"].as_u64(),
+                    b["plan"].as_str()
+                ),
+                (Some("too many actions"), Some(7), Some(5), Some(plan))
+            );
+            assert!(b.get("state").is_none());
+            // The detail is shown only if the app does not recognise the error, and must not be read
+            // as one of the other refusals it does recognise.
+            let detail = b["detail"].as_str().unwrap().to_lowercase();
+            assert!(detail.len() < 140, "{detail}");
+            for k in SCREEN_KEYWORDS
+                .iter()
+                .copied()
+                .filter(|k| *k != "too many actions")
+            {
+                assert!(!detail.contains(k), "{detail:?} would be read as {k:?}");
+            }
         }
         // An ordinary engine failure stays a 502.
         let r = send_result_resp(SendResult::PrepareFailed(

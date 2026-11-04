@@ -59,6 +59,16 @@ explicitly accepted.
 ### Fixed
 
 - Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
+- **A payment or payroll too large to be signed could be proposed and approved, and then fail at the
+  send (#821).** The signing request crosses the relay as one message, capped at 128 KiB, and it grows
+  with the number of actions the transaction carries (each payee, each note spent, the change, and
+  padding). Past about six actions, estimated and not measured live, the relay refused the request
+  after the quorum had approved and the transaction had been built and proved. Nothing moved, but the
+  approved proposal could not complete. The shared core now counts a transaction's actions in both
+  shielded pools, and the largest it lets a vault sign is one constant, 5. That number comes from the
+  real sealing, sized for a 32-seat vault and for the largest PCZT per action in the repo. It is read
+  from the same crate as the relay's cap. The repo holds no transaction above five actions, so the
+  refusal is tested with a lowered cap; at send time, the request's exact size is the guard.
 
 ## [0.16.0] 2026-10-30
 

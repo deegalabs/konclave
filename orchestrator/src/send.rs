@@ -141,6 +141,11 @@ pub enum Funding {
     /// payments, or consolidating the vault - and reporting it as a shortfall would send a member
     /// looking for funds they already have.
     CrossesPools,
+    /// The wallet CAN build it, and the devices cannot be asked to sign it: the transaction carries
+    /// `actions` actions, and the signing request of more than `max` does not fit the one relay
+    /// message it crosses as (#821). Refused here so that nobody approves a payment that cannot be
+    /// sent, which is where it used to fail.
+    TooLarge { actions: usize, max: usize },
 }
 
 /// Does this engine error mean "this transaction spends from both shielded pools"?
@@ -215,6 +220,16 @@ pub fn parse_insufficient_funds(stderr: &str) -> Option<(u64, u64)> {
 /// Work happens in a scratch directory that is removed afterwards, so a check never leaves a
 /// payroll spec behind (see #297 on the send path's own leftovers).
 pub fn funding_check(sc: &SendConfig, plan: &SpendPlan) -> Result<Funding, ToolError> {
+    funding_check_capped(sc, plan, net_send::MAX_SIGNABLE_ACTIONS)
+}
+
+/// [`funding_check`] against a given action cap, so the refusal can be driven with the vectors the
+/// repo has: none of them carries more actions than the real cap.
+fn funding_check_capped(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    max_actions: usize,
+) -> Result<Funding, ToolError> {
     let probe_dir = format!("{}/funding-check", sc.work_dir);
     let _ = std::fs::remove_dir_all(&probe_dir);
     std::fs::create_dir_all(&probe_dir).map_err(ToolError::Io)?;
@@ -250,9 +265,22 @@ pub fn funding_check(sc: &SendConfig, plan: &SpendPlan) -> Result<Funding, ToolE
         }
         Err(_) => false,
     };
+    // #821. The same built transaction says how large its signing request will be. A PCZT that cannot
+    // be read gives no answer here rather than a refusal we did not measure: the send counts again and
+    // checks the request's exact size before it is published.
+    let actions = outcome
+        .as_ref()
+        .ok()
+        .and_then(|bytes| pczt::action_count_of(bytes).ok());
     let _ = std::fs::remove_dir_all(&probe_dir);
     if crossed {
         return Ok(Funding::CrossesPools);
+    }
+    if let Some(actions) = actions.filter(|a| *a > max_actions) {
+        return Ok(Funding::TooLarge {
+            actions,
+            max: max_actions,
+        });
     }
     match outcome {
         Ok(_) => Ok(Funding::Ok),
@@ -647,7 +675,32 @@ pub fn net_prepare_send_gated<T: Transport>(
     poll_delay: Duration,
     gate: &EpochGate<'_>,
 ) -> Result<SignedSend, ToolError> {
+    prepare_capped(
+        sc,
+        plan,
+        client,
+        device_pubs,
+        max_polls,
+        poll_delay,
+        gate,
+        net_send::MAX_SIGNABLE_ACTIONS,
+    )
+}
+
+/// [`net_prepare_send_gated`] against a given action cap (see [`funding_check_capped`]).
+#[allow(clippy::too_many_arguments)]
+fn prepare_capped<T: Transport>(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    client: &RelayClient<T>,
+    device_pubs: &[String],
+    max_polls: u32,
+    poll_delay: Duration,
+    gate: &EpochGate<'_>,
+    max_actions: usize,
+) -> Result<SignedSend, ToolError> {
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
+    let payroll = matches!(plan, SpendPlan::Payroll { .. });
 
     // 0) the build hold: no new transaction is built for a branch that is about to stop being valid.
     // Both a single payment and a payroll go through `build_unproven` below, so one gate covers both.
@@ -658,6 +711,19 @@ pub fn net_prepare_send_gated<T: Transport>(
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_unproven(sc, plan)?;
+    // #821. Notes can change between the proposal and the send, so the count asked at proposal time is
+    // asked again, before the prove spends a minute on a transaction nobody can sign. A PCZT this
+    // cannot read goes on: the exact size check below is the guard.
+    if let Ok(actions) = pczt::action_count_of(&tx1) {
+        if actions > max_actions {
+            return Err(net_send::TooLarge {
+                actions,
+                max: max_actions,
+                payroll,
+            }
+            .into_error());
+        }
+    }
     let tx2 = pczt::prove(&sc.devtool, &sc.wallet_dir, &tx1)?;
     // The engine chooses the target height and the branch. What it built must be on the branch of
     // the epoch the next block belongs to, and a long-lived crossing must not be built close to an
@@ -683,7 +749,24 @@ pub fn net_prepare_send_gated<T: Transport>(
     // of the PCZT (see `pczt::published_copy`); `tx2` stays whole, to apply the signatures to.
     let published = pczt::published_copy(&tx2)?;
     let req = net_send::SignRequest::from_signing_input(&input, &published);
-    let posted = net_send::publish_sealed_request(client, &req, device_pubs)
+    // #821. The exact answer to "can the devices be asked to sign this": the request's own length
+    // against what the relay accepts. The count above rests on a size model; this rests on nothing.
+    // Over it, the relay would refuse the post with a 413 after the build and the prove, and the send
+    // would die as a relay failure. The count it reports is the real one, and the most that could
+    // have fitted is below it (the model said otherwise, which is the case this check exists for).
+    let wire =
+        net_send::seal_request_wire(&req, device_pubs).map_err(|e| ToolError::parse("relay", e))?;
+    if wire.len() > net_send::RELAY_MAX_DATA {
+        let actions = pczt::action_count_of(&tx2)?;
+        return Err(net_send::TooLarge {
+            actions,
+            max: max_actions.min(actions.saturating_sub(1)),
+            payroll,
+        }
+        .into_error());
+    }
+    let posted = client
+        .post(&wire)
         .map_err(|e| ToolError::parse("relay", e))?;
 
     // 4) poll until the devices return the aggregate signatures (or we time out).
@@ -988,6 +1071,27 @@ mod tests {
         proven_bytes: &[u8],
         extra: usize,
     ) -> (Result<SignedSend, ToolError>, Vec<String>) {
+        prepare_against_stand_ins_as(
+            tag,
+            proven_bytes,
+            extra,
+            None,
+            &[],
+            net_send::MAX_SIGNABLE_ACTIONS,
+        )
+    }
+
+    /// The same, with what the stand-in `create` prints (`None`: bytes that are not a PCZT), the
+    /// devices the request is sealed to, and the action cap (#821).
+    #[cfg(unix)]
+    fn prepare_against_stand_ins_as(
+        tag: &str,
+        proven_bytes: &[u8],
+        extra: usize,
+        unproven: Option<&[u8]>,
+        device_pubs: &[String],
+        max_actions: usize,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>) {
         use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
@@ -1008,10 +1112,18 @@ mod tests {
         // one, so reading the proven bytes where the signed ones belong cannot pass.
         let proven = dir.join("proven.pczt");
         std::fs::write(&proven, proven_bytes).unwrap();
+        let create = match unproven {
+            Some(bytes) => {
+                let path = dir.join("unproven.pczt");
+                std::fs::write(&path, bytes).unwrap();
+                format!("cat {}", path.display())
+            }
+            None => "printf unproven".to_string(),
+        };
         let devtool = script(
             "devtool",
             format!(
-                "case \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
+                "case \"$4\" in create) {create};; prove) cat >/dev/null; cat {};; esac",
                 proven.display()
             ),
         );
@@ -1054,14 +1166,15 @@ mod tests {
         // Mainnet has a row after NU6.3 (NU7), so the gate asks for the tip: well before the upgrade,
         // far from any hold.
         let no_tip = || -> Result<u64, ToolError> { Ok(3_500_000) };
-        let result = net_prepare_send_gated(
+        let result = prepare_capped(
             &sc,
             &plan,
             &relay,
-            &[],
+            device_pubs,
             5,
             Duration::from_millis(1),
             &fixed_clock_gate(&no_tip),
+            max_actions,
         );
         let seen = published.lock().unwrap().clone();
         std::fs::remove_dir_all(&dir).ok();
@@ -1551,6 +1664,121 @@ mod tests {
         let (result, seen) = prepare_against_stand_ins("junk", b"proven-not-a-pczt");
         assert!(result.is_err(), "the send must fail");
         assert!(seen.is_empty(), "nothing reached the room: {seen:?}");
+    }
+
+    // #821. No vector in the repo carries more actions than the real cap, so these drive the cap down
+    // to below the vector's four. What they pin is the wiring: the refusal is typed, says which plan it
+    // was, and comes before anything reaches the room.
+    #[cfg(unix)]
+    #[test]
+    fn a_transaction_with_more_actions_than_the_cap_is_refused_before_it_is_proved() {
+        let (result, seen) = prepare_against_stand_ins_as("count", PROVEN, 0, Some(VECTOR), &[], 3);
+        let e = result.expect_err("refused");
+        assert_eq!(
+            net_send::TooLarge::of(&e),
+            Some(net_send::TooLarge {
+                actions: 4,
+                max: 3,
+                payroll: false
+            })
+        );
+        assert!(seen.is_empty(), "nothing reached the room: {seen:?}");
+        // At the cap it goes on, and the send completes as before.
+        let (result, _) = prepare_against_stand_ins_as("count-ok", PROVEN, 0, Some(VECTOR), &[], 4);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    /// The exact check: a request that does not fit the relay is refused before it is posted, even when
+    /// the count let it through. Here a real four-action PCZT sealed to more devices than any vault has,
+    /// which the count (five) does not see.
+    #[cfg(unix)]
+    #[test]
+    fn a_signing_request_larger_than_the_relay_accepts_is_never_posted() {
+        let pubs: Vec<String> = (0..200)
+            .map(|_| {
+                konclave_seal::DeviceKey::generate()
+                    .public_bytes()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect()
+            })
+            .collect();
+        let (result, seen) = prepare_against_stand_ins_as(
+            "oversize",
+            PROVEN,
+            0,
+            None,
+            &pubs,
+            net_send::MAX_SIGNABLE_ACTIONS,
+        );
+        let e = result.expect_err("refused");
+        assert_eq!(
+            net_send::TooLarge::of(&e),
+            Some(net_send::TooLarge {
+                actions: 4,
+                max: 3,
+                payroll: false
+            }),
+            "{e}"
+        );
+        assert!(seen.is_empty(), "nothing reached the room: {seen:?}");
+    }
+
+    /// `funding_check` against stand-ins: `create` prints the four-action vector, `extract` accepts it.
+    #[cfg(unix)]
+    fn funding_with_cap(tag: &str, max_actions: usize) -> Result<Funding, ToolError> {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-funding-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let unproven = dir.join("unproven.pczt");
+        std::fs::write(&unproven, VECTOR).unwrap();
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut perm = std::fs::metadata(&path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&path, perm).unwrap();
+            path
+        };
+        let devtool = script(
+            "devtool",
+            format!("case \"$4\" in create) cat {};; esac", unproven.display()),
+        );
+        let signer = script(
+            "signer",
+            format!(
+                "echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}'",
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32)
+            ),
+        );
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let out = funding_check_capped(&sc, &plan, max_actions);
+        std::fs::remove_dir_all(&dir).ok();
+        out
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_proposal_whose_transaction_cannot_be_signed_is_refused_at_the_funding_check() {
+        assert_eq!(
+            funding_with_cap("over", 3).unwrap(),
+            Funding::TooLarge { actions: 4, max: 3 }
+        );
+        assert_eq!(funding_with_cap("at", 4).unwrap(), Funding::Ok);
     }
 
     /// What reaches the broadcast tool is the signed PCZT the record was made from, byte for byte, on

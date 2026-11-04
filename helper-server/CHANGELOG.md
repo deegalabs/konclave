@@ -106,6 +106,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A payment or payroll too large to be signed was refused only after the quorum approved it
+  (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
+  failure after everyone had voted. Creating one is now refused with a `422` `too many actions`,
+  carrying `actions`, `max_actions` and `plan` (`payment` or `payroll`). The send refuses the same
+  way, for a proposal that was approved before this or that grew because the vault's notes changed:
+  it counts again before proving, and measures the request's exact size before publishing it, so
+  nothing reaches the room. The limit is 5 actions. How many lines or notes that allows depends on
+  the vault's notes. A proposal whose build fails for an unrelated reason is still let through, as
+  before, and the send checks it. Not deployed yet.
 - **A wallet sync that never returned held a vault's wallet and one of the coordinator's workers
   until the coordinator restarted.** The coordinator put no time limit on the engine's wallet sync,
   and the engine's own connection has none. While a sync hung, that vault's later reads and sends

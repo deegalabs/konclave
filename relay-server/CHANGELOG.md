@@ -80,6 +80,12 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   process started. The hosted relay has run this since 2026-10-19 22:48 BRT (2026-10-20 01:48
   UTC); its `/health` reports `f8dc88d0970337a3`.
 
+### Fixed
+
+- **The message cap is now read from `konclave-http`, the crate the coordinator reads it from
+  (#821).** No change in what the relay accepts (128 KiB per message). The coordinator sizes the
+  largest payment it lets a vault propose from this number, so the two can no longer drift apart.
+
 ### Known limits
 
 - **The address the relay and the coordinator count a request under is only as good as the
