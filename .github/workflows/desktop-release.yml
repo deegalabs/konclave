@@ -73,6 +73,12 @@ jobs:
           KONCLAVE_DESKTOP_BUILD: '1'
         run: pnpm -C ui run build
 
+      # The flag is checked by what it produced, not trusted: the installers must carry the
+      # self-destroying sw.js (unregisters itself, precaches nothing). A web worker here would put the
+      # blank-window defect back into every installer. The rule and its tests: scripts/check-sw.mjs.
+      - name: Check the service worker is the self-destroying one
+        run: node scripts/check-sw-cli.mjs desktop ui/dist/sw.js
+
       # Pull the release notes for this tag from CHANGELOG.md so the GitHub release matches the
       # in-app version.
       #

@@ -12,6 +12,36 @@ const TAURI = () => { (window as unknown as Record<string, unknown>).__TAURI_INT
 const workers = (page: Page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)
 const controlled = (page: Page) => page.evaluate(() => navigator.serviceWorker.controller !== null)
 const workboxCaches = (page: Page) => page.evaluate(async () => (await caches.keys()).filter((k) => k.startsWith('workbox-')).length)
+// A vault record in the app's own IndexedDB store (where the sealed share lives) and a localStorage key
+// (where the selected vault and the settings live). The fix may touch workers and CacheStorage only.
+const VAULT_ID = 'c'.repeat(64)
+const seedRecords = (page: Page) => page.evaluate((id) => new Promise<void>((ok, fail) => {
+  localStorage.setItem('konclave.e2e-probe', 'kept')
+  const req = indexedDB.open('konclave', 1)
+  req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('vaults')) req.result.createObjectStore('vaults', { keyPath: 'id' }) }
+  req.onerror = () => fail(req.error)
+  req.onsuccess = () => {
+    const tx = req.result.transaction('vaults', 'readwrite')
+    tx.objectStore('vaults').put({ id, name: 'Probe vault', roster: ['A'], groupKey: 'ab'.repeat(32), address: 'u1demo',
+      createdAt: Date.now(), salt: new Uint8Array(16), iv: new Uint8Array(12), cipher: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) })
+    tx.oncomplete = () => { req.result.close(); ok() }
+    tx.onerror = () => fail(tx.error)
+  }
+}), VAULT_ID)
+const readRecords = (page: Page) => page.evaluate((id) => new Promise<{ local: string | null; vault: { name: string; cipher: number[] } | null }>((ok, fail) => {
+  const local = localStorage.getItem('konclave.e2e-probe')
+  const req = indexedDB.open('konclave', 1)
+  req.onerror = () => fail(req.error)
+  req.onsuccess = () => {
+    const get = req.result.transaction('vaults').objectStore('vaults').get(id)
+    get.onsuccess = () => {
+      const v = get.result as { name: string; cipher: Uint8Array } | undefined
+      req.result.close()
+      ok({ local, vault: v ? { name: v.name, cipher: [...v.cipher] } : null })
+    }
+    get.onerror = () => fail(get.error)
+  }
+}), VAULT_ID)
 const rendered = (page: Page) => page.evaluate(() => document.getElementById('root')?.childElementCount ?? 0)
 
 test('on the web the worker still registers (so the desktop checks below are not vacuous)', async ({ page }) => {
@@ -44,6 +74,7 @@ test('a worker an earlier version left in the profile is removed, with its cache
   await before.reload()
   await expect.poll(() => controlled(before), { timeout: 15_000 }).toBe(true)
   await expect.poll(() => workboxCaches(before), { timeout: 15_000 }).toBeGreaterThan(0)
+  await seedRecords(before)
   await before.close()
 
   // The same profile opened by the desktop app.
@@ -58,4 +89,7 @@ test('a worker an earlier version left in the profile is removed, with its cache
   expect(await controlled(page)).toBe(false)
   expect(await workers(page)).toBe(0)
   expect(await rendered(page)).toBeGreaterThan(0)
+  // What the member keeps on this device is still there, byte for byte, and the app reads it.
+  expect(await readRecords(page)).toEqual({ local: 'kept', vault: { name: 'Probe vault', cipher: [1, 2, 3, 4, 5, 6, 7, 8] } })
+  await expect(page.getByText('Probe vault')).toBeVisible()
 })

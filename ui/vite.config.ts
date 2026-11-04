@@ -7,19 +7,25 @@ import { readFileSync } from 'node:fs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
 // fall back to git; never fail the build if neither is present.
-// The desktop build (desktop-release.yml sets this) ships a SELF-DESTROYING service worker in place of
-// the web's: an `sw.js` that unregisters itself and empties the caches. The desktop app has no use for
-// a worker, and the one an earlier version left in the WebView profile opened the window blank after
-// an upgrade (desktop-worker.ts). The browser fetches `sw.js` by itself while checking the old worker
-// for an update, so this reaches a profile even when the page the old worker serves never runs.
-// Exactly '1', so a stray value cannot flip the web build.
-const desktopBuild = process.env.KONCLAVE_DESKTOP_BUILD === '1'
-
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 const commitSha = (() => {
   if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7)
   try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
 })()
+
+// The desktop build (desktop-release.yml sets KONCLAVE_DESKTOP_BUILD=1) ships a SELF-DESTROYING
+// service worker in place of the web's: an `sw.js` that unregisters itself and empties the caches.
+// The desktop app has no use for a worker, and the one an earlier version left in the WebView
+// profile opened the window blank after an upgrade (desktop-worker.ts). The browser fetches `sw.js`
+// by itself while checking the old worker for an update, so this reaches a profile even when the
+// page the old worker serves never runs. Unset or empty is the web build, exactly '1' is the desktop
+// build, and anything else stops the build: a typo ('true', 'yes') must not ship an installer with
+// the web's worker in it. Both workflows then check which `sw.js` came out.
+const desktopFlag = process.env.KONCLAVE_DESKTOP_BUILD ?? ''
+if (desktopFlag !== '' && desktopFlag !== '1') {
+  throw new Error(`KONCLAVE_DESKTOP_BUILD must be unset or exactly '1', got '${desktopFlag}'`)
+}
+const desktopBuild = desktopFlag === '1'
 
 // Relative base so the static build is served correctly by the local bridge
 // (`konclave serve`, ADR-0004) and by a future packaged webview.

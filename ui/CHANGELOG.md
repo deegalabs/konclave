@@ -138,10 +138,12 @@ history to tidy it is how context gets lost.
   copy: the installer brings the new version, and on its first launch the app removes the one an
   earlier version left, with no tap needed. Your vaults, shares and settings in that profile are not
   touched. If you renamed or moved the `EBWebView` folder to get the window back, keep that folder:
-  the vaults saved on that computer are inside it. If the part of the app around the screens (its
+  the vaults saved on that computer are inside it. This was checked in Chromium, the engine Windows'
+  WebView2 is built on, with an old copy left in a profile; it has not yet been checked on Windows
+  (see Known limits). On the desktop and on the web, if the part of the app around the screens (its
   language, notifications or navigation) fails, it now shows the "something broke" screen with
-  Reload, instead of a white page; a failing screen already did. The web app is unchanged:
-  it keeps its offline copy and its "new version" banner.
+  Reload, instead of a white page; a failing screen already did. The web keeps its offline copy and
+  its "new version" banner.
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
@@ -336,6 +338,11 @@ history to tidy it is how context gets lost.
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
   passkey does not rewrite the record, because a passkey does not open what the key is encrypted
   under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+- **The fix for the blank desktop window has not been run on Windows yet.** It was checked in
+  Chromium, with the desktop app's security policy and an old offline copy left in a profile, which
+  is not the same as the Windows app. Until an installer with this fix has been put over v0.16.0 on
+  Windows and the window opens, do not delete a renamed `EBWebView` folder, and if the window is blank,
+  renaming that folder is still the way back. This entry goes when that test passes.
 
 ## [0.16.0] 2026-10-30
 

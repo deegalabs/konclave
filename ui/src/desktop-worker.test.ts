@@ -66,9 +66,11 @@ describe('both halves are wired, in the places that run (one rule, one flag)', (
     expect(app.match(/<UpdatePrompt/g)).toHaveLength(1)
   })
 
-  it('the build makes the worker self-destroying exactly when KONCLAVE_DESKTOP_BUILD is "1"', () => {
+  it('the build makes the worker self-destroying exactly when KONCLAVE_DESKTOP_BUILD is "1", and stops on any other value', () => {
     const vite = codeOf('../vite.config.ts')
-    expect(vite).toMatch(/const desktopBuild = process\.env\.KONCLAVE_DESKTOP_BUILD === '1'/)
+    expect(vite).toMatch(/const desktopFlag = process\.env\.KONCLAVE_DESKTOP_BUILD \?\? ''/)
+    expect(vite).toMatch(/if \(desktopFlag !== '' && desktopFlag !== '1'\) \{\s*throw new Error/)
+    expect(vite).toMatch(/const desktopBuild = desktopFlag === '1'/)
     expect(vite).toMatch(/selfDestroying: desktopBuild,/)
   })
 
@@ -78,5 +80,25 @@ describe('both halves are wired, in the places that run (one rule, one flag)', (
     expect(step, 'the Build UI step').toBeTruthy()
     expect(step).toMatch(/KONCLAVE_DESKTOP_BUILD: '1'/)
     expect(step).toMatch(/run: pnpm -C ui run build/)
+  })
+
+  // Each workflow checks the sw.js it is about to ship, on the step right after the one that built it,
+  // so nothing between them can rebuild ui/dist with the other flag.
+  const stepsOf = (wf: string) => readFileSync(new URL(`../../.github/workflows/${wf}`, import.meta.url), 'utf8').split(/\n(?=\s+- (?:name|uses|run): )/)
+
+  it('desktop-release.yml checks for the self-destroying worker right after Build UI', () => {
+    const steps = stepsOf('desktop-release.yml')
+    const i = steps.findIndex((s) => /- name: Build UI\b/.test(s))
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(steps[i + 1]).toMatch(/run: node scripts\/check-sw-cli\.mjs desktop ui\/dist\/sw\.js/)
+  })
+
+  it('ci.yml checks the web build for the workbox worker right after building it, without the flag', () => {
+    const yml = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(yml).not.toMatch(/KONCLAVE_DESKTOP_BUILD/)
+    const steps = stepsOf('ci.yml')
+    const i = steps.findIndex((s) => /run: pnpm -C ui run build\b/.test(s))
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(steps[i + 1]).toMatch(/run: node scripts\/check-sw-cli\.mjs web ui\/dist\/sw\.js/)
   })
 })
