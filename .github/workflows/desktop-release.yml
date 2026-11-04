@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest   # .msi + .exe (NSIS)
+          - platform: windows-latest   # .exe (NSIS only; no .msi since v0.17.0)
           - platform: ubuntu-22.04      # .deb + .AppImage
           - platform: macos-latest      # .dmg (Apple Silicon)
     runs-on: ${{ matrix.platform }}
@@ -135,14 +135,51 @@ jobs:
             echo 'KONCLAVE_EOF'
           } >> "$GITHUB_OUTPUT"
 
+      # The Tauri CLI that bundles the installers, pinned. Without it tauri-action installs whatever
+      # 2.x is newest, and the Windows uninstall hook (src-tauri/windows/hooks.nsh) reads variables of
+      # the NSIS template that tauri-cli 2.12.4 carries (tauri-bundler =2.10.4). makensis only warns
+      # on an unknown variable, so a newer template could silently disable the question that protects
+      # the vaults. src-tauri/tests/config_contract.rs fails if this line changes: move both together.
+      - name: Install tauri-cli (pinned)
+        shell: bash
+        run: cargo install tauri-cli --version 2.12.4 --locked
+
       - name: Build + attach installers
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: cargo tauri
           projectPath: .
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: Konclave ${{ inputs.tag || github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body || 'Desktop installers (Windows / macOS / Linux).' }}
           releaseDraft: true
           prerelease: true
+
+  # SHA256SUMS of every file attached to the release (#606), once all three platforms have uploaded.
+  # If any platform failed, this does not run, so no release carries sums for part of its files.
+  # What it proves: that a download is the file this workflow attached. It does not prove who built
+  # it - the sums sit on the same release, under the same account - which is what signing and build
+  # attestation are for (#606, still open).
+  checksums:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: SHA256SUMS
+        shell: bash
+        # The tag is untrusted input; it reaches the shell only as data, through env.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir assets && cd assets
+          gh release download "$TAG"
+          # A re-run finds the previous SHA256SUMS among the assets; it is not one of the files.
+          rm -f SHA256SUMS
+          ls -1 | grep -q . || { echo "No assets on release $TAG"; exit 1; }
+          sha256sum -- * > ../SHA256SUMS
+          cat ../SHA256SUMS
+          gh release upload "$TAG" ../SHA256SUMS --clobber

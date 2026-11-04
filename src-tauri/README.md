@@ -34,17 +34,28 @@ never crosses that boundary. The exact JS contract is in
 | `src/main.rs` | Desktop entry point that calls `run()`. |
 | `tauri.conf.json` | `frontendDist` -> `../ui/dist`; window; CSP is `null` in the scaffold (must be tightened). |
 | `capabilities/default.json` | Core default permissions only. |
+| `windows/hooks.nsh` | NSIS uninstall hook: asks before "Delete the application data" deletes the vaults on this computer. |
+| `tests/config_contract.rs` | Fails if the identifier, the webview scheme, the NSIS-only target or the per-user install mode changes, if the release stops bundling with the pinned tauri-cli (the parsed workflow), or if the hook's code lines go missing or out of order. |
+| `icons/icon-source.svg` | The source the icons are generated from (the 12-ray mark on a dark rounded square). |
+
+**Do not change `identifier` or `useHttpsScheme`.** The sealed shares live in the webview's
+IndexedDB, which is kept per profile folder (named by the identifier) and per origin (on Windows,
+`http://tauri.localhost` while `useHttpsScheme` is false). Changing either makes the next version
+open an empty profile: nothing is deleted, but every vault on the computer looks gone.
 
 ## Prerequisites (all hosts)
 
-- Rust (repo uses 1.95) and the Tauri CLI: `cargo install tauri-cli --version "^2"` (or `npm i -g @tauri-apps/cli@2`).
+- Rust (repo uses 1.95) and the Tauri CLI the release uses: `cargo install tauri-cli --version 2.12.4 --locked`.
+  `windows/hooks.nsh` was checked against the NSIS template of that version; another one may build an
+  installer whose uninstall question never runs (`tests/config_contract.rs`).
 - Build the UI at least once so `../ui/dist` exists: `npm --prefix ../ui ci && npm --prefix ../ui run build`.
   For an installer, build it with `KONCLAVE_DESKTOP_BUILD=1` (as `desktop-release.yml` does): the bundle
   then ships a self-destroying service worker instead of the web's, which a desktop profile must not keep
   (a worker left by v0.15.0 opened v0.16.0 to a blank window on Windows). Any other value of the flag
   stops the build. Check the result with `node scripts/check-sw-cli.mjs desktop ui/dist/sw.js` from the
   repo root, the same check the release workflow runs.
-- Generate app icons once (bundling requires them): `npx tauri icon path/to/icon-1024.png`.
+- The icons in `icons/` are committed. To redraw them, from `src-tauri/`: `cargo tauri icon icons/icon-source.svg -o <tmp>`,
+  then copy back only the files `bundle.icon` lists, plus `icon.png`. `icons/icon-source.svg` says what it is drawn from.
 
 ## Per-target commands and honest status
 
@@ -60,7 +71,7 @@ cargo tauri dev
 cargo tauri build
 ```
 
-- **Windows** (`.msi` / `.exe` via WiX/NSIS), PLAN-ONLY. Needs a Windows host with MSVC
+- **Windows** (`.exe` via NSIS only, per-user install; no `.msi` since v0.17.0), PLAN-ONLY. Needs a Windows host with MSVC
   build tools + WebView2. Not run here.
 - **macOS** (`.app` / `.dmg`), NEEDS HARDWARE. Needs a Mac with Xcode command-line tools;
   signing/notarization need an Apple Developer ID. Not run here.
