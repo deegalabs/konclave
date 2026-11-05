@@ -399,7 +399,7 @@ export default function NewPayroll() {
       toast.ok(t('toast.payrollSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
     } else {
-      const msg = humanError(t, res.error, res.detail)
+      const msg = humanError(t, res.error, res.detail, res.tooLarge)
       setError(msg)
       toast.err(msg)
     }

@@ -110,15 +110,6 @@ explicitly accepted.
 
 ### Known limits
 
-- **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
-  message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
-  about 4 to 5 lines: 5 when the vault pays from Ironwood notes, 4 when it pays from Orchard notes,
-  and fewer when it pays from many small notes. Such a proposal is refused when it is created, with
-  the numbers, instead of after approval. The limit stays until the signing request no longer
-  travels inside one relay message.
-
-### Known limits
-
 - **Export your vaults before you uninstall.** The vaults on this computer live in the app's data
   folder, and an export (Settings, "Export this vault") is the only copy of this computer's seat
   that survives the folder being deleted.
@@ -133,6 +124,12 @@ explicitly accepted.
 - **The Windows changes are checked against the installer's source and compiled, not yet run on a
   Windows machine** (#212): the upgrade over a v0.16.0 `.msi`, the uninstall question, and that the
   vaults are still there afterwards.
+- **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
+  message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
+  about 4 to 5 lines: 5 when the vault pays from Ironwood notes, 4 when it pays from Orchard notes,
+  and fewer when it pays from many small notes. Such a proposal is refused when it is created, with
+  the numbers, instead of after approval. The limit stays until the signing request no longer
+  travels inside one relay message.
 
 ## [0.16.0] 2026-10-30
 

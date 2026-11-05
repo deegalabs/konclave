@@ -30,6 +30,7 @@ import { readSecretFor } from '../session'
 import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
+import { useSeatRefusal } from '../seat-registration'
 import { useLoading } from '../loading'
 import { isHistoryAnswer, nextBalanceView, type BalanceView } from '../useVaultBalance'
 
@@ -86,6 +87,7 @@ export default function Dashboard() {
   const t = useT()
   const tr = useTr()
   const { open: openSigning, bg } = useVaultSigner()
+  const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
   const [firstLoaded, setFirstLoaded] = useState(false)
@@ -440,6 +442,10 @@ export default function Dashboard() {
         {secured === false && (
           <BannerWarn>{t('dashboard.openBanner')}</BannerWarn>
         )}
+
+        {/* #821: the coordinator refused to register this device for its seat, so it cannot sign
+            or vote from here. Shown, not only logged. */}
+        {seatRefused && <BannerWarn>{t(seatRefused)}</BannerWarn>}
 
         {/* The pause around a network upgrade is enforced by the coordinator and reaches a member as an
             error when they try to pay. This tells them before, from the tip the balance already carries.
