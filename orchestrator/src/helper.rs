@@ -4093,6 +4093,61 @@ mod tests {
         ));
     }
 
+    // A real mainnet Sapling-only address: the same vector as `SAPLING` in `address.rs`'s tests
+    // (`sapling_only_is_not_payable_lock_risk`), copied because that one is private to its module.
+    // It decodes, it is on mainnet, and it is NOT transparent - so only the Orchard check refuses it.
+    const MAIN_SAPLING: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
+
+    /// §8, on the hosted path: a Sapling-only destination would lock the funds of an Orchard
+    /// vault, and `payment_plan` is the one check every hosted entry goes through. The transparent
+    /// case above cannot catch a check that only refuses transparent-only addresses; this one does.
+    #[test]
+    fn payment_plan_refuses_a_sapling_only_destination() {
+        assert_eq!(
+            payment_plan(MAIN_SAPLING, 50_000, None, NetworkType::Main).err(),
+            Some(SendReject::NotOrchard)
+        );
+        // With a memo too: a Sapling receiver can carry one, which must not make it payable.
+        assert_eq!(
+            payment_plan(
+                MAIN_SAPLING,
+                50_000,
+                Some("payslip".into()),
+                NetworkType::Main
+            )
+            .err(),
+            Some(SendReject::NotOrchard)
+        );
+    }
+
+    /// A payroll has no plan function of its own: the helper validates each line with
+    /// `payment_plan` (at creation and again at send). So one Sapling line among Orchard lines is
+    /// refused by the same check, and the Orchard lines beside it still pass.
+    #[test]
+    fn a_sapling_only_payroll_line_is_refused_by_the_per_line_check() {
+        let lines = [
+            (MAIN_ORCHARD_UA, 10_000),
+            (MAIN_SAPLING, 20_000),
+            (MAIN_ORCHARD_UA, 30_000),
+        ];
+        let verdicts: Vec<_> = lines
+            .iter()
+            .map(|(to, zat)| payment_plan(to, *zat, None, NetworkType::Main).err())
+            .collect();
+        assert_eq!(verdicts, vec![None, Some(SendReject::NotOrchard), None]);
+    }
+
+    /// The control for the two tests above: a Unified address with an Orchard receiver is accepted
+    /// on the same network, so the refusals are about the pool and nothing else.
+    #[test]
+    fn payment_plan_accepts_a_unified_address_with_an_orchard_receiver() {
+        assert!(matches!(
+            payment_plan(MAIN_ORCHARD_UA, 50_000, None, NetworkType::Main),
+            Ok(SpendPlan::Payment { .. })
+        ));
+    }
+
     #[test]
     fn send_config_maps_public_fields_and_leaves_ceremony_empty() {
         let cfg = send_cfg("main");

@@ -17,6 +17,7 @@ const SEALED_UFVK_KIND = 'konclave-ufvk-sealed'
 // ceremony with no hosted vault - the local-first path is unchanged.
 
 import { readSecretFor } from './session'
+import { isDesktop } from './platform'
 import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
@@ -41,10 +42,23 @@ function ls(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
 }
 
-/** The chosen coordination mode; defaults to 'ours' when a helper is baked in, else 'local'. */
+/** Whether 'local' coordination (no helper: the local bridge and the old `/create` ceremony) can
+ *  work in this shell. Not on desktop until #212: the Tauri shell embeds neither the orchestrator
+ *  nor the local bridge, so 'local' there sends every read and the ceremony to a bridge that does
+ *  not exist (#664). The one place this rule lives: the create chooser (Vaults), the coordination
+ *  row (Settings) and `getCoordMode` all read it. Make it `true` on desktop when #212 lands. */
+export function localCoordAvailable(): boolean {
+  return !isDesktop
+}
+
+/** The chosen coordination mode; defaults to 'ours' when a helper is baked in, else 'local'.
+ *  A saved 'local' is ignored where 'local' cannot work (desktop until #212): desktop members who
+ *  picked "This device only" while it was the only option on screen would otherwise stay routed to
+ *  the missing bridge after the hosted option comes back (#664). */
 export function getCoordMode(): CoordMode {
   const m = ls(MODE_KEY)
-  if (m === 'ours' || m === 'custom' || m === 'local') return m
+  if (m === 'ours' || m === 'custom') return m
+  if (m === 'local' && localCoordAvailable()) return m
   return HELPER_BASE ? 'ours' : 'local'
 }
 
