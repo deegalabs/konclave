@@ -74,7 +74,7 @@ history to tidy it is how context gets lost.
   entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
   follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
   export carries the period's name as its period. Until now the period was only read off
-  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+  the data, and the totals ignored every filter. The picker speaks both languages.
 - **The signing evidence names the payment it belongs to, and a sent payment points at its
   evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
   recognises; now each record that reached the chain shows the proposal with the same transaction
@@ -153,19 +153,17 @@ history to tidy it is how context gets lost.
 - Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
 - Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
 - One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
-- Creating a vault offered a quorum of 1, which the signing library refuses; the screen now offers 2 or more and checks the same rule as the DKG.
 - Ledger: the lines of a refused or expired payroll showed an outflow sign, as if the money had left.
 - Payroll copied from a previous one: a line whose address is not in this device's registry is flagged whatever its label says, and Propose waits for that line's own confirmation (leaving the field no longer counts).
-- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault and cleared on both, and the payroll screen behind the lock overlay neither shows it nor writes it back.
+- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault, cleared when the vault is removed and when the app opens on that vault locked (not when the tab is closed), and the payroll screen behind the lock overlay neither shows it nor writes it back.
 
 - **A payment or payroll too large to be signed in one go failed only after everyone approved it
   (#821).** It can no longer be proposed. The app now says why when proposing it, or when sending one
   approved before the change, on the vault screen and on `/net` alike, and names the numbers: how
   many parts the payment needs and the most one payment can carry. A payroll is told to split into
   smaller payrolls (the cause can be its lines or the many small amounts the vault pays it from); a
-  payment is told to send a smaller amount or split it into several payments. No line count is
-  promised, since how many lines fit depends on the vault and its funds. Needs the coordinator change
-  from the same issue to appear; until it is deployed, nothing changes.
+  payment is told to send a smaller amount or split it into several payments. Needs the coordinator
+  of this release to appear; until it is deployed, nothing changes.
 
 - **A device the vault's server did not register for its seat now says so (#821).** That device
   cannot sign payments or vote until it is registered, and the only trace was in the browser
@@ -218,16 +216,16 @@ history to tidy it is how context gets lost.
   changed. On every route change focus now goes to the main heading, without scrolling the page
   away from the top, and the browser tab is named after it; the first load and a change made while
   a dialog is open are left alone (#662).
-- **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
-  quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
-  screen still listed "1 of 3", a config built by hand or by an older client still reached the
+- **A vault can no longer be asked for with a quorum of 1.** The signing library refuses a quorum
+  below 2. The main create screen already stopped at 2 (0.8.0), but the older `/net` and `/create`
+  screens still offered 1, a configuration built by hand or by an older client still reached the
   ceremony, and when the library finally refused it, after every member had joined, the screen stayed
-  on the roster with no message. Now the floor is written once (`quorumIsPossible`), read by the
-  screen and by the ceremony: the `/net` select starts at 2, creating with an impossible quorum says
-  so before anything is sent to the room, and a failure at the start of the ceremony is shown as a
-  failed creation instead of disappearing. Still open: on the coordinator, registration accepts
-  `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
-  the ceremony, which then refuses it (#589).
+  on the roster with no message. Now one rule decides it, read by those screens and by the ceremony:
+  their choice starts at 2, creating with an impossible quorum says so before anything is sent to the
+  room, and a failure at the start of the ceremony is shown as a failed creation instead of
+  disappearing. The local bridge, which the desktop app does not include yet (#212), refuses it up
+  front too. Still open: the vault's server still registers a vault with a quorum of 1 when a client
+  asks for one (#589).
 - **The spreadsheet shows every amount to the zatoshi, and the book's totals are exact.** The XLSX
   formatted amounts with four decimals, so a small stipend (0.00001234 ZEC) read as 0.0000 in the
   accountant's copy, and the book on screen rounded each row and its totals to four places; and the
@@ -346,16 +344,12 @@ history to tidy it is how context gets lost.
   already says what happened and carries the export reminder. A screen reader hears each notice
   from a region that exists from the first paint, instead of a row inserted already filled, which
   many readers skip (#320).
-- **"Copied" was said before the clipboard answered.** The Receive page (the vault's address and the
-  payment link) and the proof page (the txids) fired the clipboard write and claimed success at
-  once; a denied permission or an unfocused tab refuses that write, and the member would paste
-  whatever the clipboard held before, believing it was the vault's address. Both now wait for the
-  answer; a refusal stays beside the button and asks for a copy by hand (#313).
 
 ### Known limits
 
-- **A payroll is limited to a few lines (#821).** One payment can carry at most 6 parts (5 in a
-  32-seat vault), so a payroll of about 4 to 5 lines, fewer when the vault pays from many small
+- **A payroll is limited to a few lines (#821).** One payment can carry at most 6 parts in a vault of
+  up to 31 devices (5 in a 32-seat vault), so a payroll of about 4 to 5 lines (4 when the vault pays
+  from Orchard notes), about 3 to 4 in a 32-seat vault, and fewer when the vault pays from many small
   amounts. The app refuses a larger one when it is proposed and says how many parts it needs.
 
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
@@ -363,6 +357,10 @@ history to tidy it is how context gets lost.
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
   passkey does not rewrite the record, because a passkey does not open what the key is encrypted
   under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+- **The payroll draft sits unencrypted in this browser's storage until it is cleared.** Addresses,
+  amounts and memos typed on the payroll screen are kept on the device so a reload does not lose
+  them, in the clear, until the vault is removed or the app opens on that vault locked. Closing the
+  tab does not clear it.
 
 ## [0.16.0] 2026-10-30
 

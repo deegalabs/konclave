@@ -69,14 +69,16 @@ explicitly accepted.
 - **Upgrading from 0.16.0: do NOT tick 'Delete the application data'.** On Windows the v0.17.0
   installer finds 0.16.0 with "Uninstall before installing" already selected, and Next runs
   0.16.0's own uninstaller. That one shows the box and does not ask: ticked, it deletes the vaults
-  stored on this computer. Leave it unticked and the upgraded app finds the same vaults. Export
-  each vault first anyway (Settings, "Export this vault"). From v0.17.0 on the uninstaller asks
-  (below).
+  stored on this computer. Leave it unticked and the upgraded app should find the same vaults: that
+  is what the installer's source says, and it has not yet been seen on a Windows machine (Known
+  limits). Export each vault first anyway (Settings, "Export this vault"). From v0.17.0 on the
+  uninstaller asks (below).
 - **Windows: the installer is the `.exe` only; the `.msi` is no longer built.** It installs for the
   current user, as the v0.16.0 `.exe` did. Installing v0.17.0 over a v0.16.0 `.msi` first runs the
   `.msi`'s own uninstaller (Windows asks for permission), which removes the program and leaves the
-  vaults, then installs per user, where the same vaults are found. One installer is one upgrade path
-  to keep right.
+  vaults, then installs per user, where the same vaults should be found. That is read from the
+  installer's source and not yet run on Windows (Known limits). One installer is one upgrade path to
+  keep right.
 - **Uninstalling on Windows asks before it deletes your vaults.** The uninstaller's "Delete the
   application data" box deletes the app's folder, and the sealed key share of every vault on this
   computer is in it; nothing said so. With the box ticked, the uninstaller now says that it deletes
@@ -91,7 +93,6 @@ explicitly accepted.
 ### Fixed
 
 - Desktop release: the app was built without the coordinator and relay addresses, so "Konclave-hosted" never appeared when creating a vault and the app looked for its relay at its own address, where none answers. The release now builds with the production addresses (`https://helper.konclave.xyz`, `https://relay.konclave.xyz`), says so in its notes, and fails when the built app does not carry them (#664). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
-- Desktop bridge: creating a vault accepted a quorum of 1, which the signing library refuses, and failed only inside the ceremony; the bridge now refuses it up front with the same floor of 2 as the DKG (`orchestrator`). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
 - **Windows: the desktop app could still open to a blank window after an upgrade.** A v0.15.0
   install left the web's offline copy (a service worker) in the app's WebView2 profile. After an
   upgrade that copy kept serving the old app, so the new page never ran, and the removal #834 put in
@@ -113,9 +114,10 @@ explicitly accepted.
   action is the largest of any PCZT in the repo, and the relay's cap is read from the same crate as
   the relay. A vault has at most 32 seats, the same number as the app, and at most 32 device records;
   device records no longer block a seat: a device registering for a seat always has room, and records
-  without a seat are limited to the vault's seat count. The repo holds no transaction above five
-  actions, so the refusal is tested with a lowered cap; at send time, the request's exact size is the
-  guard.
+  without a seat are limited to the vault's seat count. The refusal when a proposal is created needs
+  the coordinator of this release; until it is deployed, such a proposal is still accepted and fails
+  at the send, as before. The repo holds no transaction above five actions, so the refusal is tested
+  with a lowered cap; at send time, the request's exact size is the guard.
 
 ### Known limits
 
@@ -139,9 +141,10 @@ explicitly accepted.
   `Default\Service Worker` folder) is still the way back. This entry goes when that test passes.
 - **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
   message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
-  about 4 to 5 lines: 5 when the vault pays from Ironwood notes, 4 when it pays from Orchard notes,
-  and fewer when it pays from many small notes. Such a proposal is refused when it is created, with
-  the numbers, instead of after approval. The limit stays until the signing request no longer
+  about 4 to 5 lines in a vault of up to 31 devices (5 when the vault pays from Ironwood notes, 4 when
+  it pays from Orchard notes), about 3 to 4 in a 32-seat vault, and fewer when it pays from many small
+  notes. Such a proposal is refused when it is created, with the numbers, instead of after approval,
+  once the coordinator of this release is deployed. The limit stays until the signing request no longer
   travels inside one relay message.
 
 ## [0.16.0] 2026-10-30
