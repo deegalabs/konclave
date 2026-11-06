@@ -6,7 +6,7 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims 22 real Zcash **mainnet** transactions, one for each row of the table below.
+Konclave claims 24 real Zcash **mainnet** transactions, one for each row of the table below.
 The table is the record. Every other count in this repository is a description of it.
 
 Each row below is a **first for Konclave**: the first time Konclave proved one capability on the
@@ -39,6 +39,8 @@ be a claim you can check, not evidence of volume.
 | **First transaction on the released engine in production** (#608, #120): a private payroll of one line, one V6 transaction, made by an operator who describes the vault as a 2-of-3 vault created in the web app (not checked against the chain, which cannot show it), approved and signed on the production app and broadcast by the production coordinator right after the 2026-10-04 release went live. The chain shows an ordinary shielded V6 transaction and cannot show which engine built it: that the production coordinator ran the released engine at that moment is attested by the deploy record in `engine/versions.lock` (sha256 checked on the deploy host, sizes checked in the container, and the commit the coordinator reports), not by the block. | `1c53fe50c3179754b622b3a96efb43bd3ab0073b38c32bbccbec6d752c361ff4` | 3,506,220 |
 | **First production send on the redeployed coordinator** (commit `404a8bb`, deployed for the 0.14.0 release): a vault its operator describes as 2-of-2, signed on two devices in the 0.13.2 web app about three hours after the new coordinator went live. The chain shows an ordinary shielded V6 transaction with nothing transparent and cannot show which coordinator built it, nor the 2-of-2 shape. That rests on the commit the coordinator reports, the build recorded in `engine/versions.lock` and the operator, not on the block. | `ac696b9f5e261cf7c38e017a5651a57705360d0756e803b8199cc81f1ad75c58` | 3,527,232 |
 | **A send on the coordinator built at `c08c935`** (the 0.15.0 coordinator, deployed 2026-10-24 17:49 in Brasilia): a vault its operator describes as 2-of-2, signed on two devices in the web app about 45 minutes after that coordinator went live. The chain shows an ordinary shielded V6 transaction with nothing transparent and cannot show which coordinator built it. That rests on the commit the coordinator reports and on the operator, not on the block. | `8d198b019078abce564dfdfa3cb8588089a413733b41e549b8222599bc810c8e` | 3,529,405 |
+| **First send in production after NU7 that we recorded** (NU7 activated at block 3,543,405; this one is 16 blocks later): a shielded payment from a vault its operator describes as 2-of-2, approved and signed on two devices in the production web app v0.16.0 and built by the production coordinator at commit `aa778cd`. What the chain shows was read from it, not assumed: a v6 transaction under consensus branch `0x77190ad9`, through lightwalletd (zec.rocks, `GetTransaction`) and `zcash-devtool inspect` (V6 / Nu7), with a fee of 0.00015 ZEC on the explorer. The chain cannot show the 2-of-2 shape, the two devices, nor which build made it: that rests on the commit the coordinator reports, the version the web app shows and the operator, not on the block. It is the first such send we recorded, not one checked to be the first Konclave payment after NU7 across every vault. | `b232f20c07e917c2c1fee67a31c5c06d72e30719b05cce6fe4ee0889f7ea341c` | 3,543,421 |
+| **A private payroll of two lines on the coordinator code released as v0.17.0, on staging**: two beneficiaries in one v6 transaction, from a staging vault its operator describes as 2-of-2, built by the staging coordinator at commit `17bef799` (the coordinator code released as v0.17.0), with a fee of 0.00015 ZEC. Staging is a separate deployment that runs on mainnet, so this is a real mainnet transaction, but the production coordinator did not make it. The chain shows a shielded v6 transaction and cannot show that it pays two lines, the 2-of-2 shape, nor which coordinator built it: that rests on the commit the staging coordinator reports and on the operator, not on the block. | `3d60747c059dc966e86be3c1f71fd5e43304d920d5a8b1b7473cfdee4426167d` | 3,544,485 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
@@ -117,8 +119,9 @@ the way each vault's key was made:
   never whole on any machine. One is the dedicated DKG-vault send `aab00f90…`, whose 2-of-3
   group key was produced by a live DKG ceremony among three participants with the
   command-line tools, then funded and spent by a FROST ceremony. The rest are the sends from
-  `3022420a…` onward, from vaults created in the browser. Eight of those rows (`ef80a181…`,
-  `3fa08dce…`, `47e4e5dd…`, `7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`) do not name the key origin in the
+  `3022420a…` onward, from vaults created in the browser. Ten of those rows (`ef80a181…`,
+  `3fa08dce…`, `47e4e5dd…`, `7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`,
+  `b232f20c…`, `3d60747c…`) do not name the key origin in the
   table: they were made through the web app, which creates a vault by DKG and in no other
   way;
 - the signature was assembled by a FROST ceremony among the members who approved

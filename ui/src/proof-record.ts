@@ -230,6 +230,24 @@ export const PROOF_TXS: readonly ProofTx[] = [
       'pt-BR': 'Um envio no coordenador construído em c08c935 (o coordenador da 0.15.0, implantado em 24/10/2026 às 17:49 em Brasília): um cofre que o operador descreve como 2-de-2, assinado em dois aparelhos no app web cerca de 45 minutos depois de esse coordenador entrar no ar. A cadeia mostra uma transação blindada V6 comum, sem nada transparente, e não mostra qual coordenador a montou. Isso se apoia no commit que o coordenador informa e no operador, não no bloco.',
     },
   },
+  {
+    txid: 'b232f20c07e917c2c1fee67a31c5c06d72e30719b05cce6fe4ee0889f7ea341c',
+    block: 3543421,
+    origin: 'dkg',
+    label: {
+      en: 'First send in production after NU7 that we recorded (16 blocks after NU7 activated): a shielded payment from a vault its operator describes as 2-of-2, approved and signed on two devices in the production web app v0.16.0 and built by the production coordinator at commit aa778cd. Read from the chain through lightwalletd and zcash-devtool: a v6 transaction under the NU7 consensus branch, fee 0.00015 ZEC. The chain cannot show the 2-of-2 shape, the two devices, nor which build made it. That rests on the commit the coordinator reports, the version the web app shows and the operator, not on the block. It is the first such send we recorded, not one checked across every vault.',
+      'pt-BR': 'Primeiro envio em produção depois da NU7 que registramos (16 blocos depois de a NU7 ativar): um pagamento blindado de um cofre que o operador descreve como 2-de-2, aprovado e assinado em dois aparelhos no app web de produção v0.16.0 e montado pelo coordenador de produção no commit aa778cd. Lido da cadeia via lightwalletd e zcash-devtool: uma transação v6 sob o ramo de consenso da NU7, taxa de 0,00015 ZEC. A cadeia não mostra o formato 2-de-2, os dois aparelhos, nem qual build a montou. Isso se apoia no commit que o coordenador informa, na versão que o app web mostra e no operador, não no bloco. É o primeiro envio assim que registramos, não um conferido em todos os cofres.',
+    },
+  },
+  {
+    txid: '3d60747c059dc966e86be3c1f71fd5e43304d920d5a8b1b7473cfdee4426167d',
+    block: 3544485,
+    origin: 'dkg',
+    label: {
+      en: 'A private payroll of two lines on the coordinator code released as v0.17.0, on staging: two beneficiaries in one v6 transaction, from a staging vault its operator describes as 2-of-2, built by the staging coordinator at commit 17bef799, fee 0.00015 ZEC. Staging is a separate deployment that runs on mainnet, so this is a real mainnet transaction, but the production coordinator did not make it. The chain cannot show that it pays two lines, the 2-of-2 shape, nor which coordinator built it. That rests on the commit the staging coordinator reports and on the operator, not on the block.',
+      'pt-BR': 'Uma folha privada de duas linhas no código do coordenador lançado como v0.17.0, em staging: dois beneficiários em uma transação v6, de um cofre de staging que o operador descreve como 2-de-2, montada pelo coordenador de staging no commit 17bef799, taxa de 0,00015 ZEC. Staging é uma implantação separada que roda na mainnet, então esta é uma transação real da mainnet, mas não foi o coordenador de produção que a fez. A cadeia não mostra que ela paga duas linhas, o formato 2-de-2, nem qual coordenador a montou. Isso se apoia no commit que o coordenador de staging informa e no operador, não no bloco.',
+    },
+  },
 ]
 
 /** How many of the listed transactions came from each kind of vault. Counted, never typed. */
