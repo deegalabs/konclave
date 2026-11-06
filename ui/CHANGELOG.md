@@ -51,6 +51,14 @@ history to tidy it is how context gets lost.
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
 
+### Fixed
+
+- **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
+  "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
+  Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
+  showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
+  live formula (#812).
+
 ## [0.17.0] 2026-11-06
 
 ### Security
