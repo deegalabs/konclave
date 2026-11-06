@@ -106,6 +106,20 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A payment or payroll too large to be signed was refused only after the quorum approved it
+  (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
+  failure after everyone had voted. Creating one is now refused with a `422` `too many actions`,
+  carrying `actions`, `max_actions` and `plan` (`payment` or `payroll`). The limit depends on the
+  vault, because each device adds to the request: 6 actions for a vault of up to 31 devices, 5 at 32.
+  The send refuses the same way, for a proposal approved before this or one that grew because the
+  vault's notes changed: it counts again before proving, sized for the devices it really seals to, and
+  measures the request's exact size before publishing it, so nothing reaches the room. Registering a
+  vault with more than 32 seats is now a `400`. Each device record adds to every signing request, so
+  a vault now holds at most 32 of them, and device records no longer block a seat: a device
+  registering for a seat is always accepted, and when the registry is full the oldest record without
+  a seat makes room for it. Records without a seat are limited to the vault's seat count; one past
+  that is a `409`. A proposal whose build fails for an unrelated reason is still let through, as
+  before, and the send checks it. The hosted coordinator has run this since 2026-11-06.
 - **A wallet sync that never returned held a vault's wallet and one of the coordinator's workers
   until the coordinator restarted.** The coordinator put no time limit on the engine's wallet sync,
   and the engine's own connection has none. While a sync hung, that vault's later reads and sends
@@ -128,6 +142,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
+  message, so a transaction can carry at most 6 actions (5 in a 32-seat vault): a payroll of about 4
+  to 5 lines in a vault of up to 31 devices (4 when the vault pays from Orchard notes), about 3 to 4
+  in a 32-seat vault, and fewer when it pays from many small notes. Such a proposal is refused when it
+  is created, with the numbers, instead of after approval. The limit stays until the signing request no
+  longer travels inside one relay message. The hosted coordinator has run this since 2026-11-06.
 - **The 300-second limit covers the wallet sync only.** Every other call to the engine still has
   none: the step that upgrades a vault's wallet, the balance and history reads that follow a sync,
   the build and proof of a payment or a payroll, and the broadcast of a send.

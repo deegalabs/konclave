@@ -24,7 +24,8 @@
 // share - and to nothing else.
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
-import { registerDeviceKey, registerReadKey } from './helper'
+import { lastHelperPostFailure, registerDeviceKey, registerReadKey } from './helper'
+import { noteSeatRefused, noteSeatRegistered, seatRefusalKey } from './seat-registration'
 import { deriveReadKey } from './vault-secret'
 import { devicePubHex, deviceWriteKeyHex } from './device-key'
 import type { VaultLoaded } from './storage'
@@ -65,8 +66,13 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
       console.error('[konclave] this device could not register its seat with the coordinator', {
         vault: vaultId.slice(0, 8), seat: b.seat,
       })
+      // #821: a REFUSAL is shown, not only logged. The seat is then without a device on record, so
+      // this device cannot sign or vote until it is. A coordinator that did not answer is not one.
+      const f = lastHelperPostFailure()
+      if (f && f.status >= 400 && f.status < 500) noteSeatRefused(vaultId, seatRefusalKey(f.error))
       return false
     }
+    noteSeatRegistered(vaultId)
     return true
   } catch (e) {
     // Same reasoning as the branch above, for the half that fails before the request is made -

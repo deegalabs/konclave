@@ -53,7 +53,9 @@ open an empty profile: nothing is deleted, but every vault on the computer looks
   then ships a self-destroying service worker instead of the web's, which a desktop profile must not keep
   (a worker left by v0.15.0 opened v0.16.0 to a blank window on Windows). Any other value of the flag
   stops the build. Check the result with `node scripts/check-sw-cli.mjs desktop ui/dist/sw.js` from the
-  repo root, the same check the release workflow runs.
+  repo root, the same check the release workflow runs. On Windows the shell also deletes the profile's
+  `EBWebView\Default\Service Worker` folder before the window opens, once per version
+  (`src/webview_cleanup.rs`); that is why the main window is `"create": false` and built in `setup()`.
 - The icons in `icons/` are committed. To redraw them, from `src-tauri/`: `cargo tauri icon icons/icon-source.svg -o <tmp>`,
   then copy back only the files `bundle.icon` lists, plus `icon.png`. `icons/icon-source.svg` says what it is drawn from.
 

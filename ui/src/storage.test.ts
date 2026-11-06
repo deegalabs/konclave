@@ -984,6 +984,30 @@ describe('the viewing key is sealed at rest (#599)', () => {
     expect(rec.changeReceiver).toBe('u1pinned')
   })
 
+  it('neither viewing-key failure logs the full vault id, only its first 8 characters', async () => {
+    // A vault's id is its group key. The console is read by extensions and copied into bug reports,
+    // so a failure names the vault by prefix, as the rest of the app does.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // The sealed key does not open.
+    await imported()
+    const rec = await rawRecord()
+    const damaged = (rec.ufvkCipher as Uint8Array).slice()
+    damaged[0]! ^= 0xff
+    await putRaw({ ...rec, ufvkCipher: damaged })
+    await loadVault(id, 'pass')
+    // The migration of a plain key cannot seal it.
+    await writtenBeforeTheFix()
+    const seal = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
+    await loadVault(id, 'pass')
+    seal.mockRestore()
+    const logged = JSON.stringify(error.mock.calls)
+    error.mockRestore()
+    expect(logged).toContain('did not open')
+    expect(logged).toContain('could not seal')
+    expect(logged).toContain(id.slice(0, 8))
+    expect(logged).not.toContain(id)
+  })
+
   it('a passphrase change refuses rather than erase a sealed viewing key that did not open', async () => {
     await imported('older river stone maple')
     const rec = await rawRecord()

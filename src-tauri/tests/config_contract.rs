@@ -166,3 +166,37 @@ fn uninstall_hook_asks_before_deleting() {
         at += found + step.len();
     }
 }
+
+// The stale service worker in the WebView2 profile has to go before the webview opens it
+// (src/webview_cleanup.rs). Tauri builds `create: true` windows before the setup hook, so the main
+// window must stay `create: false` and be built in setup() after the cleanup, in Tauri's data
+// folder (no `dataDirectory`, or the cleanup looks in the wrong place).
+#[test]
+fn main_window_opens_after_the_service_worker_cleanup() {
+    let conf = conf();
+    let windows = conf["app"]["windows"].as_array().expect("windows array");
+    let main = windows
+        .iter()
+        .find(|w| w["label"] == "main")
+        .expect("a main window");
+    assert_eq!(
+        main["create"], false,
+        "Tauri would open it before the cleanup runs"
+    );
+    assert!(
+        main.get("dataDirectory").is_none(),
+        "the cleanup reads Tauri's default folder"
+    );
+
+    let lib = include_str!("../src/lib.rs");
+    let cleanup = lib
+        .find("retire_stale_service_worker(app)")
+        .expect("setup runs the cleanup");
+    let build = lib
+        .find("WebviewWindowBuilder::from_config(")
+        .expect("setup builds from config");
+    assert!(
+        cleanup < build,
+        "the cleanup must run before the window is built"
+    );
+}

@@ -349,7 +349,7 @@ async function openUfvk(key: CryptoKey, record: VaultRecord): Promise<string | u
     const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.ufvkIv), additionalData: bufOf(UFVK_AAD) }, key, bufOf(record.ufvkCipher))
     return new TextDecoder().decode(buf)
   } catch {
-    console.error('[konclave] the sealed viewing key on this device did not open', { id: record.id })
+    console.error('[konclave] the sealed viewing key on this device did not open', { id: record.id.slice(0, 8) })
     return undefined
   }
 }
@@ -400,7 +400,7 @@ async function retireClearUfvk(record: VaultRecord, key: CryptoKey, ufvk: string
       return next
     })
   } catch {
-    console.error('[konclave] could not seal the viewing key on this device; the next unlock tries again', { id: record.id })
+    console.error('[konclave] could not seal the viewing key on this device; the next unlock tries again', { id: record.id.slice(0, 8) })
   }
 }
 
