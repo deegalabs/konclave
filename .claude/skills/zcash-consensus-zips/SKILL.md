@@ -14,17 +14,21 @@ the rules below lives in a ZIP that has *no text at all* yet.
 | ZIP | Title | Status | Upgrade |
 |---|---|---|---|
 | 244 | Transaction Identifier Non-Malleability | **Final** | NU5 |
-| 317 | Proportional Transfer Fee Mechanism | **Rev 0 Active**; Rev 1 (NU6.3) Draft; Rev 2 Draft | - / NU6.3 |
-| 258 | Deployment of the NU6.3 Network Upgrade | Draft | NU6.3 |
+| 317 | Proportional Transfer Fee Mechanism | **Rev 0 Active**; **Rev 1 (NU6.3) Active**; Rev 2 (ZIP 2009) Proposed | - / NU6.3 / - |
+| 258 | Deployment of the NU6.3 Network Upgrade | **Final** | NU6.3 |
 | 229 | Version 6 Transaction Format | Draft | NU6.3 |
 | 2005 | Ironwood Quantum Recoverability | Proposed | NU6.3 |
-| 2006 | Restricting Transfers to the Orchard Pool | **Reserved - header only, no spec text** | NU6.3 |
+| 2006 | Restricting Transfers into the Orchard Pool | **Final** (Category: Consensus) | NU6.3 |
 | 326 | NU6.3 Consequences for Wallets | Draft (Category: Wallet) | NU6.3 |
 | 318 | Orchard to Ironwood Migration | Draft (Category: Wallet) | NU6.3 |
 | 374 | Partially Created Zcash Transaction Format | Draft | - (Wallet) |
-| 218 | 25-second Block Target Spacing | Draft | **NU7 - not active** |
+| 218 | 25-second Block Target Spacing | Proposed | NU7 |
+| 259 | Deployment of the NU7 Network Upgrade | Proposed | NU7 |
+| 2009 | Reduce Marginal Fee to 1000 Zatoshis and Raise the Weight Ratio Cap to 10 | Proposed (Standards / Wallet) | - (Mainnet height 3590000) |
 
 NU6.3 activation (ZIP 258): Mainnet `3428143`, Testnet `4134000`, consensus branch ID `0x37A5165B`.
+NU7 activation (ZIP 259): Mainnet `3543405`, Testnet `4465026`, consensus branch ID `0x77190AD9`.
+NU7 deploys ZIPs 207 (Rev 2), 214 (Rev 3), 218, 235, 237, 2003 and 2008; not 233 or 234.
 
 ## The pools, and which one a new receive lands in
 
@@ -78,9 +82,11 @@ Mainnet."`
 text "does not exist yet". It does, and it is in **ZIP 258**, not ZIP 2006.
 
 ZIP 326 is right that its own rules `"concern only how a wallet generates and uses keys; they are not
-consensus rules."` And ZIP 2006 is genuinely **Reserved** and empty: 843 bytes, an eight-line
-preamble, no spec text. But ZIP 258 (*Deployment of NU6.3*), section *Consensus rules from NU6.3
-activation*, carries the real thing:
+consensus rules."` ZIP 2006 was **Reserved** and empty when this was written (843 bytes, an
+eight-line preamble); it is now **Final** and specifies the `enableCrossAddress` flag, the condition
+in the Action statement, and the consensus rules for both Orchard-pool restrictions. ZIP 258
+(*Deployment of NU6.3*, also **Final**), section *Consensus rules from NU6.3 activation*, carries
+the real thing:
 
 - `enableCrossAddress` **MUST be 0** on every Orchard-pool Action, **enforced by the circuit
   verifying key**, so it binds v5 transactions too.
@@ -181,14 +187,16 @@ inputs"` or the merge fails.
 
 ### 5. Do not invent a fee - compute the ZIP 317 conventional fee
 
-**ZIP 317 Revision 0 is Active**; Revision 1 (NU6.3, adds Ironwood) and Revision 2 (memo bundles,
-needs **ZIP 231**, Memo Bundles) are Draft. There is no ZIP 248 in the index.
+**ZIP 317 Revisions 0 and 1 are Active** (Revision 1, NU6.3, adds Ironwood). Revision 2 is **ZIP
+2009** (Proposed): `marginal_fee` 1000 and `weight_ratio_cap` 10 from `FEE_REDUCTION_HEIGHT`, Mainnet
+`3590000`. An earlier version of this line called Revision 2 the memo-bundle revision (**ZIP 231**);
+ZIP 317 has since removed that draft. There is no ZIP 248 in the index.
 
 ```
 conventional_fee = marginal_fee · max(grace_actions, logical_actions)
 
-marginal_fee  = 5000 zatoshis per logical action
-grace_actions = 2                       →  floor of 10000 zatoshis (0.0001 ZEC)
+marginal_fee  = 5000 zatoshis per logical action   # 1000 from Mainnet height 3590000 (ZIP 2009)
+grace_actions = 2                       →  floor of 10000 zatoshis (0.0001 ZEC); 2000 from 3590000
 
 logical_actions = max( ceiling(tx_in_total_size / 150),
                        ceiling(tx_out_total_size / 34) )   # transparent
@@ -219,20 +227,22 @@ substitute for it.
 
 ### 6. Do not assume a per-transaction action cap exists today
 
-**ZIP 218 is Draft and targets NU7, which is not active.** It is titled *25-second Block Target
-Spacing*; the action limits are a DoS side-effect of the faster blocks, and they are **per block,
-not per transaction**: `"The total number of Orchard actions across all transactions in the block
-MUST NOT exceed 330"` (Sapling inputs+outputs 300; Sprout JoinSplits 25; combined shielded cost
-330). It imposes no per-transaction limit, and the existing 2 MB block size limit continues to apply.
+**ZIP 218 is Proposed and deployed by NU7 (ZIP 259), Mainnet block 3,543,405.** It is titled
+*25-second Block Target Spacing*; the action limits are a DoS side-effect of the faster blocks, and
+they are **per block, not per transaction**: `"The total number of Orchard actions across all
+transactions in the block MUST NOT exceed"` 330 (Ironwood actions 330; Sapling inputs+outputs 300;
+Sprout JoinSplits 0; combined shielded cost 330). It imposes no per-transaction limit, and the
+existing 2 MB block size limit continues to apply.
 
-**And it never mentions Ironwood.** Zero occurrences: it was created 2026-03-13, before NU6.3, and
-its 330-per-block budget counts Orchard, Sapling and Sprout only. As drafted it does not bind the
-pool where new shielded value now lives.
+**It covers Ironwood since 2026-09-15.** Ironwood actions have their own 330-per-block limit, and
+Orchard and Ironwood actions share one global budget: `"Orchard and Ironwood do not receive separate
+330-unit global budgets"`. An earlier version of this paragraph said it never mentions Ironwood,
+which was true of the draft created 2026-03-13.
 
-So today, the ceiling on a large payroll is **transaction size** (and ZIP 229's `"nActionsIronwood
-MUST be less than..."` bound), not ZIP 218. If NU7 activates, a 330-action *block* cap becomes a
+So before block 3,543,405, the ceiling on a large payroll is **transaction size** (and ZIP 229's
+`"nActionsIronwood MUST be less than..."` bound), not ZIP 218. From NU7, a 330-action *block* cap becomes a
 throughput and confirmation-latency concern for a big payroll competing with other transactions -
-still not a hard per-transaction cap. Do not cite ZIP 218 as current law.
+still not a hard per-transaction cap. Do not cite ZIP 218 as law before block 3,543,405.
 
 ---
 
@@ -240,13 +250,14 @@ still not a hard per-transaction cap. Do not cite ZIP 218 as current law.
 
 Not covered because it belongs to other skills: the FROST protocol and ZIP 312 (Draft, Category
 Wallet, no target upgrade), the engine binaries, and this repo's own code. Left out for lack of a
-primary source: NU7 activation heights (ZIP 218 says deployment is a separate ZIP; no activation
-height is published), ZIP 2006's consensus text (Reserved, empty), and the exact Orchard/Ironwood
-bundle padding floor (builder-determined in librustzcash, not stated as a ZIP rule).
+primary source: the exact Orchard/Ironwood bundle padding floor (builder-determined in librustzcash,
+not stated as a ZIP rule).
 
 ---
 
-**Verified against zips.z.cash and zcash/librustzcash on 2026-08-31.** Re-check by refetching
-`zips.z.cash/zip-0326`, `-0244`, `-0317`, `-0374`, `-0229`, `-0258`, `-0218` (statuses change; three
-of the NU6.3 ZIPs are still Draft and ZIP 2006 is still unwritten) and
+**Verified against zips.z.cash and zcash/librustzcash on 2026-08-31; statuses, NU7, ZIP 218 and
+ZIP 2009 re-verified on 2026-11-04 against the `zcash/zips` source (d97c23e).** Re-check by
+refetching `zips.z.cash/zip-0326`, `-0244`, `-0317`, `-0374`, `-0229`, `-0258`, `-0218`, `-0259`,
+`-2006`, `-2009` (statuses change; ZIPs 229, 326 and 318 are still Draft, and 218, 259 and 2009 are
+Proposed) and
 `zcash_primitives/src/transaction/fees/zip317.rs` before relying on any constant here.

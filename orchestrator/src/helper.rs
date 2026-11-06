@@ -944,6 +944,26 @@ pub fn load_write_keys(
     }
 }
 
+/// The most seats a vault can have, and so the most devices a signing request is sealed to (#821).
+///
+/// The app's own limit (`MAX_SEATS` in `ui/src/dkg-ceremony.ts`, bound to this one by
+/// `the_seat_cap_is_the_apps`): the coordinator refuses a vault registered with more, and a device
+/// record past it. Each device adds a box to the sealed signing request, so an unbounded registry
+/// would let the request outgrow the relay; with this bound, what a proposal is checked against at
+/// creation is never smaller than what its send is sealed to.
+pub const MAX_SEATS: u16 = 32;
+
+/// The most devices a send of this vault can be sealed to, as far as the registry can tell now: the
+/// devices on record, or the seats still to register, whichever is more (a send is sealed only once
+/// every seat has a device). An unreadable registry counts as full: a guess that is too small would
+/// let a proposal through that its send cannot carry.
+pub fn sealing_devices_upper_bound(vaults_dir: &Path, vault: &str, total: u16) -> usize {
+    match load_device_records(vaults_dir, vault) {
+        Ok(recs) => recs.len().max(total as usize),
+        Err(_) => MAX_SEATS as usize,
+    }
+}
+
 /// Why a device registration did not go through. The coordinator maps each to one status; the
 /// reasons carry no mechanism.
 #[derive(Debug)]
@@ -1028,7 +1048,10 @@ pub fn register_device(
     let write = match (seat, write_pub.map(str::trim)) {
         (None, None) => None,
         (Some(seat), Some(wp)) => {
-            if seat == 0 || (total > 0 && seat > total) {
+            // A legacy vault registered with `total == 0` has no seat count of its own; it is held to
+            // the most seats any vault can have, so seated records stay bounded there too (#821).
+            let last = if total > 0 { total } else { MAX_SEATS };
+            if seat == 0 || seat > last {
                 return Err(DeviceError::Invalid(
                     "seat is outside this vault's seats".into(),
                 ));
@@ -1042,7 +1065,10 @@ pub fn register_device(
             ))
         }
     };
-    upsert_device(vaults_dir, vault, comms, write)
+    // Records with no seat are bounded by the seats this vault has (one older device per seat at
+    // most), so they cannot outnumber the seats they stand in for.
+    let unseated_cap = if total > 0 { total } else { MAX_SEATS } as usize;
+    upsert_device_bounded(vaults_dir, vault, comms, write, unseated_cap)
 }
 
 /// A send that no seat signed and that would have to be published unsealed. See [`request_recipients`].
@@ -1154,6 +1180,25 @@ pub fn upsert_device(
     comms: &str,
     write: Option<(u16, &str)>,
 ) -> Result<bool, DeviceError> {
+    upsert_device_bounded(vaults_dir, vault, comms, write, MAX_SEATS as usize)
+}
+
+/// [`upsert_device`] with the most records WITHOUT a seat this vault may hold (#821).
+///
+/// The registry holds at most [`MAX_SEATS`] records, because each adds a box to every signing request.
+/// Within that, a seat always wins: a device registering for a seat (new, or binding a record it
+/// already has) is never refused for room. Seats are unique and at most `MAX_SEATS`, so seated
+/// records cannot overflow the registry; when it is full, the oldest record with no seat is dropped
+/// to make room. A record with no seat is refused once the registry is full or once `unseated_cap`
+/// records without a seat are on record. So records without a seat can never keep a seat out of
+/// the sealed request.
+fn upsert_device_bounded(
+    vaults_dir: &Path,
+    vault: &str,
+    comms: &str,
+    write: Option<(u16, &str)>,
+    unseated_cap: usize,
+) -> Result<bool, DeviceError> {
     let comms = comms.trim();
     let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
 
@@ -1187,6 +1232,28 @@ pub fn upsert_device(
             }
         }
         None => {
+            // #821. A new device adds a box to every signing request this vault sends, so the
+            // registry holds at most MAX_SEATS records, and a seat always has room in it.
+            if write.is_some() {
+                while recs.len() >= MAX_SEATS as usize {
+                    match recs.iter().position(|r| r.seat.is_none()) {
+                        Some(oldest) => {
+                            recs.remove(oldest);
+                        }
+                        // Every record holds a seat: only a registry written before the limit can be
+                        // here. The seat is still not refused.
+                        None => break,
+                    }
+                }
+            } else {
+                let unseated = recs.iter().filter(|r| r.seat.is_none()).count();
+                if recs.len() >= MAX_SEATS as usize || unseated >= unseated_cap {
+                    return Err(DeviceError::Conflict(
+                        "this vault already has as many devices without a seat as it can hold"
+                            .into(),
+                    ));
+                }
+            }
             recs.push(DeviceRecord {
                 comms: comms.to_string(),
                 seat: write.map(|(s, _)| s),
@@ -2791,6 +2858,135 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    // #821. Records with no seat never keep a seat out. A registry filled with records that belong to
+    // no seat must still take every seat's device, or that seat gets no box in the sealed request and
+    // cannot sign.
+    #[test]
+    fn records_without_a_seat_never_keep_a_seat_out() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-crowd-{}", std::process::id()));
+        let v = "e".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        // A full registry of records with no seat (written before any limit existed, or by a vault
+        // with no seat count of its own).
+        let flat: Vec<String> = (0..MAX_SEATS).map(|i| format!("{i:064x}")).collect();
+        std::fs::write(
+            dir.join(&v).join("device-keys.json"),
+            serde_json::to_string(&flat).unwrap(),
+        )
+        .unwrap();
+        // Three seats register new devices: every one is taken.
+        for seat in 1..=3u16 {
+            let comms = format!("{:064x}", 1000 + seat);
+            assert!(
+                upsert_device(&dir, &v, &comms, Some((seat, "aa"))).unwrap(),
+                "seat {seat} was refused"
+            );
+        }
+        let recs = load_device_records(&dir, &v).unwrap();
+        assert_eq!(recs.len(), MAX_SEATS as usize, "the registry stays bounded");
+        for seat in 1..=3u16 {
+            assert_eq!(recs.iter().filter(|r| r.seat == Some(seat)).count(), 1);
+        }
+        // The oldest records with no seat made the room.
+        assert!(!recs.iter().any(|r| r.comms == format!("{:064x}", 0)));
+        // And a seat re-registering on the full registry is a no-op, not a refusal.
+        assert!(!upsert_device(&dir, &v, &format!("{:064x}", 1001), Some((1, "aa"))).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A device comms key the coordinator can seal to, distinct per `i`.
+    fn comms_key(i: u16) -> String {
+        let mut secret = [7u8; 32];
+        // Away from the first byte, whose low bits X25519 clears.
+        secret[8..10].copy_from_slice(&i.to_le_bytes());
+        konclave_seal::DeviceKey::from_secret_bytes(&secret)
+            .public_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    /// A canonical, strong Ed25519 write key, distinct per `i`.
+    fn write_key(i: u16) -> String {
+        let mut secret = [9u8; 32];
+        // Away from the first byte, whose low bits X25519 clears.
+        secret[8..10].copy_from_slice(&i.to_le_bytes());
+        ed25519_dalek::SigningKey::from_bytes(&secret)
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn records_without_a_seat_are_bounded_by_the_seats() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-dev-unseated-{}", std::process::id()));
+        let v = "d".repeat(64);
+        // A 2-of-3: at most three records without a seat.
+        for i in 0..3u16 {
+            assert!(register_device(&dir, &v, 3, &comms_key(i), None, None).unwrap());
+        }
+        let fourth = register_device(&dir, &v, 3, &comms_key(3), None, None);
+        assert!(
+            matches!(fourth, Err(DeviceError::Conflict(_))),
+            "{fourth:?}"
+        );
+        // Every seat still registers, a new device or one that was on record without a seat.
+        assert!(
+            register_device(&dir, &v, 3, &comms_key(10), Some(1), Some(&write_key(1))).unwrap()
+        );
+        assert!(register_device(&dir, &v, 3, &comms_key(0), Some(2), Some(&write_key(2))).unwrap());
+        assert!(
+            register_device(&dir, &v, 3, &comms_key(11), Some(3), Some(&write_key(3))).unwrap()
+        );
+        assert_eq!(load_device_records(&dir, &v).unwrap().len(), 5);
+        // A vault with no seat count is held to MAX_SEATS seats.
+        let w = "c".repeat(64);
+        let over = register_device(
+            &dir,
+            &w,
+            0,
+            &comms_key(20),
+            Some(MAX_SEATS + 1),
+            Some(&write_key(4)),
+        );
+        assert!(matches!(over, Err(DeviceError::Invalid(_))), "{over:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_sealing_bound_is_the_records_or_the_seats_whichever_is_more() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-bound-{}", std::process::id()));
+        let v = "f".repeat(64);
+        // No registry yet: the seats still to register.
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), 3);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        std::fs::write(dir.join(&v).join("device-keys.json"), r#"["aa","bb"]"#).unwrap();
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), 3);
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 0), 2);
+        // Unreadable: counted as full, never as empty.
+        std::fs::write(dir.join(&v).join("device-keys.json"), "not json").unwrap();
+        assert_eq!(sealing_devices_upper_bound(&dir, &v, 3), MAX_SEATS as usize);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// One number on both sides: the app offers no vault the coordinator would refuse, and the
+    /// coordinator sizes the signing request for no fewer devices than the app allows.
+    #[test]
+    fn the_seat_cap_is_the_apps() {
+        let ui = include_str!("../../ui/src/dkg-ceremony.ts");
+        let n: u16 = ui
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("const MAX_SEATS = "))
+            .expect("ui/src/dkg-ceremony.ts declares MAX_SEATS")
+            .trim()
+            .parse()
+            .expect("a number");
+        assert_eq!(n, MAX_SEATS);
+    }
+
     #[test]
     fn another_device_cannot_take_a_seat_that_is_already_claimed() {
         // The attack this file is exposed to: register after the real holder and inherit the seat.
@@ -2931,7 +3127,11 @@ mod tests {
     #[test]
     fn only_register_device_calls_the_unvalidated_writer() {
         fn walk(dir: &Path, out: &mut Vec<(String, usize)>) {
-            let call = ["upsert", "_device("].concat();
+            // Both names of the writer: the bounded one is what `register_device` reaches.
+            let calls = [
+                ["upsert", "_device("].concat(),
+                ["upsert", "_device_bounded("].concat(),
+            ];
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let path = entry.path();
                 if path.is_dir() {
@@ -2940,7 +3140,7 @@ mod tests {
                     let text = std::fs::read_to_string(&path).unwrap();
                     // Production code only: everything before the file's test module.
                     let prod = text.split("#[cfg(test)]\nmod tests").next().unwrap_or("");
-                    let n = prod.matches(call.as_str()).count();
+                    let n: usize = calls.iter().map(|c| prod.matches(c.as_str()).count()).sum();
                     if n > 0 {
                         out.push((path.file_name().unwrap().to_string_lossy().into_owned(), n));
                     }
@@ -2953,10 +3153,10 @@ mod tests {
             walk(&root.join(crate_src), &mut found);
         }
         found.sort();
-        // `helper.rs`: the definition, the call inside `register_device`, and the call inside
-        // `add_device_key`, which is `#[cfg(test)]` (so it never exists in a production build) but
-        // sits above the test module this scan stops at.
-        assert_eq!(found, vec![("helper.rs".to_string(), 3)], "{found:?}");
+        // `helper.rs`: the two definitions, `upsert_device` calling the bounded writer, the call
+        // inside `register_device`, and the call inside `add_device_key`, which is `#[cfg(test)]` (so
+        // it never exists in a production build) but sits above the test module this scan stops at.
+        assert_eq!(found, vec![("helper.rs".to_string(), 5)], "{found:?}");
     }
 
     /// The production writer REPLACES the registry (new inode), it does not rewrite it in place: a hard
@@ -4090,6 +4290,61 @@ mod tests {
         assert!(matches!(
             payment_plan("not-an-address", 50_000, None, NetworkType::Main),
             Err(SendReject::Address(_))
+        ));
+    }
+
+    // A real mainnet Sapling-only address: the same vector as `SAPLING` in `address.rs`'s tests
+    // (`sapling_only_is_not_payable_lock_risk`), copied because that one is private to its module.
+    // It decodes, it is on mainnet, and it is NOT transparent - so only the Orchard check refuses it.
+    const MAIN_SAPLING: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
+
+    /// §8, on the hosted path: a Sapling-only destination would lock the funds of an Orchard
+    /// vault, and `payment_plan` is the one check every hosted entry goes through. The transparent
+    /// case above cannot catch a check that only refuses transparent-only addresses; this one does.
+    #[test]
+    fn payment_plan_refuses_a_sapling_only_destination() {
+        assert_eq!(
+            payment_plan(MAIN_SAPLING, 50_000, None, NetworkType::Main).err(),
+            Some(SendReject::NotOrchard)
+        );
+        // With a memo too: a Sapling receiver can carry one, which must not make it payable.
+        assert_eq!(
+            payment_plan(
+                MAIN_SAPLING,
+                50_000,
+                Some("payslip".into()),
+                NetworkType::Main
+            )
+            .err(),
+            Some(SendReject::NotOrchard)
+        );
+    }
+
+    /// A payroll has no plan function of its own: the helper validates each line with
+    /// `payment_plan` (at creation and again at send). So one Sapling line among Orchard lines is
+    /// refused by the same check, and the Orchard lines beside it still pass.
+    #[test]
+    fn a_sapling_only_payroll_line_is_refused_by_the_per_line_check() {
+        let lines = [
+            (MAIN_ORCHARD_UA, 10_000),
+            (MAIN_SAPLING, 20_000),
+            (MAIN_ORCHARD_UA, 30_000),
+        ];
+        let verdicts: Vec<_> = lines
+            .iter()
+            .map(|(to, zat)| payment_plan(to, *zat, None, NetworkType::Main).err())
+            .collect();
+        assert_eq!(verdicts, vec![None, Some(SendReject::NotOrchard), None]);
+    }
+
+    /// The control for the two tests above: a Unified address with an Orchard receiver is accepted
+    /// on the same network, so the refusals are about the pool and nothing else.
+    #[test]
+    fn payment_plan_accepts_a_unified_address_with_an_orchard_receiver() {
+        assert!(matches!(
+            payment_plan(MAIN_ORCHARD_UA, 50_000, None, NetworkType::Main),
+            Ok(SpendPlan::Payment { .. })
         ));
     }
 

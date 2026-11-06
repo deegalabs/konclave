@@ -37,6 +37,14 @@ pub enum ReadPlan {
 /// is the whole point. A cap that is never hit in normal use is a cap doing its job.
 pub const MAX_BODY: u64 = 2 * 1024 * 1024;
 
+/// The largest message the relay accepts (`data`, in bytes), past which a post is a `413`.
+///
+/// Here, rather than in the relay, because a second reader has to agree with it exactly: the
+/// coordinator decides from this number how large a payment can still be signed, since its signing
+/// request crosses the relay as one message (#821). Two copies of it would let the relay tighten
+/// while the coordinator went on approving payments the relay then refuses at send time.
+pub const RELAY_MAX_DATA: usize = 128 * 1024;
+
 /// Decide how much of a body to read from its declared `Content-Length`.
 ///
 /// The hole this closes: a body with NO `Content-Length` (chunked, or a dribbling client) was read
