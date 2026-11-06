@@ -55,6 +55,14 @@ history to tidy it is how context gets lost.
   person, and one more action for each payroll line beyond two. If the device cannot work it out (the
   app did not finish loading, or the device's clock is set before July 2026), Propose stays closed
   and says why.
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo", the crash screen's "confira o livro" and the in-app docs), the plain word
+  over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
+  the screen title and the activity tab equal in every language, and fails if any Portuguese text or
+  in-app doc says "razão" again.
 
 ### Known limits
 
