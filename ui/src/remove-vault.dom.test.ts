@@ -88,6 +88,34 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     expect(callers).toEqual([])
   })
 
+  it('every screen that removes a vault goes through it, including the list inside the create flow', async () => {
+    // The vault list of the create flow (`/net`, and the same component embedded in Vaults) had its
+    // own delete button, which called the store's `deleteVault` directly: the record went, and the
+    // payee book, the passkey wrap, the recent addresses and the read secret stayed.
+    expect(codeOf('screens/NetVault.tsx')).toMatch(/removeVaultFromDevice\(/)
+    // Only `remove-vault.ts` may take the record out of the store: whoever imports `deleteVault` or
+    // `forgetVault` from it can remove a vault and skip what goes with it.
+    const { readdirSync, statSync } = await import('node:fs')
+    const { join, relative, sep } = await import('node:path')
+    const src = join(process.cwd(), 'src')
+    const files: string[] = []
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n)
+        if (statSync(p).isDirectory()) walk(p)
+        else if (/\.tsx?$/.test(n) && !/\.test\.|\.d\.ts$/.test(n)) files.push(relative(src, p).split(sep).join('/'))
+      }
+    }
+    walk(src)
+    const importers = files.filter((f) => {
+      for (const m of codeOf(f).matchAll(/import\s*\{([^}]*)\}\s*from\s*['"](?:\.\.?\/)+storage['"]/g)) {
+        if (/\b(?:deleteVault|forgetVault)\b/.test(m[1] ?? '')) return true
+      }
+      return false
+    })
+    expect(importers).toEqual(['remove-vault.ts'])
+  })
+
   it('the confirm says what goes and what stays, and no longer promises to remove proposals', () => {
     // Proposals live on the vault's server, not on this device: removing a vault never touched them.
     expect(en['dashboard.deleteConfirmBody']).not.toMatch(/proposals/i)
