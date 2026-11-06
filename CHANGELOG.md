@@ -56,6 +56,21 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **The network fee rule has one home, and follows ZIP 2009 by block height (#847).** The fee per
+  action (5,000 zatoshis, and 1,000 from mainnet block 3,590,000 under ZIP 2009, Proposed) lives in
+  one table in the shared crate, beside the network-upgrade rows; the device's signing check and the
+  app's fee estimate both read it, and a source scan fails the build if a fee rule is written anywhere
+  else. The desktop app carries the same device check as the web app: see the app's changelog. The
+  coordinator still builds at 5,000 and moves in a later release.
+
+### Known limits
+
+- **The desktop app has no updater (#606)**, so a desktop install that is not updated by hand keeps
+  refusing 1,000-zatoshi payments. The coordinator will build at 1,000 only for a vault whose every
+  device has said it accepts it.
+
 ## [0.17.0] 2026-11-06
 
 > **Services deployed when this was cut (2026-11-06):** coordinator `aa778cd`, relay `f8dc88d0970337a3`.

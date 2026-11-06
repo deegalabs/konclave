@@ -191,7 +191,7 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
   // afford a payment that the arithmetic printed beside it said it could, and the member reasonably
   // concluded the gate was broken rather than the copy.
   //
-  // The number now comes from SINGLE_PAYMENT_FEE_ZAT in both places. This asserts the copy cannot
+  // The number now comes from the one estimate (fee-estimate.ts, the rule in konclave_seal) in both places. This asserts the copy cannot
   // hardcode it again, which is how it drifted in the first place: a fee in prose is a fee nobody
   // updates when the constant moves.
   const SRC = new URL('.', import.meta.url).pathname
@@ -210,13 +210,21 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
     }
   })
 
-  it('and the payment screen subtracts that same constant', () => {
+  it('and the payment screen subtracts that same estimate', () => {
     const screen = codeAt(join(SRC, 'screens/NewPayment.tsx'))
-    expect(screen, 'the gate must use the shared constant').toContain('SINGLE_PAYMENT_FEE_ZAT')
+    expect(screen, 'the gate must use the shared estimate').toContain('feeEstimator(1)')
     expect(
       /const feeZat = \d+/.test(screen),
       'a bare numeric fee is back, and the copy will not follow it',
     ).toBe(false)
+  })
+})
+
+describe('an unknown fee blocks, as an unknown balance does (#847)', () => {
+  it('names the fee before the balance, and never treats it as zero', () => {
+    expect(proposeBlock({ amountZat: 1000, availableZat: 1_000_000, feeZat: null })).toBe('fee-unknown')
+    expect(proposeBlock({ amountZat: 1000, availableZat: null, feeZat: null })).toBe('fee-unknown')
+    expect(blockMessageKey('fee-unknown')).toBe('money.blockFeeUnknown')
   })
 })
 

@@ -732,6 +732,7 @@ export const ptBR: Record<string, string> = {
   'payment.proposeBtn': 'Propor pagamento',
   'money.blockAmount': "Use um só separador decimal. Por exemplo, digite 1,5.",
   'money.blockAmountAmbiguous': "Esse valor é ambíguo. Digite 1,5 ou 1500.",
+  'money.blockFeeUnknown': 'Não foi possível calcular a taxa da rede neste aparelho, então isso ainda não dá para conferir contra o saldo. Recarregue a página; se continuar, confira se a data e a hora deste aparelho estão certas.',
   'money.blockReservedUnknown': 'Não foi possível ler as propostas abertas, então o que elas reservam é desconhecido e isso ainda não dá para conferir. Tente de novo em instantes.',
   'money.blockBalanceUnknown': "Não foi possível ler o saldo do cofre, então isso ainda não dá para conferir. Tente de novo em instantes.",
   'money.blockCrossesPools': "Este valor é maior do que um pagamento consegue enviar. O cofre tem o saldo, mas em duas partes separadas, e um pagamento usa só uma delas. Envie em dois pagamentos.",

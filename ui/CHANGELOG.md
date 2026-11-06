@@ -40,6 +40,33 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **A device accepts the lower network fee from block 3,590,000 (ZIP 2009, #847).** ZIP 2009
+  (Proposed) lowers the fee per action from 5,000 to 1,000 zatoshis at mainnet block 3,590,000. A
+  device on this version accepts a payment at either rate once its clock says the chain may have
+  reached that block, and only at 5,000 before it. Any other fee is still refused, and so is padding
+  that raises it. Nothing changes for a payment today: the coordinator still builds at 5,000, which
+  stays valid after the switch.
+- **One network fee estimate on every screen (#692).** The payment screen reserved 0.00015 ZEC for a
+  payment while the proposal page and the signing panel showed 0.0001 for the same payment. The four
+  screens now read one estimate from the rule the device signs by: 0.00015 ZEC for a payment to one
+  person, one more action for each further payroll line. If the device cannot work it out (its clock
+  is set before the network's current upgrade), Propose stays closed and says why.
+
+### Known limits
+
+- **Until the coordinator switches, every vault payment pays 5,000 zatoshis per action, and can be
+  told apart.** After block 3,590,000, wallets that follow ZIP 2009 pay 1,000; the fee is public, so a
+  vault transaction paying five times that stands out from theirs. The coordinator moves to 1,000 in
+  a later release, and only for a vault whose every device runs this version or later.
+- **The estimate stays at 5,000 per action after the switch**, because a device still accepts 5,000.
+  Once the coordinator pays 1,000, the screens reserve more than a payment costs.
+- **5,000 per action stays accepted with no end date**, so a coordinator can still choose the higher
+  fee after the switch: the fee every vault pays today.
+- **A device starts accepting 1,000 about 30 hours before block 3,590,000.** It judges the height by
+  its own clock, which cannot place the chain closer than that.
+
 ## [0.17.0] 2026-11-06
 
 ### Security
@@ -686,7 +713,8 @@ Update once any signing in progress has finished. Your vault and your share stay
 - **The exact-fee check uses the network's current fee per action.** If the network lowers it (ZIP
   2009 proposes this at block 3,590,000), devices on this version would refuse honest payments until
   they update. Plan: a build that follows the network's fee by block height, out before block
-  3,590,000. Status: planned, not started.
+  3,590,000. Status: the device side is under [Unreleased] (it accepts either rate from that block);
+  the coordinator follows in a later release.
 - **The `/net` page does not have the signer's newer checks**, nor a content check of its own; use
   the vault's own signing screen for payments.
 - **A device that signed a payment does not answer a new attempt at that same payment until the page

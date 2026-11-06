@@ -736,6 +736,7 @@ export const en: Record<string, string> = {
   'payment.proposeBtn': 'Propose payment',
   'money.blockAmount': "Use a single decimal point. For example, type 1.5.",
   'money.blockAmountAmbiguous': "That amount is ambiguous. Type 1.5 or 1500.",
+  'money.blockFeeUnknown': "The network fee could not be worked out on this device, so this cannot be checked against the balance yet. Reload the page; if it stays, check that this device's date and time are right.",
   'money.blockReservedUnknown': 'The open proposals could not be read, so what they hold is unknown and this cannot be checked yet. Try again in a moment.',
   'money.blockBalanceUnknown': "The vault balance could not be read, so this cannot be checked yet. Try again in a moment.",
   'money.blockCrossesPools': "This amount is more than one payment can send. The vault holds it, but in two separate parts, and one payment spends from only one of them. Send it as two payments.",

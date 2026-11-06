@@ -92,6 +92,24 @@ pub fn conventional_fee(marginal: u64, logical_actions: u64) -> Option<u64> {
     marginal.checked_mul(actions)
 }
 
+/// The fewest actions a payment is ESTIMATED at before the wallet picks its notes: one spend, one
+/// destination and change, with the spend and the outputs kept in separate actions, which is what a
+/// single payment was charged on mainnet (15,000 at 5,000). Decided for #847 so the payment screen,
+/// the proposal and the signing panel stop showing two figures for one payment (#692).
+pub const ESTIMATE_MIN_ACTIONS: u64 = 3;
+
+/// The actions a payment to `destinations` is estimated at: one spend, the destinations and change,
+/// never fewer than `ESTIMATE_MIN_ACTIONS`. An estimate, and always will be: only the wallet knows
+/// its note selection (#206, #293). What a device signs is judged by `fee_accepted`, not by this.
+pub fn estimated_actions(destinations: u64) -> u64 {
+    let n = destinations.max(1).saturating_add(1);
+    if n > ESTIMATE_MIN_ACTIONS {
+        n
+    } else {
+        ESTIMATE_MIN_ACTIONS
+    }
+}
+
 /// Whether `fee` is exactly the conventional fee of `logical_actions` at one of `accepted`. The one
 /// comparison: `Table::fee_accepted` and the device's `check_fee` both go through here.
 pub fn fee_in(fee: u64, logical_actions: u64, accepted: &[u64]) -> bool {
@@ -311,6 +329,16 @@ impl Table {
             .into_iter()
             .max()
             .unwrap_or(0)
+    }
+
+    /// The fee a screen shows and reserves for a payment to `destinations`, at the highest rate the
+    /// device accepts at `now_unix`, so a reservation never comes up short of what the device would
+    /// sign. `None` when the clock confirms no window (before the anchor): unknown, never a default.
+    pub fn estimated_fee(&self, now_unix: i64, destinations: u64) -> Option<u64> {
+        match self.reserve_marginal_fee(now_unix) {
+            0 => None,
+            m => conventional_fee(m, estimated_actions(destinations)),
+        }
     }
 
     /// Whether `fee` is exactly the ZIP 317 fee of `logical_actions` at one of the marginal fees the
@@ -1070,5 +1098,38 @@ mod tests {
         assert_eq!(MAINNET.builder_marginal_fee(FEE_H - 1), 5_000);
         assert_eq!(MAINNET.builder_marginal_fee(FEE_H), 1_000);
         assert_eq!(MAINNET.builder_marginal_fee(u32::MAX), 1_000);
+    }
+
+    #[test]
+    fn the_estimate_is_one_rule_at_the_reserve_rate() {
+        assert_eq!(estimated_actions(0), 3);
+        assert_eq!(estimated_actions(1), 3);
+        assert_eq!(estimated_actions(2), 3);
+        assert_eq!(estimated_actions(3), 4);
+        assert_eq!(estimated_actions(40), 41);
+        // Before and after the switch the reserve is 5,000 (5,000 stays accepted): 15,000 for one.
+        assert_eq!(MAINNET.estimated_fee(T_F - 30 * 86_400, 1), Some(15_000));
+        assert_eq!(MAINNET.estimated_fee(T_F + 30 * 86_400, 1), Some(15_000));
+        assert_eq!(MAINNET.estimated_fee(T_F + 30 * 86_400, 5), Some(30_000));
+        // No window, no estimate.
+        assert_eq!(MAINNET.estimated_fee(MAINNET.anchor.unix - 1, 1), None);
+        // Once a table stops accepting 5,000, the estimate follows the reserve down.
+        const LATER: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[
+                FeeEra {
+                    from_height: 0,
+                    builds: 5_000,
+                    accepts: &[5_000],
+                },
+                FeeEra {
+                    from_height: FEE_H,
+                    builds: 1_000,
+                    accepts: &[1_000],
+                },
+            ],
+            anchor: MAINNET.anchor,
+        };
+        assert_eq!(LATER.estimated_fee(T_F + 30 * 86_400, 1), Some(3_000));
     }
 }

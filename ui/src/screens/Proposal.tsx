@@ -10,7 +10,7 @@ import { Identicon } from '../avatar'
 import { fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
-import { estimatedFeeZat } from '../fee-estimate'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -42,6 +42,7 @@ export default function Proposal() {
   const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
+  const feeEstimate = useFeeEstimate()
   const [members, setMembers] = useState<string[]>([])
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
   // vault record. A device may only ever cast its OWN vote (never another member's).
@@ -195,15 +196,14 @@ export default function Proposal() {
   const val = fmtZecExact(p.value_zat / 1e8)
   const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
-  // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
-  // count is spends + outputs (orchard's builder pairs each with a fabricated zero-valued
-  // counterpart), so one spend + N destinations + change. Measured against a real refusal: a 2-line
-  // payroll of 4000 zat was charged 20000, exactly four actions.
+  // The one estimate (`fee-estimate.ts`, read from the device's rule), the same figure the payment
+  // and payroll screens reserved with (#692). Not shown while it is unknown, never guessed.
+  const feeEstimator = estimatorOf(feeEstimate)
   const cost = (() => {
     const amountZat = parseZecToZat(p.value_zec ?? '')
-    if (amountZat === null) return null
+    if (amountZat === null || !feeEstimator) return null
     const dests = isPayroll ? Math.max(1, lines.length) : 1
-    const feeZat = estimatedFeeZat(dests)
+    const feeZat = feeEstimator(dests)
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }

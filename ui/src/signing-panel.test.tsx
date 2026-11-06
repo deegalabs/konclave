@@ -32,6 +32,12 @@ vi.mock('./VaultSigner', () => ({
     signedBefore: state.signedBefore,
   }),
 }))
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  // The real estimate needs the wasm and an effect; a static render runs neither. The rule's figure
+  // (fee-estimate.test.ts): three actions at 5,000 for one payee.
+  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+}))
 vi.mock('./session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session')>()),
   getUnlockedShare: () => state.share,
@@ -43,7 +49,6 @@ vi.mock('./toast', () => ({ useToast: () => ({ show: () => {}, ok: () => {}, err
 const { I18nProvider } = await import('./i18n')
 const { default: SigningPanel, SignConfirm } = await import('./screens/SigningPanel')
 const { signAgainState, againFromPanel } = await import('./sign-again')
-const { estimatedFeeZat } = await import('./fee-estimate')
 const { codeOf } = await import('./source-scan')
 
 // A payment with a label, the vault's change, and an unlabelled output to someone else.
@@ -380,9 +385,9 @@ describe('what the panel shows before signing', () => {
     const html = render({})
     expect(html).toContain(PAY_UA)
     expect(html).toContain('Network fee')
-    expect(html).toContain('0.0001 ZEC')
+    expect(html).toContain('0.00015 ZEC')
     expect(html).toContain('Leaves the vault')
-    expect(html).toContain('1.0001 ZEC')
+    expect(html).toContain('1.00015 ZEC')
   })
   it('says the fee is an estimate, and why, and names the destination for a screen reader', () => {
     state.armed = false
@@ -405,16 +410,13 @@ describe('what the panel shows before signing', () => {
   it('marks the fee box when the vault is short, and costs a payroll only once its lines are known', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/className=\{'p-cost' \+ \(shortZat > 0 \? ' short' : ''\)\}/)
-    expect(src).toMatch(/const feeKnown = !isPayroll \|\| payrollLines !== null/)
+    expect(src).toMatch(/const feeKnown = feeEstimator !== null && \(!isPayroll \|\| payrollLines !== null\)/)
   })
-  it('one estimate of the fee, used by every screen that shows one', () => {
-    expect(estimatedFeeZat(1)).toBe(10_000)
-    expect(estimatedFeeZat(0)).toBe(10_000)
-    expect(estimatedFeeZat(3)).toBe(20_000)
+  it('one estimate of the fee, used by every screen that shows one (figures in fee-estimate.test.ts)', () => {
     for (const f of ['./screens/SigningPanel.tsx', './screens/Proposal.tsx', './screens/NewPayroll.tsx']) {
       const src = codeOf(f)
       expect(src, f).not.toMatch(/5_?000 \* Math\.max/)
-      expect(src, f).toContain('estimatedFeeZat(')
+      expect(src, f).toContain('useFeeEstimate()')
     }
   })
 })

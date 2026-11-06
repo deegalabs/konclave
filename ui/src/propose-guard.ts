@@ -14,20 +14,10 @@
 // proposal anyway - this exists so a member is told which field to fix instead of meeting a dead
 // button or a proposal that dies later.
 
-/**
- * The fee a single payment is gated against, in zatoshis.
- *
- * It lives here, with the rule that subtracts it, because it is also the number the SCREEN shows the
- * member - and those two were different. The screen said "Estimated fee 0.0001 ZEC" from a hardcoded
- * i18n string while the gate subtracted 15000 (0.00015), so a vault holding exactly the announced fee
- * was told it could not afford a payment the arithmetic on screen said it could. Reported by a member
- * hitting it on a real vault, 2026-09-15.
- *
- * Deliberately a slight over-estimate of the 15000 observed on mainnet's single-payment path: the
- * engine decides the real fee when it selects notes, and it is better to refuse an amount that would
- * have fit than to accept one that turns into a dead proposal after the quorum has read it.
- */
-export const SINGLE_PAYMENT_FEE_ZAT = 15000
+// The fee a payment is gated against is NOT here any more. It used to be a constant of 15000 beside
+// a proposal page that showed 10000 for the same payment (#692); both now read the one estimate in
+// `fee-estimate.ts`, which asks the rule in `konclave_seal` (ZIP 2009). When that estimate is not
+// known the screens pass `feeZat: null`, and the gate blocks with `fee-unknown`.
 
 /** Why proposing is blocked, or `null` when it is clear. */
 export type ProposeBlock =
@@ -46,6 +36,9 @@ export type ProposeBlock =
   /** The open proposals could not be read, so what they hold is unknown. Fails closed like
    *  `balance-unknown`: the free figure would otherwise include funds a colleague's proposal holds. */
   | 'reserved-unknown'
+  /** The fee estimate could not be read from the device's rule. Blocks, as an unreadable balance
+   *  does: a default here would be a second copy of the rule. */
+  | 'fee-unknown'
   | null
 
 export interface ProposeInput {
@@ -61,7 +54,7 @@ export interface ProposeInput {
    *  there first". Omitted where there is no ledger to consult; `null` = the list was not read. */
   reservedZat?: number | null
   /** The fee estimate this screen applies. */
-  feeZat: number
+  feeZat: number | null
   /** Memo over the 512-byte limit. */
   memoOver?: boolean
   /** The spendable balance split by shielded pool, when the backend reported it (#427).
@@ -105,6 +98,8 @@ export function blockMessageKey(b: ProposeBlock): string | null {
       return 'money.blockCrossesPools'
     case 'reserved-unknown':
       return 'money.blockReservedUnknown'
+    case 'fee-unknown':
+      return 'money.blockFeeUnknown'
     default:
       return null
   }
@@ -134,6 +129,7 @@ export function proposeBlock(input: ProposeInput): ProposeBlock {
   if (memoOver) return 'memo'
   if (amountAmbiguous) return 'amount-ambiguous'
   if (amountZat === null || amountZat <= 0) return 'amount'
+  if (feeZat === null) return 'fee-unknown'
   if (reservedZat === null) return 'reserved-unknown'
   if (availableZat === null) return 'balance-unknown'
   if (availableZat === 0) return reservedZat > 0 ? 'reserved' : 'no-funds'

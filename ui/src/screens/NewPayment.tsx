@@ -15,7 +15,8 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock, blockMessageKey, poolsOf, SINGLE_PAYMENT_FEE_ZAT } from '../propose-guard'
+import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useVaultBalance } from '../useVaultBalance'
 
 const MEMO_MAX = 512
@@ -54,6 +55,7 @@ export default function NewPayment() {
   const [live, setLive] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const feeEstimate = useFeeEstimate()
 
   useEffect(() => {
     let on = true
@@ -129,7 +131,7 @@ export default function NewPayment() {
   /// spendable balance (the fee still comes out of the vault on top, and the balance-after
   /// preview below shows the real remainder).
   function setFraction(pct: number) {
-    if (availableZat == null) return
+    if (availableZat == null || feeZat == null) return
     const target = pct >= 100 ? availableZat - feeZat : Math.floor((availableZat * pct) / 100)
     if (target > 0) setValue(zatToZec(target))
   }
@@ -156,14 +158,14 @@ export default function NewPayment() {
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
   const amountZat = typedAmountZat(value)
   const availableZat = freeZat
-  // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
-  // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
-  // through to a dead-end proposal.
-  const feeZat = SINGLE_PAYMENT_FEE_ZAT
-  const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
+  // The one estimate (`fee-estimate.ts`, read from the device's rule): one destination. `null` until
+  // it is known, and the gate blocks with `fee-unknown` rather than guessing.
+  const feeEstimator = estimatorOf(feeEstimate)
+  const feeZat = feeEstimator ? feeEstimator(1) : null
+  const afterZat = availableZat == null || amountZat == null || feeZat == null ? null : availableZat - amountZat - feeZat
   // A fraction of the balance is only a real offer when a fraction of it can actually be sent:
   // known, above zero, and with room for the fee that 100% has to leave behind.
-  const canTakeFraction = availableZat != null && availableZat > feeZat
+  const canTakeFraction = availableZat != null && feeZat != null && availableZat > feeZat
   // The submit gate is a pure rule (`propose-guard.ts`) shared with the payroll screen, because it
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
@@ -172,7 +174,7 @@ export default function NewPayment() {
   // When the whole shortfall is confirmations, say that, not "more than the vault can spend" (#352).
   // Derived from total minus spendable: `pending_zat` is never filled on the web path.
   const confirmingZat = confirmingZatOf(bal)
-  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat ?? 0, amountZat, feeZat)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && feeZat != null && shortfallIsConfirming(bal, reservedZat ?? 0, amountZat, feeZat)
   // The balance-after figure subtracts from FREE funds; while a reservation or confirmations are
   // the block, a negative "after" beside "the vault has the funds" would contradict it: a dash.
   const hideAfter = block === 'reserved' || onlyConfirming
@@ -312,7 +314,7 @@ export default function NewPayment() {
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null || hideAfter ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
-            <div className="pv-fee mono dim">{tr('payment.feeEstimate', { fee: fmtZecExact(feeZat / 1e8) })}</div>
+            <div className="pv-fee mono dim">{tr('payment.feeEstimate', { fee: feeZat == null ? '-' : fmtZecExact(feeZat / 1e8) })}</div>
           </div>
 
           {/* The gate fails closed now, so a member can meet a disabled button for reasons the

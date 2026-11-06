@@ -6307,6 +6307,17 @@ mod js_pczt {
         Ok(outputs_json(&outs))
     }
 
+    /// The fee a screen shows and reserves for a payment to `destinations`, in zatoshis, read from the
+    /// one rule (`konclave_seal::epochs`, ZIP 2009) with this device's clock. `0` when the clock
+    /// confirms no window: the caller treats that as unknown and blocks, never as a default.
+    #[wasm_bindgen(js_name = estimatedFeeZat)]
+    pub fn estimated_fee_zat(destinations: u32) -> f64 {
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        pczt_bridge::MAINNET
+            .estimated_fee(now_unix, u64::from(destinations))
+            .map_or(0.0, |f| f as f64)
+    }
+
     /// What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
     /// describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
     /// signs on (#610): every output checked against its note commitment, its address label against
