@@ -40,6 +40,17 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo", the crash screen's "confira o livro" and the in-app docs), the plain word
+  over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
+  the screen title and the activity tab equal in every language, and fails if any Portuguese text or
+  in-app doc says "razão" again.
+
 ## [0.17.0] 2026-11-06
 
 ### Security
@@ -134,14 +145,6 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
-- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
-  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
-  book, three names, and the member had to work out that they were the same thing. Everything now
-  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
-  caption "Livro ao vivo", the crash screen's "confira o livro" and the in-app docs), the plain word
-  over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
-  the screen title and the activity tab equal in every language, and fails if any Portuguese text or
-  in-app doc says "razão" again.
 - **The landing names the Windows installer as the `.exe`.** Its install dialog said `.msi`, and
   from the desktop's v0.17.0 no `.msi` is built (see the root changelog).
 
