@@ -329,6 +329,7 @@ pub(crate) mod test_table {
     pub const ONE_ROW: Table = Table {
         epochs: &[konclave_seal::epochs::MAINNET.epochs[0]],
         anchor: konclave_seal::epochs::MAINNET.anchor,
+        fees: konclave_seal::epochs::MAINNET.fees,
     };
 
     pub const NU7: u32 = 0x7719_0ad9;
@@ -356,6 +357,7 @@ pub(crate) mod test_table {
             height: 3_428_143,
             unix: 1_785_247_643,
         },
+        fees: konclave_seal::epochs::MAINNET.fees,
     };
 
     /// A clock reading at which `table.height_at` gives `height`: the smallest such second.

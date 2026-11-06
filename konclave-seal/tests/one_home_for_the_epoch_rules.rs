@@ -238,3 +238,51 @@ fn a_testnet_table_is_not_in_production_code() {
         );
     }
 }
+
+/// The coordinator's builder still pays the crate's 5,000 until it reads the fee table (#847, PR B):
+/// these two files keep their own fee rule until then, and nothing else may. Each entry is removed
+/// when PR B moves that file onto `konclave_seal::epochs`; an entry that no longer matches anything
+/// fails the test, so the list cannot outlive what it excuses.
+const FEE_RULE_UNTIL_PR_B: &[(&str, &str)] = &[
+    ("orchestrator/src/validation.rs", "constMARGINAL_FEE:"),
+    ("orchestrator/src/validation.rs", "constGRACE_ACTIONS:"),
+    ("konclave-signer/src/main.rs", "StandardFeeRule::Zip317"),
+];
+
+#[test]
+fn no_second_fee_rule_exists() {
+    let mut excused_seen = vec![false; FEE_RULE_UNTIL_PR_B.len()];
+    for (path, text) in production_sources() {
+        let code = code_only(&text);
+        let squashed: String = code.split_whitespace().collect();
+        for needle in [
+            "constMARGINAL_FEE:",
+            "constGRACE_ACTIONS:",
+            "StandardFeeRule::Zip317",
+            "FeeRule::standard()",
+            "FeeRule::non_standard(",
+            "3_590_000",
+            "3590000",
+        ] {
+            if !squashed.contains(needle) {
+                continue;
+            }
+            let excused = FEE_RULE_UNTIL_PR_B
+                .iter()
+                .position(|(p, n)| path.ends_with(p) && *n == needle);
+            match excused {
+                Some(i) => excused_seen[i] = true,
+                None => panic!(
+                    "{path}: a fee rule is written here ({needle}); it lives in konclave-seal::epochs only"
+                ),
+            }
+        }
+    }
+    for (i, seen) in excused_seen.iter().enumerate() {
+        assert!(
+            seen,
+            "{:?} is excused but no longer there: remove it from FEE_RULE_UNTIL_PR_B",
+            FEE_RULE_UNTIL_PR_B[i]
+        );
+    }
+}
