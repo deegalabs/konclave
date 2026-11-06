@@ -1197,7 +1197,7 @@ export const en: Record<string, string> = {
   'signer.liveTag': 'Live demo',
   'signer.eyebrow': 'konclave.xyz · in-browser proof',
   'signer.title': 'Sign FROST in the browser',
-  'signer.lead': 'Runs a **2-of-3 rerandomized redpallas** ceremony (the Orchard signing path) entirely in **WebAssembly, right here in your browser**. The secret part (share + nonces) never leaves the device, only public material circulates, as with the blind relay.',
+  'signer.lead': 'Runs a **2-of-3 rerandomized redpallas** ceremony (the Orchard signing path) entirely in **WebAssembly, right here in your browser**. The three participants and their test shares are made on this page, and nothing is sent anywhere: each participant keeps its nonces, and the coordinator receives only commitments and signature shares.',
   'signer.signing': 'Signing…',
   'signer.btn': 'Sign in the browser',
   'signer.resultOk': 'FROST redpallas signature of {bytes} bytes, verified · {ms}ms',

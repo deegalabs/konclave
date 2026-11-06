@@ -1193,7 +1193,7 @@ export const ptBR: Record<string, string> = {
   'signer.liveTag': 'Demonstração ao vivo',
   'signer.eyebrow': 'konclave.xyz · prova no navegador',
   'signer.title': 'Assinar FROST no navegador',
-  'signer.lead': 'Roda uma cerimônia **2-de-3 rerandomized redpallas** (o caminho de assinatura do Orchard) inteiramente em **WebAssembly, aqui no seu navegador**. A parte secreta (share + nonces) nunca sai do device, só material público circula, como no relay cego.',
+  'signer.lead': 'Roda uma cerimônia **2-de-3 rerandomized redpallas** (o caminho de assinatura do Orchard) inteiramente em **WebAssembly, aqui no seu navegador**. Os três participantes e suas shares de teste são criados nesta página, e nada é enviado a lugar nenhum: cada participante guarda seus nonces, e o coordenador recebe só os compromissos e as partes da assinatura.',
   'signer.signing': 'Assinando…',
   'signer.btn': 'Assinar no navegador',
   'signer.resultOk': 'Assinatura FROST redpallas de {bytes} bytes, verificada · {ms}ms',

@@ -144,8 +144,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 - **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
   message, so a transaction can carry at most 6 actions (5 in a 32-seat vault): a payroll of about 4
-  to 5 lines (4 when the vault pays from Orchard notes), fewer when it pays from many small notes. Such a proposal is refused when it is
-  created, with the numbers, instead of after approval. The limit stays until the signing request no
+  to 5 lines in a vault of up to 31 devices (4 when the vault pays from Orchard notes), about 3 to 4
+  in a 32-seat vault, and fewer when it pays from many small notes. Such a proposal is refused when it
+  is created, with the numbers, instead of after approval. The limit stays until the signing request no
   longer travels inside one relay message.
 - **The 300-second limit covers the wallet sync only.** Every other call to the engine still has
   none: the step that upgrades a vault's wallet, the balance and history reads that follow a sync,
