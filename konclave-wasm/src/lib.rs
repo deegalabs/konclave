@@ -2824,9 +2824,16 @@ pub mod pczt_bridge {
         // `accepted` is the set of marginal fees this device's clock allows (konclave_seal::epochs,
         // ZIP 2009); a value between two of them is not a compromise, it is refused.
         if !konclave_seal::epochs::fee_in(fee, actions, accepted) {
-            if konclave_seal::epochs::fee_in(fee, actions, known) {
+            // Only a fee BELOW every accepted one gets the clock wording: that is what a slow clock
+            // sees from an honest builder after the switch. Anything above stays [fee].
+            let lowest = accepted
+                .iter()
+                .filter_map(|m| konclave_seal::epochs::conventional_fee(*m, actions))
+                .min();
+            if konclave_seal::epochs::fee_in(fee, actions, known) && lowest.is_some_and(|l| fee < l)
+            {
                 return Err(format!(
-                    "[clock] the transaction pays {fee} zatoshis in fee, a rate this device's clock does not allow yet for its {actions} actions"
+                    "[clock] the transaction pays {fee} zatoshis in fee, a rate this device's clock does not allow for its {actions} actions"
                 ));
             }
             let want: Vec<String> = accepted
@@ -5089,6 +5096,9 @@ pub mod pczt_bridge {
             let err =
                 check_fee_in_era(6_000, &[EMPTY, shape(6, 1, 2)], &[5_000], &known).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
+            // A rate of another era ABOVE what the clock accepts is [fee], never the softer wording.
+            let err = check_fee_in_era(20_000, &b, &[1_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
         }
 
         /// Fixed clock: IW_PROVEN pays 20,000 in 4 actions (5,000 each).
@@ -5114,7 +5124,8 @@ pub mod pczt_bridge {
                 read_payment_with(&NEW_ONLY, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
             assert!(e.starts_with("[fee]"), "{e}");
             // The same bytes against a table whose later era (not reached by this clock) accepts
-            // 5,000: a rate of another era, so [clock], not the tampering wording of [fee].
+            // 5,000: a rate of another era, but ABOVE what the clock accepts, so [fee], never the
+            // softer clock wording. (A rate below it is [clock]: the synthetic 1,000 test.)
             const LATER_ERA: NetworkRules = NetworkRules {
                 epochs: MAINNET.epochs,
                 fees: &[
@@ -5133,7 +5144,7 @@ pub mod pczt_bridge {
             };
             let e =
                 read_payment_with(&LATER_ERA, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
-            assert!(e.starts_with("[clock]"), "{e}");
+            assert!(e.starts_with("[fee]"), "{e}");
             // A clock before the anchor is the empty window: [expiry], not [fee].
             let e = read_payment_with(&MAINNET, IW_PROVEN, MAINNET.anchor.unix - 1).unwrap_err();
             assert!(e.starts_with("[expiry]"), "{e}");

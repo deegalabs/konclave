@@ -412,6 +412,7 @@ export interface InitOutput {
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly upgradeHeight: () => number;
+    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -435,7 +436,6 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
-    readonly selftest: () => [number, number];
     readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
