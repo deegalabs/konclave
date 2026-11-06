@@ -301,6 +301,9 @@ fn handle_request(
                 // The creation protocol this coordinator requires of a registration. A roll back
                 // to a build without the gate drops the field, which is what a deploy checks.
                 "client": { "creation": creation_min() },
+                // How many proxies in front of it this coordinator trusts (`DEPLOY.md`); `null`
+                // is the default rule. What a deploy reads to see the setting arrived.
+                "trusted_proxy_hops": konclave_http::forwarding_rule().trusted_hops(),
             })
             .to_string(),
         ),
@@ -2688,6 +2691,10 @@ fn serve(
 }
 
 fn main() {
+    // Which value of `X-Forwarded-For` names the client for the limits. First, before a migration
+    // or a bind: a setting that is not understood stops the coordinator (exit 2), and a restart loop
+    // on a typo must not run the migrations on every turn.
+    konclave_http::boot_forwarding_rule("konclave-helper");
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
     let state = Arc::new(HelperState::new());
@@ -2874,9 +2881,10 @@ fn main() {
                 .find(|h| h.field.equiv(READ_TOKEN_HEADER))
                 .map(|h| h.value.as_str().to_string());
             // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
-            // the proxy, so the forwarded header names the real client.
+            // the proxy, so the address comes from the forwarded header, and which value of it to
+            // believe is the booted rule (default: the first hop, only as good as the platform).
             let remote = req.remote_addr().map(|a| a.ip().to_string());
-            let client = konclave_http::client_address(
+            let client = konclave_http::request_client_address(
                 req.headers()
                     .iter()
                     .filter(|h| h.field.equiv("X-Forwarded-For"))
@@ -2960,7 +2968,7 @@ mod tests {
     use std::time::Duration;
 
     /// A client address for a test: 203.0.113.`host` (a documentation range). `serve` takes the
-    /// typed address the worker loop builds with `konclave_http::client_address`.
+    /// typed address the worker loop builds with `konclave_http::request_client_address`.
     /// A registration older than protocol 3, for asking the read gate about a vault.
     fn legacy_reg(vault: &str) -> VaultRegistration {
         VaultRegistration {
@@ -4869,6 +4877,22 @@ mod tests {
         // 2100-03-01: NOT a leap year, because 100 divides it and 400 does not.
         assert_eq!(iso_from_epoch(4_107_542_400), "2100-03-01T00:00:00Z");
         assert_eq!(iso_from_epoch(1_789_629_713), "2026-09-17T07:21:53Z");
+    }
+
+    /// The forwarding setting is what a deploy has to confirm arrived, and the boot log is not
+    /// something every operator can read. So health says it.
+    #[test]
+    fn health_says_which_forwarding_rule_is_in_force() {
+        let st = HelperState::new();
+        let r = handle(&st, &cfg(), &Method::Get, "/api/health", b"");
+        let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert!(v.get("trusted_proxy_hops").is_some(), "{}", r.body);
+        // A test runs under the default rule, which is reported as `null`, not left out.
+        assert!(v["trusted_proxy_hops"].is_null(), "{}", r.body);
+        assert_eq!(
+            v["trusted_proxy_hops"].as_u64().map(|n| n as usize),
+            konclave_http::forwarding_rule().trusted_hops()
+        );
     }
 
     #[test]

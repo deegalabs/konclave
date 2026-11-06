@@ -106,6 +106,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The coordinator can be told how many proxies in front of it to trust**, with the relay's
+  setting and the same meaning (`KONCLAVE_TRUSTED_PROXY_HOPS`; `DEPLOY.md`). Unset, which is how it
+  runs, nothing changes. A value it does not understand stops the coordinator at boot, before it
+  reads the vaults, and the boot log and `/api/health` (`trusted_proxy_hops`) say which rule is in
+  force. The log also says, once per length, how many values a request's header carried (a count,
+  never an address).
 - **How long a send waits for the devices is the operator's setting.** The coordinator waits for
   `KONCLAVE_SEND_MAX_POLLS` polls (one a second when the relay answers at once, longer when it does not): default 300, from 120 to 600. Below 120,
   zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log
