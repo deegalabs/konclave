@@ -56,6 +56,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.17.0] 2026-11-06
+
+> **Services deployed when this was cut (2026-11-06):** coordinator `aa778cd`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Added
 
 - **Every desktop release carries a `SHA256SUMS` file** listing the SHA-256 of each file attached to

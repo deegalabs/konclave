@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.17.0] 2026-11-06
+
 ### Security
 
 - **A restored vault kept its viewing key readable on the device (#599).** From 2026-09-06 (#447), a
