@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 
 // The hook itself (#847): ready only when the wasm loaded AND the rule answered; a failed load or a
 // rule that cannot answer is `unavailable`, never `ready`.
-const w = vi.hoisted(() => ({ load: 'ok' as 'ok' | 'fail', answer: 15_000 }))
-vi.mock('./wasm-ready', () => ({ ensureWasm: () => (w.load === 'ok' ? Promise.resolve() : Promise.reject(new Error('no wasm'))) }))
+const w = vi.hoisted(() => ({ load: 'ok' as 'ok' | 'fail' | 'hang', answer: 15_000 }))
+vi.mock('./wasm-ready', () => ({
+  ensureWasm: () => (w.load === 'ok' ? Promise.resolve() : w.load === 'hang' ? new Promise(() => {}) : Promise.reject(new Error('no wasm'))),
+}))
 vi.mock('./wasm-pkg/konclave_wasm.js', () => ({ estimatedFeeZat: () => w.answer }))
-const { useFeeEstimate, estimatorOf } = await import('./fee-estimate')
+const { useFeeEstimate, estimatorOf, WASM_LOAD_TIMEOUT_MS } = await import('./fee-estimate')
 
 describe('useFeeEstimate', () => {
   afterEach(() => cleanup())
@@ -24,6 +26,20 @@ describe('useFeeEstimate', () => {
     const { result } = renderHook(() => useFeeEstimate())
     await waitFor(() => expect(result.current.state).toBe('unavailable'))
     expect(estimatorOf(result.current)).toBeNull()
+  })
+  it('a load that hangs becomes unavailable after the timeout, so the screen can say why', async () => {
+    vi.useFakeTimers()
+    try {
+      w.load = 'hang'
+      const { result } = renderHook(() => useFeeEstimate())
+      expect(result.current.state).toBe('loading')
+      await act(async () => {
+        vi.advanceTimersByTime(WASM_LOAD_TIMEOUT_MS + 1)
+      })
+      expect(result.current.state).toBe('unavailable')
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('a rule that answers 0 (no clock window) is unavailable', async () => {
     w.load = 'ok'

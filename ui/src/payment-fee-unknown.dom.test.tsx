@@ -45,6 +45,9 @@ describe('the payment screen without a fee estimate (#847)', () => {
     expect(await screen.findByText(en('money.blockFeeUnknown'))).toBeTruthy()
     expect(btn.disabled).toBe(true)
     expect(document.body.textContent).not.toContain('NaN')
+    // The amount is fine: the field is not marked invalid, and the fee line says it is not known.
+    expect(screen.getByPlaceholderText('0.00').getAttribute('aria-invalid')).toBeNull()
+    expect(screen.getByText(en('payment.feeEstimateUnknown'))).toBeTruthy()
   })
   it('loading: Propose stays closed, without telling the member to reload', async () => {
     fee.state = 'loading'

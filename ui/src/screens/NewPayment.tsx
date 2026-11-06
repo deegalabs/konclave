@@ -15,7 +15,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
+import { proposeBlock, blockMessageKey, blockIsInAmount, poolsOf } from '../propose-guard'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useVaultBalance } from '../useVaultBalance'
 
@@ -260,7 +260,7 @@ export default function NewPayment() {
           <label className="field"><span>{t('payment.value')}</span>
             <div className="payamt">
               <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)}
-                aria-invalid={blockMsg ? true : undefined} aria-describedby={blockMsg ? 'pay-block' : undefined} />
+                aria-invalid={blockMsg && blockIsInAmount(block) ? true : undefined} aria-describedby={blockMsg ? 'pay-block' : undefined} />
               <span className="payamt-unit">ZEC</span>
             </div>
             <div className="payamt-meta">
@@ -317,7 +317,7 @@ export default function NewPayment() {
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null || hideAfter ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
-            <div className="pv-fee mono dim">{tr('payment.feeEstimate', { fee: feeZat == null ? '-' : fmtZecExact(feeZat / 1e8) })}</div>
+            <div className="pv-fee mono dim">{feeZat == null ? t('payment.feeEstimateUnknown') : tr('payment.feeEstimate', { fee: fmtZecExact(feeZat / 1e8) })}</div>
           </div>
 
           {/* The gate fails closed now, so a member can meet a disabled button for reasons the

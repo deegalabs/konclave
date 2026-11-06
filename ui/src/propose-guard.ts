@@ -105,6 +105,13 @@ export function blockMessageKey(b: ProposeBlock): string | null {
   }
 }
 
+/** Whether a block is about the typed AMOUNT, so the amount field may be marked invalid. An unknown
+ *  fee, balance or reservation is not the amount's fault, and a screen reader saying "invalid entry"
+ *  on a correct amount sends the member to the wrong field. */
+export function blockIsInAmount(b: ProposeBlock): boolean {
+  return b === 'amount' || b === 'amount-ambiguous' || b === 'no-funds' || b === 'over-balance' || b === 'reserved' || b === 'crosses-pools'
+}
+
 /**
  * The pool split as `proposeBlock` wants it, read off a balance.
  *

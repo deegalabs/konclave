@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { blockMessageKey, proposeBlock, poolsOf } from './propose-guard'
+import { blockIsInAmount, blockMessageKey, proposeBlock, poolsOf } from './propose-guard'
 import { codeAt } from './source-scan'
 
 // The submit gate for a payment or a payroll, as a pure rule.
@@ -225,6 +225,10 @@ describe('an unknown fee blocks, as an unknown balance does (#847)', () => {
     expect(proposeBlock({ amountZat: 1000, availableZat: 1_000_000, feeZat: null })).toBe('fee-unknown')
     expect(proposeBlock({ amountZat: 1000, availableZat: null, feeZat: null })).toBe('fee-unknown')
     expect(blockMessageKey('fee-unknown')).toBe('money.blockFeeUnknown')
+  })
+  it('does not mark the amount invalid: the amount is not what is wrong', () => {
+    for (const b of ['fee-unknown', 'balance-unknown', 'reserved-unknown', 'memo', null] as const) expect(blockIsInAmount(b), String(b)).toBe(false)
+    for (const b of ['amount', 'amount-ambiguous', 'over-balance', 'no-funds', 'reserved', 'crosses-pools'] as const) expect(blockIsInAmount(b), b).toBe(true)
   })
 })
 

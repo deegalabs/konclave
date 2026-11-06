@@ -31,6 +31,9 @@ export function readFeeEstimator(estimate: (destinations: number) => number = es
   }
 }
 
+/** How long the estimate may stay loading before the screen says it cannot be worked out. */
+export const WASM_LOAD_TIMEOUT_MS = 15_000
+
 /** Where the estimate stands on a screen: still loading, unusable (with the reason shown), or ready. */
 export type FeeEstimate =
   | { state: 'loading' }
@@ -43,6 +46,11 @@ export function useFeeEstimate(): FeeEstimate {
   const [s, setS] = useState<FeeEstimate>({ state: 'loading' })
   useEffect(() => {
     let live = true
+    // A load that hangs instead of failing would leave the screen closed with nothing said: after
+    // this long it counts as unavailable, and a late load still turns it ready.
+    const timer = setTimeout(() => {
+      if (live) setS((cur) => (cur.state === 'loading' ? { state: 'unavailable' } : cur))
+    }, WASM_LOAD_TIMEOUT_MS)
     ensureWasm()
       .then(() => {
         if (!live) return
@@ -54,6 +62,7 @@ export function useFeeEstimate(): FeeEstimate {
       })
     return () => {
       live = false
+      clearTimeout(timer)
     }
   }, [])
   return s

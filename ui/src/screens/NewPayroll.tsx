@@ -572,7 +572,9 @@ export default function NewPayroll() {
 
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvFeeK')}</span>
-              <span className="plf-v num dim">+ {feeZat == null ? '-' : fmtZecExact(feeZat / 1e8)} ZEC</span>
+              {feeZat == null
+                ? <span className="plf-v num dim"><span aria-hidden="true">-</span><span className="visually-hidden">{t('money.feeNotKnown')}</span></span>
+                : <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>}
               {savedZat > 0 && (
                 <span className="plf-saved">{t('payroll.feeSaved', { n: count, saved: fmtZecExact(savedZat / 1e8) })}</span>
               )}
