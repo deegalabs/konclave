@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
+import { Secret } from '../components'
+import { vaultStatus, forgetStatus } from '../vault-status'
+import { fmtDate, fmtZec, zatToZec } from '../format'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
@@ -215,6 +218,7 @@ export default function Vaults() {
       clearUnlockedShare(row.v.id) // the in-memory share goes with the stored one
       clearReadSecret(row.v.id)
       clearPrfWrap(row.v.id) // a wrap outliving its vault can only confuse
+      forgetStatus(row.v.id) // and so would last week's figures on a re-import
       if (getSelectedVault() === row.v.id) clearSelectedVault() // do not leave the app pointing at it
       setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
       setRemoving(null)
@@ -481,6 +485,29 @@ export default function Vaults() {
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
+                {/* The vault's situation as this device last read it: the list reads nothing itself (a
+                    balance read makes the coordinator sync a wallet), so each figure carries its time. */}
+                {(() => {
+                  const st = vaultStatus(v.id)
+                  if (!st) return <div className="rd-state none">{t('vaults.stateNone')}</div>
+                  const when = (ts: number) => new Date(ts * 1000).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
+                  const stale = st.at < Math.floor(Date.now() / 1000) - 86_400
+                  const sep = <span className="visually-hidden">, </span>
+                  return (
+                    <div className={'rd-state' + (stale ? ' stale' : '')}>
+                      {st.freeZat !== null && st.freeAt !== null && (
+                        <span className="rd-state-fig">
+                          {/* The veil is a button of its own: its click must not open the vault. */}
+                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat))}</span></Secret></span>
+                          {' '}{t('vaults.stateFree', { when: when(st.freeAt) })}{sep}
+                        </span>
+                      )}
+                      {st.openCount !== null && <span>{st.openCount === 0 ? t('vaults.stateNoOpen') : st.openCount === 1 ? t('vaults.stateOpenOne') : t('vaults.stateOpen', { n: st.openCount })}{sep}</span>}
+                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}{sep}</span>}
+                      <span className="rd-state-at">{t('vaults.stateSeen', { when: when(st.at) })}</span>
+                    </div>
+                  )
+                })()}
                 {resumeDone[v.id] !== undefined && (
                   <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
                     <strong>{t('vaults.resumeDone')}</strong>

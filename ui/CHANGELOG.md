@@ -40,6 +40,20 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **Each vault on the list says how it stands.** Under its members: what is free, with the time
+  of the read it comes from, how many proposals are open, when the last proposal was made, and
+  when this device last read it. The list reads nothing itself (a balance read makes the
+  coordinator sync the wallet); it shows what this device's last reads of that vault saw, greys
+  the figures after a day, and says "not opened on this device yet" until a first read.
+
+### Known limits
+
+- **The vault list shows what this device saw.** Another device shows what it saw, and the free
+  figure can come from a balance read and a proposals read made at different times (it carries the
+  older time).
+
 ## [0.17.0] 2026-11-06
 
 ### Security
