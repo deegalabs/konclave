@@ -42,6 +42,14 @@ history to tidy it is how context gets lost.
 
 ### Added
 
+- **Settings says who sees what, and who can do what.** A new section, for the vault on
+  screen: what you and the members, the vault's server, the messages service and anyone with the
+  vault's link can read or do, from the balance and the memos to moving money and voting, with
+  the Private or Open badge, from the one fact this device holds (private or open). What it
+  cannot see is said as such: whether the write gate is on, whether every member's device has
+  registered. The limits are listed as limits: the server builds what the quorum signs and holds
+  the viewing key, the metadata a link still reads on a private vault, the product's own rules,
+  and that Konclave is not audited. The whole trust model stays in the docs (#244, #308).
 - **Each vault on the list says how it stands.** Under its members: what is free, with the time
   of the read it comes from, how many proposals are open, when the last proposal was made, and
   when this device last read it. The list reads nothing itself (a balance read makes the

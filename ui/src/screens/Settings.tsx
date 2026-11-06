@@ -18,6 +18,7 @@ import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, forgetVault, type Governance } from '../storage'
 import { clearPayrollDraft } from '../payroll-draft'
+import { trustRows, type Cell } from '../trust-facts'
 import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -43,6 +44,8 @@ export default function Settings() {
   const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
+  // Private (the vault holds S) or open; undefined until the record was read, never asserted.
+  const [secured, setSecured] = useState<boolean | undefined>(undefined)
   const [live, setLive] = useState<boolean | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmName, setConfirmName] = useState('')
@@ -84,7 +87,7 @@ export default function Settings() {
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
-            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found) }
+            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured) }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
@@ -303,11 +306,12 @@ export default function Settings() {
         <a href="#s-vault">{t('set.secVault')}</a>
         <a href="#s-access">{t('set.secAccess')}</a>
         {gov && <a href="#s-gov">{t('set.secGov')}</a>}
+        {gov && <a href="#s-trust">{t('set.secTrust')}</a>}
         {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
         <a href="#s-remove">{t('set.secRemove')}</a>
       </nav>
       <div className="set-body">
-      <h2 className="set-sec">{t('set.secVault')}</h2>
+      <h2 className="set-sec" id="s-vault">{t('set.secVault')}</h2>
       <div className="set-list">
         {network && (
           <div className="set-row">
@@ -357,7 +361,7 @@ export default function Settings() {
       </div>
       <p className="set-hint">{tr('members.fpHelp')}</p>
 
-      <h2 className="set-sec">{t('set.secAccess')}</h2>
+      <h2 className="set-sec" id="s-access">{t('set.secAccess')}</h2>
       <div className="set-list">
         {/* #468: this row used to render a FIXED string - "passphrase on this device" - regardless
             of what the device actually held, so it was a label pretending to be state. It is also
@@ -399,7 +403,7 @@ export default function Settings() {
 
       {gov && (
         <>
-          <h2 className="set-sec">{t('set.secGov')}</h2>
+          <h2 className="set-sec" id="s-gov">{t('set.secGov')}</h2>
           <div className="set-list">
             <div className="set-row">
               <span className="set-k">{t('settings.governance')}<Hint>{t('settings.govNote')}</Hint></span>
@@ -412,7 +416,55 @@ export default function Settings() {
         </>
       )}
 
-      <h2 className="set-sec">{t('set.secKeys')}</h2>
+      {hasLocal && secured !== undefined && (
+        <>
+          {/* The trust panel: who sees what and who can do what, for THIS vault, from the one fact
+              the device holds (private or open). What it cannot see (the write gate, every seat's
+              registration) is said as such. The cells are short words; the clauses are the limits. */}
+          <h2 className="set-sec" id="s-trust">{t('set.secTrust')}</h2>
+          <p className="set-hint trust-intro">
+            {secured
+              ? <span className="set-badge trust-badge" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>
+              : <span className="set-badge trust-badge open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
+            {' '}{t('trust.intro')}
+          </p>
+          {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
+          <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
+            <table className="tbl trust-grid" aria-labelledby="s-trust">
+              <thead>
+                <tr>
+                  <th scope="col">{t('trust.what')}</th>
+                  {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {trustRows({ secured, threshold: thr, total: n }).map((r) => (
+                  <tr key={r.what}>
+                    <th scope="row">{t('trust.row.' + r.what)}</th>
+                    {(['members', 'server', 'relay', 'link'] as const).map((p) => {
+                      const c: Cell = r.cells[p]
+                      return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="set-hint">{t('trust.limits')}</p>
+          <ul className="trust-limits">
+            <li>{t('trust.limit.builds')}</li>
+            <li>{t('trust.limit.viewingKey')}</li>
+            <li>{t('trust.limit.relay')}</li>
+            <li>{t('trust.limit.gate')}</li>
+            <li>{t('trust.limit.metadata')}</li>
+            <li>{t('trust.limit.product')}</li>
+            <li>{t('trust.limit.audit')}</li>
+          </ul>
+          <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
+        </>
+      )}
+
+      <h2 className="set-sec" id="s-keys">{t('set.secKeys')}</h2>
       {!settled ? (
         <div className="set-list">
           <div className="set-row"><Skeleton width={130} height={12} /><Skeleton width={96} height={34} radius={10} /></div>
@@ -443,7 +495,7 @@ export default function Settings() {
         </div>
       ) : null}
 
-      <h2 className="set-sec">{t('set.secRemove')}</h2>
+      <h2 className="set-sec" id="s-remove">{t('set.secRemove')}</h2>
       <section className="set-danger">
         {/* The old note said what is NOT lost ("nothing is deleted from the network"), which is
             true and hides the part that matters. This says the cost. */}
