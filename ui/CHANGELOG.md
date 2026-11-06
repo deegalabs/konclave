@@ -137,15 +137,16 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **The desktop app could open to a blank window.** On Windows, installing v0.16.0 over v0.15.0 kept
-  the app's browser profile, and with it the offline copy (a service worker) v0.15.0 had saved there.
-  The window then opened white, with nothing to click. The desktop app no longer keeps an offline
-  copy, and on Windows the app itself removes the one an earlier version left, before its window
-  opens (see Fixed in the root [CHANGELOG.md](../CHANGELOG.md)). The removal in the page, which this
-  entry first described, never ran on Windows: the old copy kept serving the old page, so the new one
-  never loaded. Your vaults, shares and settings in that profile are not touched. If you renamed or
-  moved the `EBWebView` folder to get the window back, keep that folder: the vaults saved on that
-  computer are inside it. On the desktop and on the web, if the part of the app around the screens (its
+- **Desktop: the offline copy an earlier version left is removed.** On Windows, installing v0.16.0
+  over v0.15.0 kept the app's browser profile, and with it the offline copy (a service worker) v0.15.0
+  had saved there; the window then opened white, with nothing to click. The desktop app no longer
+  keeps an offline copy, and on Windows the app itself removes the one an earlier version left,
+  before its window opens (see Fixed in the root [CHANGELOG.md](../CHANGELOG.md)). The removal in the
+  page, which this entry first described, never ran on Windows: the old copy kept serving the old
+  page, so the new one never loaded. Whether the window now opens on Windows is not confirmed yet
+  (Known limits). Your vaults, shares and settings in that profile are not touched. If you renamed or
+  moved the `EBWebView` folder to get the window back, do not delete it: the vaults saved on that
+  computer are inside it, so rename it back (Known limits). On the desktop and on the web, if the part of the app around the screens (its
   language, notifications or navigation) fails, it now shows the "something broke" screen with
   Reload, instead of a white page; a failing screen already did. The web keeps its offline copy and
   its "new version" banner.
@@ -347,6 +348,12 @@ history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **The blank desktop window has not been checked on Windows since the fix.** The removal of the old
+  offline copy is tested on a copy of a profile, not yet on Windows; the next release candidate
+  (rc.2) is that test. Until it passes, the way back from a blank window is in the root
+  [CHANGELOG.md](../CHANGELOG.md) Known limits: delete only `EBWebView\Default\Service Worker`, never
+  rename or delete `EBWebView`, and never tick "Delete the application data". This entry goes when
+  that test passes.
 - **A payroll is limited to a few lines (#821).** One payment can carry at most 6 parts in a vault of
   up to 31 devices (5 in a 32-seat vault), so a payroll of about 4 to 5 lines (4 when the vault pays
   from Orchard notes), about 3 to 4 in a 32-seat vault, and fewer when the vault pays from many small

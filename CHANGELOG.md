@@ -101,7 +101,8 @@ explicitly accepted.
   The app now does that itself on Windows, once per version and before its window opens. It moves
   that one folder out of the profile and deletes it, and touches nothing else: IndexedDB, where the
   sealed shares are, and Local Storage are left as they are. If the folder is in use (another copy of
-  the app open), it is left whole, the app opens anyway, and the next launch tries again.
+  the app open), it is left whole, the app opens anyway, and the next launch tries again. That this
+  brings the window back on Windows is not confirmed yet (Known limits).
 - **A payment or payroll too large to be signed could be proposed and approved, and then fail at the
   send (#821).** The signing request crosses the relay as one message, capped at 128 KiB, and it grows
   with the number of actions the transaction carries (each payee, each note spent, the change, and
@@ -136,9 +137,12 @@ explicitly accepted.
   Windows machine** (#212): the upgrade over a v0.16.0 `.msi`, the uninstall question, and that the
   vaults are still there afterwards.
 - **The blank-window fix has not been run on Windows yet.** Its logic is tested on a copy of a
-  profile on Linux; the Windows run is the next release candidate. Until it passes, do not delete a
-  renamed `EBWebView` folder, and if the window is blank, renaming that folder (or only its
-  `Default\Service Worker` folder) is still the way back. This entry goes when that test passes.
+  profile on Linux; the Windows run is the next release candidate (rc.2). Until it passes, if the
+  window opens blank: close the app, delete only the `Service Worker` folder inside
+  `%LOCALAPPDATA%\app.konclave.desktop\EBWebView\Default`, and open the app again. Never rename,
+  move or delete `EBWebView` itself, and never tick "Delete the application data" when uninstalling:
+  the vaults stored on this computer are inside that folder, and renaming it only hides them. If you
+  already renamed it, rename it back to `EBWebView` first. This entry goes when that test passes.
 - **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
   message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
   about 4 to 5 lines in a vault of up to 31 devices (5 when the vault pays from Ironwood notes, 4 when
