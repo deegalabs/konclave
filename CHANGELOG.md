@@ -92,7 +92,7 @@ explicitly accepted.
 
 ### Fixed
 
-- Desktop release: the app was built without the coordinator and relay addresses, so "Konclave-hosted" never appeared when creating a vault and the app looked for its relay at its own address, where none answers. The release now builds with the production addresses (`https://helper.konclave.xyz`, `https://relay.konclave.xyz`), says so in its notes, and fails when the built app does not carry them (#664). The screen side is in [ui/CHANGELOG.md](ui/CHANGELOG.md).
+- Desktop release: the app was built without the coordinator and relay addresses, so "Konclave-hosted" never appeared when creating a vault and the app looked for its relay at its own address, where none answers. The release now builds with the production addresses (`https://helper.konclave.xyz`, `https://relay.konclave.xyz`), says so in its notes, and fails when the built app does not carry them (#664). The screen side is in [ui/CHANGELOG.md](https://github.com/deegalabs/konclave/blob/main/ui/CHANGELOG.md).
 - **Windows: the desktop app could still open to a blank window after an upgrade.** A v0.15.0
   install left the web's offline copy (a service worker) in the app's WebView2 profile. After an
   upgrade that copy kept serving the old app, so the new page never ran, and the removal #834 put in
@@ -101,8 +101,9 @@ explicitly accepted.
   The app now does that itself on Windows, once per version and before its window opens. It moves
   that one folder out of the profile and deletes it, and touches nothing else: IndexedDB, where the
   sealed shares are, and Local Storage are left as they are. If the folder is in use (another copy of
-  the app open), it is left whole, the app opens anyway, and the next launch tries again. That this
-  brings the window back on Windows is not confirmed yet (Known limits).
+  the app open), it is left whole, the app opens anyway, and the next launch tries again. Checked on
+  Windows with v0.17.0-rc.2: put over an old profile, the app opened. If you renamed `EBWebView` to
+  get the window back, rename it back: the vaults stored on this computer are inside it.
 - **A payment or payroll too large to be signed could be proposed and approved, and then fail at the
   send (#821).** The signing request crosses the relay as one message, capped at 128 KiB, and it grows
   with the number of actions the transaction carries (each payee, each note spent, the change, and
@@ -136,13 +137,6 @@ explicitly accepted.
 - **The Windows changes are checked against the installer's source and compiled, not yet run on a
   Windows machine** (#212): the upgrade over a v0.16.0 `.msi`, the uninstall question, and that the
   vaults are still there afterwards.
-- **The blank-window fix has not been run on Windows yet.** Its logic is tested on a copy of a
-  profile on Linux; the Windows run is the next release candidate (rc.2). Until it passes, if the
-  window opens blank: close the app, delete only the `Service Worker` folder inside
-  `%LOCALAPPDATA%\app.konclave.desktop\EBWebView\Default`, and open the app again. Never rename,
-  move or delete `EBWebView` itself, and never tick "Delete the application data" when uninstalling:
-  the vaults stored on this computer are inside that folder, and renaming it only hides them. If you
-  already renamed it, rename it back to `EBWebView` first. This entry goes when that test passes.
 - **A payroll is limited to a few lines (#821).** The signing request still crosses the relay as one
   message, so a transaction can carry at most 6 actions (5 in a 32-seat vault). That is a payroll of
   about 4 to 5 lines in a vault of up to 31 devices (5 when the vault pays from Ironwood notes, 4 when
