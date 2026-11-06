@@ -42,6 +42,14 @@ history to tidy it is how context gets lost.
 
 ### Added
 
+- **The spreadsheet export has a summary and a sheet by beneficiary.** The Summary shows settled
+  outflows by kind and entries by state as live formulas over Movements, and the vault's position:
+  what the whole book's open proposals hold, what is confirming, and what is available, as a visible
+  subtraction (negative, and said so, when the open proposals exceed what can be spent), dated at the
+  export and left out when the balance could not be read. A third sheet, By beneficiary, has one row
+  per address with settled and open sums as live SUMIFS over Movements, a total row and a
+  "Difference vs Summary" row the accountant can re-run in the spreadsheet (#302; a sheet by
+  category waits for the field on the proposal).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks

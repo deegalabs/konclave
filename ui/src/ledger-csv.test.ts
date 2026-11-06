@@ -7,10 +7,14 @@ import type { LedgerXlsxData, LedgerXlsxItem } from './ledgerXlsx'
 // neutralised, so a memo or a payee name cannot become a formula in a spreadsheet.
 
 const labels: LedgerXlsxData['labels'] = {
-  summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter', generated: 'Generated',
+  summary: 'Summary', movements: 'Movements', byPayee: 'By beneficiary', vault: 'Vault', period: 'Period', filter: 'Filter', generated: 'Generated',
   entries: 'Entries', settledOut: 'Settled out', open: 'Open', colDate: 'Date', colDocument: 'Document', colKind: 'Kind',
   colBeneficiary: 'Beneficiary', colAddress: 'Address', colMemo: 'Memo', colProposedBy: 'Proposed by', colApprovedBy: 'Approved by',
   colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value', colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
+  outPayments: 'Outflows: payments', outPayrolls: 'Outflows: payrolls', byState: 'Entries by state',
+  kindPayment: 'Payment', kindPayroll: 'Payroll', position: 'Position (total)', committed: 'Committed to open proposals',
+  available: 'Available', confirming: 'Confirming', asOf: 'Balance as of', difference: 'Difference vs Summary',
+  overCommitted: 'Over-committed', noAddress: 'No address',
 }
 const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
   dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent', memo: '',

@@ -41,10 +41,17 @@ export interface LedgerXlsxData {
   filter: string
   generatedAt: Date
   items: LedgerXlsxItem[]
+  /** The vault's balance when the export was made, in ZEC: left out when it could not be read.
+   *  `reservedZec` is the whole book's open proposals, unclamped; `overCommitted` says they exceed
+   *  what can be spent. Available is written as a formula over the three, so it can go negative. */
+  balance?: { totalZec: number; reservedZec: number; confirmingZec: number; overCommitted: boolean }
+  /** The registry's name for an address, where it has one. */
+  payeeNames?: Record<string, string>
   labels: {
     // localized column/section headers so the sheet matches the UI language
     summary: string
     movements: string
+    byPayee: string
     vault: string
     period: string
     filter: string
@@ -68,6 +75,19 @@ export interface LedgerXlsxData {
     total: string
     yes: string
     no: string
+    outPayments: string
+    outPayrolls: string
+    byState: string
+    kindPayment: string
+    kindPayroll: string
+    position: string
+    committed: string
+    available: string
+    confirming: string
+    asOf: string
+    difference: string
+    overCommitted: string
+    noAddress: string
   }
 }
 
@@ -105,6 +125,9 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   const settledCol = letter('settled')
   const openCol = letter('open')
   const valueCol = letter('zec')
+  const kindCol = letter('kind')
+  const addressCol = letter('address')
+  const stateCol = letter('state')
 
   // Row math is deterministic from the item count, so the Summary formulas can be written before
   // the Movements rows exist (an .xlsx formula is just a string resolved by the spreadsheet app).
@@ -120,7 +143,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
 
   // ---- Summary sheet (first tab) with live formulas referencing Movements ----
   const sm = wb.addWorksheet(L.summary)
-  sm.columns = [{ key: 'k', width: 20 }, { key: 'v', width: 34 }]
+  sm.columns = [{ key: 'k', width: 36 }, { key: 'v', width: 34 }]
   const put = (k: string, v: string | number | { formula: string }, opts?: { money?: boolean; bold?: boolean }) => {
     const row = sm.addRow({ k, v })
     row.getCell('k').font = { bold: true }
@@ -137,8 +160,37 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   put(L.generated, data.generatedAt.toISOString().slice(0, 16).replace('T', ' '))
   put(L.entries, n)
   sm.addRow({})
-  put(L.settledOut, sumIf(settledCol, L.yes), { money: true, bold: true })
-  put(L.open, sumIf(openCol, L.yes), { money: true, bold: true })
+  const settledRow = put(L.settledOut, sumIf(settledCol, L.yes), { money: true, bold: true })
+  const openRow = put(L.open, sumIf(openCol, L.yes), { money: true, bold: true })
+  // Outflows by kind and entries by state: the accountant's own reading of a period, as live
+  // formulas over Movements like the two totals above.
+  sm.addRow({})
+  // Settled outflows only: a refused or expired row of either kind never left the vault.
+  const outOf = (kind: string) => (n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(kindCol)},"${kind}",${MV}!${span(settledCol)},"${L.yes}")` })
+  put(L.outPayments, outOf(L.kindPayment), { money: true })
+  put(L.outPayrolls, outOf(L.kindPayroll), { money: true })
+  // Rows, not proposals: a payroll counts one per line, as the Entries row does.
+  if (n > 0) {
+    sm.addRow({})
+    const byStateRow = sm.addRow({ k: L.byState })
+    byStateRow.getCell('k').font = { bold: true }
+    for (const st of [...new Set(data.items.map((it) => it.state))]) {
+      put(st.charAt(0).toUpperCase() + st.slice(1), { formula: `COUNTIF(${MV}!${span(stateCol)},"${st}")` })
+    }
+  }
+  // The balance is a figure of the moment and of the whole vault, not of the rows: dated, and left
+  // out when the read failed rather than written as zeros. Available is the subtraction an
+  // accountant would do by hand, written as the formula so it is visible, and negative when the
+  // open proposals exceed what can be spent.
+  if (data.balance) {
+    sm.addRow({})
+    put(L.asOf, data.generatedAt.toISOString().slice(0, 16).replace('T', ' ') + ' UTC')
+    const pos = put(L.position, data.balance.totalZec, { money: true, bold: true })
+    const com = put(L.committed, data.balance.reservedZec, { money: true })
+    const conf = put(L.confirming, data.balance.confirmingZec, { money: true })
+    put(L.available, { formula: `B${pos.number}-B${com.number}-B${conf.number}` }, { money: true, bold: true })
+    if (data.balance.overCommitted) put(L.overCommitted, '', { bold: true })
+  }
 
   // ---- Movements sheet (itemized) ----
   const mv = wb.addWorksheet(L.movements, { views: [{ state: 'frozen', ySplit: 1 }] })
@@ -149,7 +201,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
       document: it.document,
       kind: it.kind,
       beneficiary: it.beneficiary,
-      address: it.address,
+      address: it.address.trim(),
       memo: it.memo,
       proposer: it.proposer,
       approvers: it.approvers,
@@ -173,6 +225,62 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   mv.getColumn('zec').numFmt = '0.00000000'
   mv.getColumn('zec').alignment = { horizontal: 'right' }
   totalRow.getCell('zec').numFmt = '0.00000000'
+
+  // ---- By beneficiary (third tab): one row per address, live SUMIFS over Movements, and the
+  // difference against the Summary as a formula the accountant can re-run ----
+  const bp = wb.addWorksheet(L.byPayee, { views: [{ state: 'frozen', ySplit: 1 }] })
+  bp.columns = [
+    { header: L.colBeneficiary, key: 'name', width: 22 },
+    { header: L.colAddress, key: 'address', width: 30 },
+    { header: L.settledOut, key: 'settled', width: 16 },
+    { header: L.open, key: 'open', width: 16 },
+    { header: L.entries, key: 'count', width: 14 },
+  ]
+  const byAddr = new Map<string, { name: string; sum: number }>()
+  for (const it of data.items) {
+    const a = it.address.trim()
+    const row = byAddr.get(a) ?? { name: '', sum: 0 }
+    if (!row.name && it.beneficiary.trim()) row.name = it.beneficiary.trim()
+    if (it.settled || it.open) row.sum += it.zec
+    byAddr.set(a, row)
+  }
+  const payees = [...byAddr.entries()].sort((x, y) => y[1].sum - x[1].sum)
+  const SM = sheet(L.summary)
+  const q = (v: string) => v.replace(/"/g, '""')
+  for (const [address, row] of payees) {
+    // No address: a payment with none recorded, or a payroll whose lines could not be read and is
+    // carried as one row. The bucket is named, so nobody reads a nameless row holding ZEC.
+    const name = address === '' ? L.noAddress : (data.payeeNames?.[address] || row.name)
+    bp.addRow({
+      name,
+      address,
+      settled: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(settledCol)},"${L.yes}")` },
+      open: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(openCol)},"${L.yes}")` },
+      count: n === 0 ? 0 : { formula: `COUNTIF(${MV}!${span(addressCol)},"${q(address)}")` },
+    })
+  }
+  const pFirst = 2
+  const pLast = pFirst + payees.length - 1
+  const pSpan = (col: string) => `${col}${pFirst}:${col}${pLast}`
+  const pTotal = bp.addRow({
+    name: L.total,
+    settled: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('C')})` },
+    open: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('D')})` },
+    count: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('E')})` },
+  })
+  pTotal.font = { bold: true }
+  // Zero when the sheet agrees with the Summary; any other number is a difference to look into.
+  const pDiff = bp.addRow({
+    name: L.difference,
+    settled: payees.length === 0 ? 0 : { formula: `${SM}!B${settledRow.number}-C${pTotal.number}` },
+    open: payees.length === 0 ? 0 : { formula: `${SM}!B${openRow.number}-D${pTotal.number}` },
+  })
+  pDiff.font = { italic: true }
+  bp.getRow(1).font = { bold: true }
+  for (const key of ['settled', 'open']) {
+    bp.getColumn(key).numFmt = '0.00000000'
+    bp.getColumn(key).alignment = { horizontal: 'right' }
+  }
   return wb
 }
 

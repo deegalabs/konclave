@@ -3,7 +3,8 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { balanceParts, reservedZatOf } from '../balance-parts'
 import { pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
 import { explorerTxUrl, fmtDate, fmtZec, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
@@ -159,14 +160,30 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
         }
       }
+      // The balance as of the export, read once: the position, what open proposals of the WHOLE
+      // book hold, what is free, what is confirming. Left out when the read brings nothing.
+      const bal = await getBalance()
+      const reserved = reservedZatOf(ledger)
+      const parts = bal && bal.total_zat != null && reserved != null
+        ? balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
+        : null
+      // Committed is the whole book's open proposals, unclamped (the composition clamps it for the
+      // bar); the sheet writes the real figure and says when it exceeds what can be spent.
+      const balance = parts
+        ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved ?? 0)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
+        : undefined
+      const registry = benefs.length ? benefs : (await getBeneficiaries()) ?? []
+      const payeeNames = Object.fromEntries(registry.map((b) => [b.address.trim(), b.name]))
       return {
         vaultName: vaultName ?? 'Konclave',
         period: win ? winLabel : periodOf(filtered),
         filter: filterLabel,
         generatedAt: new Date(),
         items,
+        balance,
+        payeeNames,
         labels: {
-          summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'),
+          summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'), byPayee: t('ledger.byPayee'),
           vault: t('ledger.vault'), period: t('ledger.period'), filter: t('ledger.xlsxFilter'), generated: t('ledger.xlsxGenerated'),
           entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
           colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
@@ -174,6 +191,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           colProposedBy: t('ledger.colProposedBy'), colApprovedBy: t('ledger.colApprovedBy'),
           colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
           colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
+          outPayments: t('ledger.xlsxOutPayments'), outPayrolls: t('ledger.xlsxOutPayrolls'), byState: t('ledger.xlsxByState'),
+          kindPayment: t('kind.payment'), kindPayroll: t('kind.payroll'),
+          position: t('ledger.xlsxPosition'), committed: t('ledger.xlsxCommitted'), available: t('ledger.xlsxAvailable'), confirming: t('ledger.xlsxConfirming'), asOf: t('ledger.xlsxAsOf'),
+          difference: t('ledger.xlsxDifference'), overCommitted: t('ledger.xlsxOverCommitted'), noAddress: t('ledger.xlsxNoAddress'),
         },
       }
   }
