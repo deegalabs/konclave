@@ -40,20 +40,24 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
-### Fixed
+### Security
 
-- **Removing a vault from a device removes what the device kept for it (#813).** It removed only
-  the vault's record: the people saved for the vault, the passkey shortcut and the last addresses
-  paid stayed in the browser's storage, and the recent addresses were shared by every vault on the
-  device, so one vault offered another vault's payees. The confirm said it removed "records,
-  proposals and people", which a member could read as nothing being left, and proposals were never on
-  the device. Removing now also takes the saved people, the passkey shortcut and the vault's recent
-  addresses, the same from Settings and from the vault list, and for a vault on a local bridge as on
-  the web (there it cleared only the payroll draft). The confirm says what goes, in both places. It
-  also says what stays: the device's record of the payments it signed
-  (summaries and dates, no names or amounts), which stops it signing a second, different transaction
-  for the same payment. The recent addresses are now kept per vault; the shared list of earlier
-  versions is dropped, since whose vault it belonged to cannot be known.
+- **Removing a vault left its personal data in this browser (#813).** Since 2026-08-21, removing a
+  vault from a device deleted only its record (the one holding your part of the key). The people
+  saved for the vault (names, addresses and memos) and the last addresses it paid stayed in the
+  browser's storage, readable afterwards by anyone with access to the device or to that browser
+  profile. Removing from Settings also left the passkey shortcut (since 2026-09-06; encrypted, of no
+  use without that passkey) and the vault's read key in memory until the tab was reloaded. The
+  payroll draft had the same problem until v0.17.0, which clears it. The recent
+  addresses were also one list for every vault on the device, so one vault offered another vault's
+  payees. Removing a vault now takes all of this, the same from Settings and from the vault list,
+  and for a vault on a local bridge as on the web (there it cleared only the payroll draft). The
+  confirm says what goes and what stays: the device's record of the payments it signed (summaries
+  and dates, no names or amounts), kept on purpose because it stops the device signing a second,
+  different transaction for the same payment. The recent addresses are now kept per vault, and the
+  shared list of earlier versions is dropped the first time the app reads it. **Not covered:** the
+  saved people of a vault removed before this version, and its passkey shortcut if it was removed
+  from Settings, stay in that browser; this change clears them only for vaults removed from now on.
 
 ## [0.17.0] 2026-11-06
 
