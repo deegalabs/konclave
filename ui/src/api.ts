@@ -7,7 +7,7 @@
 
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
-import type { EpochEnding, EpochReason } from './send-outcome'
+import type { EpochEnding, EpochReason, TooLarge } from './send-outcome'
 import {
   helperConfigured,
   helperHealth,
@@ -19,6 +19,7 @@ import {
   createProposal as netCreateProposal,
   createPayroll as netCreatePayroll,
   lastHelperPostFailure,
+  TOO_MANY_ACTIONS,
   voteProposal as netVote,
   listMembers as netListMembers,
   setMembers as netSetMembers,
@@ -116,8 +117,8 @@ const BASE: string = ENV.VITE_API_BASE ?? ''
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
 // the local bridge, so the same polished app operates the browser-born vault.
 const NET = helperConfigured()
-/** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
- *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
+/** True when the app operates a browser-native vault via the hosted helper. Screens use it to
+ *  open the signing panel (the share lives on this device) instead of a server-side ceremony. */
 export const IS_NET = NET
 
 /** Map a helper proposal state to the lowercase states the PWA screens expect. */
@@ -402,7 +403,7 @@ export type NewProposal = {
 
 export type CreateResult =
   | { ok: true; proposal: Proposal }
-  | { ok: false; error: string; detail?: string }
+  | { ok: false; error: string; detail?: string; tooLarge?: TooLarge }
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 /** The #288 proof for a governance write, when this device can make one.
@@ -468,6 +469,8 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     // that is right here and was simply not used. One rule, two callers, one of them fixed.
     const f = lastHelperPostFailure()
     if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // #821: too large to sign. The two counts travel with it, since the message is made of them.
+    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
     // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
     // it recognises and shows the rest verbatim, which is still better than a wrong translation.
     if (f?.error) return { ok: false, error: f.error }
@@ -554,7 +557,20 @@ export function epochMessage(e: EpochEnding): { key: string; vars?: Record<strin
   return { key: EPOCH_KEYS[e.reason] }
 }
 
-export function humanError(t: TFn, error?: string, detail?: string): string {
+/** The message for a payment or payroll too large to be signed in one go (#821), with its remedy:
+ *  smaller payrolls for a payroll (its lines or the many small amounts the vault pays it from can be
+ *  the cause, and splitting answers both), a smaller amount or several payments for a payment. No
+ *  line count is promised, because how many lines fit depends on the vault and its funds. */
+export function tooLargeText(t: TFn, tl: TooLarge): string {
+  const vars = { actions: tl.actions, max: tl.max }
+  return tl.plan === 'payroll' ? t('error.tooLargePayroll', vars) : t('error.tooLargePayment', vars)
+}
+
+export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: TooLarge): string {
+  // #821. Before every rule that reads text: the counts are the message, and its detail must never be
+  // mistaken for another refusal.
+  if (tooLarge) return tooLargeText(t, tooLarge)
+  if ((error ?? '').toLowerCase() === TOO_MANY_ACTIONS) return t('error.tooLarge')
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
   const has = (s: string) => e.includes(s) || d.includes(s)
@@ -787,6 +803,8 @@ export async function createPayroll(
     // the payroll went on reporting every failure as a bad address, a refused seat included.
     const f = lastHelperPostFailure()
     if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // #821: too large to sign. The two counts travel with it, since the message is made of them.
+    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
     if (f?.error) return { ok: false, error: f.error }
     return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
   }
@@ -970,20 +988,12 @@ export type SendResult =
   | { ok: false; error: string; detail?: string }
 
 /**
- * Run the FROST ceremony for a Ready proposal. `dryRun` signs without broadcasting.
+ * Run the FROST ceremony for a Ready proposal on the LOCAL BRIDGE. `dryRun` signs without
+ * broadcasting. The hosted path never calls this: there the Proposal screen opens the signing
+ * panel, where this device's share signs (#627).
  * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30-60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
-  if (NET) {
-    // Executing a /net proposal needs the FROST ceremony (the share + a signing session over the
-    // relay), which lives on the /net screen. From the PWA we cannot sign, so point the operator
-    // there. (Bringing the ceremony into the Dashboard is the next slice.)
-    return {
-      ok: false,
-      error: 'sign in /net',
-      detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
-    }
-  }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
       method: 'POST',

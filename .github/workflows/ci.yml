@@ -209,6 +209,11 @@ jobs:
         run: pnpm -C ui run test
       - name: Type-check + build (tsc -b && vite build)
         run: pnpm -C ui run build
+      # The inverse of the check in desktop-release.yml: the web build must ship the workbox worker
+      # that precaches the app (opening offline, the update banner), never the desktop's
+      # self-destroying one. Rule and tests: scripts/check-sw.mjs.
+      - name: Check the service worker is the web one
+        run: node scripts/check-sw-cli.mjs web ui/dist/sw.js
 
   e2e:
     name: UI e2e (Playwright)

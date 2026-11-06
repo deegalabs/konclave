@@ -26,7 +26,13 @@ ciphersuite = "redpallas"                                         # pass `-C red
 # line, plus zcash_protocol 0.10.6 (its only change from 0.10.5 is experimental NuTachyon items behind
 # `--cfg zcash_unstable="nutachyon"`, absent from a default build).
 #
-# The linked (not invoked) librustzcash / orchard crate set:
+# The linked (not invoked) librustzcash / orchard crate set, as `Cargo.lock` pins it since the move
+# to the stable NU7 line (#744, 2026-10-30), the same line [deploy_build] below records as deployed:
+#       pczt 0.10.0 · zcash_client_backend 0.25.0 · zcash_primitives 0.31.0 ·
+#       zcash_client_sqlite 0.23.0 · zcash_protocol 0.11.0 · zcash_keys 0.17.0 · zcash_address
+#       0.14.0 · zip321 0.10.0 · zcash_transparent 0.11.0 · zcash_pool_migration 0.2.0
+#       orchard 0.16.0
+# Until #744 it was the set of the 2026-10-01 re-cut:
 #       pczt 0.9.3 · zcash_client_backend 0.24.0 (carries #2778, the ZIP-32 stamping fix for the
 #       Orchard migration-dummy, which survived rc.6 into the final) · zcash_primitives 0.30.1 ·
 #       zcash_client_sqlite 0.22.0 · zcash_protocol 0.10.6 · zcash_keys 0.16.1 · zcash_address
@@ -220,20 +226,20 @@ zcash_client_backend = "0.24.0-rc.1"
 # engine is not a binary swap (deploy/helper/README.md, "the upgrade is one-way").
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
-date        = "2026-10-31"
-commit      = "aa778cd"
+date        = "2026-11-06"
+commit      = "d5c6a98c"
 line        = "released crates.io (pczt 0.10.0 / zcash_client_backend 0.25.0 / zcash_primitives 0.31.0 / zcash_protocol 0.11.0, NU7 at 3,543,405)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
 sha256 = "a8dfee2eb242d21a46a395f635193fa41b0cc5485338b37115b182aef6620444"
 bytes  = 8228592
-role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); built from commit c0be197 (engine B), unchanged by the hotfix"
+role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); built from commit c0be197 (engine B), unchanged by the hotfix and by v0.17.0"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "8d33bd522a172c0ac1e69dc9b6554f3f5ae80281865866cee9a681aa4ec70c65"
-bytes  = 3638416
+sha256 = "d1aa28a7f16d1ee264d3dda3fc59b81768011827b33c20f2cd49cb14acad611e"
+bytes  = 3655920
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
 # The external tools used alongside them in the helper image. zcash-devtool is the NU7 build recorded
@@ -251,7 +257,23 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
-# The current [deploy_build] is the coordinator of the hotfix, commit aa778cd. It is a public commit:
+# The current [deploy_build] is the coordinator of v0.17.0, commit d5c6a98c: the merge commit of #845
+# (staging -> main), built on 2026-11-06 from a clean worktree at that commit. Deployed to production by
+# the maintainer on 2026-11-06 (`/api/health` reports d5c6a98c, built 2026-11-06T13:38:31Z); the relay was
+# deployed from the same commit and reports source_digest ba546740f3d136f5. Only helper-server changed:
+# its code is the staging tip 17bef799 that ran on staging from 2026-11-05 (#831: a proposal too large to
+# sign is refused when it is created, and the seat-registration bound; the service paths of d5c6a98c differ
+# from 17bef799 only in helper-server/CHANGELOG.md). konclave-signer, zcash-devtool and zcash-sign are
+# byte-identical to engine B and to the hotfix (`sha256sum -c` against this file before the `railway up`),
+# so the wallets needed no migration and no platform backup was taken for this deploy. The sha256 above
+# were NOT hashed inside the running container (health reports the coordinator's commit only). The set is
+# kept on the deploy host as bin.v0.17.0-d5c6a98c. The relay's change is the shared message cap read from
+# konclave-http (`RELAY_MAX_DATA`, the same 128 KiB), so only its digest moved (f8dc88d0970337a3 before).
+# PREVIOUS DEPLOY RECORD (the hotfix, commit aa778cd, 2026-10-31), kept as comments, because a second
+# [deploy_build] table would make the file ambiguous. Its helper-server was sha256
+# 8d33bd522a172c0ac1e69dc9b6554f3f5ae80281865866cee9a681aa4ec70c65, 3638416 bytes; the other three files
+# were the same as today. Its own record read:
+# The coordinator of the hotfix, commit aa778cd. It is a public commit:
 # it is in `main` since the merge 5baac38 (PR #782). Deployed to production on 2026-10-31 01:12 BRT
 # (Railway deployment e41dbf39); `/api/health` reports aa778cd, built 2026-10-31T01:58:16Z. The other
 # three files are those of engine B (set bin.engine-c0be197, built from commit c0be197), deployed to

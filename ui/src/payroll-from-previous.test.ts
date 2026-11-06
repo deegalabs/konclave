@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowsFromPrevious, patchRow, duplicateOf, rowNote, type Row } from './screens/NewPayroll'
+import { rowsFromPrevious, patchRow, duplicateOf, rowNote, needsVouch, unvouchedCount, type Row } from './screens/NewPayroll'
 import type { Beneficiary } from './api'
 import { codeOf } from './source-scan'
 import { en } from './i18n/en'
@@ -87,7 +87,7 @@ describe('the words exist in both languages', () => {
  * the address field (which retires that mark) also retired the one warning that can stop a payment
  * to an old address. The two marks are apart now, and what a line says is one pure function. */
 describe('what a line says under itself', () => {
-  const ana = 'u1' + 'a'.repeat(60), anaNew = 'u1' + 'n'.repeat(60), bia = 'u1' + 'b'.repeat(60)
+  const ana = 'u1' + 'a'.repeat(60), anaNew = 'u1' + 'n'.repeat(60)
   const benefs: Beneficiary[] = [{ id: '1', name: 'Ana', address: anaNew, memo: '', is_public: false }]
   const copied = (address: string, label = 'Ana'): Row => ({ label, address, value: '1', memo: '', copied: true, check: true })
   const keyOf = (rows: Row[], i: number) => rowNote(rows, i, benefs)?.key ?? null
@@ -107,7 +107,7 @@ describe('what a line says under itself', () => {
     expect(keyOf([copied(ana, 'Bia'), copied(ana)], 1)).toBe('payroll.rowStale')
   })
   it('a copied line the registry agrees with says only that it was copied, until looked at', () => {
-    const rows = [copied(bia, 'Bia')]
+    const rows = [copied(anaNew, 'Bia')] // agrees = its ADDRESS is in the registry (F), not its label
     expect(keyOf(rows, 0)).toBe('payroll.rowCopied')
     expect(keyOf(patchRow(rows, 0, {}), 0)).toBeNull()
   })
@@ -116,5 +116,37 @@ describe('what a line says under itself', () => {
   })
   it('a problem that blocks the sheet comes first', () => {
     expect(keyOf([{ ...copied(ana), value: '' }], 0)).toBe('payroll.issueInvalid')
+  })
+})
+
+describe('a copied line paying an address this device does not know (F)', () => {
+  const reg = [{ id: '1', name: 'Ana', address: 'u1known', memo: null }] as unknown as Beneficiary[]
+  const copied = (address: string, label = 'Ana'): Row => ({ label, address, value: '1', memo: '', copied: true, check: true })
+
+  it('is flagged whatever its label says, and a matching label does not vouch for it', () => {
+    expect(needsVouch(copied('u1other'), reg)).toBe(true)
+    expect(needsVouch(copied('u1other', 'Someone'), reg)).toBe(true)
+    expect(needsVouch(copied('u1known', 'Someone'), reg)).toBe(false)
+    expect(needsVouch(copied('u1other'), [])).toBe(true) // a registry not read vouches for nothing
+  })
+
+  it('leaving the field (blur) does not vouch; only the explicit per-line confirm does', () => {
+    const rows = [copied('u1other')]
+    expect(unvouchedCount(patchRow(rows, 0, {}), reg)).toBe(1)
+    expect(unvouchedCount(patchRow(rows, 0, { vouched: true }), reg)).toBe(0)
+  })
+
+  it('a vouched line whose address is edited needs the confirm again', () => {
+    const vouched = patchRow([copied('u1other')], 0, { vouched: true })
+    expect(unvouchedCount(patchRow(vouched, 0, { address: 'u1third' }), reg)).toBe(1)
+  })
+
+  it('Propose waits on it', () => {
+    expect(codeOf('screens/NewPayroll.tsx')).toMatch(/const canSubmit = [^\n]*unvouched === 0/)
+    for (const d of [en, ptBR] as Record<string, string>[]) {
+      expect(d['payroll.rowUnregistered']).toBeTruthy()
+      expect(d['payroll.vouchBtn']).toBeTruthy()
+      expect(d['payroll.blockUnvouched']).toBeTruthy()
+    }
   })
 })

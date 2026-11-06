@@ -64,6 +64,14 @@ describe('a reservation disables the payroll button, in the browser (#293)', () 
     expect(submit().getAttribute('aria-describedby')).toContain('payroll-block')
   })
 
+  it('open proposals that could not be read block the button, like an unknown balance', async () => {
+    getProposals.mockResolvedValue(null)
+    mount()
+    await fillOneLine()
+    await screen.findByText(en('money.blockReservedUnknown'))
+    expect(submit().disabled).toBe(true)
+  })
+
   it('the same line with nothing open proposes', async () => {
     getProposals.mockResolvedValue([])
     mount()

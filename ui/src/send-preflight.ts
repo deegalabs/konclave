@@ -11,7 +11,7 @@ import { readOutcome, type PanelResult, type ReplyEnd, type Resolution, type Sen
 import type { SendEnd } from './send-attempt'
 import { startVisiblePoll } from './usePoll'
 import type { TFn } from './i18n'
-import { epochMessage, humanError, netState } from './api'
+import { epochMessage, humanError, netState, tooLargeText } from './api'
 import { interpolate } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
@@ -105,6 +105,8 @@ export function panelStep(end: ReplyEnd, t: TFn): PanelStep {
     const m = epochMessage(end.epoch)
     return { do: 'fail', text: t(m.key, m.vars), raw: end.raw }
   }
+  // #821: too large to sign. Nothing was published, so it ends as a failure, worded from the counts.
+  if (end.tooLarge) return { do: 'fail', text: tooLargeText(t, end.tooLarge), raw: end.raw }
   // Through humanError, so the money path never shows a binary path and a Rust struct.
   return { do: 'fail', text: humanError(t, end.raw), raw: end.raw }
 }
@@ -197,6 +199,13 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
   if (end.why === 'error' && end.epoch) {
     const m = epochMessage(end.epoch)
     return { pt: interpolate(ptBR[m.key] ?? m.key, m.vars), en: interpolate(en[m.key] ?? m.key, m.vars), stop: true }
+  }
+  // #821: too large to sign. The same counts and the same words as the signing panel, through the
+  // same function, from both dictionaries.
+  if (end.why === 'error' && end.tooLarge) {
+    const tl = end.tooLarge
+    const from = (d: Record<string, string>): TFn => (k, vars) => interpolate(d[k] ?? k, vars)
+    return { pt: tooLargeText(from(ptBR), tl), en: tooLargeText(from(en), tl), stop: true }
   }
   const raw = end.why === 'not-sendable' ? `${end.raw} (${end.state})` : end.raw
   return { pt: `Falha ao executar: ${raw}`, en: `Execute failed: ${raw}`, stop: true }

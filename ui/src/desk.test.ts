@@ -31,6 +31,14 @@ describe('isOpen', () => {
   })
 })
 
+describe('isOpen is "can this proposal still move"', () => {
+  it('is false for an awaiting or ready proposal whose deadline passed on this clock', () => {
+    const past = Math.floor(Date.now() / 1000) - 60
+    expect(isOpen(p({ id: 'a', state: 'awaiting', expiry_unix: past }))).toBe(false)
+    expect(isOpen(p({ id: 'b', state: 'ready', expiry_unix: past }))).toBe(false)
+  })
+})
+
 describe('expiredByClock', () => {
   const past = Math.floor(Date.now() / 1000) - 60
   const future = Math.floor(Date.now() / 1000) + 3600
