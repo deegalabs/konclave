@@ -58,9 +58,7 @@ explicitly accepted.
 
 ## [0.17.0] 2026-11-06
 
-> **Services deployed when this was cut (2026-11-06):** coordinator `unreachable`, relay `unreachable`.
-> Both were unreachable from the machine that cut this (its network proxy refused the two hosts), so
-> this records nothing about the services themselves.
+> **Services deployed when this was cut (2026-11-06):** coordinator `aa778cd`, relay `f8dc88d0970337a3`.
 > The web app is this release's own commit. The two services are deployed by hand and may be
 > older than it - recording what they were ANSWERING is the point, not what they should have been.
 
