@@ -18,10 +18,11 @@ const VER = DESKTOP_VERSION
 const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
 void dl
 // One-click installers → the real assets of release VER (GitHub serves them as attachments, so the
-// click downloads directly). macOS ships Apple Silicon only; there is no Intel build. The .deb,
-// .rpm and .exe live under RELEASES. None of them is code-signed or notarized yet.
+// click downloads directly). macOS ships Apple Silicon only; there is no Intel build. Windows is
+// the NSIS .exe; the .msi is no longer built (root CHANGELOG). The .deb and .rpm live under
+// RELEASES. None of them is code-signed or notarized yet.
 const BUILDS = {
-  Windows: { ext: '.msi', file: `Konclave_${VER}_x64_en-US.msi` },
+  Windows: { ext: '.exe', file: `Konclave_${VER}_x64-setup.exe` },
   macOS: { ext: '.dmg (Apple Silicon)', file: `Konclave_${VER}_aarch64.dmg` },
   Linux: { ext: '.AppImage', file: `Konclave_${VER}_amd64.AppImage` },
 }

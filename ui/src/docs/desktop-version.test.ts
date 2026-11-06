@@ -48,7 +48,7 @@ describe('the desktop version the docs name', () => {
   })
 
   it('the scans below find what they look for (a positive control)', () => {
-    expect(typedInstaller('releases/download/v0.13.1/Konclave_0.13.1_x64_en-US.msi')).toHaveLength(2)
+    expect(typedInstaller('releases/download/v0.13.1/Konclave_0.13.1_x64-setup.exe')).toHaveLength(2)
     expect(typedInstaller('see releases/tag/v0.2.0')).toHaveLength(1)
     expect(versionNumbers('the desktop app v0.13.1, or 0.8.0 (pré-release)')).toEqual(['v0.13.1', '0.8.0'])
     expect(versionNumbers('the bridge at 127.0.0.1:4762, 0.0001 ZEC')).toEqual([])
@@ -72,7 +72,7 @@ describe('the desktop version the docs name', () => {
   it('builds the installer names the 0.13.2 release carries', () => {
     const intro = codeOf('./screens/Intro.tsx')
     // The asset names as published (gh release view v0.13.2, 2026-10-17).
-    const published = ['Konclave_0.13.2_x64_en-US.msi', 'Konclave_0.13.2_aarch64.dmg', 'Konclave_0.13.2_amd64.AppImage']
+    const published = ['Konclave_0.13.2_x64-setup.exe', 'Konclave_0.13.2_aarch64.dmg', 'Konclave_0.13.2_amd64.AppImage']
     const built = [...intro.matchAll(/file: `(Konclave_\$\{VER\}_[^`]+)`/g)].map((m) => m[1]!.replace('${VER}', DESKTOP_VERSION))
     expect(built.sort()).toEqual([...published].sort())
   })
