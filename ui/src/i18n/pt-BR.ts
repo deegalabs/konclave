@@ -236,7 +236,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.actPayrollDesc': 'N destinos, 1 aprovação',
   'dashboard.actProposalsTitle': 'Propostas',
   'dashboard.actProposalsDesc': '{n} aguardando',
-  'dashboard.actLedgerTitle': 'Razão / contas',
+  'dashboard.actLedgerTitle': 'Livro / contas',
   'dashboard.actLedgerDesc': 'entregar ao contador',
   'dashboard.actPeopleTitle': 'Beneficiários',
   'dashboard.actPeopleDesc': 'cadastro de quem recebe',
@@ -250,7 +250,7 @@ export const ptBR: Record<string, string> = {
   'nav.receive': 'Receber',
   'nav.proposals': 'Propostas',
   'nav.payroll': 'Folha',
-  'nav.ledger': 'Registro',
+  'nav.ledger': 'Livro',
   'nav.members': 'Signatários',
   'nav.people': 'Beneficiários',
   'nav.settings': 'Ajustes',
@@ -262,12 +262,12 @@ export const ptBR: Record<string, string> = {
   'nav.bandMoney': 'Movimentos',
   'nav.bandGovernance': 'Governança',
 
-  // Aprovações (hub de governança: propostas + evidências; a Razão agora é item de topo)
+  // Aprovações (hub de governança: propostas + evidências; o Livro agora é item de topo)
   'activity.eyebrow': 'O ciclo das propostas',
   'activity.title': 'Aprovações',
   'activity.subtitle': 'Propostas aguardando o quórum, e a evidência de assinatura que respalda cada uma.',
   'activity.tab.proposals': 'Propostas',
-  'activity.tab.ledger': 'Razão',
+  'activity.tab.ledger': 'Livro',
   'activity.tab.evidence': 'Evidências de assinatura',
 
 
@@ -315,7 +315,7 @@ export const ptBR: Record<string, string> = {
   'landing.step2Title': 'Aprovar juntos',
   'landing.step2Desc': 'Alguém propõe um pagamento ou uma folha. O **quórum aprova** (ex.: 2 de 3). Toda ação que move dinheiro tem prévia e confirmação. Um clique nunca dispara.',
   'landing.step3Title': 'Pagar privado',
-  'landing.step3Desc': 'As partes assinam sem se juntar; sai **uma transação blindada**. Por fora, ninguém vê; por dentro, quem propôs e quem aprovou fica registrado no razão.',
+  'landing.step3Desc': 'As partes assinam sem se juntar; sai **uma transação blindada**. Por fora, ninguém vê; por dentro, quem propôs e quem aprovou fica registrado no livro.',
   'landing.trustEyebrow': 'Confiança, sem exagero',
   'landing.trustTitle': 'Construído para o momento pós-susto do Orchard.',
   'landing.trustDesc': 'O Konclave é honesto sobre o que é **garantia de protocolo** (a criptografia da Zcash Foundation) e o que é **trava de produto** (reserva de saldo, expiração de proposta). O bug de confiança do Orchard foi encontrado com o Opus 4.8. O Konclave é construído com o mesmo modelo. Uma ferramenta de custódia compartilhada para reconstruir confiança com transparência, não com promessa.',
@@ -984,8 +984,8 @@ export const ptBR: Record<string, string> = {
   'proposals.readyToSign': 'Prontas para assinar',
   'proposals.awaitingApproval': 'Aguardando aprovação',
   'proposals.nothingAwaiting': 'Nada aguardando aprovação.',
-  'proposals.ledgerHint': 'O razão guarda o histórico completo, inclusive as concluídas.',
-  'proposals.viewLedger': 'Ver razão →',
+  'proposals.ledgerHint': 'O livro guarda o histórico completo, inclusive as concluídas.',
+  'proposals.viewLedger': 'Ver livro →',
 
   // Ledger
   'ledger.exportCsv': '↓ Exportar CSV',
@@ -1003,13 +1003,13 @@ export const ptBR: Record<string, string> = {
   'ledger.yes': 'sim',
   'ledger.no': 'não',
   'ledger.pdf': '↓ PDF',
-  'ledger.title': 'Razão',
+  'ledger.title': 'Livro',
   'ledger.vault': 'Cofre',
   'ledger.period': 'Período',
   'ledger.entries': 'Lançamentos',
   'ledger.settledOut': 'Saída liquidada',
   'ledger.open': 'Em aberto',
-  'ledger.capLive': 'Registro ao vivo · quem propôs e aprovou fica registrado. A folha abre em cada beneficiário.',
+  'ledger.capLive': 'Livro ao vivo · quem propôs e aprovou fica registrado. A folha abre em cada beneficiário.',
   'ledger.filterAll': 'Todos',
   'ledger.filterStateLabel': 'ESTADO',
   'ledger.filterKindLabel': 'TIPO',
@@ -1241,7 +1241,7 @@ export const ptBR: Record<string, string> = {
   'notFound.how': 'Como funciona',
   'crash.label': 'Algo quebrou',
   'crash.title': 'A tela encontrou um erro inesperado.',
-  'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o registro antes de tentar de novo.',
+  'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o livro antes de tentar de novo.',
   'crash.reload': 'Recarregar',
   'crash.vaults': 'Meus cofres',
   // Members: the list could not be read (#315)
