@@ -35,9 +35,18 @@ empty state. Run: `pnpm run dev` (Vite dev server, `/api` proxied to the bridge)
 `pnpm run build` · `pnpm run lint` · `pnpm run test`.
 
 ## Environment (build-time `VITE_*`)
-- `VITE_RELAY_BASE` - hosted blind relay for `/net` (empty = the local bridge, same origin).
+- `VITE_RELAY_BASE` - hosted blind relay, where the devices meet for the DKG and to sign (empty = the
+  local bridge, same origin). The hosted build points it at `https://relay.konclave.xyz`.
 - `VITE_HELPER_BASE` - the hosted **coordinator** (the helper, ADR-0006 Rung A). When set, a
   finished browser-DKG vault is registered with the helper, which derives its real shielded
   address and viewing key (it never holds a share) and can later drive sends over Architecture B. Empty = `/net` stays a
   pure device-to-device ceremony with no hosted vault (`ui/src/helper.ts` degrades to `null`).
-  The hosted build points it at the Railway helper (`konclave-helper-production.up.railway.app`).
+  The hosted build points it at `https://helper.konclave.xyz`.
+- `VITE_API_BASE` - base for the local bridge's `/api/*` (empty = same origin, which is how the bridge
+  serves this bundle; `npm run dev` proxies it).
+
+The production values live in the Vercel project's env, and [DEPLOY.md](../DEPLOY.md) records them.
+**The desktop release builds with the same two hosted values**, written as plain env in
+`.github/workflows/desktop-release.yml`, and fails when its bundle does not carry both
+(`scripts/check-desktop-bundle-cli.mjs`, #664). Change them in both places together, and keep each
+host in the CSP's `connect-src` (`orchestrator/src/csp.rs`).

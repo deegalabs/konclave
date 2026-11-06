@@ -5,6 +5,7 @@ import CopyButton from '../CopyButton'
 import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
 import { vaultFingerprint } from '../format'
+import { quorumIsPossible } from '../dkg-ceremony'
 
 export default function Ceremony() {
   const t = useT()
@@ -47,7 +48,7 @@ export default function Ceremony() {
   function goConvidar() {
     setError(null)
     if (names.length < 2) { setError(t('ceremony.errMinMembers')); return }
-    if (threshold < 1 || threshold > names.length) { setError(t('ceremony.errBadQuorum')); return }
+    if (!quorumIsPossible(threshold, names.length)) { setError(t('ceremony.errBadQuorum')); return }
     if (threshold > n) setThreshold(n)
     setStep(2)
   }
@@ -189,7 +190,7 @@ export default function Ceremony() {
             <div className="field mt"><span>{t('ceremony.howManyApprovals')}</span>
               <div className="selq">
                 <select className="box" aria-label={t('ceremony.howManyApprovals')} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))}>
-                  {Array.from({ length: Math.max(n, 1) }, (_, i) => i + 1).map((q) => <option key={q} value={q}>{q}</option>)}
+                  {Array.from({ length: Math.max(n - 1, 1) }, (_, i) => i + 2).map((q) => <option key={q} value={q}>{q}</option>)}
                 </select>
                 <span className="selq-unit"> {t('ceremony.ofNPeople', { n })}</span>
               </div>

@@ -17,6 +17,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/desktop-check.yml'
+      # The contract test reads the release workflow's tauri-cli pin.
+      - '.github/workflows/desktop-release.yml'
   push:
     branches: [main]
     paths:

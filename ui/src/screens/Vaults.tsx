@@ -3,7 +3,7 @@ import { useToast } from '../toast'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
-import { helperConfigured, helperBase, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
+import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { readVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { storageErrorKey } from '../storage-errors'
@@ -777,7 +777,11 @@ export default function Vaults() {
                 <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
               )}
               <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu servidor' : 'Your server'}</button>
-              <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
+              {/* Hidden on desktop until #212: "This device only" opens `/create`, the ceremony that
+                  needs the local bridge, which the desktop shell does not embed yet (#664). */}
+              {localCoordAvailable() && (
+                <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
+              )}
             </div>
           ) : (
             <>

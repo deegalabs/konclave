@@ -170,7 +170,11 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   // no awaiting proposal sits under a heading that promises a signature.
   const needsYou = desk.items.filter((i) => desk.personal ? i.band === 'sign' || i.band === 'vote' : i.band === 'sign')
   const withOthers = desk.items.filter((i) => desk.personal ? i.band === 'wait' || i.band === 'voted' : i.band !== 'sign')
-  const sentOpen = txsAsked ? all.filter((p) => p.state === 'sent' && !isConfirmed(settlementOf(p, txs))) : []
+  // Only a list actually read can say "awaiting a block". A read that failed (asked, still null)
+  // leaves every sent one unknown, as the proposal page says (`proposal.confirmationsUnknown`).
+  const sent = all.filter((p) => p.state === 'sent')
+  const sentOpen = txs !== null ? sent.filter((p) => !isConfirmed(settlementOf(p, txs))) : []
+  const sentUnknown = txsAsked && txs === null ? sent : []
   const closed = all.filter(isClosed)
   const rowProps = { personal: desk.personal, threshold, t, tr, open }
 
@@ -203,6 +207,11 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
           {sentOpen.length > 0 && (
             <Group id="pl-sent" label={t('proposals.sentAwaiting')} count={sentOpen.length}>
               {sentOpen.map((p) => <Row key={p.id} p={p} {...rowProps} />)}
+            </Group>
+          )}
+          {sentUnknown.length > 0 && (
+            <Group id="pl-sent-unknown" label={t('proposals.sentUnknown')} count={sentUnknown.length}>
+              {sentUnknown.map((p) => <Row key={p.id} p={p} {...rowProps} />)}
             </Group>
           )}
           {closed.length > 0 && (

@@ -131,7 +131,7 @@ specific to it; **needs-hardware** = cannot even be attempted in this environmen
 
 | Target | Toolchain needed | Bundle | Status here | What blocks validation |
 |---|---|---|---|---|
-| Windows desktop | Rust + MSVC build tools, WebView2 (bundled on Win 11), Tauri CLI 2 | `.msi`, `.exe` | scaffolded, plan-only | No Windows build host in this environment. |
+| Windows desktop | Rust + MSVC build tools, WebView2 (bundled on Win 11), Tauri CLI 2 | `.exe` (NSIS only; no `.msi` since v0.17.0) | scaffolded, plan-only | No Windows build host in this environment. |
 | macOS desktop | Rust, Xcode CLT, Tauri CLI 2; Apple Developer ID to sign/notarize | `.app`, `.dmg` | scaffolded, plan-only | Needs a Mac; signing needs an Apple ID. |
 | Linux desktop | Rust, `libwebkit2gtk-4.1-dev`, Tauri CLI 2 | `.deb`, `.rpm`, AppImage | scaffolded, needs-hardware to VALIDATE | Compiles in principle, but the WSLg webview does not render here (ADR-0004), so it cannot be seen to work on this box. |
 | iOS | macOS + Xcode, Apple Developer account, Rust ios targets | `.ipa` via `tauri ios` | plan-only | Impossible off a Mac; signing/provisioning required. |

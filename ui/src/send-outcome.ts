@@ -67,12 +67,16 @@ export async function resolveOutcome(
 
 
 /** What the coordinator answered to a send (`executeProposal`, the one place it is read off the wire). */
+/** A payment or payroll too large to be signed in one go (#821): the transaction needs `actions`
+ *  parts and one payment can carry at most `max`. `plan` decides the remedy the screen offers. */
+export interface TooLarge { actions: number; max: number; plan: 'payment' | 'payroll' }
+
 export type SendReply =
   | { txid: string | null; dry_run: boolean; state: string }
   /** `state` is the payment's state when the coordinator refused because it is not ready to send
    *  (`sent` when another device sent it; `ready` when it says the payment may be on the network). `txid` when
    *  it broadcast and got an error back: the payment may be on the network. */
-  | { error: string; state?: string; txid?: string; reason?: string; heldUntil?: number; busy?: 'vault' | 'service' }
+  | { error: string; state?: string; txid?: string; reason?: string; heldUntil?: number; busy?: 'vault' | 'service'; tooLarge?: TooLarge }
   /** The coordinator did not answer, or gave a gateway error with no reason. The money may have
    *  moved. The caller MUST resolve it against the vault before saying anything (#280). */
   | { unknown: true }
@@ -86,7 +90,7 @@ export type ReplyEnd =
   | { kind: 'not-sent'; why: 'unreachable' }
   | { kind: 'not-sent'; why: 'no-txid' }
   | { kind: 'not-sent'; why: 'not-sendable'; state: string; raw: string }
-  | { kind: 'not-sent'; why: 'error'; raw: string; epoch?: EpochEnding }
+  | { kind: 'not-sent'; why: 'error'; raw: string; epoch?: EpochEnding; tooLarge?: TooLarge }
   /** `sentElsewhere`: the coordinator refused because another device sent it. */
   | { kind: 'resolve'; sentElsewhere?: true }
   | { kind: 'held'; txid?: string }
@@ -120,7 +124,8 @@ export function readReply(r: SendReply): ReplyEnd {
   if ('error' in r && r.busy) return { kind: 'busy' }
   if ('error' in r) {
     const epoch = epochOf(r)
-    return epoch ? { kind: 'not-sent', why: 'error', raw: r.error, epoch } : { kind: 'not-sent', why: 'error', raw: r.error }
+    if (epoch) return { kind: 'not-sent', why: 'error', raw: r.error, epoch }
+    return r.tooLarge ? { kind: 'not-sent', why: 'error', raw: r.error, tooLarge: r.tooLarge } : { kind: 'not-sent', why: 'error', raw: r.error }
   }
   if (!r.txid) return { kind: 'not-sent', why: 'no-txid' }
   return { kind: 'sent', txid: r.txid }

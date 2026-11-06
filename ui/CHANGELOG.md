@@ -16,7 +16,7 @@ where the change lives, beats writing it in two files and letting them drift, wh
 this repo keeps meeting in other forms.
 
 The desktop shell (`src-tauri/`) and the shared Rust crates stay in the root
-[CHANGELOG.md](../CHANGELOG.md), and `scripts/release.mjs --notes` assembles a desktop release body
+[CHANGELOG.md](https://github.com/deegalabs/konclave/blob/main/CHANGELOG.md), and `scripts/release.mjs --notes` assembles a desktop release body
 from both.
 
 ## Which build is live
@@ -26,19 +26,21 @@ computer, the More menu on a phone) and the landing name the exact commit instea
 
 ## Categories
 
-Same meanings as the root [CHANGELOG.md](../CHANGELOG.md): `Security` always says what was exposed
+Same meanings as the root [CHANGELOG.md](https://github.com/deegalabs/konclave/blob/main/CHANGELOG.md): `Security` always says what was exposed
 and for how long; `Fixed` only if a member could have hit it; `Known limits` survives the release
 rather than being a draft note. Anything a member cannot notice does not go in at all.
 
 ## Where the earlier entries are
 
 This file starts on 2026-09-20. App changes before that date are in the root
-[CHANGELOG.md](../CHANGELOG.md), which is where everything lived. They were not moved: rewriting
+[CHANGELOG.md](https://github.com/deegalabs/konclave/blob/main/CHANGELOG.md), which is where everything lived. They were not moved: rewriting
 history to tidy it is how context gets lost.
 
 ---
 
 ## [Unreleased]
+
+## [0.17.0] 2026-11-06
 
 ### Security
 
@@ -74,7 +76,7 @@ history to tidy it is how context gets lost.
   entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
   follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
   export carries the period's name as its period. Until now the period was only read off
-  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+  the data, and the totals ignored every filter. The picker speaks both languages.
 - **The signing evidence names the payment it belongs to, and a sent payment points at its
   evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
   recognises; now each record that reached the chain shows the proposal with the same transaction
@@ -130,7 +132,46 @@ history to tidy it is how context gets lost.
   says so. A locked vault is neither: both screens wait for the passphrase and read once it is
   given (#320).
 
+### Changed
+
+- **The landing names the Windows installer as the `.exe`.** Its install dialog said `.msi`, and
+  from the desktop's v0.17.0 no `.msi` is built (see the root changelog).
+
 ### Fixed
+
+- **Desktop: the offline copy an earlier version left is removed.** On Windows, installing v0.16.0
+  over v0.15.0 kept the app's browser profile, and with it the offline copy (a service worker) v0.15.0
+  had saved there; the window then opened white, with nothing to click. The desktop app no longer
+  keeps an offline copy, and on Windows the app itself removes the one an earlier version left,
+  before its window opens (see Fixed in the root [CHANGELOG.md](https://github.com/deegalabs/konclave/blob/main/CHANGELOG.md)). The removal in the
+  page, which this entry first described, never ran on Windows: the old copy kept serving the old
+  page, so the new one never loaded. Checked on Windows with v0.17.0-rc.2, over an old profile: the
+  app opened. Your vaults, shares and settings in that profile are not touched. If you renamed or
+  moved the `EBWebView` folder to get the window back, do not delete it: the vaults saved on that
+  computer are inside it, so rename it back. On the desktop and on the web, if the part of the app around the screens (its
+  language, notifications or navigation) fails, it now shows the "something broke" screen with
+  Reload, instead of a white page; a failing screen already did. The web keeps its offline copy and
+  its "new version" banner.
+- Desktop: "This device only" (in the create dialog and in Settings) opened the old ceremony that needs the local bridge, which the desktop app does not include yet (#212), so the vault could not be created or read. It is hidden on desktop until #212, and a desktop that had saved that choice now uses the Konclave-hosted coordinator (#664).
+- Proposals: when the chain could not be read, every sent proposal was listed as "awaiting confirmation"; it now says the confirmation is unknown.
+- Pay and Payroll: open proposals that had not been read counted as nothing reserved, so Propose could offer funds a colleague's proposal already held; an unread list now blocks Propose, like an unknown balance.
+- One rule for "can this proposal still move": a proposal past its deadline on this device no longer holds funds against new payments or counts in the ledger's Open total, filter and column.
+- Ledger: the lines of a refused or expired payroll showed an outflow sign, as if the money had left.
+- Payroll copied from a previous one: a line whose address is not in this device's registry is flagged whatever its label says, and Propose waits for that line's own confirmation (leaving the field no longer counts).
+- The payroll draft (addresses, amounts, memos) was one for every vault on the device and outlived the lock and the vault's removal; it is now per vault, cleared when the vault is removed and when the app opens on that vault locked (not when the tab is closed), and the payroll screen behind the lock overlay neither shows it nor writes it back.
+
+- **A payment or payroll too large to be signed in one go failed only after everyone approved it
+  (#821).** It can no longer be proposed. The app now says why when proposing it, or when sending one
+  approved before the change, on the vault screen and on `/net` alike, and names the numbers: how
+  many parts the payment needs and the most one payment can carry. A payroll is told to split into
+  smaller payrolls (the cause can be its lines or the many small amounts the vault pays it from); a
+  payment is told to send a smaller amount or split it into several payments. Needs the coordinator
+  of this release to appear; until it is deployed, nothing changes.
+
+- **A device the vault's server did not register for its seat now says so (#821).** That device
+  cannot sign payments or vote until it is registered, and the only trace was in the browser
+  console. The vault screen now shows a warning, with its own words when the seat is registered to
+  another device. It clears once a registration lands.
 
 - **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
   recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
@@ -178,16 +219,16 @@ history to tidy it is how context gets lost.
   changed. On every route change focus now goes to the main heading, without scrolling the page
   away from the top, and the browser tab is named after it; the first load and a change made while
   a dialog is open are left alone (#662).
-- **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
-  quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
-  screen still listed "1 of 3", a config built by hand or by an older client still reached the
+- **A vault can no longer be asked for with a quorum of 1.** The signing library refuses a quorum
+  below 2. The main create screen already stopped at 2 (0.8.0), but the older `/net` and `/create`
+  screens still offered 1, a configuration built by hand or by an older client still reached the
   ceremony, and when the library finally refused it, after every member had joined, the screen stayed
-  on the roster with no message. Now the floor is written once (`quorumIsPossible`), read by the
-  screen and by the ceremony: the `/net` select starts at 2, creating with an impossible quorum says
-  so before anything is sent to the room, and a failure at the start of the ceremony is shown as a
-  failed creation instead of disappearing. Still open: on the coordinator, registration accepts
-  `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
-  the ceremony, which then refuses it (#589).
+  on the roster with no message. Now one rule decides it, read by those screens and by the ceremony:
+  their choice starts at 2, creating with an impossible quorum says so before anything is sent to the
+  room, and a failure at the start of the ceremony is shown as a failed creation instead of
+  disappearing. The local bridge, which the desktop app does not include yet (#212), refuses it up
+  front too. Still open: the vault's server still registers a vault with a quorum of 1 when a client
+  asks for one (#589).
 - **The spreadsheet shows every amount to the zatoshi, and the book's totals are exact.** The XLSX
   formatted amounts with four decimals, so a small stipend (0.00001234 ZEC) read as 0.0000 in the
   accountant's copy, and the book on screen rounded each row and its totals to four places; and the
@@ -306,19 +347,23 @@ history to tidy it is how context gets lost.
   already says what happened and carries the export reminder. A screen reader hears each notice
   from a region that exists from the first paint, instead of a row inserted already filled, which
   many readers skip (#320).
-- **"Copied" was said before the clipboard answered.** The Receive page (the vault's address and the
-  payment link) and the proof page (the txids) fired the clipboard write and claimed success at
-  once; a denied permission or an unfocused tab refuses that write, and the member would paste
-  whatever the clipboard held before, believing it was the vault's address. Both now wait for the
-  answer; a refusal stays beside the button and asks for a copy by hand (#313).
 
 ### Known limits
+
+- **A payroll is limited to a few lines (#821).** One payment can carry at most 6 parts in a vault of
+  up to 31 devices (5 in a 32-seat vault), so a payroll of about 4 to 5 lines (4 when the vault pays
+  from Orchard notes), about 3 to 4 in a 32-seat vault, and fewer when the vault pays from many small
+  amounts. The app refuses a larger one when it is proposed and says how many parts it needs.
 
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
   passkey does not rewrite the record, because a passkey does not open what the key is encrypted
   under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+- **The payroll draft sits unencrypted in this browser's storage until it is cleared.** Addresses,
+  amounts and memos typed on the payroll screen are kept on the device so a reload does not lose
+  them, in the clear, until the vault is removed or the app opens on that vault locked. Closing the
+  tab does not clear it.
 
 ## [0.16.0] 2026-10-30
 
