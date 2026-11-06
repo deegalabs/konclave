@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
+import { SkeletonForm } from '../skeleton'
 import { usePoll } from '../usePoll'
 import { useNavigate } from 'react-router-dom'
-import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import { amountAmbiguous, amountTyped, fmtZecExact, typedAmountZat, zatToZec } from '../format'
-import { freeZatOf, reservedZatOf } from '../balance-parts'
+import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
-  createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
+  createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, addressRefusal, humanError,
   type Beneficiary, type Member, type Proposal,
 } from '../api'
 import { listVaults } from '../storage'
@@ -97,7 +97,9 @@ export default function NewPayment() {
   // else's proposal is sent or refused, and a member blocked by a reservation must see it lift
   // without reloading.
   usePoll(() => {
-    void getProposals().then(setOpenProps)
+    // A failed read answers null; keeping the last list is what stops a dropped tick from
+    // erasing the reservation and enabling the button for the double-commit this exists to stop.
+    void getProposals().then((ps) => { if (ps) setOpenProps(ps) })
   }, 12_000)
 
   // Refresh the payee list after one is added inline from the recipient field.
@@ -136,6 +138,10 @@ export default function NewPayment() {
   const memoOver = memoLen > MEMO_MAX
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
   const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
+  // An address the vault cannot pay closes Propose and says why on the field, as the payroll line
+  // does (#294). A pasted Sapling address reaches here, a transparent one on the web, and a saved
+  // payee's address that is not one; the coordinator refused all three, but only after the click.
+  const toRefused = to.trim() ? addressRefusal(to.trim()) : null
   // A real available balance when we have it; a neutral dash otherwise - never a fake number.
   // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
   // `spendable`: that is the number this screen used to show while the Dashboard was telling the
@@ -143,7 +149,7 @@ export default function NewPayment() {
   const reservedZat = reservedZatOf(openProps)
   // Named, not counted: "0.0004 held by Zka's proposal" tells the member who to go and ask. A bare
   // number tells them only that they are stuck.
-  const openHolding = (openProps ?? []).filter(isOpen).map((x) => x.proposer).join(', ')
+  const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
   const freeZat = freeZatOf(bal, openProps)
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
@@ -163,7 +169,25 @@ export default function NewPayment() {
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
   // amount we cannot parse now block instead of waving the payment through.
   const block = proposeBlock({ amountZat, amountAmbiguous: amountAmbiguous(value), availableZat, feeZat, memoOver, pools, reservedZat })
-  const overBalance = block === 'over-balance'
+  // When the whole shortfall is confirmations, say that, not "more than the vault can spend" (#352).
+  // Derived from total minus spendable: `pending_zat` is never filled on the web path.
+  const confirmingZat = confirmingZatOf(bal)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat ?? 0, amountZat, feeZat)
+  // The balance-after figure subtracts from FREE funds; while a reservation or confirmations are
+  // the block, a negative "after" beside "the vault has the funds" would contradict it: a dash.
+  const hideAfter = block === 'reserved' || onlyConfirming
+  // One sentence for the block, composed once, in one live region the button points at. The
+  // reserved clause stays when both a reservation and confirmations stand, since the holder's name
+  // is the one thing the member can act on (#293).
+  const moneyVars = { free: fmtZecExact((freeZat ?? 0) / 1e8), reserved: fmtZecExact((reservedZat ?? 0) / 1e8), held: String(openHolding) }
+  const blockMsg = (() => {
+    if (value.trim() === '' || block === null) return null
+    if (walletBusy && block === 'balance-unknown') return null
+    if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
+    if (block === 'over-balance') return t('payment.warnOverBalance')
+    const k = blockMessageKey(block)
+    return k ? t(k, moneyVars) : null
+  })()
 
   async function submit() {
     setError(null)
@@ -181,7 +205,7 @@ export default function NewPayment() {
       toast.ok(t('toast.paymentSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
     } else {
-      const msg = humanError(t, res.error, res.detail)
+      const msg = humanError(t, res.error, res.detail, res.tooLarge)
       setError(msg)
       toast.err(msg)
     }
@@ -190,13 +214,13 @@ export default function NewPayment() {
   // `block === null` covers memo, amount and balance. The amount check used to be a looser
   // `parseFloat(value.replace(',', '.')) > 0`, which accepted a comma decimal that `parseZecToZat`
   // rejects - so the button enabled for an amount the rest of the code could not read.
-  const canSubmit = !busy && block === null && !!to.trim()
+  const canSubmit = !busy && block === null && !!to.trim() && toRefused === null
 
   return (
     <main className="page pay">
       <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
-      {live === null ? <Loading /> : (<>
+      {live === null ? <SkeletonForm fields={3} /> : (<>
       <div className="ctx">
         <span>{tr('payment.fromVault', { name: vaultName })}</span>
         <span className="ctx-sep">·</span>
@@ -222,12 +246,16 @@ export default function NewPayment() {
               name={toName}
               onChange={(r) => { setTo(r.address); setToName(r.name); if (r.memo) setMemo(r.memo) }}
               onReloadBenefs={reloadBenefs}
+              invalid={!!toRefused}
+              describedBy={toRefused ? 'pay-to-refused' : undefined}
             />
           </label>
+          {toRefused && <div className="hint warn mt-sm" id="pay-to-refused">{t(toRefused === 'sapling' ? 'payment.toSapling' : toRefused === 'transparent' ? 'payment.toTransparent' : 'payment.toUnknown')}</div>}
 
           <label className="field"><span>{t('payment.value')}</span>
             <div className="payamt">
-              <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)} />
+              <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)}
+                aria-invalid={blockMsg ? true : undefined} aria-describedby={blockMsg ? 'pay-block' : undefined} />
               <span className="payamt-unit">ZEC</span>
             </div>
             <div className="payamt-meta">
@@ -267,8 +295,10 @@ export default function NewPayment() {
             {t('payment.memoLabel')}{' '}
             <span className={'dim ns num' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
           </span>
-            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
+            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} aria-describedby="pay-memo-help"
               disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
+            {/* Who can read the memo, under the field: on the label it made a line that wrapped on a phone. */}
+            <small className="field-help" id="pay-memo-help">{t('payment.memoHelp')}</small>
           </label>
         </div>
 
@@ -281,26 +311,21 @@ export default function NewPayment() {
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
-            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null || hideAfter ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
             <div className="pv-fee mono dim">{tr('payment.feeEstimate', { fee: fmtZecExact(feeZat / 1e8) })}</div>
           </div>
 
-          {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
           {/* The gate fails closed now, so a member can meet a disabled button for reasons the
               screen used to stay silent about. Say which one - but never on an untouched form:
               an empty amount also parses to null, and a warning on a blank field is noise. */}
           <div role="status" id="pay-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
-          {value.trim() !== '' && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
-            <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
-              free: fmtZecExact((freeZat ?? 0) / 1e8),
-              reserved: fmtZecExact(reservedZat / 1e8),
-              held: String(openHolding),
-            })}</div>
-          )}
+          {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
+              block appear, change (reserved to confirming between two polls) and clear. */}
+          <div role="status" id="pay-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
           <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
-          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={walletBusy && block === 'balance-unknown' ? "pay-busy" : undefined}>
+          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'pay-busy' : null, blockMsg ? 'pay-block' : null, toRefused ? 'pay-to-refused' : null].filter(Boolean).join(' ') || undefined}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </aside>

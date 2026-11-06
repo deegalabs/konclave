@@ -1,17 +1,23 @@
 import { useEffect, useState } from 'react'
+import { SkeletonDetail } from '../skeleton'
+import ReadState from '../ReadState'
+import type { ReadFailureInfo } from '../read-failure'
 import { usePoll } from '../usePoll'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Secret, Dialog, Loading } from '../components'
+import { Link, useLocation } from 'react-router-dom'
+import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec, fmtZecExact, parseZecToZat } from '../format'
+import { fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
+import CopyButton from '../CopyButton'
+import { settlementOf, isConfirmed } from '../settlement'
 import { estimatedFeeZat } from '../fee-estimate'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
-  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
-  IS_NET, type Proposal, type PayrollLine,
+  getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
+  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
 } from '../api'
+import { useVaultReadable } from '../vault-readable'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
 
@@ -22,9 +28,15 @@ export default function Proposal() {
   // is consent, not spending, so a short balance never blocks the vote - but it must be visible:
   // the fee on a small payroll was five times the payment and appeared nowhere on this screen.
   const [spendableZat, setSpendableZat] = useState<number | null>(null)
+  // The chain tip and the vault's transactions, so a sent payment can say how many blocks sit on
+  // top of it. Confirmation is a fact about the chain, derived in settlement.ts, never read from
+  // the proposal's state.
+  const [tip, setTip] = useState<number | undefined>(undefined)
+  // undefined = not read yet, null = could not be read, a list = what the wallet knows.
+  const [txs, setTxs] = useState<WalletTx[] | null | undefined>(undefined)
+  const { locale } = useI18n()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
-  const nav = useNavigate()
   const { open: openSigning } = useVaultSigner()
   const [p, setP] = useState<Proposal | null>(null)
   const [pid, setPid] = useState<string | null>(null)
@@ -35,13 +47,20 @@ export default function Proposal() {
   // vault record. A device may only ever cast its OWN vote (never another member's).
   const [me, setMe] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Why the proposal could not be read, or null: a read that failed is not a proposal that is not there.
+  const [unread, setUnread] = useState<ReadFailureInfo | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState<null | 'dry' | 'real'>(null)
   const [dryOk, setDryOk] = useState<string | null>(null)
   const [confirmSend, setConfirmSend] = useState(false)
+  // Locked: the reads would 401 and the proposal would read as not there. Nothing is read until the
+  // passphrase lands, and then the screen reads once (#439).
+  const readable = useVaultReadable()
 
   useEffect(() => {
+    if (!readable) return
     let on = true
     void (async () => {
       const v = await getVault()
@@ -64,11 +83,12 @@ export default function Proposal() {
         setPid(id ?? null)
         setP(detail?.proposal ?? null)
         setLines(detail?.lines ?? [])
+        setUnread(detail ? null : proposalReadFailure(id ?? null))
         setLoading(false)
       }
     })()
     return () => { on = false }
-  }, [loc.state])
+  }, [loc.state, attempt, readable])
 
   // Live refresh: re-fetch the proposal so approvals/refusals from other members appear on their own
   // without a manual reload. Paused while the tab is hidden; suspended for a terminal proposal and
@@ -92,10 +112,36 @@ export default function Proposal() {
   }, 8000, !!pid && !terminal)
 
   useEffect(() => {
+    if (!readable) return
     let on = true
-    void getBalance().then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
+    void getBalance().then((b) => {
+      if (on && b?.configured) { setSpendableZat(b.spendable_zat ?? b.total_zat ?? null); setTip(b.chain_tip_height) }
+    })
     return () => { on = false }
-  }, [])
+  }, [readable])
+
+  // Only a sent payment has a block to count. The count is the tip minus that block, so the list
+  // and the tip are read TOGETHER: once per sent proposal, then once a minute while the screen is
+  // open. The tip used to come from the one balance read at mount, so the list moved and the
+  // count did not (#760).
+  const sentTxid = p?.state === 'sent' || p?.state === 'confirmed' ? p.txid : undefined
+  const readChain = async (first: boolean, live: () => boolean) => {
+    const [list, b] = await Promise.all([readTransactions(), getBalance()])
+    if (!live()) return
+    // A list that could not be read is said on the first read; on a later one the last list stays.
+    if (Array.isArray(list)) setTxs(list)
+    else if (first) setTxs(null)
+    if (b?.configured && typeof b.chain_tip_height === 'number') setTip(b.chain_tip_height)
+  }
+  useEffect(() => {
+    if (!sentTxid) return
+    let on = true
+    void readChain(true, () => on)
+    return () => { on = false }
+    // readChain is recreated each render; the read it runs depends on sentTxid alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sentTxid])
+  usePoll(() => { void readChain(false, () => true) }, 60_000, !!sentTxid)
 
   async function vote(approve: boolean) {
     if (!p) return
@@ -119,10 +165,6 @@ export default function Proposal() {
 
   async function send(dryRun: boolean) {
     if (!p) return
-    // Browser-native vault: signing happens in /net, where this device's share lives. Instead of a
-    // server-side ceremony, take the operator to the signing screen (the approved proposal shows up
-    // there under "Proposals ready to sign").
-    if (IS_NET) { nav('/net'); return }
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)
@@ -135,7 +177,12 @@ export default function Proposal() {
   }
 
   if (loading) {
-    return (<><main className="page narrow"><Loading /></main></>)
+    return (<><main className="page narrow"><PageHeader title={t('proposal.loading')} /><SkeletonDetail rows={4} amount /></main></>)
+  }
+  if (!p && unread) {
+    return (<><main className="page narrow"><PageHeader title={t('proposal.unreadTitle')} />
+        <ReadState title={t('proposal.unreadTitle')} failure={unread} attempt={attempt} onRetry={() => { setLoading(true); setAttempt((a) => a + 1) }} />
+      </main></>)
   }
   if (!p) {
     return (<><main className="page narrow"><PageHeader title={t('proposal.noneTitle')} />
@@ -143,7 +190,9 @@ export default function Proposal() {
       </main></>)
   }
 
-  const val = fmtZec(p.value_zec)
+  // Exact, never rounded to four places: the fee and total beside it are exact, and the signing
+  // panel reads the same figure (#777). The amount sent was never affected by the display.
+  const val = fmtZecExact(p.value_zat / 1e8)
   const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
   // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
@@ -171,7 +220,8 @@ export default function Proposal() {
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
   const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
-  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : t('proposal.paymentSubtitle', { dest })
+  // The payment's destination is stated in full in the facts below, so the subtitle does not repeat it shortened.
+  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : ''
 
   // State trail: Approval → Signature → Sent (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
@@ -235,6 +285,30 @@ export default function Proposal() {
             )}
           </div>
         )}
+
+        {/* The facts the proposal already carries, said once and after the money: when, until when,
+            to whom, and how far it is in the chain. */}
+        <dl className="p-facts">
+          <div><dt>{t('proposal.factCreated')}</dt><dd className="mono">{fmtDateTime(p.created_at, locale)}</dd></div>
+          {(isAwaiting || isReady) && (
+            <div><dt>{t('proposal.factDeadline')}</dt><dd className="mono">
+              {p.expiry_unix ? <>{fmtDateTime(p.expiry_unix, locale)} <span className="dim">{expiryLabel(p.expiry_unix, t)}</span></> : t('proposal.noExpiry')}
+            </dd></div>
+          )}
+          {!isPayroll && p.to_address && (
+            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full"><span>{p.to_address}</span><CopyButton value={p.to_address} label={t('proposal.copyAddress')} /></dd></div>
+          )}
+          {isSent && (() => {
+            // Loading is not "unconfirmed": say nothing until the list has answered.
+            if (txs === undefined) return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono dim">…</dd></div>
+            const s = settlementOf(p, txs)
+            const text = txs === null ? t('proposal.confirmationsUnknown')
+              : !isConfirmed(s) ? t('proposal.confirmationsNone')
+              : tip !== undefined && tip >= s.height ? (tip === s.height ? t('proposal.confirmationsOne') : t('proposal.confirmationsN', { n: String(tip - s.height + 1) }))
+              : t('proposal.confirmedBlock', { h: String(s.height) })
+            return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono">{text}</dd></div>
+          })()}
+        </dl>
         {isPayroll && (
           <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
@@ -243,7 +317,7 @@ export default function Proposal() {
                 <tr key={i}>
                   <td>{l.label || '-'}</td>
                   <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
-                  <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
+                  <td className="num"><Secret sm><span>{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
                   <td className="mono dim">{l.memo || '-'}</td>
                 </tr>
               ))}
@@ -340,6 +414,8 @@ export default function Proposal() {
                 <div>{t('proposal.txid')}</div>
                 <div className="mt-xs"><code>{p.txid}</code></div>
                 <div className="mt-xs"><a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a></div>
+                {/* The signing evidence that produced this txid lives one screen away; point at it. */}
+                <div className="mt-xs"><Link className="link" to="/activity" state={{ tab: 'evidence', txid: p.txid }}>{t('proposal.viewEvidence')}</Link></div>
               </div>
             )}
           </>

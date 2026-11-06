@@ -138,16 +138,19 @@ describe('Add funds reads through the reader, and not behind the unlock overlay'
   const receive = codeOf('./screens/Receive.tsx')
 
   it('waits for the vault to be unlocked, and reads again the moment it is', () => {
-    expect(receive).toMatch(/const \{ locked, unlockNonce \} = useOutletContext<VaultLockContext>\(\)/)
-    expect(receive).toMatch(/if \(locked\) return\s*let on = true\s*const reader = historyReader<WalletTx>\(/)
-    expect(receive).toMatch(/\}, \[locked, unlockNonce\]\)/)
+    // The shared hook asks `needsUnlock` before the first read; the overlay's `locked` alone landed late.
+    expect(receive).toMatch(/const readable = useVaultReadable\(\)/)
+    expect(receive).toMatch(/if \(!readable\) return\s*let on = true\s*const reader = historyReader<WalletTx>\(/)
+    expect(receive).toMatch(/\}, \[readable\]\)/)
   })
 
   it('has no read schedule of its own', () => {
     // Its only timer is the copy confirmation; no retry timer and no in-flight flag of its own.
+    // (A retry the member asks for by hand, "try again", is not a schedule: the rule is
+    // about timers, so it names them rather than the word.)
     expect(receive.match(/setTimeout\(/g)).toEqual(['setTimeout('])
     expect(receive).toMatch(/setTimeout\(\(\) => setCopied\(null\), 1600\)/)
-    expect(receive).not.toMatch(/inFlight|retry/)
+    expect(receive).not.toMatch(/inFlight|setInterval|retryTimer/)
     expect(receive).toMatch(/const stop = startVisiblePoll\(reader\.tick, 15_000\)/)
     expect(receive).toMatch(/reader\.stop\(\)/)
   })

@@ -125,8 +125,8 @@ Facts (verified 2026-06-30):
   and lightwalletd aware of the upgrade).
 - **Update (2026-08):** mainnet has since activated **NU6.3 "Ironwood"** (2026-07-28, block
   3,428,143), which adds the **Ironwood shielded pool** (V6 transactions). Ironwood is **live and
-  safe**, and the current consensus target is **NU6.3** (build against it; the RedPallas/FROST
-  spend-authorization scheme is unchanged, so the signing core carries over). The NU6.2 text above
+  safe**, and the consensus target is **NU6.3** until **NU7** at block 3,543,405 (see below). Build against it; the RedPallas/FROST
+  spend-authorization scheme is unchanged, so the signing core carries over. The NU6.2 text above
   is the historical context for the June 2026 Orchard episode.
 - **Update (2026-08-26), verified against primary sources.** Each item below was checked at
   zips.z.cash / the Zcash forum / the issuing body; anything that could only be found on social
@@ -145,41 +145,60 @@ Facts (verified 2026-06-30):
     either pool."* So our destination validation asking for an Orchard receiver is **correct** - that
     receiver also receives Ironwood-pool notes - and rejecting such addresses would break valid
     payments. What matters is that outputs land in **Ironwood**, which they do. **Change does not
-    always:** in the released backend (0.24.0), the change of a spend funded from Orchard notes
+    always:** in the released backend (0.25.0, the pin in `Cargo.lock`; the rule is unchanged from
+    0.24.0), the change of a spend funded from Orchard notes
     returns to the Orchard pool as an internal (change) receiver, under the turnstile rule (only while
     it is strictly less than the Orchard value the transaction removes), and change from Ironwood
-    notes stays in Ironwood (`zcash_client_backend-0.24.0/src/fees/common.rs:175-207`, read on
-    2026-10-01 for #604). An earlier version of this line said change always lands in Ironwood.
-    (`fallback_change_pool` is only used when a transaction has no shielded inputs, which never
-    happens for a vault spend.) [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
-    accordingly. Note also that the consensus text (ZIP 2006) is still **Reserved and empty**, so the
-    only citable rule today is this Draft, Wallet-category MUST NOT. Verified 2026-08-31.
-  - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** There were **two** August
+    notes stays in Ironwood (`zcash_client_backend-0.25.0/src/fees/common.rs:173-232`, re-read on
+    2026-11-04; first read in 0.24.0 at `:175-207` on 2026-10-01 for #604). An earlier version of
+    this line said change always lands in Ironwood.
+    (`fallback_change_pool` only decides when a transaction has no shielded flows, or none of its
+    pools can receive change, neither of which happens for a vault spend.)
+    [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
+    accordingly. The consensus text is no longer missing: **ZIP 2006** (*Restricting Transfers into
+    the Orchard Pool*, Consensus) and **ZIP 258** (*Deployment of the NU6.3 Network Upgrade*) are
+    both **Final**, so the network's rule is citable alongside this Draft, Wallet-category MUST NOT.
+    An earlier version of this line said ZIP 2006 was Reserved and empty. Verified 2026-11-04.
+  - **NU7 is scheduled. CONFIRMED 2026-11-04** (this line said "being polled, not scheduled" until
+    then). There were **two** August
     consultations, not one (an earlier version of this line described only the first): a **coinholder
     vote** (snapshot block 3,459,350, 2026-08-25 to 2026-09-14 19:00 UTC, legitimacy quorum 1,000,000
     ZEC) and a separate **ZCAP poll** by the Foundation (2026-08-27 to 09-14). **Both non-binding**,
     and the stated reason is worth keeping: *"There is no ZIP that approves making Zcash protocol
     decisions by vote."* Note also an earlier round in **February 2026** whose results circulate
-    confused with August's. `draft-arya-deploy-nu7` exists (branch id `0x77190AD8`) with activation
-    heights **TBD on both networks**, and the NU7 candidate list is 218, 231, 233, 234, 235, 2002,
-    2003 - **ZIP 312 is not on it**, and does not need to be (Category: Wallet). `draft-arya-deploy-nu7` is **Draft
-    with activation heights TBD**. **NU6.3 remains the consensus target**; NU7 is a thing to watch,
-    not to build against. **The date to watch, added 2026-09-05:** both consultations close
-    **2026-09-14 19:00 UTC**, and one of the questions is what to do with NU7 features not ready by a
-    **readiness deadline of 30 September**. That deadline is what decides whether the two candidates
-    below land, so it is the first thing here with a date and a consequence for this product.
+    confused with August's. `draft-arya-deploy-nu7` (branch id `0x77190AD8`, heights TBD) became
+    **[ZIP 259](https://zips.z.cash/zip-0259)** (*Deployment of the NU7 Network Upgrade*, status
+    **Proposed**, Consensus / Network): branch id **`0x77190AD9`**, activation **Mainnet 3,543,405**,
+    Testnet 4,465,026. NU7 deploys ZIPs **207** (Revision 2), **214** (Revision 3), **218**, **235**,
+    **237**, **2003** and **2008**, and says it does **not** deploy 233 or 234; 231 and 2002 are not
+    on its list either - **ZIP 312 is not on it**, and does not need to be (Category: Wallet). The
+    linked `zcash_protocol` 0.11.0 carries the same height and branch id, and `engine/versions.lock`
+    already sets `network_target = "NU7"`. **The consensus target is NU6.3 until block 3,543,405 and
+    NU7 from it.** **The date to watch, added 2026-09-05:** both consultations closed
+    **2026-09-14 19:00 UTC**, and one of the questions was what to do with NU7 features not ready by
+    a **readiness deadline of 30 September**. ZIP 259 is what came of it (its Rationale cites both
+    polls): of the two candidates below, one landed and one did not.
   - Two NU7 candidates would touch this product if it lands: **ZIP 218** (its actual title is
-    *"25-second Block Target Spacing"*, Draft, NU7) carries an anti-DoS limit of *"The total number of
-    Orchard actions across all transactions in the **block** MUST NOT exceed ... 330"*. Note **per
+    *"25-second Block Target Spacing"*, **Proposed**, deployed by NU7) carries an anti-DoS limit of
+    *"The total number of Orchard actions across all transactions in the **block** MUST NOT exceed"*
+    330, and since 2026-09-15 the same per-block limit for **Ironwood** actions, with Orchard and
+    Ironwood actions sharing one global budget of 330 per block. Note **per
     block, summed across every transaction** - so for a large payroll it is a throughput and
     latency concern, not the per-transaction ceiling an earlier version of this line described
-    ([#295](https://github.com/deegalabs/konclave/issues/295)). Verified 2026-08-31. And **ZIP 2002
-    (Explicit Fees)**
+    ([#295](https://github.com/deegalabs/konclave/issues/295)). Verified 2026-11-04. And **ZIP 2002
+    (Explicit Fees)**, which is **not** deployed by NU7 (still Draft; ZIP 259 introduces no new
+    transaction format),
     changes fee validation for **v7** transactions (the fee becomes an `mValuePoolDeltas` entry with
     `bundleType = 5`; an earlier version of this line said v6+, which is wrong) and touches our ZIP 317 work (
     [#206](https://github.com/deegalabs/konclave/issues/206)).
+  - **The fee drops after NU7, by wallet convention, not consensus.** [ZIP 2009](https://zips.z.cash/zip-2009)
+    (**Proposed**, Standards / Wallet) is Revision 2 of ZIP 317: `marginal_fee` goes from 5,000 to
+    **1,000** zatoshis (minimum fee 10,000 to 2,000) from **Mainnet block 3,590,000**, which it
+    expects around 2026-11-19, and wallets SHOULD switch at that height rather than when a release
+    ships, because a fee that changes at different times reveals the wallet. Also touches #206.
+    Verified 2026-11-04.
   - **"FROST v3 ships in NU7" is misleading.** ZIP 312 is **Draft**, category **Wallet**, with no
-    target upgrade, and is not among the NU7 candidates; `frost-core v3.0.0` shipped in **April 2026** (2026-04-23 on crates.io; an earlier version of this
+    target upgrade, and is not among the ZIPs NU7 deploys (ZIP 259); `frost-core v3.0.0` shipped in **April 2026** (2026-04-23 on crates.io; an earlier version of this
     line said 2025).
     What does matter: the Foundation's 2026 goals include finalising ZIP 312, **integrating FROST
     into `zcash-devtool`**, and publishing an **official DKG** - which would change our integration
@@ -383,7 +402,7 @@ vault by **real DKG across devices over a blind relay** and signs over it; a **h
 helper** builds/proves/broadcasts the tx without ever seeing a share, holding the vault's viewing
 key (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **22 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **24 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6
@@ -682,7 +701,10 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   coordinator code), with `konclave-signer`, `helper-server`,
   `zcash-devtool` and `zcash-sign` recorded by sha256 and size in `engine/versions.lock`. The first
   transaction on it in production is `1c53fe50…` (block 3,506,220, `docs/PROOF.md`). The released
-  line is pczt 0.9.3 / `zcash_client_backend` 0.24.0 / `zcash_primitives` 0.30.1 / orchard 0.15.5.
+  line was then pczt 0.9.3 / `zcash_client_backend` 0.24.0 / `zcash_primitives` 0.30.1 / orchard 0.15.5;
+  since #744 (2026-10-30) `Cargo.lock` pins orchard 0.16.0 / pczt 0.10.0 / `zcash_client_backend`
+  0.25.0 / `zcash_primitives` 0.31.0, the line `[deploy_build]` in `engine/versions.lock` records as
+  deployed (commit `aa778cd`, 2026-10-31).
   **What it replaced, and why that matters.** The released line had run in production from 2026-08-24
   to 2026-09-21, built from #259's branch. On 2026-09-21 the `cp` steps in `deploy/helper/README.md`
   copied from build directories that still held July builds and put the July engine back

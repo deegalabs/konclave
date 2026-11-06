@@ -40,9 +40,39 @@ export type Desk = {
   personal: boolean
 }
 
-/** A proposal still consuming vault funds and still able to move. */
+/**
+ * "Can this proposal still move": awaiting or ready, and not past its deadline on this device's
+ * clock. The ONE rule for the desk, the reservation (`reservedZatOf`) and the ledger's Open total,
+ * filter and column; a clock-expired proposal used to leave the desk while still holding funds and
+ * counting as Open in the ledger. One argument on purpose: it is passed to `.filter`, which would
+ * hand it the index as a clock.
+ */
 export function isOpen(p: Proposal): boolean {
-  return p.state === 'awaiting' || p.state === 'ready'
+  return stateOpen(p) && !pastDeadline(p, Date.now())
+}
+
+// The state half alone, for `rankDesk`, which reads no clock: its callers filter `expiredByClock`.
+const stateOpen = (p: Proposal) => p.state === 'awaiting' || p.state === 'ready'
+const pastDeadline = (p: Proposal, now: number) => !!p.expiry_unix && p.expiry_unix * 1000 < now
+
+/**
+ * An open proposal whose deadline has passed on this device's clock. The coordinator expires an
+ * awaiting AND a ready proposal once it recomputes them; until it does, the device treats both as
+ * closed, so neither sits first on the desk as "Sign" or "Your vote" with a clock that has run out.
+ * `now` is a parameter so the rule can be tested without touching the clock.
+ */
+export function expiredByClock(p: Proposal, now: number = Date.now()): boolean {
+  return stateOpen(p) && pastDeadline(p, now)
+}
+
+/**
+ * The stamp on a row. It falls back to neutral, vault-level wording when this device does not know
+ * its own member name (`Desk.personal === false`): we will not say "Your vote" to someone when we
+ * cannot tell whether they voted. The Dashboard carries the same rule; this is the one the list reads.
+ */
+export function stampKey(band: Band, personal: boolean): string {
+  if (!personal) return band === 'sign' ? 'stamp.ready' : 'stamp.awaiting'
+  return `desk.band.${band}`
 }
 
 function voted(p: Proposal, me: string): boolean {
@@ -90,7 +120,7 @@ function within(a: Proposal, b: Proposal): number {
  * `threshold` is the vault quorum; it is only used to decide whether signing would SEND.
  */
 export function rankDesk(proposals: Proposal[], me: string | null, threshold: number): Desk {
-  const open = proposals.filter(isOpen)
+  const open = proposals.filter(stateOpen)
   const items: DeskItem[] = open
     .map((p) => {
       const band = bandOf(p, me)

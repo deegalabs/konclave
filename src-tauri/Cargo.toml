@@ -44,6 +44,12 @@ keyring = "3"
 # [target.'cfg(target_os = "linux")'.dependencies]
 # keyring = { version = "3", features = ["sync-secret-service"] }
 
+[dev-dependencies]
+# tests/config_contract.rs parses desktop-release.yml, so a comment cannot stand in for the CLI pin.
+yaml-rust2 = "0.13"
+# MockRuntime, so the setup() window test runs without a display (lib.rs tests).
+tauri = { version = "2", features = ["test"] }
+
 [features]
 # `custom-protocol` is the Tauri convention for a production (non-dev-server) build.
 default = ["custom-protocol"]

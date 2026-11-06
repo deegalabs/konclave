@@ -4,11 +4,12 @@
 // the vault. This module persists it in IndexedDB, with the secret bytes encrypted at rest under
 // a key derived from a user passphrase (PBKDF2 -> AES-GCM, both via WebCrypto). Only public
 // metadata (group key, address, roster) is kept in the clear so vaults can be listed for unlock;
-// the secret share is NEVER written except as AES-GCM ciphertext.
+// the secret share, `S` and the viewing key are NEVER written except as AES-GCM ciphertext.
 //
 // No dependencies: raw IndexedDB + crypto.subtle, with feature detection and explicit errors so a
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
+import { clearPayrollDraft } from './payroll-draft'
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
@@ -71,6 +72,11 @@ export interface VaultPublic {
    *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
    *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
   secured?: boolean
+  /** #784: whether the record still carries the viewing key IN THE CLEAR, as imports wrote it before
+   *  #599. Presence only, derived here so no screen touches the value; the value itself is never
+   *  listed. True means the passphrase has not been typed on this device since; `loadVault` seals
+   *  the key and removes the clear field. */
+  plainViewingKey?: boolean
   /** The vault's internal (change) receiver, captured once (#281). Present means the money gate can
    *  tell this vault's own change from a stranger; absent means UNKNOWN, and the gate must stay
    *  unarmed rather than read it as an empty allowlist. */
@@ -154,8 +160,9 @@ export interface VaultLoaded {
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
-// protect the #388 access secret under the SAME derived key (a distinct iv per GCM rule); the rest
-// is public. `secret*` are absent on pre-#388 records.
+// protect the #388 access secret under the SAME derived key (a distinct iv per GCM rule), and
+// `ufvkCipher`/`ufvkIv` the viewing key (#599); the rest is public. `secret*` are absent on pre-#388
+// records.
 interface VaultRecord {
   id: string
   name?: string
@@ -175,8 +182,12 @@ interface VaultRecord {
    *  parameter has to travel with the ciphertext, or raising it locks every existing record. */
   kdfIters?: number
   /** The vault's UFVK once this device has it (#214), so an export can carry it and a restore
-   *  can rebuild the vault rather than only the seat. Kept beside `address` and `groupKey`: it
-   *  is view-only material - it reads the vault's history and cannot move a coin, unlike a share. */
+   *  can rebuild the vault rather than only the seat. It cannot move a coin, but it reads the vault's
+   *  whole history and cannot be rotated, so it is sealed like `S` (#599). */
+  ufvkIv?: Uint8Array
+  ufvkCipher?: Uint8Array
+  /** The same key IN THE CLEAR, as imports wrote it from #447 until #599. Never written any more:
+   *  read only so `loadVault` can seal it and remove it. */
   ufvk?: string
   birthday?: number
   /** The vault's internal (change) receiver, as the helper published it (#281). WRITE-ONCE: only
@@ -315,6 +326,84 @@ function bufOf(b: Uint8Array): ArrayBuffer {
   return out
 }
 
+/** Binds the sealed viewing key to its field: every envelope in a record shares one key, so without
+ *  this the field could be pointed at the share's or `S`'s ciphertext and open as a "viewing key". */
+const UFVK_AAD = new TextEncoder().encode('konclave-ufvk-at-rest')
+
+/** Seal the viewing key under a record's key, with its own iv. */
+async function sealUfvk(key: CryptoKey, ufvk: string): Promise<{ ufvkIv: Uint8Array; ufvkCipher: Uint8Array }> {
+  const ufvkIv = crypto.getRandomValues(new Uint8Array(12))
+  const buf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(ufvkIv), additionalData: bufOf(UFVK_AAD) }, key, bufOf(new TextEncoder().encode(ufvk)))
+  return { ufvkIv, ufvkCipher: new Uint8Array(buf) }
+}
+
+/**
+ * Open the sealed viewing key, or undefined. A failure is corruption of this field, since the share
+ * has already proved the passphrase. It does not throw, unlike `S`: that would read as a wrong
+ * passphrase and lock the member out of a share that opens. The cost is an export without the key
+ * unless the coordinator can still serve it, and the logged line says so.
+ */
+async function openUfvk(key: CryptoKey, record: VaultRecord): Promise<string | undefined> {
+  if (!record.ufvkCipher || !record.ufvkIv) return undefined
+  try {
+    const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.ufvkIv), additionalData: bufOf(UFVK_AAD) }, key, bufOf(record.ufvkCipher))
+    return new TextDecoder().decode(buf)
+  } catch {
+    console.error('[konclave] the sealed viewing key on this device did not open', { id: record.id.slice(0, 8) })
+    return undefined
+  }
+}
+
+/**
+ * Change a stored record in one transaction, so what is written is built from what is there at that
+ * moment and nothing that lands in between is undone. `change` must not await: a transaction with
+ * nothing pending commits, and a later `put` fails. Answering undefined leaves the record alone.
+ * Returns whether it wrote.
+ */
+async function updateRecord(id: string, change: (rec: VaultRecord) => VaultRecord | undefined): Promise<boolean> {
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    const get = store.get(id) as IDBRequest<VaultRecord | undefined>
+    let wrote = false
+    get.onsuccess = () => {
+      const next = get.result && change(get.result)
+      if (next) {
+        store.put(next)
+        wrote = true
+      }
+    }
+    await txDone(tx)
+    return wrote
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Seal a viewing key an older import left in the clear, and remove the plain field, in one `put`.
+ *
+ * The put happens only if the record is still sealed with the salt `key` came from. The encryption
+ * takes time, and a passphrase change landing meanwhile would otherwise leave the viewing key sealed
+ * under a key that no longer opens anything.
+ *
+ * A failure leaves the record as it was and costs the unlock nothing: the next one tries again.
+ */
+async function retireClearUfvk(record: VaultRecord, key: CryptoKey, ufvk: string | undefined): Promise<void> {
+  try {
+    const sealed = ufvk ? await sealUfvk(key, ufvk) : {}
+    await updateRecord(record.id, (latest) => {
+      if (hex(latest.salt) !== hex(record.salt)) return undefined
+      const next: VaultRecord = { ...latest, ...sealed }
+      delete next.ufvk
+      return next
+    })
+  } catch {
+    console.error('[konclave] could not seal the viewing key on this device; the next unlock tries again', { id: record.id.slice(0, 8) })
+  }
+}
+
 /**
  * Encrypt `data.sealedShare` under a key derived from `passphrase` and store the vault.
  * Overwrites any existing record with the same id. Public metadata is stored in the clear.
@@ -420,6 +509,11 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     accessSecret = new Uint8Array(buf)
   }
 
+  // Only here, with the passphrase's key at hand: a passkey unlock opens `S` from its own wrap and
+  // never reads this record, so a clear field waits for the next time the passphrase is typed.
+  const ufvk = (await openUfvk(key, record)) ?? record.ufvk
+  if (record.ufvk !== undefined) await retireClearUfvk(record, key, ufvk)
+
   return {
     name: record.name,
     governance: record.governance,
@@ -431,7 +525,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     sealedShare: new Uint8Array(plainBuf),
     createdAt: record.createdAt,
     accessSecret,
-    ufvk: record.ufvk,
+    ufvk,
     changeReceiver: record.changeReceiver,
     birthday: record.birthday,
     pending: record.pending,
@@ -553,15 +647,16 @@ function writeBeneficiaries(id: string, list: unknown[]): void {
   }
 }
 
-/** The file name a backup downloads under: the vault's name and the local date and time it was made,
- *  so a second copy does not replace or shadow the first and the newest is plain. Nothing about who
- *  made it: a member's name in a file name lands in download folders and cloud drives (Daniel,
- *  2026-10-16). One function for every screen that offers a backup. */
-export function backupFileName(vaultName: string | undefined, now: Date): string {
-  const safe = (vaultName || 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+/** The file name a backup downloads under: neutral, with the local date and time it was made, so a
+ *  second copy does not replace or shadow the first and the newest is plain. Nothing about who made
+ *  it (a member's name in a file name lands in download folders and cloud drives; Daniel, 2026-10-16)
+ *  and nothing about the vault (#587): the contents reveal nothing without the passphrase, not even
+ *  which vault the file belongs to, and a name that said it broke that promise wherever the file was
+ *  listed. One function for every screen that offers a backup. */
+export function backupFileName(now: Date): string {
   const two = (n: number) => String(n).padStart(2, '0')
   const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`
-  return `${safe}-${stamp}.konclave.json`
+  return `konclave-backup-${stamp}.konclave.json`
 }
 
 /**
@@ -836,8 +931,8 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
  * It does NOT go through `saveVault`, deliberately. `saveVault` stamps `createdAt: Date.now()` and
  * does not persist `ufvk`, so the obvious load-then-save would reset the creation date and silently
  * DELETE the viewing key #447/#458 put on this device - leaving `t` members with spend authority
- * over money none of them could see. Nor does it list the fields to keep: it re-seals the share and
- * `S`, and every other field of the stored record is carried as it is.
+ * over money none of them could see. Nor does it list the fields to keep: it re-seals the share,
+ * `S` and the viewing key, and every other field of the stored record is carried as it is.
  *
  * The new record is built and PROVEN openable in memory before anything is written, so a failure
  * cannot leave a share sealed under a passphrase nobody has. The write itself is a single
@@ -862,6 +957,7 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
     secretIv = crypto.getRandomValues(new Uint8Array(12))
     secretCipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(loaded.accessSecret)))
   }
+  const sealedUfvk = loaded.ufvk ? await sealUfvk(key, loaded.ufvk) : { ufvkIv: undefined, ufvkCipher: undefined }
 
   // Prove it opens BEFORE replacing anything. AES-GCM authenticates, so a successful decrypt is a
   // real check and not a formality.
@@ -872,26 +968,30 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   // not make the device refuse: the next screen to read the vault found the slot empty and pinned
   // whatever the helper answered then, so a rotation reopened the write-once slot the money gate
   // depends on. Carrying the record whole means a field added later cannot be lost here either.
-  const stored = await readRecord(id)
-  if (!stored) throw storageError('no-vault', 'No saved vault with that id on this device')
-  const record: VaultRecord = {
-    ...stored,
-    salt,
-    iv,
-    cipher,
-    secretIv,
-    secretCipher,
-    kdfIters: PBKDF2_ITERS,
-  }
-
-  const db = await openDb()
-  try {
-    const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).put(record)
-    await txDone(tx)
-  } finally {
-    db.close()
-  }
+  let unreadable = false
+  const wrote = await updateRecord(id, (stored) => {
+    // A new key could not carry a sealed field that did not open, and it may be the only copy.
+    if ((stored.ufvkCipher && !loaded.ufvk) || (stored.secretCipher && !loaded.accessSecret)) {
+      unreadable = true
+      return undefined
+    }
+    const record: VaultRecord = {
+      ...stored,
+      salt,
+      iv,
+      cipher,
+      secretIv,
+      secretCipher,
+      // Under the new key: carried as stored, this envelope would stop opening. And the plain field
+      // goes even if `loadVault` could not retire it above.
+      ...sealedUfvk,
+      kdfIters: PBKDF2_ITERS,
+    }
+    delete record.ufvk
+    return record
+  })
+  if (unreadable) throw storageError('sealed-field-unreadable', 'A sealed field of this vault did not open, so its passphrase was not changed')
+  if (!wrote) throw storageError('no-vault', 'No saved vault with that id on this device')
 }
 
 export async function importVault(
@@ -926,10 +1026,10 @@ export async function importVault(
     id: d.id, name: d.name, governance: d.governance, myName: d.myName, creatorName: d.creatorName,
     groupKey: hex(d.groupKey), address: d.address, roster: d.roster, createdAt: d.createdAt,
     salt, iv, cipher, secretIv, secretCipher, kdfIters: PBKDF2_ITERS,
-    // Whatever viewing key the export carried comes across with it: an import that decoded it and
-    // dropped it would restore the seat and quietly lose the vault (#214). The scan floor is the
-    // same bargain (#480): decoding it and dropping it restores a wallet that starts at now.
-    ...(d.ufvk ? { ufvk: d.ufvk } : {}),
+    // Whatever viewing key the export carried comes across with it, sealed (#599): an import that
+    // decoded it and dropped it would restore the seat and quietly lose the vault (#214). The scan
+    // floor is the same bargain (#480): decoding it and dropping it restores a wallet that starts at now.
+    ...(d.ufvk ? await sealUfvk(key, d.ufvk) : {}),
     ...(d.birthday !== undefined ? { birthday: d.birthday } : {}),
     ...(d.changeReceiver ? { changeReceiver: d.changeReceiver } : {}),
     ...(d.pending ? { pending: true } : {}),
@@ -959,7 +1059,9 @@ export async function importVault(
   }
 }
 
-/** List saved vaults' public metadata (no secrets touched, no passphrase needed). */
+/** List saved vaults' public metadata (no secrets touched, no passphrase needed). Answers `[]` when
+ *  this browser has no storage or the database will not open, which every caller but the Vaults list
+ *  treats as "no record here". The Vaults list must not: it reads with `readVaults` (#320). */
 export async function listVaults(): Promise<VaultPublic[]> {
   if (!storageAvailable()) return []
   let db: IDBDatabase
@@ -968,12 +1070,23 @@ export async function listVaults(): Promise<VaultPublic[]> {
   } catch {
     return []
   }
+  return vaultsIn(db)
+}
+
+/** The same list, refusing instead of answering `[]` when storage is missing or will not open: an
+ *  empty answer there reads as "No vaults yet" over vaults that are still on the device (#320). */
+export async function readVaults(): Promise<VaultPublic[]> {
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vaults (no IndexedDB/WebCrypto)')
+  return vaultsIn(await openDb())
+}
+
+async function vaultsIn(db: IDBDatabase): Promise<VaultPublic[]> {
   try {
     const tx = db.transaction(STORE, 'readonly')
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, plainViewingKey: typeof r.ufvk === 'string', changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -1014,24 +1127,12 @@ export async function recordChangeReceiver(id: string, receiver: unknown): Promi
   if (!storageAvailable()) return false
   const value = addressText(receiver) // a coordinator's answer that is not text is no receiver
   if (!value) return false
-  const db = await openDb()
   try {
-    // Read and write in SEPARATE transactions: awaiting a get inside a readwrite tx lets it
-    // auto-commit before the put runs, and the write silently vanishes (the bug behind the stale
-    // `myName`, see updateVaultMeta).
-    const readTx = db.transaction(STORE, 'readonly')
-    const rec = await reqDone(readTx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
-    await txDone(readTx)
-    if (!rec) return false
-    if (rec.changeReceiver) return false // already pinned - never overwrite
-    const writeTx = db.transaction(STORE, 'readwrite')
-    writeTx.objectStore(STORE).put({ ...rec, changeReceiver: value })
-    await txDone(writeTx)
-    return true
+    // One transaction, not a read and then a write: a write built from an earlier read puts back
+    // whatever it read, so a passphrase change landing in between would be undone (#599).
+    return await updateRecord(id, (rec) => (rec.changeReceiver ? undefined : { ...rec, changeReceiver: value })) // already pinned - never overwrite
   } catch {
     return false
-  } finally {
-    db.close()
   }
 }
 
@@ -1040,22 +1141,7 @@ export async function updateVaultMeta(
   patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address' | 'pending' | 'allSaved' | 'coordinator'>>,
 ): Promise<void> {
   if (!storageAvailable()) return
-  const db = await openDb()
-  try {
-    // Read and write in SEPARATE transactions. Awaiting the get inside a readwrite tx lets that tx
-    // auto-commit before the put runs (a classic IndexedDB pitfall), so the patch silently never
-    // persists - which is exactly what left a renamed member's `myName` stale on reload. Read first,
-    // then open a fresh tx to write.
-    const readTx = db.transaction(STORE, 'readonly')
-    const rec = await reqDone(readTx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
-    await txDone(readTx)
-    if (!rec) return
-    const writeTx = db.transaction(STORE, 'readwrite')
-    writeTx.objectStore(STORE).put({ ...rec, ...patch })
-    await txDone(writeTx)
-  } finally {
-    db.close()
-  }
+  await updateRecord(id, (rec) => ({ ...rec, ...patch }))
 }
 
 /** Remove a saved vault (and its encrypted share) from this device. */
@@ -1073,6 +1159,7 @@ export async function forgetVault(id: string): Promise<boolean> {
 }
 
 export async function deleteVault(id: string): Promise<void> {
+  clearPayrollDraft(id) // the vault's typed payroll goes with it, whatever the store says next
   if (!storageAvailable()) return
   const db = await openDb()
   try {

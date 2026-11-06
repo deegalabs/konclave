@@ -70,12 +70,15 @@ const EMPTY = {
 
 type Balance = 'ok' | 'unreadable' | 'zero'
 
-/** Stub everything the payment screen reads. `balance` is per-test so it can fail or come back empty. */
-async function stub(page: import('@playwright/test').Page, locale: string, balance: Balance) {
+/** Stub everything the payment screen reads. `balance` is per-test so it can fail or come back empty;
+ *  so can the open proposals, whose amounts the gate subtracts (an unread list blocks, finding B). */
+async function stub(page: import('@playwright/test').Page, locale: string, balance: Balance, proposals: 'ok' | 'unreadable' = 'ok') {
   await page.addInitScript((l) => localStorage.setItem('konclave.locale', l), locale)
   await page.route('**/api/health**', (r) => r.fulfill({ json: { status: 'ok', name: 'konclave', version: 'e2e' } }))
   await page.route('**/api/vault**', (r) => r.fulfill({ json: { vault: VAULT } }))
   await page.route('**/api/beneficiaries**', (r) => r.fulfill({ json: { beneficiaries: [] } }))
+  await page.route('**/api/proposals**', (r) =>
+    proposals === 'unreadable' ? r.fulfill({ status: 500, json: { error: 'unavailable' } }) : r.fulfill({ json: { proposals: [] } }))
   await page.route('**/api/balance**', (r) => {
     if (balance === 'unreadable') return r.fulfill({ status: 500, json: { error: 'unavailable' } })
     return r.fulfill({ json: balance === 'zero' ? EMPTY : FUNDED })
@@ -150,6 +153,16 @@ for (const { id: locale, dict } of LOCALES) {
       await amount(page).fill('0.5')
       await expect(proposeBtn(page)).toBeDisabled()
       await expect(page.getByText(message(dict, 'balance-unknown'))).toBeVisible()
+    })
+
+    test('open proposals that could not be read block too, and say so', async ({ page }) => {
+      // What they hold is subtracted from the free funds; unread is not "nothing held".
+      await stub(page, locale, 'ok', 'unreadable')
+      await page.goto('/#/pay')
+      await fillRecipient(page)
+      await amount(page).fill('0.5')
+      await expect(proposeBtn(page)).toBeDisabled()
+      await expect(page.getByText(message(dict, 'reserved-unknown'))).toBeVisible()
     })
 
     test('a vault with nothing spendable says so, rather than blaming the amount', async ({ page }) => {

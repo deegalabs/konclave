@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Seal, Loading } from '../components'
+import { useToast } from '../toast'
+import { SkeletonRoster } from '../skeleton'
+import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 
@@ -20,6 +23,7 @@ export function membersView(live: boolean | null, vault: Vault | null): MembersV
 
 export default function Members() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -29,7 +33,6 @@ export default function Members() {
   const [myNewName, setMyNewName] = useState('')
   const [saving, setSaving] = useState(false)
   const [renameErr, setRenameErr] = useState<string | null>(null)
-  const [renamed, setRenamed] = useState(false)
   // Read from the on-device record but not shown: the governance nudge it used to gate was
   // removed. Kept as a setter-only so the record read stays intact for whatever needs it next.
   const [, setGov] = useState<Governance | null>(null)
@@ -42,11 +45,14 @@ export default function Members() {
   const [creator, setCreator] = useState<string | null>(null)
   // Bumped by the retry button: the read runs again from the start (#315).
   const [attempt, setAttempt] = useState(0)
+  const readable = useVaultReadable()
   const retry = useCallback(() => { setLive(null); setVault(null); setAttempt((a) => a + 1) }, [])
   // The retry button unmounts with the message; focus moves to the message when it comes back,
   // so a keyboard or screen-reader member is not dropped at the top of the page.
   const unreadRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    // Locked: the roster read would 401; nothing is read until the passphrase lands (#439).
+    if (!readable) return
     let on = true
     void (async () => {
       const ok = await health()
@@ -67,7 +73,7 @@ export default function Members() {
       setLive(ok)
     })()
     return () => { on = false }
-  }, [attempt])
+  }, [attempt, readable])
 
   async function saveMyName() {
     const next = myNewName.trim()
@@ -79,21 +85,21 @@ export default function Members() {
     // renaming a name it no longer has ("no such member to rename"). If the name you want is ALREADY
     // in the roster and your stored name is not, just ADOPT it locally - no server rename.
     if (!meInRoster && rosterNames.includes(next)) {
-      setSaving(true); setRenameErr(null); setRenamed(false)
+      setSaving(true); setRenameErr(null)
       const res = await adoptSelfName(next)
-      if ('ok' in res) { setMe(next); setRenamed(true); setTimeout(() => setRenamed(false), 1800) }
+      if ('ok' in res) { setMe(next); setMyNewName(''); toast.ok(t('toast.nameSaved')) }
       else setRenameErr(res.error)
       setSaving(false)
       return
     }
     if (!me || next === me) return
-    setSaving(true); setRenameErr(null); setRenamed(false)
+    setSaving(true); setRenameErr(null)
     const res = await renameSelf(me, next)
     if ('members' in res) {
       const v = await getVault()
       if (v) setVault(v)
-      setMe(next); setRenamed(true)
-      setTimeout(() => setRenamed(false), 1800)
+      setMe(next); setMyNewName('')
+      toast.ok(t('toast.nameSaved'))
     } else {
       setRenameErr(res.error)
     }
@@ -126,7 +132,7 @@ export default function Members() {
         />
 
 
-        {view === 'loading' && <Loading />}
+        {view === 'loading' && <SkeletonRoster n={4} />}
         {view === 'unread' && (
           <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
             <div className="who-name mb-sm">{t('members.unreadTitle')}</div>
@@ -181,7 +187,6 @@ export default function Members() {
             >
               {saving ? '…' : t('members.yourNameSave')}
             </button>
-            {renamed && <div className="hint ready mt-sm">{t('members.yourNameSaved')}</div>}
             {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {humanError(t, renameErr)}</div>}
           </div>
         )}

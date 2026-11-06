@@ -103,8 +103,7 @@ and while it is down no payment can be made. What is fixed and what is open, by 
   and the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
   viewing key and reads its books (#516); a vault where some member has not yet unlocked it on a
   current version still sends its signing requests unsealed; vaults created before the per-vault secret stay
-  readable by id until they are re-created, or upgraded in place if #406 lands; a restored vault
-  keeps its viewing key unencrypted in browser storage (#599); the coordinator stores proposals
+  readable by id until they are re-created, or upgraded in place if #406 lands; a device that restored a vault before the fix keeps its viewing key unencrypted in local storage until that vault's passphrase is next typed, and a copy already taken stays valid for the life of the vault (#599); the coordinator stores proposals
   and member names in the clear (#601); the signing room carries governance metadata the relay
   can read (#340); the relay sees the members' names and the quorum while a vault is created; and
   the relay, the coordinator and the web host see members' IP addresses and timing.

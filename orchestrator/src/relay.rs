@@ -33,8 +33,9 @@ const MAX_ROOMS: usize = 512;
 /// leaves ample headroom while capping a single room's memory.
 const MAX_MSGS: usize = 512;
 /// A message payload cap. Public FROST material and E2E-encrypted DKG packages are small
-/// (well under this); the cap just refuses abuse.
-const MAX_DATA: usize = 128 * 1024;
+/// (well under this); the cap just refuses abuse. The hosted relay's number, read from the one place
+/// both relays and the coordinator's size limit take it (#821).
+const MAX_DATA: usize = konclave_http::RELAY_MAX_DATA;
 /// A `from` tag cap (it is an ephemeral pseudonym, not free-form text).
 const MAX_FROM: usize = 128;
 /// Rooms idle longer than this (seconds) are dropped on the next access - no background job.

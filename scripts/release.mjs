@@ -182,8 +182,24 @@ function notes(version) {
     .map(([file, label]) => [label, versions.map((v) => sectionOf(file, v)).filter(Boolean).join('\n\n')])
     .filter(([, body]) => body)
   if (parts.length === 0) return ''
-  if (parts.length === 1) return parts[0][1]
-  return parts.map(([label, body]) => `## ${label}\n\n${body}`).join('\n\n')
+  if (parts.length === 1) return upgradeFirst(parts[0][1])
+  return upgradeFirst(parts.map(([label, body]) => `## ${label}\n\n${body}`).join('\n\n'))
+}
+
+/** An entry that opens "**Upgrading from" says what a member must do BEFORE running the installer,
+ *  and a release body otherwise opens with whatever the app's changelog lists first. So each such
+ *  entry is also printed at the top of the body, unbulleted, in the order found; it stays in its
+ *  category below. A body with none is returned unchanged. */
+export function upgradeFirst(body) {
+  const lines = body.split('\n')
+  const lifted = []
+  lines.forEach((line, i) => {
+    if (!/^- \*\*Upgrading from /.test(line)) return
+    const entry = [line.slice(2)]
+    for (let j = i + 1; j < lines.length && /^ {2}\S/.test(lines[j]); j++) entry.push(lines[j].trim())
+    lifted.push(entry.join('\n'))
+  })
+  return lifted.length ? `${lifted.join('\n\n')}\n\n${body}` : body
 }
 
 function bumpJson(path, version) {

@@ -112,10 +112,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     return () => { for (const t of map.values()) clearTimeout(t); map.clear() }
   }, [])
 
-  // Escape dismisses the newest, wherever focus happens to be.
+  // What assistive tech hears. A row that mounts already filled is skipped by many screen readers,
+  // so the visible rows carry no live semantics: two regions that exist from the first paint do,
+  // one polite (ok, info) and one assertive (err, warn), and each is set to the newest message of
+  // its kind. Keyed by toast id so the same words twice in a row are still a change.
+  const latest = (kinds: ToastKind[]) => [...toasts].reverse().find((t) => kinds.includes(t.kind) && !t.leaving)
+  const polite = latest(['ok', 'info'])
+  const urgent = latest(['err', 'warn'])
+
+  // Escape dismisses the newest, wherever focus happens to be, unless a dialog already took it.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       const last = toasts[toasts.length - 1]
       if (last) dismiss(last.id)
     }
@@ -126,14 +135,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
+      <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {polite && <span key={polite.id}>{polite.message}</span>}
+      </div>
+      <div className="visually-hidden" role="alert" aria-atomic="true">
+        {urgent && <span key={urgent.id}>{urgent.message}</span>}
+      </div>
       <div className="kc-toaster" onMouseEnter={hold} onMouseLeave={release} onFocus={hold} onBlur={release}>
         {toasts.map((row) => (
           <div
             key={row.id}
             className={'kc-toast' + (row.leaving ? ' out' : '')}
             data-kind={row.kind}
-            role={row.kind === 'err' || row.kind === 'warn' ? 'alert' : 'status'}
-            aria-live={row.kind === 'err' || row.kind === 'warn' ? 'assertive' : 'polite'}
           >
             <span className="kc-toast-glyph" aria-hidden="true">{GLYPH[row.kind]}</span>
             <span className="kc-toast-msg">{row.message}</span>
