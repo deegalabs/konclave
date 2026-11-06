@@ -119,7 +119,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   registering for a seat is always accepted, and when the registry is full the oldest record without
   a seat makes room for it. Records without a seat are limited to the vault's seat count; one past
   that is a `409`. A proposal whose build fails for an unrelated reason is still let through, as
-  before, and the send checks it. Not deployed yet.
+  before, and the send checks it. The hosted coordinator has run this since 2026-11-06.
 - **A wallet sync that never returned held a vault's wallet and one of the coordinator's workers
   until the coordinator restarted.** The coordinator put no time limit on the engine's wallet sync,
   and the engine's own connection has none. While a sync hung, that vault's later reads and sends
@@ -147,7 +147,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   to 5 lines in a vault of up to 31 devices (4 when the vault pays from Orchard notes), about 3 to 4
   in a 32-seat vault, and fewer when it pays from many small notes. Such a proposal is refused when it
   is created, with the numbers, instead of after approval. The limit stays until the signing request no
-  longer travels inside one relay message.
+  longer travels inside one relay message. The hosted coordinator has run this since 2026-11-06.
 - **The 300-second limit covers the wallet sync only.** Every other call to the engine still has
   none: the step that upgrades a vault's wallet, the balance and history reads that follow a sync,
   the build and proof of a payment or a payroll, and the broadcast of a send.
