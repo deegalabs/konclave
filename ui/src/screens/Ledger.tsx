@@ -6,6 +6,7 @@ import { PageHeader, PageFooter } from '../page'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
+import { stateGroupOf } from '../ledger-state'
 import { explorerTxUrl, fmtDate, fmtZec, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
 import { exportLedgerCsv } from '../ledgerCsv'
@@ -264,13 +265,13 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   )
 
   const body = (
-    <>
+    <div className="ledger-doc">
         {embedded && <div className="lg-actions">{exportActions}</div>}
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? '…'}</b></div>
-            <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
+            <div><span className="klab">{t('ledger.period')}</span><b>{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{rows === null ? '—' : inWin.length}</b></div>
           </div>
           <div className="db-totals">
@@ -323,7 +324,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="tbl razao mt">
-          <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
+          <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th className="num">{t('ledger.colValue')}</th></tr></thead>
           <tbody>
             {rows === null && !unread && (
               <tr><td colSpan={4}><SkeletonRows n={5} /></td></tr>
@@ -368,7 +369,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                     <td className="by">{who}</td>
                     <td className={closedRow ? 'num dim' : 'num out'}>
                       <Secret sm><span>{closedRow ? '' : '−'}{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
-                      <div className="by">
+                      <div className={'by st st-' + stateGroupOf(p.state)}>
                         {settledRow && p.txid
                           ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
                           : t('state.' + p.state)}
@@ -446,8 +447,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             </p>
           </div>
         </section>
-
-    </>
+    </div>
   )
 
   if (embedded) return body

@@ -30,6 +30,8 @@
   --accent-glow:47,111,208;
   /* success (deepened for AA on white) */
   --success:#12805C; --success-soft:rgba(18,128,92,.10); --success-line:rgba(18,128,92,.34);
+  /* Text tier: 4.5:1 on every surface and on the hovered row (the fill tokens above are 4.6 on white). */
+  --success-text:#0E6F4F; --accent-text:#2559BE;
   /* warn */
   --warn:#B54708; --warn-strong:#92370A;
   /* danger */
@@ -68,6 +70,7 @@
   --on-accent:#0f141a;
   --accent-glow:87,166,255;
   --success:#5ed39a; --success-soft:rgba(94,211,154,.10); --success-line:rgba(94,211,154,.35);
+  --success-text:#5ed39a; --accent-text:#5A9BEA;
   --warn:#e3ad52; --warn-strong:#f0c574;
   --danger:#e77f74; --danger-text:#ef9a92;
   --danger-soft:rgba(231,127,116,.10); --danger-line:rgba(231,127,116,.30);

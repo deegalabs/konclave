@@ -56,6 +56,13 @@ history to tidy it is how context gets lost.
   itself against the book: the sums match, or the difference is named with the number of payrolls
   whose lines could not be read (#778; by category waits for the field on the proposal).
 
+### Changed
+
+- **In the ledger, colour now means one thing: the state's group.** Blue is a state that needs
+  someone, grey is on its way or closed, green is settled, and the word is always beside the
+  colour. The band's figures lead and the labels step back; the labels, the table's head and the
+  filters are plain text; the rows have room.
+
 ## [0.17.0] 2026-11-06
 
 ### Security
