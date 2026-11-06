@@ -175,7 +175,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   border:0; padding:0; margin:0; font:inherit; appearance:none; -webkit-appearance:none;
   background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);}
 .secret .bar:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
-.secret.sm .bar{inset:-1px -4px}
+.secret.sm .bar{inset:-3px -4px; min-height:24px} /* 2.5.8: the small veil is still a 24px target */
 .secret .bar::after{content:attr(data-label); position:absolute; left:7px; top:50%; transform:translateY(-50%);
   font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--tarja-text)}
 .secret.sm .bar::after{content:""}

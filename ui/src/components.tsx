@@ -163,7 +163,7 @@ export function Letterhead({ right }: { right?: ReactNode }) {
 
 /** A sensitive value hidden behind the redaction bar (tarja) until revealed.
  *  The bar is a real button so the privacy gesture is keyboard-operable. */
-export function Secret({ children, sm }: { children: ReactNode; sm?: boolean }) {
+export function Secret({ children, sm, label }: { children: ReactNode; sm?: boolean; /** What the veil covers, for the button's name in a table of veils. */ label?: string }) {
   const { revealed, toggle } = useReveal()
   const t = useT()
   return (
@@ -175,7 +175,7 @@ export function Secret({ children, sm }: { children: ReactNode; sm?: boolean }) 
         data-label={t('secret.tarja')}
         onClick={toggle}
         aria-pressed={revealed}
-        aria-label={revealed ? t('common.hide') : t('common.reveal')}
+        aria-label={(revealed ? t('common.hide') : t('common.reveal')) + (label ? `: ${label}` : '')}
       />
     </span>
   )

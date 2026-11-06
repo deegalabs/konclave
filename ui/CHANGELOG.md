@@ -40,6 +40,14 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
+  rows in view: settled so far and still open per beneficiary, in the band's own words, over the
+  same period and kind as the totals above, named from the registry or the payroll line. It checks
+  itself against the book: the sums match, or the difference is named with the number of payrolls
+  whose lines could not be read (#778; by category waits for the field on the proposal).
+
 ## [0.17.0] 2026-11-06
 
 ### Security
