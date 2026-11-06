@@ -11,7 +11,8 @@ const PAY_UA = 'utest1cx3tarwlxt8vw60ugpddnsjemj3aum5nhkwpdyy0kn0urhhq27lu0q3ajv
 const CHG_RCV = '8dfd0a5e'
 const OUTSIDER = 'cacacaca'
 
-const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean; share: unknown; armed: boolean; signedBefore: unknown } = {
+const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean; share: unknown; armed: boolean; signedBefore: unknown; feeReady: boolean } = {
+  feeReady: true,
   bg: {},
   ours: () => false,
   share: undefined,
@@ -36,7 +37,7 @@ vi.mock('./fee-estimate', async (orig) => ({
   ...(await orig<typeof import('./fee-estimate')>()),
   // The real estimate needs the wasm and an effect; a static render runs neither. The rule's figure
   // (fee-estimate.test.ts): three actions at 5,000 for one payee.
-  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+  useFeeEstimate: () => (state.feeReady ? { state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) } : { state: 'unavailable' }),
 }))
 vi.mock('./session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session')>()),
@@ -389,6 +390,19 @@ describe('what the panel shows before signing', () => {
     expect(html).toContain('Leaves the vault')
     expect(html).toContain('1.00015 ZEC')
   })
+  it('shows no fee and no total while the estimate is unavailable, and still lets the member sign', () => {
+    state.armed = false
+    state.feeReady = false
+    try {
+      const html = render({})
+      expect(html).toContain(PAY_UA)
+      expect(html).not.toContain('Network fee')
+      expect(html).not.toContain('Leaves the vault')
+      expect(html).not.toContain('NaN')
+    } finally {
+      state.feeReady = true
+    }
+  })
   it('says the fee is an estimate, and why, and names the destination for a screen reader', () => {
     state.armed = false
     const html = render({})
@@ -410,7 +424,7 @@ describe('what the panel shows before signing', () => {
   it('marks the fee box when the vault is short, and costs a payroll only once its lines are known', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/className=\{'p-cost' \+ \(shortZat > 0 \? ' short' : ''\)\}/)
-    expect(src).toMatch(/const feeKnown = feeEstimator !== null && \(!isPayroll \|\| payrollLines !== null\)/)
+    expect(src).toMatch(/const feeKnown = feeEst !== null && \(!isPayroll \|\| payrollLines !== null\)/)
   })
   it('one estimate of the fee, used by every screen that shows one (figures in fee-estimate.test.ts)', () => {
     for (const f of ['./screens/SigningPanel.tsx', './screens/Proposal.tsx', './screens/NewPayroll.tsx']) {

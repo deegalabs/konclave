@@ -416,12 +416,13 @@ export default function SigningPanel() {
   // shows. A payroll whose lines have not landed yet is costed as one destination, which
   // under-states rather than over-states, so the block never fires on a guess.
   const feeEstimator = estimatorOf(feeEstimate)
-  const feeZat = feeEstimator ? feeEstimator(isPayroll ? payrollLines ?? 1 : 1) : 0
+  const feeEst = feeEstimator ? feeEstimator(isPayroll ? payrollLines ?? 1 : 1) : null
+  const feeZat = feeEst ?? 0
   // Shown only once it is known: a payroll's fee depends on its lines, and the estimate on the rule
   // having answered. Unknown never blocks signing: what the device signs is judged by the device.
-  const feeKnown = feeEstimator !== null && (!isPayroll || payrollLines !== null)
+  const feeKnown = feeEst !== null && (!isPayroll || payrollLines !== null)
   const amountZat = parseZecToZat(active.value_zec ?? '')
-  const shortZat = spendableZat === null || amountZat === null || feeEstimator === null
+  const shortZat = spendableZat === null || amountZat === null || feeEst === null
     ? 0
     : Math.max(0, amountZat + feeZat - spendableZat)
 

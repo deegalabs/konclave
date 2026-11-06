@@ -323,6 +323,21 @@ impl Table {
         out
     }
 
+    /// Every marginal fee any era of the table accepts, whatever the clock. A fee that matches one
+    /// of these but not the clock's set is a fee for another era: the device's clock, or the
+    /// builder's height, is off, which a member is told apart from a fee no era allows.
+    pub fn every_accepted_marginal_fee(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = vec![];
+        for e in self.fees {
+            for a in e.accepts {
+                if !out.contains(a) {
+                    out.push(*a);
+                }
+            }
+        }
+        out
+    }
+
     /// The highest accepted value: what a gate reserves.
     pub fn reserve_marginal_fee(&self, now_unix: i64) -> u64 {
         self.accepted_marginal_fees(now_unix)
@@ -929,6 +944,7 @@ mod tests {
         assert_eq!(MAINNET.builder_marginal_fee(FEE_H), 1_000);
         assert_eq!(MAINNET.fees[0].accepts, &[5_000]);
         assert_eq!(MAINNET.fees[1].accepts, &[5_000, 1_000]);
+        assert_eq!(MAINNET.every_accepted_marginal_fee(), vec![5_000, 1_000]);
         assert_eq!(MAINNET.epochs[1].spacing_s, 25);
     }
 

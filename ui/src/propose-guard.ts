@@ -129,7 +129,9 @@ export function proposeBlock(input: ProposeInput): ProposeBlock {
   if (memoOver) return 'memo'
   if (amountAmbiguous) return 'amount-ambiguous'
   if (amountZat === null || amountZat <= 0) return 'amount'
-  if (feeZat === null) return 'fee-unknown'
+  // Not finite is unknown too: NaN compares false with everything, and a false comparison below
+  // reads as "the vault can afford it".
+  if (feeZat === null || !Number.isFinite(feeZat)) return 'fee-unknown'
   if (reservedZat === null) return 'reserved-unknown'
   if (availableZat === null) return 'balance-unknown'
   if (availableZat === 0) return reservedZat > 0 ? 'reserved' : 'no-funds'

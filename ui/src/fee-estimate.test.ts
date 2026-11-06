@@ -47,6 +47,11 @@ describe('the fee estimate is the rule in konclave_seal', () => {
     expect(readFeeEstimator(() => 0)).toBeNull()
     expect(readFeeEstimator(() => 1.5)).toBeNull()
     expect(readFeeEstimator(() => Number.NaN)).toBeNull()
+    // An estimator that stops answering later gives null, never NaN.
+    let n = 15_000
+    const later = readFeeEstimator(() => n)
+    n = 0
+    expect(later?.(1)).toBeNull()
   })
 })
 
@@ -81,8 +86,8 @@ describe('no fee arithmetic outside the rule', () => {
   // two rates, or the old constants. (`* 1000` alone is milliseconds everywhere in this app.)
   const PATTERNS = [
     /\b5_?000\s*\*|\*\s*5_?000\b/,
-    /\bfee\w*\s*[=:]\s*\d{4,}/i,
-    /(fee|marginal)[^\n]*\b[15]_?000\b/i,
+    /\bfee\w*\s*[=:]\s*\d[\d_]{3,}/i,
+    /(fee|marginal)[^\n]*(?<![\w.])\d{1,3}_?\d{3}(?![\w.])/i,
     /SINGLE_PAYMENT_FEE_ZAT|GRACE_ACTIONS|MARGINAL_FEE/,
   ]
 
@@ -104,7 +109,15 @@ describe('no fee arithmetic outside the rule', () => {
   })
 
   it('and would find one', () => {
-    for (const planted of ['const soloFeeZat = count * 5000 * 2', 'const feeZat = 15000', 'const marginalFee = 1_000', 'return 5000 * Math.max(2, n)']) {
+    for (const planted of [
+      'const soloFeeZat = count * 5000 * 2',
+      'const feeZat = 15000',
+      'const feeZat = 15_000',
+      'const feeZat = feeEstimator ? feeEstimator(1) : 15000',
+      'const feeZat = est(1) ?? 10_000',
+      'const marginalFee = 1_000',
+      'return 5000 * Math.max(2, n)',
+    ]) {
       expect(PATTERNS.some((p) => p.test(planted)), planted).toBe(true)
     }
   })

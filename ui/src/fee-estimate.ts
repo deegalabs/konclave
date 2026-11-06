@@ -14,8 +14,9 @@ import { useEffect, useState } from 'react'
 import { ensureWasm } from './wasm-ready'
 import { estimatedFeeZat as estimateFromRule } from './wasm-pkg/konclave_wasm.js'
 
-/** The fee in zatoshis for a payment to `destinations` (at least one). */
-export type FeeEstimator = (destinations: number) => number
+/** The fee in zatoshis for a payment to `destinations` (at least one), or `null` when the rule
+ *  stopped answering (a clock moved back before the network this app signs for). Never NaN, never 0. */
+export type FeeEstimator = (destinations: number) => number | null
 
 /** The estimator, or `null` when the rule cannot answer: the wasm reads no clock window (a clock
  *  before the network this app signs for) or answers something that is not a positive whole number.
@@ -26,7 +27,7 @@ export function readFeeEstimator(estimate: (destinations: number) => number = es
   if (!ok(estimate(1))) return null
   return (destinations: number) => {
     const v = estimate(Math.max(1, Math.floor(destinations)))
-    return ok(v) ? v : Number.NaN
+    return ok(v) ? v : null
   }
 }
 

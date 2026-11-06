@@ -155,7 +155,7 @@ export default function NewPayment() {
   const freeZat = freeZatOf(bal, openProps)
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
-  // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
+  // stays authoritative on the real fee; the estimate below is the one every screen shows.
   const amountZat = typedAmountZat(value)
   const availableZat = freeZat
   // The one estimate (`fee-estimate.ts`, read from the device's rule): one destination. `null` until
@@ -185,6 +185,9 @@ export default function NewPayment() {
   const blockMsg = (() => {
     if (value.trim() === '' || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
+    // Still loading is not "could not be worked out": the button stays closed, without a message
+    // telling the member to reload or check the clock.
+    if (feeEstimate.state === 'loading' && block === 'fee-unknown') return null
     if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
     if (block === 'over-balance') return t('payment.warnOverBalance')
     const k = blockMessageKey(block)

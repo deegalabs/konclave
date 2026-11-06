@@ -61,15 +61,19 @@ explicitly accepted.
 - **The network fee rule has one home, and follows ZIP 2009 by block height (#847).** The fee per
   action (5,000 zatoshis, and 1,000 from mainnet block 3,590,000 under ZIP 2009, Proposed) lives in
   one table in the shared crate, beside the network-upgrade rows; the device's signing check and the
-  app's fee estimate both read it, and a source scan fails the build if a fee rule is written anywhere
-  else. The desktop app carries the same device check as the web app: see the app's changelog. The
-  coordinator still builds at 5,000 and moves in a later release.
+  app's fee estimate both read it. Source scans fail the build when a fee rule is written elsewhere
+  in the Rust crates or the app (the coordinator's two files are excused until it reads the table).
+  The desktop app carries the same device check as the web app: see the app's changelog. The
+  coordinator still builds at 5,000.
 
 ### Known limits
 
+- **Until the coordinator switches, vault payments pay 5,000 zatoshis per action after block
+  3,590,000 and can be told apart on the chain** from wallets that follow ZIP 2009. The plan is for
+  the coordinator to build at 1,000 only for a vault whose every device accepts that rate; that is not
+  built yet.
 - **The desktop app has no updater (#606)**, so a desktop install that is not updated by hand keeps
-  refusing 1,000-zatoshi payments. The coordinator will build at 1,000 only for a vault whose every
-  device has said it accepts it.
+  refusing 1,000-zatoshi payments, and under that plan its vault keeps paying 5,000.
 
 ## [0.17.0] 2026-11-06
 

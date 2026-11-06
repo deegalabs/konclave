@@ -204,6 +204,7 @@ export default function Proposal() {
     if (amountZat === null || !feeEstimator) return null
     const dests = isPayroll ? Math.max(1, lines.length) : 1
     const feeZat = feeEstimator(dests)
+    if (feeZat === null) return null
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }

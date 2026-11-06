@@ -339,7 +339,7 @@ export default function NewPayroll() {
   // single payments, each estimated by the same rule; one payroll is a single spend, N outputs and
   // change. It is the whole reason this screen exists - so it is stated rather than left for the
   // reader to work out from a fee they cannot see the shape of.
-  const soloFeeZat = count > 0 && feeEstimator ? count * feeEstimator(1) : 0
+  const soloFeeZat = count > 0 && feeEstimator ? count * (feeEstimator(1) ?? 0) : 0
   const savedZat = feeZat == null ? 0 : Math.max(0, soloFeeZat - feeZat)
 
   const afterZat = balanceZat === null || feeZat == null ? null : balanceZat - totalZat - feeZat
@@ -365,6 +365,8 @@ export default function NewPayroll() {
     if (unvouched > 0) return t('payroll.blockUnvouched', { n: unvouched })
     if (count === 0 || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
+    // Still loading is not "could not be worked out" (see NewPayment).
+    if (feeEstimate.state === 'loading' && block === 'fee-unknown') return null
     if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
     if (block === 'over-balance') return t('payroll.warnExceeds')
     const k = blockMessageKey(block)

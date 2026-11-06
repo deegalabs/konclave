@@ -2788,7 +2788,19 @@ pub mod pczt_bridge {
     /// action raises the fee by one marginal fee, paid to the network. Nothing on the device caps
     /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
     /// needs the device to know which notes a payment should spend.
-    fn check_fee(fee: i64, bundles: &[BundleShape], accepted: &[u64]) -> Result<u64, String> {
+    ///
+    /// `accepted` is the set of marginal fees this device's clock allows; `known` is every rate the
+    /// table accepts in any era. A fee that is exact at one of the `known` rates but not at an
+    /// `accepted` one is refused with `[clock]`, not `[fee]`: it is what an honest builder sends to a
+    /// device whose clock is behind the fee switch (ZIP 2009), and the member is asked to check the
+    /// date and time instead of being told the request may have been tampered with. Nothing is
+    /// signed either way.
+    fn check_fee_in_era(
+        fee: i64,
+        bundles: &[BundleShape],
+        accepted: &[u64],
+        known: &[u64],
+    ) -> Result<u64, String> {
         let fee = u64::try_from(fee).map_err(|_| {
             format!(
                 "[fee] the transaction adds {} zatoshis to the shielded pools instead of paying a fee",
@@ -2812,6 +2824,11 @@ pub mod pczt_bridge {
         // `accepted` is the set of marginal fees this device's clock allows (konclave_seal::epochs,
         // ZIP 2009); a value between two of them is not a compromise, it is refused.
         if !konclave_seal::epochs::fee_in(fee, actions, accepted) {
+            if konclave_seal::epochs::fee_in(fee, actions, known) {
+                return Err(format!(
+                    "[clock] the transaction pays {fee} zatoshis in fee, a rate this device's clock does not allow yet for its {actions} actions"
+                ));
+            }
             let want: Vec<String> = accepted
                 .iter()
                 .filter_map(|m| konclave_seal::epochs::conventional_fee(*m, actions))
@@ -2823,6 +2840,12 @@ pub mod pczt_bridge {
             ));
         }
         Ok(fee)
+    }
+
+    /// `check_fee_in_era` with one rate set, for the tests of the rule itself.
+    #[cfg(test)]
+    fn check_fee(fee: i64, bundles: &[BundleShape], accepted: &[u64]) -> Result<u64, String> {
+        check_fee_in_era(fee, bundles, accepted, accepted)
     }
 
     /// Read one Orchard-shaped bundle's outputs, refusing any output whose fields its note
@@ -3087,7 +3110,12 @@ pub mod pczt_bridge {
                     .into(),
             );
         }
-        let fee_zat = check_fee(fee, &shapes, &accepted)?;
+        let fee_zat = check_fee_in_era(
+            fee,
+            &shapes,
+            &accepted,
+            &rules.every_accepted_marginal_fee(),
+        )?;
         let actions = shapes.iter().map(|s| s.actions).sum();
         Ok(Payment {
             outputs,
@@ -5051,6 +5079,16 @@ pub mod pczt_bridge {
             assert!(check_fee(6_000, &[EMPTY, shape(6, 1, 2)], &[1_000]).is_err());
             // No accepted set accepts nothing.
             assert!(check_fee(20_000, &b, &[]).is_err());
+            // A rate of another era is told apart: the clock, not tampering. Padding and an
+            // off-schedule fee stay [fee] whatever the eras.
+            let known = [5_000, 1_000];
+            let err = check_fee_in_era(4_000, &b, &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[clock]"), "{err}");
+            let err = check_fee_in_era(12_000, &b, &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            let err =
+                check_fee_in_era(6_000, &[EMPTY, shape(6, 1, 2)], &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
         }
 
         /// Fixed clock: IW_PROVEN pays 20,000 in 4 actions (5,000 each).
@@ -5075,9 +5113,61 @@ pub mod pczt_bridge {
             let e =
                 read_payment_with(&NEW_ONLY, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
             assert!(e.starts_with("[fee]"), "{e}");
+            // The same bytes against a table whose later era (not reached by this clock) accepts
+            // 5,000: a rate of another era, so [clock], not the tampering wording of [fee].
+            const LATER_ERA: NetworkRules = NetworkRules {
+                epochs: MAINNET.epochs,
+                fees: &[
+                    konclave_seal::epochs::FeeEra {
+                        from_height: 0,
+                        builds: 1_000,
+                        accepts: &[1_000],
+                    },
+                    konclave_seal::epochs::FeeEra {
+                        from_height: 4_000_000_000,
+                        builds: 5_000,
+                        accepts: &[5_000],
+                    },
+                ],
+                anchor: MAINNET.anchor,
+            };
+            let e =
+                read_payment_with(&LATER_ERA, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
+            assert!(e.starts_with("[clock]"), "{e}");
             // A clock before the anchor is the empty window: [expiry], not [fee].
             let e = read_payment_with(&MAINNET, IW_PROVEN, MAINNET.anchor.unix - 1).unwrap_err();
             assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        /// SYNTHETIC: `IW_PROVEN` (4 actions, 20,000 = 5,000 each) with its value balance edited to
+        /// 4,000, i.e. 1,000 each. Its proofs and binding signature no longer match, so the network
+        /// would refuse it; it exists only so the device's READER is exercised at the ZIP 2009 rate,
+        /// which no real PCZT in the repository pays yet. The clock readings are worked out by hand
+        /// in konclave-seal (`T_F` there): 3,590,000 is estimated at 1,795,057,168.
+        #[test]
+        fn the_device_reads_a_payment_at_the_lower_rate_only_once_its_window_reaches_the_switch() {
+            const T_F: i64 = 1_795_057_168;
+            let low = patch_once(IW_PROVEN, &varint(20_000), &varint(4_000));
+            // Well before the switch: the lower rate is not one this clock allows yet.
+            let e = read_payment_with(&MAINNET, &low, T_F - 120_000).unwrap_err();
+            assert!(e.starts_with("[clock]"), "{e}");
+            // The window straddles the switch, and after it: both rates read.
+            for now in [T_F - 100_000, T_F + 30 * 86_400] {
+                assert_eq!(
+                    read_payment_with(&MAINNET, &low, now).unwrap().fee_zat,
+                    4_000
+                );
+                assert_eq!(
+                    read_payment_with(&MAINNET, IW_PROVEN, now).unwrap().fee_zat,
+                    20_000
+                );
+            }
+            // Off-schedule fees stay refused after the switch.
+            for off in [12_000u64, 5_000] {
+                let odd = patch_once(IW_PROVEN, &varint(20_000), &varint(off));
+                let e = read_payment_with(&MAINNET, &odd, T_F + 30 * 86_400).unwrap_err();
+                assert!(e.starts_with("[fee]"), "{off}: {e}");
+            }
         }
 
         /// 32 bytes from the middle of the payment output's encrypted note (the memo region).
