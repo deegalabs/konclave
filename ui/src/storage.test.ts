@@ -50,7 +50,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'allSaved', 'changeReceiver', 'coordinator', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'allSaved', 'changeReceiver', 'coordinator', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'plainViewingKey', 'roster', 'secured', 'threshold', 'total'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -982,6 +982,53 @@ describe('the viewing key is sealed at rest (#599)', () => {
     const rec = await rawRecord()
     expect(rec.name).toBe('Renamed')
     expect(rec.changeReceiver).toBe('u1pinned')
+  })
+
+  it('neither viewing-key failure logs the full vault id, only its first 8 characters', async () => {
+    // A vault's id is its group key. The console is read by extensions and copied into bug reports,
+    // so a failure names the vault by prefix, as the rest of the app does.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // The sealed key does not open.
+    await imported()
+    const rec = await rawRecord()
+    const damaged = (rec.ufvkCipher as Uint8Array).slice()
+    damaged[0]! ^= 0xff
+    await putRaw({ ...rec, ufvkCipher: damaged })
+    await loadVault(id, 'pass')
+    // The migration of a plain key cannot seal it.
+    await writtenBeforeTheFix()
+    const seal = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
+    await loadVault(id, 'pass')
+    seal.mockRestore()
+    const logged = JSON.stringify(error.mock.calls)
+    error.mockRestore()
+    expect(logged).toContain('did not open')
+    expect(logged).toContain('could not seal')
+    expect(logged).toContain(id.slice(0, 8))
+    expect(logged).not.toContain(id)
+  })
+
+  it('a passphrase change refuses rather than erase a sealed viewing key that did not open', async () => {
+    await imported('older river stone maple')
+    const rec = await rawRecord()
+    const damaged = (rec.ufvkCipher as Uint8Array).slice()
+    damaged[0]! ^= 0xff
+    await putRaw({ ...rec, ufvkCipher: damaged })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor').then(() => 'done', (e: { code: string }) => e.code)).toBe('sealed-field-unreadable')
+    error.mockRestore()
+    const after = await rawRecord()
+    expect(after.ufvkCipher, 'the field is still there').toEqual(damaged)
+    expect(after.salt, 'and the old passphrase still opens the record').toEqual(rec.salt)
+    await expect(loadVault(id, 'older river stone maple')).resolves.toBeTruthy()
+  })
+
+  it('a passphrase change refuses rather than drop S when only half of it is there', async () => {
+    await imported('older river stone maple')
+    const rec = await rawRecord()
+    await putRaw({ ...rec, secretIv: undefined })
+    expect(await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor').then(() => 'done', (e: { code: string }) => e.code)).toBe('sealed-field-unreadable')
+    expect((await rawRecord()).secretCipher).toEqual(rec.secretCipher)
   })
 
   it('an export from a sealed record still carries it, with no fetch to supply it', async () => {

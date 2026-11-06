@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
-import { BannerWarn, Seal, Secret, RevealButton, Loading } from '../components'
-import { SkeletonStat, SkeletonRows } from '../skeleton'
+import { BannerWarn, Seal, Secret, RevealButton } from '../components'
+import { SkeletonStat, SkeletonRows, SkeletonDetail } from '../skeleton'
+import { DashboardSkeleton } from '../dashboard-skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
@@ -29,6 +30,7 @@ import { readSecretFor } from '../session'
 import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
+import { useSeatRefusal } from '../seat-registration'
 import { useLoading } from '../loading'
 import { isHistoryAnswer, nextBalanceView, type BalanceView } from '../useVaultBalance'
 
@@ -85,6 +87,7 @@ export default function Dashboard() {
   const t = useT()
   const tr = useTr()
   const { open: openSigning, bg } = useVaultSigner()
+  const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
   const [firstLoaded, setFirstLoaded] = useState(false)
@@ -417,9 +420,10 @@ export default function Dashboard() {
   }
 
 
-  // Nothing renders until the first full fetch is in - no half-built page with placeholders.
+  // Nothing real renders until the first full fetch is in: a half-built page would show figures
+  // that are not yet true. What shows meanwhile is the page's own shape, not a spinner (#320).
   if (!firstLoaded) {
-    return <main className="page dash"><Loading /></main>
+    return <DashboardSkeleton />
   }
 
   return (
@@ -438,6 +442,10 @@ export default function Dashboard() {
         {secured === false && (
           <BannerWarn>{t('dashboard.openBanner')}</BannerWarn>
         )}
+
+        {/* #821: the coordinator refused to register this device for its seat, so it cannot sign
+            or vote from here. Shown, not only logged. */}
+        {seatRefused && <BannerWarn>{t(seatRefused)}</BannerWarn>}
 
         {/* The pause around a network upgrade is enforced by the coordinator and reaches a member as an
             error when they try to pay. This tells them before, from the tip the balance already carries.
@@ -494,7 +502,8 @@ export default function Dashboard() {
           <div className="dash-main">
         {/* 1 · Your desk - every open proposal, ranked (desk.ts), action first */}
         {loading ? (
-          <section className="needyou calm"><Loading /></section>
+          // The movements below carry the one "Loading" this screen says (#320).
+          <section className="needyou calm"><SkeletonDetail rows={2} status={false} /></section>
         ) : lead ? (
           <section className="needyou act">
             <div className="req">
@@ -671,7 +680,9 @@ export default function Dashboard() {
             <RevealButton />
           </div>
           {balLoading ? (
-            <SkeletonStat />
+            // While the whole page loads, the movements already said "Loading"; a balance that is
+            // only syncing says it alone.
+            <SkeletonStat status={!loading} />
           ) : walletUnwired ? (
             <div className="fig">
               <span className="amt" style={{ fontSize: '17px', letterSpacing: '.02em', color: 'var(--text-muted)' }}>

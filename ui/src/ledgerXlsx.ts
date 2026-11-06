@@ -10,10 +10,13 @@
 // a part of the book; an empty book writes zeros where a formula would have pointed at itself; and
 // the file's hidden properties carry no author and no time the Summary does not show. The Summary's
 // "Open" counts only the rows that can still move (awaiting or ready), on an Open column of their
-// own: a refused or expired row is neither settled nor open, so it enters neither total.
+// own: a refused or expired row is neither settled nor open, so it enters neither total. Who
+// proposed and who approved travel on each row as the vault records them; when each approval was
+// given is not recorded yet (#290), so the sheet does not pretend to know it.
 
 import type { Workbook } from 'exceljs'
 import { explorerTxUrl } from './format'
+import { downloadBlob } from './download'
 
 export interface LedgerXlsxItem {
   dateISO: string // yyyy-mm-dd (sortable, locale-neutral in the cell)
@@ -22,16 +25,18 @@ export interface LedgerXlsxItem {
   beneficiary: string // '' for a single payment; the line label for a payroll row
   address: string
   memo: string // this row's memo: the payment's, or the payroll line's (#302)
+  proposer: string // who proposed, as the vault records it
+  approvers: string // who approved, names joined with ', '; '' until somebody has
   state: string // localized state label
   settled: boolean // sent/confirmed → counts toward "settled out"
   open: boolean // awaiting/ready → counts toward "open"; a refused or expired row is neither
-  zec: number // outflow for this row
+  zec: number // outflow for this row, in ZEC with all 8 places (from integer zatoshi, #303)
   txid: string // '' until the proposal was sent; a payroll's rows share one (#302)
 }
 
 export interface LedgerXlsxData {
   vaultName: string
-  period: string
+  period: string // the chosen period's name when one is chosen, otherwise the span of the exported rows
   /** The active filters' labels when the export is a part of the book; '' for the whole book (#302). */
   filter: string
   generatedAt: Date
@@ -53,6 +58,8 @@ export interface LedgerXlsxData {
     colBeneficiary: string
     colAddress: string
     colMemo: string
+    colProposedBy: string
+    colApprovedBy: string
     colState: string
     colSettled: string
     colOpen: string
@@ -84,6 +91,8 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     { header: L.colBeneficiary, key: 'beneficiary', width: 22 },
     { header: L.colAddress, key: 'address', width: 30 },
     { header: L.colMemo, key: 'memo', width: 30 },
+    { header: L.colProposedBy, key: 'proposer', width: 16 },
+    { header: L.colApprovedBy, key: 'approvers', width: 24 },
     { header: L.colState, key: 'state', width: 12 },
     { header: L.colSettled, key: 'settled', width: 10 },
     { header: L.colOpen, key: 'open', width: 10 },
@@ -116,7 +125,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     const row = sm.addRow({ k, v })
     row.getCell('k').font = { bold: true }
     if (opts?.bold) row.getCell('v').font = { bold: true }
-    if (opts?.money) row.getCell('v').numFmt = '0.0000'
+    if (opts?.money) row.getCell('v').numFmt = '0.00000000'
     return row
   }
   const titleRow = sm.addRow({ k: 'Konclave', v: L.summary })
@@ -142,6 +151,8 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
       beneficiary: it.beneficiary,
       address: it.address,
       memo: it.memo,
+      proposer: it.proposer,
+      approvers: it.approvers,
       state: it.state,
       settled: it.settled ? L.yes : L.no,
       open: it.open ? L.yes : L.no,
@@ -159,9 +170,9 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }
   totalRow.font = { bold: true }
-  mv.getColumn('zec').numFmt = '0.0000'
+  mv.getColumn('zec').numFmt = '0.00000000'
   mv.getColumn('zec').alignment = { horizontal: 'right' }
-  totalRow.getCell('zec').numFmt = '0.0000'
+  totalRow.getCell('zec').numFmt = '0.00000000'
   return wb
 }
 
@@ -170,12 +181,5 @@ export async function exportLedgerXlsx(data: LedgerXlsxData): Promise<void> {
   const wb = await buildLedgerWorkbook(data)
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  downloadBlob(`konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`, blob)
 }

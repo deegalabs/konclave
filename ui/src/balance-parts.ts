@@ -104,9 +104,10 @@ function split100(parts: number[], total: number): number[] {
 import { isOpen } from './desk'
 import type { Proposal } from './api'
 
-/** What every proposal that is still able to move has committed. */
-export function reservedZatOf(proposals: readonly Proposal[] | null): number {
-  if (!proposals) return 0
+/** What every proposal that is still able to move has committed. `null` when the list has not been
+ *  read: unknown is never "nothing reserved", which would offer the held funds again. */
+export function reservedZatOf(proposals: readonly Proposal[] | null): number | null {
+  if (!proposals) return null
   return proposals.filter(isOpen).reduce((a, p) => a + (p.value_zat ?? 0), 0)
 }
 
@@ -122,9 +123,10 @@ export function freeZatOf(
   proposals: readonly Proposal[] | null,
 ): number | null {
   const total = bal?.total_zat
-  if (bal == null || total == null) return null
+  const reserved = reservedZatOf(proposals)
+  if (bal == null || total == null || reserved === null) return null
   const spendable = bal.spendable_zat ?? total
-  return balanceParts(total, spendable, reservedZatOf(proposals)).freeZat
+  return balanceParts(total, spendable, reserved).freeZat
 }
 
 // ---- funds that are only confirming ----

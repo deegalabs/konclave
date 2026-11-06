@@ -32,11 +32,11 @@ all documents:
    - `trusted-dealer` - a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of 2026-10-24, 22 verifiable mainnet txids, which is the number of rows in the table of
-`docs/PROOF.md`. **Sixteen** are from real DKG vaults (one CLI DKG-vault send and fifteen
+As of 2026-11-06, 24 verifiable mainnet txids, which is the number of rows in the table of
+`docs/PROOF.md`. **Eighteen** are from real DKG vaults (one CLI DKG-vault send and seventeen
 browser-signed sends from vaults created in the browser); the other **six** are trusted-dealer.
 
-This section said fifteen until that date, and the table below stopped at fifteen rows, while the
+This section said fifteen until 2026-09-29, and the table below stopped at fifteen rows, while the
 record held nineteen. Both are checked now, by one rule (`scripts/proof-table.mjs`) read in two
 places: `scripts/verify-proof.mjs` warns when a count stated in this file differs from the rows it
 verified, and `ui/src/proof-record.test.ts` fails in CI for the same reason, and also when a row of
@@ -66,20 +66,22 @@ the record has no row in the table below.
 | First transaction on the released engine in production, #608/#120 (`1c53fe50…`) | proven on-chain | **DKG** (browser) |
 | First production send on the redeployed coordinator, 0.14.0 (`ac696b9f…`) | proven on-chain | **DKG** (browser) |
 | A send on the 0.15.0 coordinator, c08c935 (`8d198b01…`) | proven on-chain | **DKG** (browser) |
+| First send in production after NU7 that we recorded, coordinator aa778cd (`b232f20c…`) | proven on-chain | **DKG** (browser) |
+| A private payroll of two lines on the v0.17.0 coordinator code, staging 17bef799 (`3d60747c…`) | proven on-chain | **DKG** (browser) |
 
 Any statement of the form "the app payment used DKG" is **false**. The DKG-born sends are `aab00f90…`
-(CLI DKG) and the fifteen browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
+(CLI DKG) and the seventeen browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
 `aec83baf…`, `2d861b8f…`, `ef80a181…`, `047fe6ca…`, `3fa08dce…`, `47e4e5dd…`, `7d6b3dec…`,
-`075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`); the app-payment, CLI-slice, fresh-vault, payroll and both Ironwood-migration sends are
+`075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`, `b232f20c…`, `3d60747c…`); the app-payment, CLI-slice, fresh-vault, payroll and both Ironwood-migration sends are
 trusted-dealer.
 
 Any statement of the form "every one of them came from a key that was never whole" is **false**
 for the same reason: six of them are trusted-dealer, and in a trusted-dealer vault the whole key
 existed on one machine at creation. The README said it that way until 2026-09-29.
 
-**What the attribution of eight rows rests on.** The rows for `ef80a181…`, `3fa08dce…`, `47e4e5dd…`,
-`7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…` and `8d198b01…` do not name the key origin in `docs/PROOF.md`. They are attributed to
-DKG because each was made through the web app and the hosted coordinator, and the only screen that
+**What the attribution of ten rows rests on.** The rows for `ef80a181…`, `3fa08dce…`, `47e4e5dd…`,
+`7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`, `b232f20c…` and `3d60747c…` do not name the key origin in `docs/PROOF.md`. They are attributed to
+DKG because each was made through the web app and a hosted coordinator (production's, or staging's for `3d60747c…`), and the only screen that
 registers a vault with the coordinator is the one that creates it by DKG (`registerVault` has one
 caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, not about the chain.
 
@@ -256,7 +258,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
     on testnet: browser-signed sends over the hosted, public, share-blind helper, including **across
     separate physical machines** (`aec83baf…`) and with the **relay blind to the payment**
     (`047fe6ca…`). The mainnet proof set stood at fifteen on that date; it is
-    22 verifiable mainnet txids as of 2026-10-24 (`docs/PROOF.md`).
+    24 verifiable mainnet txids as of 2026-11-06 (`docs/PROOF.md`).
   - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
     `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
     the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
@@ -291,7 +293,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
     mainnet is now the authoritative proof. Konclave had eight `proven on-chain` mainnet txids when
     this bullet was written, the eighth (`3022420a…`) being the first browser-signed broadcast
-    (see the honest-limits section). It has 22 verifiable mainnet txids as of 2026-10-24.
+    (see the honest-limits section). It has 24 verifiable mainnet txids as of 2026-11-06.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

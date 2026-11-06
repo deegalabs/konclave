@@ -31,7 +31,8 @@ use room::{message_cost, Msg, Room, MESSAGE_FRAMING};
 
 const MAX_ROOMS: usize = 512;
 const MAX_MSGS: usize = 512;
-const MAX_DATA: usize = 128 * 1024;
+// One number with the coordinator, which sizes what it lets a vault propose from it (#821).
+const MAX_DATA: usize = konclave_http::RELAY_MAX_DATA;
 const MAX_FROM: usize = 128;
 const ROOM_TTL: i64 = 3600;
 const PEER_WINDOW: i64 = 45;

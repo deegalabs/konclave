@@ -9,6 +9,7 @@
 // No dependencies: raw IndexedDB + crypto.subtle, with feature detection and explicit errors so a
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
+import { clearPayrollDraft } from './payroll-draft'
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
@@ -71,6 +72,11 @@ export interface VaultPublic {
    *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
    *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
   secured?: boolean
+  /** #784: whether the record still carries the viewing key IN THE CLEAR, as imports wrote it before
+   *  #599. Presence only, derived here so no screen touches the value; the value itself is never
+   *  listed. True means the passphrase has not been typed on this device since; `loadVault` seals
+   *  the key and removes the clear field. */
+  plainViewingKey?: boolean
   /** The vault's internal (change) receiver, captured once (#281). Present means the money gate can
    *  tell this vault's own change from a stranger; absent means UNKNOWN, and the gate must stay
    *  unarmed rather than read it as an empty allowlist. */
@@ -343,7 +349,7 @@ async function openUfvk(key: CryptoKey, record: VaultRecord): Promise<string | u
     const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.ufvkIv), additionalData: bufOf(UFVK_AAD) }, key, bufOf(record.ufvkCipher))
     return new TextDecoder().decode(buf)
   } catch {
-    console.error('[konclave] the sealed viewing key on this device did not open', { id: record.id })
+    console.error('[konclave] the sealed viewing key on this device did not open', { id: record.id.slice(0, 8) })
     return undefined
   }
 }
@@ -394,7 +400,7 @@ async function retireClearUfvk(record: VaultRecord, key: CryptoKey, ufvk: string
       return next
     })
   } catch {
-    console.error('[konclave] could not seal the viewing key on this device; the next unlock tries again', { id: record.id })
+    console.error('[konclave] could not seal the viewing key on this device; the next unlock tries again', { id: record.id.slice(0, 8) })
   }
 }
 
@@ -641,15 +647,16 @@ function writeBeneficiaries(id: string, list: unknown[]): void {
   }
 }
 
-/** The file name a backup downloads under: the vault's name and the local date and time it was made,
- *  so a second copy does not replace or shadow the first and the newest is plain. Nothing about who
- *  made it: a member's name in a file name lands in download folders and cloud drives (Daniel,
- *  2026-10-16). One function for every screen that offers a backup. */
-export function backupFileName(vaultName: string | undefined, now: Date): string {
-  const safe = (vaultName || 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+/** The file name a backup downloads under: neutral, with the local date and time it was made, so a
+ *  second copy does not replace or shadow the first and the newest is plain. Nothing about who made
+ *  it (a member's name in a file name lands in download folders and cloud drives; Daniel, 2026-10-16)
+ *  and nothing about the vault (#587): the contents reveal nothing without the passphrase, not even
+ *  which vault the file belongs to, and a name that said it broke that promise wherever the file was
+ *  listed. One function for every screen that offers a backup. */
+export function backupFileName(now: Date): string {
   const two = (n: number) => String(n).padStart(2, '0')
   const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`
-  return `${safe}-${stamp}.konclave.json`
+  return `konclave-backup-${stamp}.konclave.json`
 }
 
 /**
@@ -961,7 +968,13 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   // not make the device refuse: the next screen to read the vault found the slot empty and pinned
   // whatever the helper answered then, so a rotation reopened the write-once slot the money gate
   // depends on. Carrying the record whole means a field added later cannot be lost here either.
+  let unreadable = false
   const wrote = await updateRecord(id, (stored) => {
+    // A new key could not carry a sealed field that did not open, and it may be the only copy.
+    if ((stored.ufvkCipher && !loaded.ufvk) || (stored.secretCipher && !loaded.accessSecret)) {
+      unreadable = true
+      return undefined
+    }
     const record: VaultRecord = {
       ...stored,
       salt,
@@ -977,6 +990,7 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
     delete record.ufvk
     return record
   })
+  if (unreadable) throw storageError('sealed-field-unreadable', 'A sealed field of this vault did not open, so its passphrase was not changed')
   if (!wrote) throw storageError('no-vault', 'No saved vault with that id on this device')
 }
 
@@ -1045,7 +1059,9 @@ export async function importVault(
   }
 }
 
-/** List saved vaults' public metadata (no secrets touched, no passphrase needed). */
+/** List saved vaults' public metadata (no secrets touched, no passphrase needed). Answers `[]` when
+ *  this browser has no storage or the database will not open, which every caller but the Vaults list
+ *  treats as "no record here". The Vaults list must not: it reads with `readVaults` (#320). */
 export async function listVaults(): Promise<VaultPublic[]> {
   if (!storageAvailable()) return []
   let db: IDBDatabase
@@ -1054,12 +1070,23 @@ export async function listVaults(): Promise<VaultPublic[]> {
   } catch {
     return []
   }
+  return vaultsIn(db)
+}
+
+/** The same list, refusing instead of answering `[]` when storage is missing or will not open: an
+ *  empty answer there reads as "No vaults yet" over vaults that are still on the device (#320). */
+export async function readVaults(): Promise<VaultPublic[]> {
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vaults (no IndexedDB/WebCrypto)')
+  return vaultsIn(await openDb())
+}
+
+async function vaultsIn(db: IDBDatabase): Promise<VaultPublic[]> {
   try {
     const tx = db.transaction(STORE, 'readonly')
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, plainViewingKey: typeof r.ufvk === 'string', changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -1132,6 +1159,7 @@ export async function forgetVault(id: string): Promise<boolean> {
 }
 
 export async function deleteVault(id: string): Promise<void> {
+  clearPayrollDraft(id) // the vault's typed payroll goes with it, whatever the store says next
   if (!storageAvailable()) return
   const db = await openDb()
   try {

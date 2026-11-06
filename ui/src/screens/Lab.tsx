@@ -53,7 +53,7 @@ export default function Lab() {
       <section className="lp-section" style={{ paddingTop: 8 }}>
         <div className="lp-wrap">
           <span className="eyebrow sec-eyebrow">{c.eyebrow}</span>
-          <h2 className="lp-title">{c.title}</h2>
+          <h1 className="lp-title">{c.title}</h1>
           <p className="sub" style={{ maxWidth: '62ch' }}>{c.lead}</p>
           <div className="lp-explore-grid" style={{ marginTop: 22 }}>
             {c.items.map((it) => (
