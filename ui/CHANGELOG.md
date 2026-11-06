@@ -53,6 +53,11 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
+  "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
+  Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
+  showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
+  live formula (#812).
 - **The book's PDF is a document, the same from a phone and from a computer (#811).** The "PDF"
   button prints the page, and the page printed as laid out: from a phone that was the stacked cards
   with the menu and the filter buttons, and a table that broke across pages. Printed, the book now
