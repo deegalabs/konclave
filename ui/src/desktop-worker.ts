@@ -12,6 +12,9 @@
 //     update, so it works even when the page the old worker serves never runs our code;
 //   - this file, which runs at startup on desktop and removes any worker and any worker cache left,
 //     for when the page does run.
+// Neither reached a Windows profile from v0.15.0: WebView2 kept the old worker serving the old page.
+// What does is native: src-tauri/src/webview_cleanup.rs deletes the profile's `Service Worker`
+// folder before the window opens. These two stay as a second layer.
 //
 // Only the service worker registrations and the workbox caches in CacheStorage are touched. The
 // encrypted share, the read secret and every other record live in IndexedDB and localStorage, and

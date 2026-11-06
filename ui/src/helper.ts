@@ -21,7 +21,7 @@ import { isDesktop } from './platform'
 import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
-import type { SendReply } from './send-outcome'
+import type { SendReply, TooLarge } from './send-outcome'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
@@ -204,10 +204,28 @@ async function getJson<T>(path: string): Promise<T | null> {
  *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here
  *  and read by the one caller that needs it. Single-threaded and read immediately after the await,
  *  so there is no interleaving to worry about. */
-let lastPostFailure: { status: number; error?: string; updateRequired?: boolean; busy?: boolean } | null = null
+let lastPostFailure: HelperPostFailure | null = null
+
+/** The code of the coordinator's size refusal (#821): `TOO_MANY_ACTIONS` in `helper-server`, which
+ *  `too-large.test.ts` reads, so the two cannot drift apart. */
+export const TOO_MANY_ACTIONS = 'too many actions'
+
+/** The coordinator's `422 too many actions`, read from its answer, or undefined. The numbers are what
+ *  the message is made of, so an answer without two whole counts and a known plan is not one. */
+export function tooLargeOf(body: unknown): TooLarge | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const b = body as { error?: unknown; actions?: unknown; max_actions?: unknown; plan?: unknown }
+  if (b.error !== TOO_MANY_ACTIONS) return undefined
+  const whole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
+  if (!whole(b.actions) || !whole(b.max_actions)) return undefined
+  if (b.plan !== 'payment' && b.plan !== 'payroll') return undefined
+  return { actions: b.actions, max: b.max_actions, plan: b.plan }
+}
+
+export interface HelperPostFailure { status: number; error?: string; updateRequired?: boolean; busy?: boolean; tooLarge?: TooLarge }
 
 /** The failure from the most recent `postJson`, or null. Cleared by the next call. */
-export function lastHelperPostFailure(): { status: number; error?: string; updateRequired?: boolean; busy?: boolean } | null {
+export function lastHelperPostFailure(): HelperPostFailure | null {
   return lastPostFailure
 }
 
@@ -229,7 +247,7 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
       const stillBusy = busyWrite(busyOf(res.status, answer))
       lastPostFailure = stillBusy
         ? { status: res.status, error: 'vault busy', busy: true }
-        : { status: res.status, error: j?.error, updateRequired: j?.update_required === true }
+        : { status: res.status, error: j?.error, updateRequired: j?.update_required === true, tooLarge: tooLargeOf(answer) }
       return null
     }
     return answer as T
@@ -659,9 +677,12 @@ export async function executeProposal(args: {
       // network upgrade (#638): kept, so the screen decides by them and not by the English text.
       const reason = data && 'reason' in data && typeof data.reason === 'string' ? data.reason : ''
       const heldUntil = data && 'held_until' in data && typeof data.held_until === 'number' ? data.held_until : undefined
+      // #821: too large to sign, found at the send's last gate. Nothing was published or broadcast.
+      const tooLarge = tooLargeOf(data)
       if (raw || stillBusy) {
         return {
           error: raw || 'vault busy',
+          ...(tooLarge ? { tooLarge } : {}),
           ...(stillBusy ? { busy: stillBusy } : {}),
           ...(state ? { state } : {}),
           ...(txid ? { txid } : {}),

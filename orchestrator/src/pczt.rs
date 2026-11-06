@@ -108,6 +108,19 @@ pub fn consensus_branch_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
     Ok(*pczt.global().consensus_branch_id())
 }
 
+/// How many actions the transaction carries, in both shielded pools together.
+///
+/// What the signing request's size grows with (#821): every action adds its own fields and its share
+/// of the proof, whether it spends, pays or is padding. A transaction can carry an Orchard and an
+/// Ironwood bundle at once (Orchard notes spent, the payment placed in Ironwood), each padded to at
+/// least two actions, so counting one pool would undercount exactly the sends that are largest.
+/// The count is the same before and after proving, which is what lets it be asked at proposal time.
+pub fn action_count_of(pczt_bytes: &[u8]) -> Result<usize, ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
+    Ok(pczt.orchard().actions().len() + pczt.ironwood().actions().len())
+}
+
 /// The copy of a proven PCZT that goes into the signing room: the same transaction without the
 /// optional per-spend key field (96 bytes per spend, in both pools) that no device reads. The sighash,
 /// the outputs and the payment a device shows are built from the effecting data and the output
@@ -281,6 +294,19 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
         // Fail closed: the caller refuses to publish rather than send what it could not check.
         assert!(published_copy(b"not a pczt").is_err());
         assert!(published_copy(&[]).is_err());
+    }
+
+    // #821. One vector per pool, so a count that read only one bundle fails on the other.
+    #[test]
+    fn the_action_count_reads_both_pools() {
+        assert_eq!(action_count_of(VECTOR).unwrap(), 4, "ironwood");
+        assert_eq!(action_count_of(ORCHARD_TWO_SPEND).unwrap(), 2, "orchard");
+        // Proving and redacting change neither the actions nor their count.
+        assert_eq!(
+            action_count_of(&published_copy(VECTOR).unwrap()).unwrap(),
+            4
+        );
+        assert!(action_count_of(b"not a pczt").is_err());
     }
 
     /// The devices' side of this is tested in `konclave-wasm` against these two files. They are this

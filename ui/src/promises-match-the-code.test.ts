@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 
-/* Six sentences promised more than the code does, on the landing pages, in Settings and on the
- * signing panel. A member's key share does leave the device: sealed under the passphrase, inside the
- * backup the member exports (#214). And the relay does not see only public material: a signing
+/* Seven sentences promised more than the code does, on the landing pages, in Settings, on the
+ * signing panel and on the in-browser signing demo (/signer). A member's key share does leave the
+ * device: sealed under the passphrase, inside the backup the member exports (#214). And the relay does not see only public material: a signing
  * request is sealed to the vault's devices only once every seat has registered its device key, and
  * until then it crosses the relay unsealed, for a send a seat signed (`request_recipients` in
  * orchestrator/src/helper.rs, #63). The sentences now say what the code does. */
 
-const KEYS = ['landing.env', 'landing.finalDesc', 'lv.trust1', 'lv.getSub', 'settings.relayHint', 'signing.reassure'] as const
+const KEYS = ['landing.env', 'landing.finalDesc', 'lv.trust1', 'lv.getSub', 'settings.relayHint', 'signing.reassure', 'signer.lead'] as const
 const OVERCLAIM = /never leaves|only public material|\bblind\b|nunca sai|só vê material|\bcego\b/i
 
 describe('the sentences promise only what the code does', () => {
