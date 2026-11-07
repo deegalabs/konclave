@@ -948,7 +948,7 @@ export const ptBR: Record<string, string> = {
   'proposal.awaitingIntro': '**{proposer}** propôs · e propor **já conta como a aprovação de {proposer}** ({count} de {total}).',
   'proposal.remainingMany': 'Faltam **{falta}**.',
   'proposal.remainingOne': 'Falta **{falta}**.',
-  'proposal.quorumReachedShort': 'Quórum atingido.',
+  'proposal.quorumReachedShort': 'Aprovações suficientes.',
   'proposal.approve': 'Aprovar',
   'proposal.refuse': 'Recusar',
   'proposal.alreadyVoted': 'Você já votou nesta proposta.',

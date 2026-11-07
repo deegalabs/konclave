@@ -135,7 +135,9 @@ history to tidy it is how context gets lost.
   yes to this payment, it moves no money, once enough members approve, any member can sign, and
   the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
   signature nothing has left the vault; the local build's "Sign and send" says instead that one
-  confirm gathers the parts and sends in one step. In Settings, the removal gate offers the
+  confirm gathers the parts and sends in one step. A ready proposal says it is approved by enough
+  members and ready to sign, and the vote block says "Enough approvals.", where both said "Quorum
+  reached". In Settings, the removal gate offers the
   cheaper fix first ("export this vault first if you might want it back: the backup file and the
   passphrase are what bring your part back") and links the page that says what to do if the device is lost (#309).
 

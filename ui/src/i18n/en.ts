@@ -952,7 +952,7 @@ export const en: Record<string, string> = {
   'proposal.awaitingIntro': '**{proposer}** proposed · and proposing **already counts as {proposer}’s approval** ({count} of {total}).',
   'proposal.remainingMany': '**{falta}** more needed.',
   'proposal.remainingOne': '**{falta}** more needed.',
-  'proposal.quorumReachedShort': 'Quorum reached.',
+  'proposal.quorumReachedShort': 'Enough approvals.',
   'proposal.approve': 'Approve',
   'proposal.refuse': 'Refuse',
   'proposal.alreadyVoted': 'You have already voted on this proposal.',
