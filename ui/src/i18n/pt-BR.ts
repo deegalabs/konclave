@@ -200,8 +200,6 @@ export const ptBR: Record<string, string> = {
   'dashboard.evictionCta': "Fazer backup deste cofre",
   'dashboard.openBanner': 'Cofre aberto: quem tiver o link lê este cofre (saldo, histórico, membros) pelo servidor. A blockchain em si continua cifrada. Proteger exige re-criar o cofre e mover os fundos com um envio assinado; não é automático.',
   'dashboard.securedNote': 'Cofre privado: um link vazado não abre os livros nem a sala de assinatura.',
-  'dashboard.upgradeBefore': 'A rede Zcash será atualizada no bloco {height}. Os pagamentos ficam em pausa por um tempo em volta da atualização. Nada se perde e as aprovações continuam valendo.',
-  'dashboard.upgradeAfter': 'A rede Zcash foi atualizada. Se um pagamento for recusado por um tempo, o Konclave ainda está sendo atualizado; tente de novo mais tarde. Nada se perde.',
   'vaults.membersCount': '{n} membros',
   'vaults.receive': 'receber',
   'vaults.enter': 'Entrar',
