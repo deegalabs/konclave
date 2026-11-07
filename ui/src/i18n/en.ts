@@ -426,7 +426,7 @@ export const en: Record<string, string> = {
   'set.govNoRecord': 'no record',
   'set.govNoQuorum': 'No quorum',
   'set.removeCost': 'The other members keep their shares. But if this is the only device holding your part and you have no export, your seat ends here.',
-  'set.removeExportFirst': 'Export this vault first if you might want it back: the backup file and the passphrase are your seat.',
+  'set.removeExportFirst': 'Export this vault first if you might want it back: the backup file and the passphrase are what bring your part back.',
   'set.loseDevice': 'If you lose this device, this page says what to do.',
   'set.confirmLabel': 'Type the vault name to confirm: {name}',
   'rotate.open': 'Change…',

@@ -422,7 +422,7 @@ export const ptBR: Record<string, string> = {
   'set.govNoRecord': 'sem registro',
   'set.govNoQuorum': 'Sem quórum',
   'set.removeCost': 'Os outros membros continuam com os seus pedaços. Mas se este for o único aparelho com a sua parte e você não tiver exportação, o seu assento acaba aqui.',
-  'set.removeExportFirst': 'Exporte este cofre antes, se um dia quiser voltar a ele: o arquivo de backup e a frase-senha são o seu assento.',
+  'set.removeExportFirst': 'Exporte este cofre antes, se um dia quiser voltar a ele: o arquivo de backup e a frase-senha são o que traz a sua parte de volta.',
   'set.loseDevice': 'Se perder este aparelho, esta página diz o que fazer.',
   'set.confirmLabel': 'Digite o nome do cofre para confirmar: {name}',
   'rotate.open': 'Trocar…',
