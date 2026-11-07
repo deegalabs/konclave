@@ -1,0 +1,8 @@
+# Pins the compiler that builds ui/src/wasm-pkg, which CI rebuilds and compares byte for byte
+# (the `wasm` job in .github/workflows/ci.yml). A different rustc can change the .wasm, so moving
+# this version means regenerating the committed package in the same commit.
+# Scoped to this crate on purpose: the other jobs keep using the runner's stable.
+[toolchain]
+channel = "1.99.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
