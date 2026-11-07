@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 # Cancel superseded runs on the same ref.
@@ -67,6 +67,37 @@ jobs:
           # because they deploy by hand on their own clock and a shared `Unreleased` section cannot
           # say which of them a given entry has actually reached.
           printf '%s\n' "$changed" | node scripts/changelog-gate.mjs
+
+  # Branch name (blocking) and PR size (warning only). The rules live in scripts/pr-rules.mjs and the
+  # pre-push hook calls the same file. Values from the PR enter through env, never inside `run:`.
+  # The job name is short and fixed on purpose (see the `rust` job): it may become a required check.
+  pr-rules:
+    name: PR rules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Branch name and size
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' | grep -qx 'keep-branch-name'; then
+            echo "Labelled keep-branch-name - skipping, deliberately."
+            exit 0
+          fi
+          same=true
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || same=false
+          node scripts/pr-rules.mjs check --branch "$HEAD_REF" --same-repo "$same" --base "$BASE_SHA" --head HEAD
 
   rust:
     # The job NAME is short and fixed on purpose. GitHub truncates a check-run name at 95 characters,
