@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { rememberBalance, rememberProposals } from './vault-status'
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason, TooLarge } from './send-outcome'
@@ -342,10 +343,16 @@ export async function getProposals(): Promise<Proposal[] | null> {
     const id = getSelectedVault()
     if (!id) return null
     const ps = await netListProposals(id)
-    return ps ? ps.map(mapNetProposal) : null
+    const mapped = ps ? ps.map(mapNetProposal) : null
+    rememberProposals(id, mapped) // what the vault list shows as the vault's situation
+    return mapped
   }
+  // The vault is named before the request: the selection may change while it is in flight.
+  const sel = getSelectedVault()
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
-  return r?.proposals ?? null
+  const list = r?.proposals ?? null
+  if (sel) rememberProposals(sel, list)
+  return list
 }
 
 /** The vault's balance, or WALLET_BUSY when the coordinator's wallet is in use and the read did
@@ -363,6 +370,7 @@ export async function readBalance(
     // Since NU6.3 the spendable funds live in the Ironwood pool. Use the helper's combined
     // shielded_spendable_zat (Orchard + Ironwood); fall back to orchard-only for an older helper.
     const spendable = b.shielded_spendable_zat ?? b.orchard_spendable_zat
+    rememberBalance(id, { total_zat: b.total_zat, spendable_zat: spendable }) // for the vault list
     return {
       configured: true,
       total_zat: b.total_zat,
@@ -377,7 +385,11 @@ export async function readBalance(
       ironwood_spendable_zat: b.ironwood_spendable_zat,
     }
   }
-  return await getJson<Balance>(withVault('/api/balance'))
+  // The vault is named before the request: the selection may change while it is in flight.
+  const sel = vaultId ?? getSelectedVault()
+  const bal = await getJson<Balance>(withVault('/api/balance'))
+  if (sel) rememberBalance(sel, bal)
+  return bal
 }
 
 /** `readBalance`, with a busy wallet read as null: for the screens that already keep their last

@@ -11,7 +11,7 @@ import type { L } from './content'
 export const REPO = 'deegalabs/konclave'
 
 /** When the steps and the titles below were last checked against GitHub. Shown on the page. */
-export const ROADMAP_AS_OF = { iso: '2026-10-18', 'pt-BR': '18 de outubro de 2026', en: '18 October 2026' }
+export const ROADMAP_AS_OF = { iso: '2026-11-07', 'pt-BR': '7 de novembro de 2026', en: '7 November 2026' }
 
 export type RefKind = 'issue' | 'pull'
 export type Ref = { kind: RefKind; n: number }
@@ -37,7 +37,6 @@ export const refUrl = (r: Ref): string =>
 
 /** Titles as they read on GitHub. Every key is used by some step, and every step's refs are here. */
 export const REF_TITLES: Record<string, string> = {
-  'issue:599': 'A restored vault keeps its viewing key unencrypted in browser storage',
   'issue:567': 'Bind each approval to the content it approves, and have the device check it before signing',
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
@@ -45,8 +44,6 @@ export const REF_TITLES: Record<string, string> = {
   'issue:516': 'Prove on the device: remove the viewing key from the server, and measure what it costs',
   'issue:583': "Remember whether this device has a backup, and show the vault's address only once it has one",
   'issue:584': 'Check a backup file on this device without importing it',
-  'issue:586': 'The export dialog says "Removing…" while it exports, and import errors appear only in English',
-  'issue:587': "The export file's name reveals the vault's name",
   'issue:588': 'A failure to register the seat after import is only logged to the console',
   'issue:214': 'Export / import your vault: cross-backend (helper ↔ local-first / desktop / frost-client)',
   'issue:309': "Tell the 'if you lose your device' story at the four moments it matters",
@@ -59,7 +56,6 @@ export const REF_TITLES: Record<string, string> = {
   'issue:340': 'The signing room now carries governance metadata the relay can read',
   'issue:154': 'Add / change signers on an existing vault (FROST resharing), quorum-approved',
   'issue:251': 'Decaying-quorum recovery path (no custodian)',
-  'issue:332': 'Start a payroll from the last one, so nobody retypes addresses every month',
   'issue:247': 'CSV batch import for payroll',
   'issue:300': 'The book records no settlement date and no fee, so it can never reconcile to the chain',
   'issue:305': 'is_public is asserted from a string prefix, and there is no book-vs-chain statement',
@@ -89,9 +85,9 @@ export const ROADMAP_NOW: Stage[] = [
     title: { 'pt-BR': 'Acompanhar a atualização da rede (NU7)', en: 'Keep up with the network upgrade (NU7)' },
     body: {
       'pt-BR':
-        'A próxima atualização da rede Zcash, a NU7, muda um identificador que toda transação precisa carregar para ser válida. O app e o coordenador precisam conhecê-la antes de ela ativar na mainnet, ou os pagamentos param. A base já foi integrada e espera ser testada no nosso ambiente de teste e publicada numa versão; o resto espera a altura de ativação que a rede define e as bibliotecas Zcash que a trazem.',
+        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). O que falta está em #638.',
       en:
-        'Zcash’s next network upgrade, NU7, changes an identifier every transaction must carry to be valid. The app and the coordinator must know it before it activates on mainnet, or payments stop. The groundwork is merged and waits to be tried in our test environment and released; the rest waits on the activation height the network sets and on the Zcash libraries that carry it.',
+        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). What remains is tracked in #638.',
     },
     refs: [issue(638), pull(701)],
   },
@@ -106,11 +102,11 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; um defeito do coordenador achado em revisão, que a versão de 04/10/2026 estreitou mas não fechou; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
+        'Antes de qualquer coisa nova: a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; um defeito do coordenador achado em revisão, que a versão de 04/10/2026 estreitou mas não fechou; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
       en:
-        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; a coordinator defect found in review, which the 2026-10-04 release narrowed but did not close; and nothing yet lets a member check that the app our server sends is a published release.',
+        'Before anything new: approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; a coordinator defect found in review, which the 2026-10-04 release narrowed but did not close; and nothing yet lets a member check that the app our server sends is a published release.',
     },
-    refs: [issue(599), issue(567), issue(577), issue(575), issue(605)],
+    refs: [issue(567), issue(577), issue(575), issue(605)],
   },
   {
     id: 'measure-design-review',
@@ -136,7 +132,7 @@ export const ROADMAP_STEPS: Stage[] = [
       en:
         'Check a backup inside the app, without importing it. Say plainly what a restore did. And help every member keep a second copy.',
     },
-    refs: [issue(583), issue(584), issue(586), issue(587), issue(588), issue(214), issue(309)],
+    refs: [issue(583), issue(584), issue(588), issue(214), issue(309)],
   },
   {
     id: 'viewing-key-on-device',
@@ -213,11 +209,11 @@ export const ROADMAP_LATER: Stage[] = [
     title: { 'pt-BR': 'Tesouraria mais funda', en: 'A deeper treasury' },
     body: {
       'pt-BR':
-        'Começar a folha a partir da última, importar a folha por planilha, um livro que fecha com a cadeia, e uma agenda de destinatários do cofre.',
+        'Importar a folha por planilha, um livro que fecha com a cadeia, e uma agenda de destinatários do cofre.',
       en:
-        'Start a payroll from the last one, import a payroll from a spreadsheet, a ledger that reconciles to the chain, and an address book for the vault.',
+        'Import a payroll from a spreadsheet, a ledger that reconciles to the chain, and an address book for the vault.',
     },
-    refs: [issue(332), issue(247), issue(300), issue(305), issue(189), issue(245)],
+    refs: [issue(247), issue(300), issue(305), issue(189), issue(245)],
   },
   {
     id: 'members-governance',
