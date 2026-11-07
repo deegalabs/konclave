@@ -4,8 +4,9 @@
 //
 // Removed: the record (sealed share, public metadata, `deleteVault`), the payroll draft, the share
 // and the read secret held in this session, the passkey wrap, the payee book, the recent addresses,
-// and the selection when it points at this vault. Every place the app writes to this browser's
-// storage is listed, with what happens to it here, in `remove-vault.dom.test.ts`.
+// what the vault list last showed for it, and the selection when it points at this vault. Every
+// place the app writes to this browser's storage is listed, with what happens to it here, in
+// `remove-vault.dom.test.ts`.
 // Kept on purpose: the signed record (`signed-record.ts`), the device's memory of what it already
 // signed. It holds hashes and expiries only, and it is what refuses a second transaction for a
 // payment this device signed, should the vault come back from a backup.
@@ -15,6 +16,7 @@ import { clearUnlockedShare, clearReadSecret } from './session'
 import { clearPrfWrap } from './prf-store'
 import { clearRecentPayees } from './recent-payees'
 import { clearPayrollDraft } from './payroll-draft'
+import { forgetStatus } from './vault-status'
 
 /** True only when the record is really gone; nothing else is cleared otherwise, so a failed removal
  *  leaves the vault whole and the screen can say so. */
@@ -35,5 +37,6 @@ export function clearVaultTraces(id: string): void {
   clearPrfWrap(id)
   try { localStorage.removeItem(beneficiariesKey(id)) } catch { /* storage unavailable */ }
   clearRecentPayees(id)
+  forgetStatus(id)
   if (getSelectedVault() === id) clearSelectedVault()
 }

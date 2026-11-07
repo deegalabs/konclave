@@ -347,9 +347,10 @@ export async function getProposals(): Promise<Proposal[] | null> {
     rememberProposals(id, mapped) // what the vault list shows as the vault's situation
     return mapped
   }
+  // The vault is named before the request: the selection may change while it is in flight.
+  const sel = getSelectedVault()
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
   const list = r?.proposals ?? null
-  const sel = getSelectedVault()
   if (sel) rememberProposals(sel, list)
   return list
 }
@@ -384,8 +385,9 @@ export async function readBalance(
       ironwood_spendable_zat: b.ironwood_spendable_zat,
     }
   }
-  const bal = await getJson<Balance>(withVault('/api/balance'))
+  // The vault is named before the request: the selection may change while it is in flight.
   const sel = vaultId ?? getSelectedVault()
+  const bal = await getJson<Balance>(withVault('/api/balance'))
   if (sel) rememberBalance(sel, bal)
   return bal
 }

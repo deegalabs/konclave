@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { Secret } from '../components'
-import { vaultStatus } from '../vault-status'
-import { fmtDate, fmtZec, zatToZec } from '../format'
+import { vaultStatus, statusIsStale, openCountKey } from '../vault-status'
+import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
@@ -486,22 +486,24 @@ export default function Vaults() {
                     balance read makes the coordinator sync a wallet), so each figure carries its time. */}
                 {(() => {
                   const st = vaultStatus(v.id)
-                  if (!st) return <div className="rd-state none">{t('vaults.stateNone')}</div>
-                  const when = (ts: number) => new Date(ts * 1000).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
-                  const stale = st.at < Math.floor(Date.now() / 1000) - 86_400
+                  const free = st && st.freeZat !== null && st.freeAt !== null
+                  const count = st && st.openCount !== null && st.proposalsAt !== null
+                  if (!st || (!free && !count)) return <div className="rd-state none">{t('vaults.stateNone')}</div>
+                  // Each figure with the time it was read: the free amount with the older of its two reads,
+                  // the count with the read of the proposals. The free figure greys past a day, by its own time.
+                  const when = (ts: number) => fmtDateTime(ts, locale)
                   const sep = <span className="visually-hidden">, </span>
                   return (
-                    <div className={'rd-state' + (stale ? ' stale' : '')}>
-                      {st.freeZat !== null && st.freeAt !== null && (
+                    <div className={'rd-state' + (statusIsStale(st) ? ' stale' : '')}>
+                      {free && (
                         <span className="rd-state-fig">
                           {/* The veil is a button of its own: its click must not open the vault. */}
-                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat))}</span></Secret></span>
-                          {' '}{t('vaults.stateFree', { when: when(st.freeAt) })}{sep}
+                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret></span>
+                          {' '}{t('vaults.stateFree', { when: when(st.freeAt!) })}{sep}
                         </span>
                       )}
-                      {st.openCount !== null && <span>{st.openCount === 0 ? t('vaults.stateNoOpen') : st.openCount === 1 ? t('vaults.stateOpenOne') : t('vaults.stateOpen', { n: st.openCount })}{sep}</span>}
-                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}{sep}</span>}
-                      <span className="rd-state-at">{t('vaults.stateSeen', { when: when(st.at) })}</span>
+                      {count && <span>{t(openCountKey(st.openCount!), { n: String(st.openCount), when: when(st.proposalsAt!) })}{st.lastProposal !== null ? sep : null}</span>}
+                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}</span>}
                     </div>
                   )
                 })()}
