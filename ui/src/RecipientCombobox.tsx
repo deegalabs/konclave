@@ -7,18 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, type Beneficiary } from './api'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
-
-const RECENTS_KEY = 'konclave.recentPayees'
-
-function recentAddrs(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]') as string[] } catch { return [] }
-}
-function pushRecent(addr: string): void {
-  try {
-    const next = [addr, ...recentAddrs().filter((a) => a !== addr)].slice(0, 4)
-    localStorage.setItem(RECENTS_KEY, JSON.stringify(next))
-  } catch { /* storage blocked */ }
-}
+import { recentPayees, pushRecentPayee } from './recent-payees'
 
 /** A resolved recipient. `name` is null for a raw pasted address. */
 export type Recipient = { address: string; name: string | null; memo?: string }
@@ -76,7 +65,7 @@ export function RecipientCombobox({
     if (qIsAddr) return { pasted: q.trim(), recents: [] as Beneficiary[], saved: [] as Beneficiary[] }
     const ql = q.trim().toLowerCase()
     const match = (b: Beneficiary) => !ql || b.name.toLowerCase().includes(ql)
-    const rec = recentAddrs()
+    const rec = recentPayees()
     const recents = rec.map((a) => benefs.find((b) => b.address === a)).filter((b): b is Beneficiary => !!b && match(b)).slice(0, 3)
     const recentIds = new Set(recents.map((b) => b.id))
     const saved = benefs.filter((b) => match(b) && !recentIds.has(b.id))
@@ -102,7 +91,7 @@ export function RecipientCombobox({
   useEffect(() => { if (autoFocus) inputRef.current?.focus() }, [autoFocus])
 
   function pick(r: Recipient) {
-    pushRecent(r.address)
+    pushRecentPayee(r.address)
     onChange(r)
     setQ(''); setOpen(false); setAdding(false)
     setSavePrompt(false); setSaveName(''); setSaveRawErr(null)
