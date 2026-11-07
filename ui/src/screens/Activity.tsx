@@ -9,9 +9,10 @@ import { PageHeader } from '../page'
 import { useT } from '../i18n'
 import Proposals from './Proposals'
 import Ceremonies from './Ceremonies'
+import SinceLast from './SinceLast'
 
-type Tab = 'proposals' | 'evidence'
-const TABS: Tab[] = ['proposals', 'evidence']
+type Tab = 'proposals' | 'since' | 'evidence'
+const TABS: Tab[] = ['proposals', 'since', 'evidence']
 
 export default function Activity() {
   const t = useT()
@@ -23,12 +24,24 @@ export default function Activity() {
     <main className="page">
       <PageHeader eyebrow={t('activity.eyebrow')} title={t('activity.title')} subtitle={t('activity.subtitle')} />
 
-      <div className="acts" role="tablist" aria-label={t('activity.title')}>
+      {/* The tab pattern as the ARIA practices describe it: one Tab stop (roving tabindex), arrows
+          move between tabs, each tab names its panel. */}
+      <div className="acts" role="tablist" aria-label={t('activity.title')}
+        onKeyDown={(e) => {
+          const i = TABS.indexOf(tab)
+          const to = e.key === 'ArrowRight' ? TABS[(i + 1) % TABS.length] : e.key === 'ArrowLeft' ? TABS[(i - 1 + TABS.length) % TABS.length] : e.key === 'Home' ? TABS[0] : e.key === 'End' ? TABS[TABS.length - 1] : null
+          if (!to) return
+          e.preventDefault(); setTab(to)
+          ;(e.currentTarget.querySelector<HTMLElement>(`#act-tab-${to}`))?.focus()
+        }}>
         {TABS.map((k) => (
           <button
             key={k}
+            id={`act-tab-${k}`}
             role="tab"
             aria-selected={tab === k}
+            aria-controls="act-panel"
+            tabIndex={tab === k ? 0 : -1}
             className={'act-tab' + (tab === k ? ' on' : '')}
             onClick={() => setTab(k)}
           >
@@ -37,8 +50,9 @@ export default function Activity() {
         ))}
       </div>
 
-      <div className="act-body">
+      <div className="act-body" role="tabpanel" id="act-panel" aria-labelledby={`act-tab-${tab}`}>
         {tab === 'proposals' && <Proposals embedded />}
+        {tab === 'since' && <SinceLast />}
         {tab === 'evidence' && <Ceremonies embedded />}
       </div>
     </main>

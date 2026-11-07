@@ -5,6 +5,38 @@
 // (#303), and checks itself against the book's totals: a payroll whose lines could not be read is
 // a named difference, never a silent zero.
 import type { Beneficiary, PayrollLine, Proposal } from './api'
+import { sumZat } from './format'
+
+/** One row of the book: a payment, or one line of a payroll. A payroll whose lines were not read
+ *  (none in `linesById`, or an empty list) is one row at its own value, marked `unread`. */
+export type BookItem = {
+  proposal: Proposal
+  address: string
+  /** The payroll line's label, '' for a plain payment or an unread payroll. */
+  label: string
+  /** The line's own memo for a payroll line, the proposal's otherwise. */
+  memo: string
+  value_zat: number
+  unread: boolean
+}
+
+/** The book itemized: the one rule the export and the book by beneficiary both read. */
+export function itemizeBook(proposals: readonly Proposal[], linesById: Readonly<Record<string, PayrollLine[]>>): BookItem[] {
+  const items: BookItem[] = []
+  for (const p of proposals) {
+    if (p.kind === 'payroll') {
+      const lines = linesById[p.id]
+      if (!lines || lines.length === 0) {
+        items.push({ proposal: p, address: '', label: '', memo: p.memo ?? '', value_zat: p.value_zat, unread: true })
+        continue
+      }
+      for (const l of lines) items.push({ proposal: p, address: l.address, label: l.label ?? '', memo: l.memo ?? '', value_zat: l.value_zat, unread: false })
+    } else {
+      items.push({ proposal: p, address: p.to_address ?? '', label: '', memo: p.memo ?? '', value_zat: p.value_zat, unread: false })
+    }
+  }
+  return items
+}
 
 export type PivotEntry = {
   address: string
@@ -12,7 +44,7 @@ export type PivotEntry = {
   label: string
   settled: boolean
   open: boolean
-  zat: number
+  value_zat: number
 }
 
 export type PayeeRow = {
@@ -29,7 +61,8 @@ export type PayeeRow = {
 export type PivotTotals = { paidZat: number; dueZat: number }
 
 /** One entry per payment and per payroll line, with the proposal's state. A payroll whose lines
- *  are not in `linesById` is listed in `missing` instead of being counted as nothing. */
+ *  could not be read is listed in `missing` instead of being counted as nothing; a closed proposal
+ *  (neither settled nor open) counts in neither total, so it is neither an entry nor missing. */
 export function pivotEntries(
   proposals: readonly Proposal[],
   linesById: Readonly<Record<string, PayrollLine[]>>,
@@ -38,44 +71,37 @@ export function pivotEntries(
 ): { entries: PivotEntry[]; missing: string[] } {
   const entries: PivotEntry[] = []
   const missing: string[] = []
-  for (const p of proposals) {
-    const s = settled(p.state)
-    const o = open(p)
-    if (p.kind === 'payroll') {
-      const lines = linesById[p.id]
-      // No lines at all is "not read", whichever way it came: the export counts such a payroll at its
-      // own value, and a silent zero here would make the two disagree without a word.
-      if (!lines || lines.length === 0) { missing.push(p.id); continue }
-      for (const l of lines) entries.push({ address: l.address, label: l.label ?? '', settled: s, open: o, zat: l.value_zat })
-    } else {
-      entries.push({ address: p.to_address ?? '', label: '', settled: s, open: o, zat: p.value_zat })
-    }
+  const live = proposals.filter((p) => settled(p.state) || open(p))
+  for (const it of itemizeBook(live, linesById)) {
+    // No lines at all is "not read", whichever way it came: the export counts such a payroll at its
+    // own value, and a silent zero here would make the two disagree without a word.
+    if (it.unread) { missing.push(it.proposal.id); continue }
+    entries.push({ address: it.address, label: it.label, settled: settled(it.proposal.state), open: open(it.proposal), value_zat: it.value_zat })
   }
   return { entries, missing }
 }
 
-/** Group by address: paid (settled) and due (open) summed apart; closed entries left out. */
+/** Group by address: paid (settled) and due (open) summed apart, in whole zatoshi; closed entries left out. */
 export function pivotByPayee(entries: readonly PivotEntry[], registry: readonly Beneficiary[] = []): { rows: PayeeRow[]; totals: PivotTotals } {
-  const byAddr = new Map<string, PayeeRow>()
-  for (const e of entries) {
-    if (!e.settled && !e.open) continue
+  const live = entries.filter((e) => e.settled || e.open)
+  const byAddr = new Map<string, { name: string; paid: PivotEntry[]; due: PivotEntry[] }>()
+  for (const e of live) {
     const address = e.address.trim()
-    let row = byAddr.get(address)
-    if (!row) {
-      row = { address, name: '', paidZat: 0, dueZat: 0, lines: 0 }
-      byAddr.set(address, row)
-    }
-    if (!row.name && e.label.trim()) row.name = e.label.trim()
-    if (e.settled) row.paidZat += e.zat
-    else row.dueZat += e.zat
-    row.lines += 1
+    let g = byAddr.get(address)
+    if (!g) { g = { name: '', paid: [], due: [] }; byAddr.set(address, g) }
+    if (!g.name && e.label.trim()) g.name = e.label.trim()
+    if (e.settled) g.paid.push(e)
+    else g.due.push(e)
   }
-  for (const row of byAddr.values()) {
-    const reg = registry.find((b) => b.address.trim() === row.address)?.name
-    if (reg) row.name = reg
-  }
-  const rows = [...byAddr.values()].sort((a, b) => (b.paidZat + b.dueZat) - (a.paidZat + a.dueZat))
-  const totals = rows.reduce((t, r) => ({ paidZat: t.paidZat + r.paidZat, dueZat: t.dueZat + r.dueZat }), { paidZat: 0, dueZat: 0 })
+  const rows: PayeeRow[] = [...byAddr].map(([address, g]) => ({
+    address,
+    name: registry.find((b) => b.address.trim() === address)?.name || g.name,
+    paidZat: sumZat(g.paid),
+    dueZat: sumZat(g.due),
+    lines: g.paid.length + g.due.length,
+  }))
+  rows.sort((a, b) => (b.paidZat + b.dueZat) - (a.paidZat + a.dueZat))
+  const totals = { paidZat: sumZat(live.filter((e) => e.settled)), dueZat: sumZat(live.filter((e) => !e.settled)) }
   return { rows, totals }
 }
 

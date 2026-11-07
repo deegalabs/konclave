@@ -162,13 +162,15 @@ export function Letterhead({ right }: { right?: ReactNode }) {
 }
 
 /** A sensitive value hidden behind the redaction bar (tarja) until revealed.
- *  The bar is a real button so the privacy gesture is keyboard-operable. */
+ *  The bar is a real button so the privacy gesture is keyboard-operable.
+ *  On paper a hidden value is not drawn at all (lacre.css, print): a bar over drawn text still
+ *  leaves the text in the PDF, where it can be selected and copied (#811). */
 export function Secret({ children, sm, label }: { children: ReactNode; sm?: boolean; /** What the veil covers, for the button's name in a table of veils. */ label?: string }) {
   const { revealed, toggle } = useReveal()
   const t = useT()
   return (
-    <span className={'secret' + (sm ? ' sm' : '')}>
-      {children}
+    <span className={'secret' + (sm ? ' sm' : '') + (revealed ? ' on' : '')}>
+      <span className="secret-val">{children}</span>
       <button
         type="button"
         className="bar"

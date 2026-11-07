@@ -10,7 +10,7 @@ import { ptBR } from './i18n/pt-BR'
  * never silently absorbed. Money in whole zatoshi (#303). */
 
 const e = (address: string, zat: number, o: Partial<PivotEntry> = {}): PivotEntry =>
-  ({ address, label: '', settled: true, open: false, zat, ...o })
+  ({ address, label: '', settled: true, open: false, value_zat: zat, ...o })
 
 describe('grouping by payee', () => {
   it('groups by address, trimmed, and sums paid and due apart', () => {
@@ -19,6 +19,15 @@ describe('grouping by payee', () => {
       { address: 'u1aaa', name: '', paidZat: 100, dueZat: 50, lines: 2 },
       { address: 'u1bbb', name: '', paidZat: 30, dueZat: 0, lines: 1 },
     ])
+  })
+  it('keys the row by the trimmed address even when the first entry seen is untrimmed', () => {
+    const rows = pivotByPayee([e(' u1aaa ', 10), e('u1aaa', 5)]).rows
+    expect(rows).toEqual([{ address: 'u1aaa', name: '', paidZat: 15, dueZat: 0, lines: 2 }])
+  })
+  it('finds the registry name for an address saved with spaces, and trims the line label', () => {
+    const regs = [{ id: '1', name: 'Bia', address: ' u1bbb ', memo: '', is_public: false }]
+    const rows = pivotByPayee([e('u1bbb', 2), e('u1aaa', 1, { label: '  Ana  ' })], regs).rows
+    expect(rows.map((r) => r.name)).toEqual(['Bia', 'Ana'])
   })
   it('names the payee by the registry, else the first label seen, else nothing', () => {
     const regs = [{ id: '1', name: 'Bia', address: 'u1bbb', memo: '', is_public: false }]
@@ -42,9 +51,9 @@ describe('entries from the book', () => {
   it('a payment is one entry, a payroll one per line, with the proposal state', () => {
     const { entries, missing } = pivotEntries([pay, roll], lines, (s) => s === 'confirmed' || s === 'sent', (p) => p.state === 'ready' || p.state === 'awaiting')
     expect(entries).toEqual([
-      { address: 'u1aaa', label: '', settled: true, open: false, zat: 100 },
-      { address: 'u1aaa', label: 'Ana', settled: false, open: true, zat: 40 },
-      { address: 'u1bbb', label: 'Bia', settled: false, open: true, zat: 30 },
+      { address: 'u1aaa', label: '', settled: true, open: false, value_zat: 100 },
+      { address: 'u1aaa', label: 'Ana', settled: false, open: true, value_zat: 40 },
+      { address: 'u1bbb', label: 'Bia', settled: false, open: true, value_zat: 30 },
     ])
     expect(missing).toEqual([])
   })
@@ -52,6 +61,10 @@ describe('entries from the book', () => {
     const { entries, missing } = pivotEntries([roll], {}, () => false, () => true)
     expect(entries).toEqual([])
     expect(missing).toEqual(['r1'])
+  })
+  it('a closed payroll is not counted as unread: it is in neither total', () => {
+    const closed = { ...roll, id: 'c1', state: 'refused' }
+    expect(pivotEntries([closed, roll], {}, (s) => s === 'confirmed', (p) => p.state === 'ready')).toEqual({ entries: [], missing: ['r1'] })
   })
   it('and so is one that answered an empty list: the export counts it at its own value', () => {
     expect(pivotEntries([roll], { r1: [] }, () => false, () => true).missing).toEqual(['r1'])
@@ -65,6 +78,11 @@ describe('the check against the book', () => {
   it('names the difference when they are not', () => {
     expect(pivotCheck({ paidZat: 100, dueZat: 20 }, 100, 50)).toEqual({ ok: false, diffZat: 30 })
   })
+  it('adds opposite differences instead of letting them cancel', () => {
+    // 50 too much on one column and 50 too little on the other is 100 off, not a match.
+    expect(pivotCheck({ paidZat: 150, dueZat: 0 }, 100, 50)).toEqual({ ok: false, diffZat: 100 })
+    expect(pivotCheck({ paidZat: 100, dueZat: 50 }, 150, 0)).toEqual({ ok: false, diffZat: 100 })
+  })
 })
 
 describe('the Ledger shows it', () => {
@@ -72,10 +90,22 @@ describe('the Ledger shows it', () => {
     const src = codeOf('screens/Ledger.tsx')
     expect(src).toMatch(/pivotByPayee\(/)
     expect(src).toMatch(/t\('ledger\.byPayee'\)/)
-    for (const k of ['ledger.byPayee', 'ledger.byPayeeHint', 'ledger.colPayee', 'ledger.colPaid', 'ledger.colDue', 'ledger.colLines', 'ledger.pivotMatches', 'ledger.pivotMismatch', 'ledger.pivotMismatchNone', 'ledger.pivotLoading', 'ledger.pivotEmpty', 'ledger.pivotTotal', 'ledger.pivotNone']) {
+    for (const k of ['ledger.byPayee', 'ledger.byPayeeHint', 'ledger.colPayee', 'ledger.colPaid', 'ledger.colDue', 'ledger.colLines', 'ledger.pivotMatches', 'ledger.pivotMismatch', 'ledger.pivotMismatchNone', 'ledger.pivotLoading', 'ledger.pivotEmpty', 'ledger.pivotDiff', 'ledger.pivotNone']) {
       expect(en[k], k).toBeTruthy(); expect(ptBR[k], k).toBeTruthy()
     }
-    expect(en['ledger.pivotMismatch']).toContain('{diff}')
+    for (const d of [en, ptBR]) {
+      expect(d['ledger.pivotMismatch']).toContain('{diff}')
+      expect(d['ledger.pivotMismatch']).toContain('{n}')
+      expect(d['ledger.pivotMismatchNone']).toContain('{diff}')
+    }
+    // The tracker it points to is public, on a screen that shows names, addresses and amounts: the
+    // line says so, and asks for none of them, nor the vault's name or link.
+    expect(en['ledger.pivotMismatchNone']).toMatch(/public/)
+    expect(en['ledger.pivotMismatchNone']).toMatch(/amounts, addresses, names/)
+    expect(en['ledger.pivotMismatchNone']).toMatch(/vault’s name or link/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/pública/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/valores, endereços, nomes/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/nome ou o link do cofre/)
     // the columns carry the band's own words, so the check is visible to the eye
     expect(en['ledger.colPaid']).toBe(en['ledger.settledOut']?.replace(' out', '') ?? 'Settled')
     expect(ptBR['ledger.colDue']).toBe('Em aberto')

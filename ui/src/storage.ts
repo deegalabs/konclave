@@ -627,7 +627,7 @@ interface V2Payload {
  */
 /** The localStorage key the payee address-book lives under (mirrors `benefKey` in api.ts). Read/write
  *  it directly here so a vault export/import carries the beneficiaries without a cycle through api.ts. */
-function beneficiariesKey(id: string): string {
+export function beneficiariesKey(id: string): string {
   return `konclave.benef.${id}`
 }
 function readBeneficiaries(id: string): unknown[] {
