@@ -139,12 +139,20 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   const sheet = (name: string) => (/\s/.test(name) ? `'${name}'` : name) // quote a sheet name only if it has spaces
   const MV = sheet(L.movements)
   const span = (col: string) => `${col}${firstData}:${col}${lastData}`
-  const sumIf = (col: string, yesNo: string) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(col)},"${yesNo}",${MV}!${span(valueCol)})` })
+  // Each formula carries the value it computes (#812): a viewer that does not recalculate (Excel's
+  // Protected View, a phone previewer) shows that value, and without it the totals were blank. The
+  // export already knows the rows, so it sums them itself, in whole zatoshi: adding ZEC as floating
+  // point makes 0.1 + 0.2 a figure no ledger holds.
+  const zatOf = (it: LedgerXlsxItem) => Math.round(it.zec * 1e8)
+  const sumZat = (keep: (it: LedgerXlsxItem) => boolean) => data.items.reduce((acc, it) => acc + (keep(it) ? zatOf(it) : 0), 0)
+  const settledZat = sumZat((it) => it.settled)
+  const openZat = sumZat((it) => it.open)
+  const sumIf = (col: string, yesNo: string, zat: number) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(col)},"${yesNo}",${MV}!${span(valueCol)})`, result: zat / 1e8 })
 
   // ---- Summary sheet (first tab) with live formulas referencing Movements ----
   const sm = wb.addWorksheet(L.summary)
   sm.columns = [{ key: 'k', width: 36 }, { key: 'v', width: 34 }]
-  const put = (k: string, v: string | number | { formula: string }, opts?: { money?: boolean; bold?: boolean }) => {
+  const put = (k: string, v: string | number | { formula: string; result: number }, opts?: { money?: boolean; bold?: boolean }) => {
     const row = sm.addRow({ k, v })
     row.getCell('k').font = { bold: true }
     if (opts?.bold) row.getCell('v').font = { bold: true }
@@ -160,13 +168,14 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   put(L.generated, data.generatedAt.toISOString().slice(0, 16).replace('T', ' '))
   put(L.entries, n)
   sm.addRow({})
-  const settledRow = put(L.settledOut, sumIf(settledCol, L.yes), { money: true, bold: true })
-  const openRow = put(L.open, sumIf(openCol, L.yes), { money: true, bold: true })
+  const settledRow = put(L.settledOut, sumIf(settledCol, L.yes, settledZat), { money: true, bold: true })
+  const openRow = put(L.open, sumIf(openCol, L.yes, openZat), { money: true, bold: true })
   // Outflows by kind and entries by state: the accountant's own reading of a period, as live
   // formulas over Movements like the two totals above.
   sm.addRow({})
   // Settled outflows only: a refused or expired row of either kind never left the vault.
-  const outOf = (kind: string) => (n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(kindCol)},"${kind}",${MV}!${span(settledCol)},"${L.yes}")` })
+  const outOf = (kind: string) =>
+    n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(kindCol)},"${kind}",${MV}!${span(settledCol)},"${L.yes}")`, result: sumZat((it) => it.kind === kind && it.settled) / 1e8 }
   put(L.outPayments, outOf(L.kindPayment), { money: true })
   put(L.outPayrolls, outOf(L.kindPayroll), { money: true })
   // Rows, not proposals: a payroll counts one per line, as the Entries row does.
@@ -175,7 +184,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     const byStateRow = sm.addRow({ k: L.byState })
     byStateRow.getCell('k').font = { bold: true }
     for (const st of [...new Set(data.items.map((it) => it.state))]) {
-      put(st.charAt(0).toUpperCase() + st.slice(1), { formula: `COUNTIF(${MV}!${span(stateCol)},"${st}")` })
+      put(st.charAt(0).toUpperCase() + st.slice(1), { formula: `COUNTIF(${MV}!${span(stateCol)},"${st}")`, result: data.items.filter((it) => it.state === st).length })
     }
   }
   // The balance is a figure of the moment and of the whole vault, not of the rows: dated, and left
@@ -188,7 +197,9 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     const pos = put(L.position, data.balance.totalZec, { money: true, bold: true })
     const com = put(L.committed, data.balance.reservedZec, { money: true })
     const conf = put(L.confirming, data.balance.confirmingZec, { money: true })
-    put(L.available, { formula: `B${pos.number}-B${com.number}-B${conf.number}` }, { money: true, bold: true })
+    const z = (x: number) => Math.round(x * 1e8)
+    const availableZat = z(data.balance.totalZec) - z(data.balance.reservedZec) - z(data.balance.confirmingZec)
+    put(L.available, { formula: `B${pos.number}-B${com.number}-B${conf.number}`, result: availableZat / 1e8 }, { money: true, bold: true })
     if (data.balance.overCommitted) put(L.overCommitted, '', { bold: true })
   }
 
@@ -217,7 +228,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   // column added the refused and expired rows, whose money never left and which enter neither
   // summary total, so the sheet's own total disagreed with both of them.
   const sumIfHere = (col: string) => `SUMIF(${span(col)},"${L.yes}",${span(valueCol)})`
-  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}` } })
+  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}`, result: (settledZat + openZat) / 1e8 } })
   const header = mv.getRow(1)
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }
@@ -236,12 +247,16 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     { header: L.open, key: 'open', width: 16 },
     { header: L.entries, key: 'count', width: 14 },
   ]
-  const byAddr = new Map<string, { name: string; sum: number }>()
+  // Each row also carries its computed figures (#812), in whole zatoshi like the Summary's.
+  const byAddr = new Map<string, { name: string; sum: number; settledZat: number; openZat: number; count: number }>()
   for (const it of data.items) {
     const a = it.address.trim()
-    const row = byAddr.get(a) ?? { name: '', sum: 0 }
+    const row = byAddr.get(a) ?? { name: '', sum: 0, settledZat: 0, openZat: 0, count: 0 }
     if (!row.name && it.beneficiary.trim()) row.name = it.beneficiary.trim()
     if (it.settled || it.open) row.sum += it.zec
+    if (it.settled) row.settledZat += zatOf(it)
+    if (it.open) row.openZat += zatOf(it)
+    row.count += 1
     byAddr.set(a, row)
   }
   const payees = [...byAddr.entries()].sort((x, y) => y[1].sum - x[1].sum)
@@ -254,26 +269,28 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     bp.addRow({
       name,
       address,
-      settled: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(settledCol)},"${L.yes}")` },
-      open: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(openCol)},"${L.yes}")` },
-      count: n === 0 ? 0 : { formula: `COUNTIF(${MV}!${span(addressCol)},"${q(address)}")` },
+      settled: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(settledCol)},"${L.yes}")`, result: row.settledZat / 1e8 },
+      open: n === 0 ? 0 : { formula: `SUMIFS(${MV}!${span(valueCol)},${MV}!${span(addressCol)},"${q(address)}",${MV}!${span(openCol)},"${L.yes}")`, result: row.openZat / 1e8 },
+      count: n === 0 ? 0 : { formula: `COUNTIF(${MV}!${span(addressCol)},"${q(address)}")`, result: row.count },
     })
   }
   const pFirst = 2
   const pLast = pFirst + payees.length - 1
   const pSpan = (col: string) => `${col}${pFirst}:${col}${pLast}`
+  const pSettledZat = payees.reduce((acc, [, r]) => acc + r.settledZat, 0)
+  const pOpenZat = payees.reduce((acc, [, r]) => acc + r.openZat, 0)
   const pTotal = bp.addRow({
     name: L.total,
-    settled: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('C')})` },
-    open: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('D')})` },
-    count: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('E')})` },
+    settled: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('C')})`, result: pSettledZat / 1e8 },
+    open: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('D')})`, result: pOpenZat / 1e8 },
+    count: payees.length === 0 ? 0 : { formula: `SUM(${pSpan('E')})`, result: payees.reduce((acc, [, r]) => acc + r.count, 0) },
   })
   pTotal.font = { bold: true }
   // Zero when the sheet agrees with the Summary; any other number is a difference to look into.
   const pDiff = bp.addRow({
     name: L.difference,
-    settled: payees.length === 0 ? 0 : { formula: `${SM}!B${settledRow.number}-C${pTotal.number}` },
-    open: payees.length === 0 ? 0 : { formula: `${SM}!B${openRow.number}-D${pTotal.number}` },
+    settled: payees.length === 0 ? 0 : { formula: `${SM}!B${settledRow.number}-C${pTotal.number}`, result: (settledZat - pSettledZat) / 1e8 },
+    open: payees.length === 0 ? 0 : { formula: `${SM}!B${openRow.number}-D${pTotal.number}`, result: (openZat - pOpenZat) / 1e8 },
   })
   pDiff.font = { italic: true }
   bp.getRow(1).font = { bold: true }

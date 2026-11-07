@@ -138,3 +138,30 @@ describe('the By beneficiary sheet', () => {
     expect(summaryValue(wb, 'Outflows: payments')).toBe(0)
   })
 })
+
+describe('every formula carries the value it computes (#812)', () => {
+  it('on all three sheets, equal to what the formula evaluates to', async () => {
+    // A viewer that does not recalculate (Excel's Protected View, a phone previewer) shows the
+    // stored value, so a formula without one is a blank cell there. Checked cell by cell against
+    // the formula's own evaluation, so a new formula without a value fails here. Read through
+    // cell.result: ExcelJS writes a zero as <v>0</v>, but cell.value leaves out a zero result, so
+    // reading the value would report every zero as missing.
+    const wb = await buildLedgerWorkbook(data([...items, item({ zec: 0.1 }), item({ zec: 0.2 })], {
+      balance: { totalZec: 10, reservedZec: 0.5, confirmingZec: 0.1, overCommitted: false },
+    }))
+    let formulas = 0
+    for (const name of ['Summary', 'Movements', 'By beneficiary']) {
+      wb.getWorksheet(name)!.eachRow((row) => row.eachCell((cell) => {
+        const v = cell.value as { formula?: string } | null
+        if (!v || typeof v !== 'object' || !('formula' in v)) return
+        formulas++
+        const result = (cell as unknown as { result: unknown }).result
+        expect(typeof result, `${name}!${cell.address} ${v.formula}`).toBe('number')
+        // The Movements TOTAL (two SUMIFs added) has its own value test beside #812's.
+        if (name !== 'Movements') expect(result, `${name}!${cell.address}`).toBeCloseTo(shown(wb, name, v), 8)
+      }))
+    }
+    expect(formulas).toBeGreaterThan(15)
+    expect(summaryValue(wb, 'Available')).toMatchObject({ result: 9.4 })
+  })
+})
