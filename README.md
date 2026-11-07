@@ -401,9 +401,9 @@ accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash c
 
 ## Built with AI assistance
 
-Konclave is built with AI assistance (Claude Code). A person reviews and answers for every line,
-and AI-assisted commits carry a `Co-Authored-By:` trailer going forward; earlier history is
-unchanged. Contributions made with an AI assistant are welcome on the same terms:
+Konclave is built with AI assistance (Claude Code). A person answers for every line, and AI-assisted
+commits carry a `Co-Authored-By:` trailer going forward; earlier history is unchanged. Contributions
+made with an AI assistant are welcome on the same terms:
 [CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
 
 ## Documentation

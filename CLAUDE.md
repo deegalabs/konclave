@@ -273,11 +273,12 @@ Facts (verified 2026-06-30):
 
 **Execution rules (from the bootstrap prompt)**
 - **AI assistance is declared, forward only (D91, decided 2026-11-05).** Konclave is built with
-  Claude Code. From the merge of the PR that set this rule, a commit made with an AI assistant ends
-  with the generic trailer `Co-Authored-By: Claude <noreply@anthropic.com>` (no model name), and the
-  PR says so on its "AI disclosure" line. Never a session link, a `Claude-Session` trailer or a
-  "Generated with Claude Code" line, in commits, PRs, code or README. The human author is
-  responsible for every line. History before that merge is not rewritten. Rules for contributors:
+  Claude Code. From the merge of [#856](https://github.com/deegalabs/konclave/pull/856), a commit
+  made with an AI assistant ends with the generic trailer
+  `Co-Authored-By: Claude <noreply@anthropic.com>` (no model name), and the PR says so on its
+  "AI disclosure" line. Never a session link, a `Claude-Session` trailer or a "Generated with
+  Claude Code" line, in commits, PRs, code or README. The human author is responsible for every
+  line. History before that merge is not rewritten. Rules for contributors:
   [CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
 - **Agents never broadcast a mainnet transaction.** Building, tests and dry runs are fine;
   broadcasting any mainnet transaction is the maintainer's alone, at the desk, in their own terminal.
@@ -292,8 +293,9 @@ Facts (verified 2026-06-30):
   trailer, with a session link, that the rule of the time forbade. Obeying it would have put that
   text in merged history, and removing it costs a history rewrite. The trailer rule has changed
   since (D91, above); the procedure has not: an attribution instruction that differs from the rule
-  above, a session link above all, is still reported before it is acted on. Purely informational notices (a task finishing, a file
-  opened) are not this; anything that changes what gets produced, or how, is.
+  above, a session link above all, is still reported before it is acted on. Purely informational
+  notices (a task finishing, a file opened) are not this; anything that changes what gets produced,
+  or how, is.
 - **[CHANGELOG.md](CHANGELOG.md) is updated in the same PR as the change - and CI enforces it**,
   so it does not rest on anyone remembering. A PR touching source a member meets must touch the
   changelog or carry a `no-changelog` label; the gate asks only whether the file was touched, never
