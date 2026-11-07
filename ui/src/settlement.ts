@@ -19,6 +19,7 @@
 // correct - it did - so the ledger's totals and filters, which ask that question, keep treating
 // `sent` and `confirmed` together. Only the word "confirmed" was the lie.
 import type { WalletTx } from './helper'
+import { SETTLED } from './ledger-state'
 
 export type Settlement =
   /** Not broadcast yet: awaiting approval, ready to sign, refused, expired. */
@@ -28,7 +29,8 @@ export type Settlement =
   /** In a block, and we can name it. The only way to reach this is a real height. */
   | { kind: 'confirmed'; height: number }
 
-const OUTGOING = new Set(['sent', 'confirmed'])
+// Which states have money out of the vault is the ledger's rule (`SETTLED`), read here rather than
+// spelled again: two lists of the same two states is how one of them ends up with a third.
 
 /**
  * What can honestly be said about a proposal's settlement, given the vault's transactions.
@@ -39,7 +41,7 @@ export function settlementOf(
   p: { state: string; txid?: string | null },
   txs: readonly WalletTx[] | null,
 ): Settlement {
-  if (!OUTGOING.has(p.state)) return { kind: 'open' }
+  if (!SETTLED(p.state)) return { kind: 'open' }
   const txid = p.txid?.trim()
   if (!txid || !txs) return { kind: 'broadcast' }
   const hit = txs.find((t) => t.txid === txid)
