@@ -1624,3 +1624,6 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .trust-grid td.yes, .trust-grid td.quorum{color:var(--text)}
 .trust-grid td.metadata, .trust-grid td.keeps, .trust-grid td.builds, .trust-grid td.sealedWhenRegistered, .trust-grid td.untilUnlock{color:var(--warn-strong, var(--warn))}
 .trust-limits{margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.55; color:var(--text-muted); display:grid; gap:6px; max-width:62ch}
+/* A button that reads as a link, for an action inside a sentence. */
+.link-btn{appearance:none; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer}
+.link-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}

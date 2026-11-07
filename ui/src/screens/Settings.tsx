@@ -513,7 +513,7 @@ export default function Settings() {
       <section className="set-danger">
         {/* The old note said what is NOT lost ("nothing is deleted from the network"), which is
             true and hides the part that matters. This says the cost. */}
-        <p className="set-danger-note">{t('set.removeCost')}</p>
+        <p className="set-danger-note">{t('set.removeCost')} <Link to="/docs/recovery">{t('set.loseDevice')}</Link></p>
         {!settled ? (
           /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
              vault" is a guess, and it is the alarming one - so the row waits instead. */
@@ -532,6 +532,17 @@ export default function Settings() {
             {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
             <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
+            {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
+            {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
+                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
+                sections above. */}
+            {hasLocal && (
+              <p className="hint mt-xs">
+                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
+                  {t('set.removeExportFirst')}
+                </button>
+              </p>
+            )}
             <label className="field">
               {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
                   to force an act of recall printed the answer inside the box - a transcription
