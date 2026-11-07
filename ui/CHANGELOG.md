@@ -122,6 +122,22 @@ history to tidy it is how context gets lost.
   3,543,405 and payments after it are proven on mainnet, so the notice is gone with its text. The
   rule that decides when such a notice applies stays in the code for the next upgrade, and a payment
   refused during an upgrade pause still says why.
+- **Approving is not paying, said where the buttons are.** Above "Approve": approving is your
+  yes to this payment, it moves no money, once enough members approve, any member can sign, and
+  the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
+  signature nothing has left the vault; the local build's "Sign and send" says instead that one
+  confirm gathers the parts and sends in one step. In Settings, the removal gate offers the
+  cheaper fix first ("export this vault first if you might want it back: the backup file and the
+  passphrase are what bring your part back") and links the page that says what to do if the device is lost (#309).
+
+- **Creating a passkey in Settings now says when that passkey can sync.** The unlock
+  shortcut is made for one device: nothing guarantees a passkey keeps opening it after it syncs to
+  another device, and on some phones it has stopped working even without a sync. Until now Settings
+  created the passkey and said nothing about which kind it was. It now reads, from the data the
+  device returns, whether the passkey is eligible for backup (one your passkey manager can sync),
+  and if so says that the shortcut still works only on this device, that a sync may stop it working
+  here too, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
+  on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
 
 ### Fixed
 
