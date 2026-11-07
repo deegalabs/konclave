@@ -87,6 +87,18 @@ history to tidy it is how context gets lost.
   balance read makes the coordinator sync the wallet); it shows what this device's last reads of
   that vault saw, greys the free figure after a day, and says "nothing read on this device yet"
   until a first read. Removing the vault removes what the list kept for it (#779).
+- **The spreadsheet export has a summary and a sheet by beneficiary.** The Summary shows settled
+  outflows by kind and entries by state as live formulas over Movements, and the vault's position:
+  what the whole book's open proposals hold, what is confirming, and what is available, as a visible
+  subtraction (negative, and said so, when the open proposals exceed what can be spent), dated at the
+  export, with a line saying so when the balance could not be read. A third sheet, By beneficiary,
+  follows the same rule as the book by beneficiary on screen: one row per address with settled and
+  open sums as live SUMIFS over Movements, refused and expired entries left out, a total row and a
+  "Difference vs Summary" row the accountant can re-run in the spreadsheet; a payroll whose lines
+  could not be read is not a row, it is in that difference and its count is said. Every new formula
+  carries the value it computes, summed in whole zatoshi, so the figures show in a viewer that does
+  not recalculate, as the totals do since #812 (#302; a sheet by category waits for the field on
+  the proposal).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks
