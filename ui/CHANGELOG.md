@@ -61,6 +61,16 @@ history to tidy it is how context gets lost.
   create and join screen, stay in that browser; this change clears them only for vaults removed from
   now on.
 
+### Added
+
+- **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
+  rows in view: settled so far and still open per beneficiary, in the band's own words, over the
+  same period and kind as the totals above, named from the registry or the payroll line. It checks
+  itself against the book: the sums match, or the difference is named with the number of payrolls
+  whose lines could not be read, also when no payroll in view could be read at all. Every figure,
+  the difference included, is exact to the zatoshi and hidden under the bar like the book's totals
+  (#778; by category waits for the field on the proposal).
+
 ### Changed
 
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it

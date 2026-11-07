@@ -3,7 +3,8 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Proposal, type PayrollLine } from '../api'
+import { getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
 import { exportLedgerCsv } from '../ledgerCsv'
@@ -16,6 +17,8 @@ import { useVaultReadable } from '../vault-readable'
 import { useReveal } from '../reveal'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
+// Where the difference goes in the reconciliation sentence, so it can be drawn under the bar.
+const DIFF_MARK = '\u0000'
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
 // outside both totals; shown with its own state and no outflow sign, because the money never left.
 const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
@@ -50,6 +53,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [pKind, setPKind] = useState<PeriodKind>('all')
   const [pOffset, setPOffset] = useState(0)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'csv'>(null)
+  // The book by beneficiary (#778): opened on demand, since it reads every payroll's lines.
+  const [showPivot, setShowPivot] = useState(false)
+  const [benefs, setBenefs] = useState<Beneficiary[]>([])
+  const [pivotReading, setPivotReading] = useState(false)
 
   // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
   // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
@@ -84,6 +91,45 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, readable])
 
+  // Ids asked for since the section was opened: one that answered nothing is not asked again on
+  // every poll (on the web each detail read is a list read), only when the section is reopened.
+  const pivotTried = useRef<Set<string>>(new Set())
+  // A read in flight belongs to the screen, not to the render that started it: a poll re-reads the
+  // book every 12 s, and tying the read to that render dropped the answer, left "reading" on for
+  // good and never asked for the ids still queued. Only leaving the screen stops it.
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const pivotInFlight = useRef(0)
+  useEffect(() => {
+    if (!showPivot) { pivotTried.current = new Set(); return }
+    // The registry once per opening, not on every re-read of the book.
+    let on = true
+    void getBeneficiaries().then((b) => { if (on && b) setBenefs(b) })
+    return () => { on = false }
+  }, [showPivot])
+  useEffect(() => {
+    if (!showPivot) return
+    const missing = pivotEntries(scoped, linesById, SETTLED, isOpen).missing.filter((id) => !pivotTried.current.has(id))
+    if (missing.length === 0) return
+    for (const id of missing) pivotTried.current.add(id)
+    pivotInFlight.current += 1
+    setPivotReading(true)
+    void (async () => {
+      try {
+        for (const id of missing) {
+          const detail = await getProposalDetail(id)
+          if (!mounted.current) return
+          if (detail?.lines?.length) setLinesById((m) => ({ ...m, [id]: detail.lines }))
+        }
+      } finally {
+        pivotInFlight.current -= 1
+        if (mounted.current && pivotInFlight.current === 0) setPivotReading(false)
+      }
+    })()
+    // Re-runs when the scope changes (period, kind) or the book is re-read; a run never cancels another.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPivot, pKind, pOffset, fKind, rows])
+
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return
     const next = new Set(open)
@@ -103,34 +149,30 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         const d = new Date(ts * 1000)
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       }
-      const items: LedgerXlsxItem[] = []
       // Itemize: a payment = one row; a payroll = one row per beneficiary (fetch its lines if not
       // already open), mirroring the CSV export. Runs from the ledger data already in memory, and
       // from the rows the screen shows: the export honours the filters (#302). Each row carries its
       // own memo (a payroll line's, not the payroll's) and the txid, shared by a payroll's rows.
+      // The rows themselves come from `itemizeBook`, the same rule the book by beneficiary reads.
+      const read: Record<string, PayrollLine[]> = { ...linesById }
       for (const p of filtered) {
-        const stLabel = t('state.' + p.state)
-        const isSettled = SETTLED(p.state)
-        const doc = p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
-        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, open: isOpen(p), proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '' }
-        if (p.kind === 'payroll') {
-          let lines = linesById[p.id]
-          if (!lines) {
-            const detail = await getProposalDetail(p.id)
-            lines = detail?.lines ?? []
-            setLinesById((m) => ({ ...m, [p.id]: lines! }))
-          }
-          if (lines.length === 0) {
-            items.push({ ...base, kind: t('kind.payroll'), beneficiary: '', address: '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
-          } else {
-            for (const l of lines) {
-              items.push({ ...base, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, memo: l.memo ?? '', zec: Number(zatToZec(l.value_zat)) })
-            }
-          }
-        } else {
-          items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
-        }
+        if (p.kind !== 'payroll' || read[p.id]) continue
+        const detail = await getProposalDetail(p.id)
+        const lines = detail?.lines ?? []
+        read[p.id] = lines
+        setLinesById((m) => ({ ...m, [p.id]: lines }))
       }
+      const items: LedgerXlsxItem[] = itemizeBook(filtered, read).map((it) => {
+        const p = it.proposal
+        return {
+          dateISO: iso(p.created_at),
+          document: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
+          state: t('state.' + p.state), settled: SETTLED(p.state), open: isOpen(p),
+          proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '',
+          kind: p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'),
+          beneficiary: it.label, address: it.address, memo: it.memo, zec: Number(zatToZec(it.value_zat)),
+        }
+      })
       return {
         vaultName: vaultName ?? 'Konclave',
         period: win ? winLabel : periodOf(filtered),
@@ -181,6 +223,16 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // Totals in integer zatoshi, formatted once: a float sum of the decimal strings drifts (#303).
   const totalOut = zatToZec(sumZat(settled))
   const totalPending = zatToZec(sumZat(pending))
+  const pivotSrc = pivotEntries(scoped, linesById, SETTLED, isOpen)
+  const pivot = pivotByPayee(pivotSrc.entries, benefs)
+  const pivotVs = pivotCheck(pivot.totals, sumZat(settled), sumZat(pending))
+  const pivotWarn = showPivot && !pivotVs.ok && !pivotReading
+  // The difference is an amount like any other: under the bar on screen and absent from paper while
+  // hidden, and exact to the zatoshi, like the book's totals.
+  const withVeiledDiff = (text: string) => {
+    const [before, after = ''] = text.split(DIFF_MARK)
+    return <>{before}<Secret sm label={t('ledger.pivotDiff')}><span>{fmtZecExact(Number(zatToZec(pivotVs.diffZat)))}</span></Secret>{after}</>
+  }
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
   // from the rows it carries (#302).
   const periodOf = (list: Proposal[]) => {
@@ -344,6 +396,62 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             })}
           </tbody>
         </table>
+
+        {/* The book by beneficiary: settled so far and still open per person, over the same scope as
+            the totals above, and checked against them (#778). The heading is the disclosure. */}
+        <section className="pivot mt" aria-labelledby="pivot-title">
+          <h2 className="klab pivot-h" id="pivot-title">
+            <button type="button" className="pivot-toggle" aria-expanded={showPivot} aria-controls="pivot-body" onClick={() => setShowPivot((v) => !v)}>
+              <span className="caret" aria-hidden="true">{showPivot ? '▾' : '▸'}</span> {t('ledger.byPayee')}
+            </button>
+          </h2>
+          <div id="pivot-body" hidden={!showPivot}>
+            <p className="cap">{t('ledger.byPayeeHint')}</p>
+            {showPivot && pivot.rows.length > 0 && (
+              <div className="tblwrap">
+                <table className="tbl pivot-tbl" aria-labelledby="pivot-title">
+                  <thead><tr><th scope="col">{t('ledger.colPayee')}</th><th scope="col" className="num">{t('ledger.colPaid')}</th><th scope="col" className="num">{t('ledger.colDue')}</th><th scope="col" className="num">{t('ledger.colLines')}</th></tr></thead>
+                  <tbody>
+                    {pivot.rows.map((r) => {
+                      const who = r.name || shortAddr(r.address)
+                      const amt = (zat: number, col: string) => zat
+                        ? <Secret sm label={`${col}, ${who}`}><span>{fmtZecExact(Number(zatToZec(zat)))}</span></Secret>
+                        : <><span aria-hidden="true">-</span><span className="visually-hidden">{t('ledger.pivotNone')}</span></>
+                      return (
+                        <tr key={r.address}>
+                          <th scope="row">{r.name || <span className="mono">{shortAddr(r.address)}</span>}{r.name && <div className="pivot-sub mono">{shortAddr(r.address)}</div>}</th>
+                          <td className="num">{amt(r.paidZat, t('ledger.colPaid'))}</td>
+                          <td className="num">{amt(r.dueZat, t('ledger.colDue'))}</td>
+                          <td className="num">{r.lines}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th scope="row">{t('ledger.total')}</th>
+                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colPaid')}, ${t('ledger.total')}`}><span>{fmtZecExact(Number(zatToZec(pivot.totals.paidZat)))}</span></Secret></th>
+                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colDue')}, ${t('ledger.total')}`}><span>{fmtZecExact(Number(zatToZec(pivot.totals.dueZat)))}</span></Secret></th>
+                      <th scope="col" className="num">{pivot.rows.reduce((n, r) => n + r.lines, 0)}</th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+            {/* One live line, mounted with the section. The check against the book comes before the
+                empty message: a view whose every payroll is unreadable has no rows and still a total,
+                and saying "nothing settled" there would be the silent zero this section exists to stop. */}
+            <p className={'hint pivot-check' + (pivotWarn ? ' warn' : '')} role="status" aria-live="polite">
+              {!showPivot ? ''
+                : pivotReading && !pivotVs.ok ? t('ledger.pivotLoading')
+                : !pivotVs.ok ? withVeiledDiff(pivotSrc.missing.length > 0
+                  ? t('ledger.pivotMismatch', { diff: DIFF_MARK, n: String(pivotSrc.missing.length) })
+                  : t('ledger.pivotMismatchNone', { diff: DIFF_MARK }))
+                : pivot.rows.length === 0 ? t('ledger.pivotEmpty')
+                : t('ledger.pivotMatches')}
+            </p>
+          </div>
+        </section>
 
     </>
   )
