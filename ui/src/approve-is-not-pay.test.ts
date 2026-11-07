@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { codeOf } from './source-scan'
 import { en } from './i18n/en'
@@ -32,7 +33,7 @@ describe('Settings offers the export before the removal, and points at the day t
   it('the remove gate links to the export block and the docs page', () => {
     expect(src).toMatch(/t\('set\.removeExportFirst'\)/)
     // a button, not a hash link: the app routes by hash, so "#s-keys" would be a route
-    expect(src).toMatch(/setConfirming\(false\); setXpErr\(null\); setXpOpen\(true\)/)
+    expect(src).toMatch(/setConfirming\(false\); setConfirmName\(''\); setErr\(null\); setXpErr\(null\); setXpOpen\(true\)/)
     expect(src).toMatch(/to="\/docs\/recovery"/)
     expect(src).toMatch(/t\('set\.loseDevice'\)/)
   })
@@ -47,5 +48,46 @@ describe('the words exist in both languages and say "backup file", never "recove
     }
     expect(en['proposal.signMeans']).toMatch(/last signature sends/)
     expect(ptBR['proposal.signMeans']).toMatch(/última assinatura envia/)
+  })
+})
+
+describe('approving says who signs as the code decides it today', () => {
+  it('any member of the vault can sign once enough approved, in both languages', () => {
+    expect(en['proposal.approveMeans']).toBe('Approving is your yes to this payment. It moves no money. Once enough members approve, any member of the vault can sign on their own device, and the payment goes out when the quorum has signed.')
+    expect(ptBR['proposal.approveMeans']).toBe('Ao aprovar, você diz sim a este pagamento. Nenhum dinheiro sai. Quando houver aprovações suficientes, qualquer membro do cofre pode assinar no seu aparelho, e o pagamento sai quando o quórum assinou.')
+  })
+  it('the sentence rests on the signer accepting any member: when that rule changes, this goes red and the sentence is rewritten', () => {
+    expect(codeOf('VaultSigner.tsx')).toMatch(/isApproved: \(\) => true,/)
+  })
+  it('the changelog says the same', () => {
+    const cl = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').replace(/\s+/g, ' ')
+    expect(cl).toContain('once enough members approve, any member can sign, and the last signature sends')
+    expect(cl).not.toContain('those who approved sign next')
+  })
+})
+
+describe('a ready proposal says it is ready to sign, not the old one-step story', () => {
+  it('payment and payroll, in both languages', () => {
+    expect(en['proposal.readyPayment']).toBe('**Approved by enough members.** The proposal is **ready to sign**.')
+    expect(en['proposal.readyPayroll']).toBe('**Approved by enough members.** The payroll is **ready to sign**, its N outputs in a single transaction.')
+    expect(ptBR['proposal.readyPayment']).toBe('**Aprovações suficientes.** A proposta está **pronta para assinar**.')
+    expect(ptBR['proposal.readyPayroll']).toBe('**Aprovações suficientes.** A folha está **pronta para assinar**, com as N saídas numa transação só.')
+    for (const k of ['proposal.readyPayment', 'proposal.readyPayroll']) {
+      expect(en[k], k).not.toMatch(/quorum reached/i)
+      expect(ptBR[k], k).not.toMatch(/quórum atingido/i)
+    }
+  })
+})
+
+describe('the words a member meets say "part", not "seat" or "share"', () => {
+  it('removal cost and the ceremony note', () => {
+    expect(en['set.removeCost']).toBe('The other members keep their parts. But if this is the only device holding your part and you have no backup file, you can no longer approve or sign for this vault.')
+    expect(ptBR['set.removeCost']).toBe('Os outros membros continuam com as partes deles. Mas se este for o único aparelho com a sua parte e você não tiver o arquivo de backup, você não poderá mais aprovar nem assinar por este cofre.')
+    expect(en['proposal.ceremonyNote']).toBe('You sign there, on your device, with your own part of the key. Once the quorum signs, the proposal returns as Sent.')
+    expect(ptBR['proposal.ceremonyNote']).toBe('Você assina lá, no seu aparelho, com a sua parte da chave. Quando o quórum assina, a proposta volta como Enviada.')
+    for (const k of ['set.removeCost', 'proposal.ceremonyNote']) {
+      expect(en[k], k).not.toMatch(/seat|share/i)
+      expect(ptBR[k], k).not.toMatch(/assento|pedaço/i)
+    }
   })
 })

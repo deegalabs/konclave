@@ -525,10 +525,11 @@ export default function Settings() {
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
             {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
             {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
-                disarms the gate first, then opens the export two sections above. */}
+                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
+                sections above. */}
             {hasLocal && (
               <p className="hint mt-xs">
-                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
+                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
                   {t('set.removeExportFirst')}
                 </button>
               </p>

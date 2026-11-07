@@ -106,8 +106,8 @@ history to tidy it is how context gets lost.
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
 - **Approving is not paying, said where the buttons are.** Above "Approve": approving is your
-  yes to this payment, it moves no money, those who approved sign next and the last signature
-  sends. Under "Sign this payment": signing is your part of the key at work, and before the last
+  yes to this payment, it moves no money, once enough members approve, any member can sign, and
+  the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
   signature nothing has left the vault; the local build's "Sign and send" says instead that one
   confirm gathers the parts and sends in one step. In Settings, the removal gate offers the
   cheaper fix first ("export this vault first if you might want it back: the backup file and the
