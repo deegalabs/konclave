@@ -26,6 +26,10 @@ correctness, privacy, and honesty matter more than speed.
 
 1. Branch off `staging`; PRs target `staging`, and `main` takes releases only. One coherent change
    per PR.
+   **Branch names** are `<type>/<slug>` (same types as commits; lowercase, hyphens, at most 40
+   characters; no commit hashes), or `pre-release/vX.Y.Z` / `release/vX.Y.Z` for a cut. CI blocks
+   the rest. To catch it before the first push, run `node scripts/install-hooks.mjs` once. A PR over
+   300 lines of code (not counting tests, generated files and changelogs) gets a warning, not a block.
 2. Commits: Conventional Commits in English, `type(scope): summary` (e.g.
    `fix(ui): guard the no-expiry sentinel (#123)`). The summary is lower case, with no final
    period, and says what changes; an optional body says why.

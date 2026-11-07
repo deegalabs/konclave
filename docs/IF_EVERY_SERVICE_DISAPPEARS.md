@@ -68,9 +68,8 @@ done**.
 A viewing key reads the vault's whole history and balance and cannot move a coin. The one tool this
 page can speak for is `zcash-devtool`, the Zcash tool the coordinator itself runs. The build you use
 must **know the network upgrade the chain is on**: a wallet tool that does not know it cannot sync
-past it. The chain is on NU6.3 today and NU7 activates at mainnet block 3,543,405 (ZIP 259;
-`konclave-seal/src/epochs.rs` carries the same number), so from that block on the build must know
-NU7. The build Konclave runs is recorded in `engine/versions.lock` (`[source.zcash-devtool-stable]`,
+past it. The chain has been on NU7 since mainnet block 3,543,405 (ZIP 259;
+`konclave-seal/src/epochs.rs` carries the same number), so the build must know NU7. The build Konclave runs is recorded in `engine/versions.lock` (`[source.zcash-devtool-stable]`,
 the NU7 build, in production since 2026-10-30): upstream `zcash-devtool` plus a patch in
 `engine/patches/`, so upstream alone does not build it. With the viewing key and the scan height from a Private backup, the commands the
 coordinator runs when it rebuilds and reads a wallet:
