@@ -5,11 +5,12 @@
 //
 // What the device does NOT hold is said as such: whether the write gate is on (it turns on at a
 // seat's first unlock on an updated app, a coordinator-side fact), and whether every seat has
-// registered its device key (until then the relay carries a payment's content in the clear).
+// registered its device key (until then the relay carries a payment's content, memos included,
+// unsealed).
 // Each cell is a short word the screen prints; the clauses live in the limits under the table.
 
 export type Party = 'members' | 'server' | 'relay' | 'link'
-export type Cell = 'yes' | 'no' | 'metadata' | 'quorum' | 'builds' | 'keeps' | 'sealedWhenRegistered' | 'untilUnlock'
+export type Cell = 'yes' | 'no' | 'metadata' | 'quorum' | 'builds' | 'keeps' | 'sealedWhenRegistered' | 'untilUnlock' | 'writes'
 export type TrustRow = { what: 'books' | 'memos' | 'payment' | 'move' | 'propose'; cells: Record<Party, Cell> }
 
 export type TrustFacts = { secured: boolean; threshold: number; total: number }
@@ -18,12 +19,14 @@ export function trustRows(f: TrustFacts): TrustRow[] {
   const open = !f.secured
   return [
     // The balance and the movements: members read them; the coordinator holds the viewing key, so
-    // it reads them too; the relay sees sealed or public material only; a bare link reads them on
-    // an open vault, and on a private one gets the metadata that stays open by design (the
-    // vault's address, how many members, how many must approve).
-    { what: 'books', cells: { members: 'yes', server: 'yes', relay: 'no', link: open ? 'yes' : 'metadata' } },
-    // The memos (payslips) decrypt with the viewing key: members and the coordinator.
-    { what: 'memos', cells: { members: 'yes', server: 'yes', relay: 'no', link: open ? 'yes' : 'no' } },
+    // it reads them too; the relay carries a payment's content sealed only once every seat has
+    // registered its device key; a bare link reads them on an open vault, and on a private one gets
+    // the metadata that stays open by design (the vault's addresses, receive and change, how many
+    // members, how many must approve).
+    { what: 'books', cells: { members: 'yes', server: 'yes', relay: 'sealedWhenRegistered', link: open ? 'yes' : 'metadata' } },
+    // The memos (payslips) decrypt with the viewing key: members and the coordinator. They travel
+    // with the payment's content, sealed on the relay only once every seat has registered.
+    { what: 'memos', cells: { members: 'yes', server: 'yes', relay: 'sealedWhenRegistered', link: open ? 'yes' : 'no' } },
     // Who a payment pays and how much: the proposals are gated like the books, so a link reads
     // them on an open vault; the relay carries the signing request sealed only once every seat
     // has registered its device key.
@@ -31,8 +34,9 @@ export function trustRows(f: TrustFacts): TrustRow[] {
     // Moving money: a quorum of shares; the coordinator never holds one, but builds what the
     // quorum signs; nobody else.
     { what: 'move', cells: { members: 'quorum', server: 'builds', relay: 'no', link: 'no' } },
-    // Proposing, voting, renaming: the coordinator keeps the record and checks its own gate; the
-    // link may write until a member's first unlock turns the gate on, which this device cannot see.
-    { what: 'propose', cells: { members: 'yes', server: 'keeps', relay: 'no', link: 'untilUnlock' } },
+    // Proposing, voting, renaming, sending: the coordinator keeps the record and checks its own
+    // gate. On a private vault the link may write until a member's first unlock turns the gate on,
+    // which this device cannot see; on an open vault the link may write at any time.
+    { what: 'propose', cells: { members: 'yes', server: 'keeps', relay: 'no', link: open ? 'writes' : 'untilUnlock' } },
   ]
 }

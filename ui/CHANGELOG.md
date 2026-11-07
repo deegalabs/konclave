@@ -79,7 +79,8 @@ history to tidy it is how context gets lost.
   cannot see is said as such: whether the write gate is on, whether every member's device has
   registered. The limits are listed as limits: the server builds what the quorum signs and holds
   the viewing key, the metadata a link still reads on a private vault, the product's own rules,
-  and that Konclave is not audited. The whole trust model stays in the docs (#244, #308).
+  and that Konclave is not audited, and the list says these are the main limits, not all of them.
+  The whole trust model stays in the docs (#244, #308).
 - **Each vault on the list says how it stands.** Under its members: what is free, with the time
   of the reads it comes from, how many proposals are open (by this device's clock, as on the desk),
   with the time of that read, and when the last proposal was made. The list reads nothing itself (a

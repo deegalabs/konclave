@@ -62,6 +62,9 @@ export default function Settings() {
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
+  // The quorum as this device recorded it when the vault was made: shown first, the server's answer
+  // only when there is no record (or the record predates the field).
+  const [localQuorum, setLocalQuorum] = useState<{ threshold: number; total: number } | null>(null)
   const [xpOpen, setXpOpen] = useState(false)
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
@@ -86,7 +89,10 @@ export default function Settings() {
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
-            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured) }
+            if (on) {
+              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured)
+              if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
+            }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
@@ -221,8 +227,8 @@ export default function Settings() {
     }
   }
 
-  const thr = vault?.threshold ?? 2
-  const n = vault?.total ?? 3
+  const thr = localQuorum?.threshold ?? vault?.threshold ?? 2
+  const n = localQuorum?.total ?? vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
@@ -303,7 +309,7 @@ export default function Settings() {
         <a href="#s-vault">{t('set.secVault')}</a>
         <a href="#s-access">{t('set.secAccess')}</a>
         {gov && <a href="#s-gov">{t('set.secGov')}</a>}
-        {gov && <a href="#s-trust">{t('set.secTrust')}</a>}
+        {hasLocal && secured !== undefined && <a href="#s-trust">{t('set.secTrust')}</a>}
         {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
         <a href="#s-remove">{t('set.secRemove')}</a>
       </nav>
@@ -454,9 +460,11 @@ export default function Settings() {
             <li>{t('trust.limit.relay')}</li>
             <li>{t('trust.limit.gate')}</li>
             <li>{t('trust.limit.metadata')}</li>
+            {secured && <li>{t('trust.limit.private')}</li>}
             <li>{t('trust.limit.product')}</li>
             <li>{t('trust.limit.audit')}</li>
           </ul>
+          <p className="set-hint">{t('trust.limitsNotAll')}</p>
           <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
         </>
       )}
