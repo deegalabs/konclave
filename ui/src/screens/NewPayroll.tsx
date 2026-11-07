@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePoll } from '../usePoll'
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
@@ -26,8 +26,18 @@ import { useVaultBalance } from '../useVaultBalance'
 /** Two marks, kept apart (#332). `copied` says the line came from a previous payroll, and stays:
  *  it is what lets the sheet compare the line with the registry for as long as the line exists.
  *  `check` says its address has not been looked at yet, and goes when it is. */
-export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean; vouched?: boolean }
+export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean; vouched?: boolean; k?: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
+/** A line on screen carries `k`, its identity for React, never its index: a field keeps text of its
+ *  own (the recipient search), so with an index key the line after a deleted one showed the deleted
+ *  line's text over its own address. `keyed` is the one place a line gets it, run on every write to
+ *  the sheet, so a line from any source (typed, restored, imported, copied, from the registry) has
+ *  one, and a line that already has one keeps it. The draft is saved without it. */
+type KeyedRow = Row & { k: string }
+let rowSeq = 0
+function keyed(rows: readonly Row[]): KeyedRow[] {
+  return rows.map((r) => (typeof r.k === 'string' ? (r as KeyedRow) : { ...r, k: `r${++rowSeq}` }))
+}
 const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
 const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
@@ -135,7 +145,9 @@ export default function NewPayroll() {
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
   const [description, setDescription] = useState('')
-  const [rows, setRows] = useState<Row[]>([emptyRow()])
+  const [rows, setKeyedRows] = useState<KeyedRow[]>(() => keyed([emptyRow()]))
+  const setRows = useCallback((next: Row[] | ((prev: KeyedRow[]) => Row[])) =>
+    setKeyedRows((prev) => keyed(typeof next === 'function' ? next(prev) : next)), [])
   const [showImport, setShowImport] = useState(false)
   const [showRegistry, setShowRegistry] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
@@ -223,7 +235,7 @@ export default function NewPayroll() {
   useEffect(() => {
     if (!locked) return
     setRows([emptyRow()]); setCompetencia(''); setDescription(''); setCopiedFrom(null); setPendingFrom(null)
-  }, [locked])
+  }, [locked, setRows])
   // Restore the local draft.
   useEffect(() => {
     if (locked) return
@@ -233,16 +245,16 @@ export default function NewPayroll() {
         const d = JSON.parse(raw)
         setCompetencia(d.competencia ?? '')
         setDescription(d.description ?? '')
-        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows)
+        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows.map(({ k: _k, ...r }: Row) => r)) // a stored identity is never trusted
         if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
-  }, [draftAt, locked])
+  }, [draftAt, locked, setRows])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
     if (!draftAt || locked) return
-    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows, copiedFrom }))
+    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows: rows.map(({ k: _k, ...r }) => r), copiedFrom }))
     setSaved(true)
   }, [competencia, description, rows, copiedFrom, draftAt, locked])
 
@@ -514,7 +526,7 @@ export default function NewPayroll() {
               const issue = rowTouched(r) ? rowIssue(r) : null
               const note = said ? t(said.key, said.vars) : null
               return (
-                <div key={i} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
+                <div key={r.k} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
                   <span className="plr-n mono">{i + 1}</span>
                   {/* Leaving the address field after looking at it retires the "check" mark (blur bubbles). */}
                   <div className="plr-to" onBlur={() => { if (r.check) updateRow(i, {}) }}>

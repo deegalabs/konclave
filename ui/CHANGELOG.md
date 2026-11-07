@@ -93,6 +93,14 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **On the payroll screen, deleting a line could leave the next line showing the deleted line's
+  address.** Lines were tracked by their position, so after a delete the line below kept the text
+  typed or pasted into the one above (an address never picked from the list). The screen showed that
+  address, with its shielded or public hint, while the line held its own address; saving the line's
+  recipient stored the name against the address that was not on screen. Each line now has its own
+  identity, whether typed, restored from the draft, imported from CSV, copied from a previous payroll
+  or added from the registry. Nothing was sent to the wrong address: the proposal was always built
+  from the line's own data, not from what the field displayed.
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
   "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
   Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
