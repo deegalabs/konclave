@@ -8,16 +8,21 @@ import { explorerTxUrl } from './format'
 // read the cells, and one writes the file and loads it back to check what the hidden properties say.
 
 const labels: LedgerXlsxData['labels'] = {
-  summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter',
+  summary: 'Summary', movements: 'Movements', byPayee: 'By beneficiary', vault: 'Vault', period: 'Period', filter: 'Filter',
   generated: 'Generated', entries: 'Entries', settledOut: 'Settled out', open: 'Open',
   colDate: 'Date', colDocument: 'Document', colKind: 'Kind', colBeneficiary: 'Beneficiary',
   colAddress: 'Address', colMemo: 'Memo', colProposedBy: 'Proposed by', colApprovedBy: 'Approved by', colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value',
   colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
+  outPayments: 'Outflows: payments', outPayrolls: 'Outflows: payrolls', byState: 'Entries by state',
+  kindPayment: 'Payment', kindPayroll: 'Payroll', position: 'Position (total)', committed: 'Committed to open proposals',
+  available: 'Available', confirming: 'Confirming', asOf: 'Balance as of', difference: 'Difference vs Summary',
+  overCommitted: 'Over-committed', noAddress: 'No address recorded',
+  unreadPayrolls: 'Payrolls whose lines could not be read', balanceUnread: 'Balance could not be read',
 }
 const TXID = 'a'.repeat(64)
 const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
   dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent',
-  memo: '', proposer: 'Alice', approvers: 'Alice, Bob', state: 'confirmed', settled: true, open: false, zec: 1.5, txid: '', ...over,
+  memo: '', proposer: 'Alice', approvers: 'Alice, Bob', state: 'confirmed', settled: true, open: false, value_zat: 150000000, txid: '', ...over,
 })
 const generatedAt = new Date('2026-10-29T12:34:56Z')
 const data = (items: LedgerXlsxItem[], filter = ''): LedgerXlsxData => ({ vaultName: 'Caixa', period: '2026-10-01', filter, generatedAt, items, labels })
@@ -56,7 +61,7 @@ describe('the XLSX ledger export (#302)', () => {
   it('gives every movement its memo and its txid, linked to the public explorer', async () => {
     const wb = await buildLedgerWorkbook(data([
       item({ memo: 'October rent', txid: TXID }),
-      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Alice', address: 'u1alice', memo: 'Alice Oct', state: 'awaiting', settled: false, open: true, zec: 0.25 }),
+      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Alice', address: 'u1alice', memo: 'Alice Oct', state: 'awaiting', settled: false, open: true, value_zat: 25000000 }),
     ]))
     const mv = wb.getWorksheet('Movements')!
     expect((mv.getRow(1).values as unknown[]).slice(1)).toEqual([
@@ -73,7 +78,7 @@ describe('the XLSX ledger export (#302)', () => {
     // used to SUM the whole value column, so it added the refused row that neither summary total
     // counts, and disagreed with both of them. It is now the two summary totals added together.
     const wb = await buildLedgerWorkbook(data([
-      item(), item({ settled: false, open: true, state: 'awaiting', zec: 0.25 }), item({ settled: false, open: false, state: 'rejected', zec: 0.5 }),
+      item(), item({ settled: false, open: true, state: 'awaiting', value_zat: 25000000 }), item({ settled: false, open: false, state: 'rejected', value_zat: 50000000 }),
     ]))
     const mv = wb.getWorksheet('Movements')!
     const total = mv.getRow(5) // header, three rows, total
@@ -115,7 +120,7 @@ describe('the XLSX ledger export (#302)', () => {
     expect(summaryValue(back, 'Generated')).toBe('2026-10-29 12:34')
   })
   it('shows every amount to the zatoshi: eight decimals on the rows, the total and the summary (#303)', async () => {
-    const wb = await buildLedgerWorkbook(data([item({ zec: 0.00001234, settled: true })]))
+    const wb = await buildLedgerWorkbook(data([item({ value_zat: 1234, settled: true })]))
     const mv = wb.getWorksheet('Movements')!
     expect(mv.getColumn('zec').numFmt).toBe('0.00000000')
     expect(mv.getRow(3).getCell('zec').numFmt).toBe('0.00000000') // the total row
@@ -130,9 +135,9 @@ describe('the XLSX ledger export (#302)', () => {
     // stored with a formula, and there was none, so the three totals were blank. Read back from the
     // written file, as such a viewer would. 0.1 + 0.2 is 0.30000000000000004 in floating point.
     const wb = await buildLedgerWorkbook(data([
-      item({ zec: 0.1 }), item({ zec: 0.2 }),
-      item({ state: 'awaiting', settled: false, open: true, zec: 0.00000001 }),
-      item({ state: 'rejected', settled: false, open: false, zec: 5 }),
+      item({ value_zat: 10000000 }), item({ value_zat: 20000000 }),
+      item({ state: 'awaiting', settled: false, open: true, value_zat: 1 }),
+      item({ state: 'rejected', settled: false, open: false, value_zat: 500000000 }),
     ]))
     const buf = await wb.xlsx.writeBuffer()
     const mod = await import('exceljs')
@@ -151,9 +156,9 @@ describe('the XLSX ledger export (#302)', () => {
   it('counts as open only what can still move: a refused or expired row is neither settled nor open', async () => {
     const wb = await buildLedgerWorkbook(data([
       item(), // confirmed, 1.5: settled
-      item({ state: 'awaiting', settled: false, open: true, zec: 0.25 }), // still able to move
-      item({ state: 'rejected', settled: false, open: false, zec: 0.75 }), // closed, no money moved
-      item({ state: 'expired', settled: false, open: false, zec: 0.5 }),
+      item({ state: 'awaiting', settled: false, open: true, value_zat: 25000000 }), // still able to move
+      item({ state: 'rejected', settled: false, open: false, value_zat: 75000000 }), // closed, no money moved
+      item({ state: 'expired', settled: false, open: false, value_zat: 50000000 }),
     ]))
     expect(shown(wb, summaryValue(wb, 'Settled out'))).toBe(1.5)
     expect(shown(wb, summaryValue(wb, 'Open'))).toBe(0.25)
@@ -161,7 +166,7 @@ describe('the XLSX ledger export (#302)', () => {
   it('names who proposed and who approved on every movement, as the vault records them', async () => {
     const wb = await buildLedgerWorkbook(data([
       item({ proposer: 'Alice', approvers: 'Alice, Bob' }),
-      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Carol', proposer: 'Bob', approvers: '', state: 'awaiting', settled: false, open: true, zec: 0.25 }),
+      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Carol', proposer: 'Bob', approvers: '', state: 'awaiting', settled: false, open: true, value_zat: 25000000 }),
     ]))
     const mv = wb.getWorksheet('Movements')!
     const header = (mv.getRow(1).values as unknown[]).slice(1)
