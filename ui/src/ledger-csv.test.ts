@@ -7,14 +7,19 @@ import type { LedgerXlsxData, LedgerXlsxItem } from './ledgerXlsx'
 // neutralised, so a memo or a payee name cannot become a formula in a spreadsheet.
 
 const labels: LedgerXlsxData['labels'] = {
-  summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter', generated: 'Generated',
+  summary: 'Summary', movements: 'Movements', byPayee: 'By beneficiary', vault: 'Vault', period: 'Period', filter: 'Filter', generated: 'Generated',
   entries: 'Entries', settledOut: 'Settled out', open: 'Open', colDate: 'Date', colDocument: 'Document', colKind: 'Kind',
   colBeneficiary: 'Beneficiary', colAddress: 'Address', colMemo: 'Memo', colProposedBy: 'Proposed by', colApprovedBy: 'Approved by',
   colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value', colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
+  outPayments: 'Outflows: payments', outPayrolls: 'Outflows: payrolls', byState: 'Entries by state',
+  kindPayment: 'Payment', kindPayroll: 'Payroll', position: 'Position (total)', committed: 'Committed to open proposals',
+  available: 'Available', confirming: 'Confirming', asOf: 'Balance as of', difference: 'Difference vs Summary',
+  overCommitted: 'Over-committed', noAddress: 'No address recorded',
+  unreadPayrolls: 'Payrolls whose lines could not be read', balanceUnread: 'Balance could not be read',
 }
 const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
   dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent', memo: '',
-  proposer: 'Alice', approvers: 'Alice, Bob', state: 'confirmed', settled: true, open: false, zec: 1.5, txid: '', ...over,
+  proposer: 'Alice', approvers: 'Alice, Bob', state: 'confirmed', settled: true, open: false, value_zat: 150000000, txid: '', ...over,
 })
 const data = (items: LedgerXlsxItem[]): LedgerXlsxData => ({ vaultName: 'Caixa', period: '2026-10', filter: '', generatedAt: new Date(0), items, labels })
 
@@ -28,7 +33,7 @@ describe('the browser CSV of the ledger', () => {
   })
 
   it('uses the semicolon and the decimal comma for pt-BR, so Excel there reads the amounts as numbers', () => {
-    const row = ledgerCsvText(data([item({ zec: 0.00001234 })]), 'pt-BR').slice(1).split('\r\n')[1]
+    const row = ledgerCsvText(data([item({ value_zat: 1234 })]), 'pt-BR').slice(1).split('\r\n')[1]
     expect(row).toBe('2026-10-01;Rent;Payment;;u1rent;;Alice;Alice, Bob;confirmed;yes;no;0,00001234;')
   })
 

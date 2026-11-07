@@ -52,10 +52,11 @@ history to tidy it is how context gets lost.
   until v0.17.0, which clears it. The recent addresses were also one list for every vault on the
   device, so one vault offered another vault's payees. Removing a vault now takes all of this, the
   same from Settings, from the vault list and from the create and join screen, and for a vault on a
-  local bridge as on the web (there it cleared only the payroll draft). The confirm says what goes
-  and what stays: the device's record of the payments it signed (summaries and dates, no names or
-  amounts), kept on purpose because it stops the device signing a second, different transaction for
-  the same payment. The recent addresses are now kept per vault, and the shared list of earlier
+  local bridge as on the web (there it cleared only the payroll draft). The confirm in Settings and
+  on the vault list says what goes and what stays: the device's record of the payments it signed, kept on purpose because it stops the
+  device signing a second, different transaction for the same payment. That record is not harmless:
+  anyone who can read the browser's storage can tell from it which vault it was and which of its
+  payments the device signed. The recent addresses are now kept per vault, and the shared list of earlier
   versions is dropped the first time the app reads it. **Not covered:** the saved people of a vault
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
@@ -73,13 +74,40 @@ history to tidy it is how context gets lost.
   created before this version, or on a coordinator that does not accept the name yet, still shows
   "Payroll".
 - **"What changed", a tab under Approvals.** What changed state since this device last looked:
-  what arrived for you, became ready, was sent, confirmed, refused, withdrawn or expired (by this
-  device's clock, as on the desk), most pressing first, each named with the word the proposal list
+  what arrived for you, became ready, was sent, confirmed, rejected, cancelled, invalidated or
+  expired (by this device's clock, as on the desk), most pressing first, each named with the word the proposal list
   uses and opening its proposal. The comparison is local, against the list as it was when you last
   pressed "Mark as seen" on this device; a first look takes that snapshot and says there is nothing
   to compare yet, and a change that arrives while the tab is open is shown before it can be marked.
   Nothing new is asked of the coordinator and nothing leaves the device; removing the vault removes
   what this tab kept for it (#151, #125).
+- **Settings says who sees what, and who can do what.** A new section, for the vault on
+  screen: what you and the members, the vault's server, the messages service and anyone with the
+  vault's link can read or do, from the balance and the memos to moving money and voting, with
+  the Private or Open badge, from the one fact this device holds (private or open). What it
+  cannot see is said as such: whether the write gate is on, whether every member's device has
+  registered. The limits are listed as limits: the server builds what the quorum signs and holds
+  the viewing key, the metadata a link still reads on a private vault, the product's own rules,
+  and that Konclave is not audited, and the list says these are the main limits, not all of them.
+  The whole trust model stays in the docs (#244, #308).
+- **Each vault on the list says how it stands.** Under its members: what is free, with the time
+  of the reads it comes from, how many proposals are open (by this device's clock, as on the desk),
+  with the time of that read, and when the last proposal was made. The list reads nothing itself (a
+  balance read makes the coordinator sync the wallet); it shows what this device's last reads of
+  that vault saw, greys the free figure after a day, and says "nothing read on this device yet"
+  until a first read. Removing the vault removes what the list kept for it (#779).
+- **The spreadsheet export has a summary and a sheet by beneficiary.** The Summary shows settled
+  outflows by kind and entries by state as live formulas over Movements, and the vault's position:
+  what the whole book's open proposals hold, what is confirming, and what is available, as a visible
+  subtraction (negative, and said so, when the open proposals exceed what can be spent), dated at the
+  export, with a line saying so when the balance could not be read. A third sheet, By beneficiary,
+  follows the same rule as the book by beneficiary on screen: one row per address with settled and
+  open sums as live SUMIFS over Movements, refused and expired entries left out, a total row and a
+  "Difference vs Summary" row the accountant can re-run in the spreadsheet; a payroll whose lines
+  could not be read is not a row, it is in that difference and its count is said. Every new formula
+  carries the value it computes, summed in whole zatoshi, so the figures show in a viewer that does
+  not recalculate, as the totals do since #812 (#302; a sheet by category waits for the field on
+  the proposal).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks
@@ -101,6 +129,32 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **On the payroll screen, deleting a line could leave the next line showing the deleted line's
+  address.** Lines were tracked by their position, so after a delete the line below kept the text
+  typed or pasted into the one above (an address never picked from the list). The screen showed that
+  address while the line held its own, and the shielded or public hint beside it, read from the
+  line's own address, could contradict what was on screen; saving the line's recipient stored the
+  name against the address that was not on screen. And a recipient saved just as a line above was
+  deleted could land on the line that took its place, replacing that line's address. Each line now
+  has its own identity, whether typed, restored from the draft, imported from CSV, copied from a
+  previous payroll or added from the registry, and every edit finds its line by that identity. The
+  delete alone sent nothing to the wrong address, since the proposal was built from the line's own
+  data; the late save did change a line's data, and is closed by the same fix.
+- **The landing and the help say less than they did, and say what is true.** The landing no longer
+  says the vault "runs entirely in the browser" or that, on the desktop, "nothing runs in the cloud":
+  both the web app and the desktop app use our hosted coordinator and relay, and the page now says
+  so. The hero line no longer says a payment "leaves only when your quorum approves it" (a payment
+  needs the quorum's signatures; the approval vote is a product rule). The help, the vault's desk and the
+  signing panel said a payment is signed by the members who approved it: any member can sign a
+  payment once its proposal reached the quorum, including one who did not vote for it, and they now
+  say that. It no
+  longer lists "your part of the key never leaves your device" among the cryptographic guarantees:
+  that is how the app is built, and the part leaves inside the encrypted backup you export. It no
+  longer says a leaked backup "reveals nothing": it says the backup does not open the vault without
+  the passphrase. The device's reading of a payment is described as shown while the ceremony runs,
+  with no pause to read it first. The roadmap says NU7 is active (since 6 November 2026) and no
+  longer lists work that is done, the desktop links point at v0.17.0, the date of the first
+  cross-machine send is corrected to 2026-08-25, and the fee example says it is today's.
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
   "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
   Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
@@ -115,6 +169,11 @@ history to tidy it is how context gets lost.
   its bar, so even with the bar printed it could be selected and copied out of the file, and a
   browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
   printing. The XLSX export does not change.
+- **Creating a vault, the warning under 5 of 5 recommended "5 of 6".** When every device has to
+  sign, the screen recommends a rule that leaves a margin, and it always added one device; at 5 of 5
+  that is a rule the screen cannot create, since it stops at 5 devices. At 5 of 5 it now recommends
+  4 of 5, and the recommendation reads the same cap as the device control. Below 5 devices nothing
+  changes (#839).
 - **The tabs under Approvals work from the keyboard as tabs do.** Before, each tab was its own Tab
   stop and the arrow keys did nothing. Now the selected tab is the one Tab stop, the arrows move
   between tabs, Home and End go to the first and the last, and the panel is named by its tab.
@@ -123,6 +182,13 @@ history to tidy it is how context gets lost.
 
 - **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
   stays open for that).
+- **The vault list shows what this device saw.** Another device shows what it saw, and the free
+  figure can come from a balance read and a proposals read made at different times (it carries the
+  older time).
+- **On a private vault, the list shows the free amount only while the vault is unlocked.** What it
+  keeps on this device for a private vault is the count of open proposals and the times, no
+  amounts; after a reload the amount comes back once the vault is unlocked and read again. An open
+  vault keeps its figures on the device, as the rest of its data.
 
 ## [0.17.0] 2026-11-06
 

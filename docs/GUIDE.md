@@ -505,7 +505,7 @@ sequenceDiagram
     participant BR as Blind Relay
     participant W as konclave-wasm (per device)
 
-    Note over DA,DB: Each device runs DkgSession locally. The share never leaves the browser
+    Note over DA,DB: Each device runs DkgSession locally. The share stays sealed in the browser
     DA->>W: DkgSession(seat, n, t) and DeviceKey()
     DA->>BR: config{n,t} + hello{encPub}
     DB->>BR: hello{encPub}
@@ -716,7 +716,7 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.13.2**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
+| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.17.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 

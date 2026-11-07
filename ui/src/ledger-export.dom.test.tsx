@@ -20,8 +20,10 @@ vi.mock('./ledgerCsv', async (orig) => ({ ...(await orig<typeof import('./ledger
 const getLedger = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
 const getProposalDetail = vi.hoisted(() => vi.fn())
+const getBalance = vi.hoisted(() => vi.fn(async () => null))
+const getBeneficiaries = vi.hoisted(() => vi.fn(async () => []))
 vi.mock('./api', async (orig) => ({
-  ...(await orig<typeof import('./api')>()), getLedger, getVault, getProposalDetail, ledgerCsvUrl: () => '#', IS_NET: false,
+  ...(await orig<typeof import('./api')>()), getLedger, getVault, getProposalDetail, getBalance, getBeneficiaries, ledgerCsvUrl: () => '#', IS_NET: false,
 }))
 
 const { default: Ledger } = await import('./screens/Ledger')
@@ -211,5 +213,27 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     const amounts = [...document.querySelectorAll('.li-sub .num')].map((el) => el.textContent ?? '')
     expect(amounts.length).toBe(2)
     for (const a of amounts) expect(a).not.toMatch(/^\u2212/)
+  })
+
+  it('the CSV carries the rows only: it waits for neither the balance nor the registry', async () => {
+    getBalance.mockClear(); getBeneficiaries.mockClear(); exportLedgerCsv.mockClear()
+    mount()
+    await screen.findByText('October rent')
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    await waitFor(() => expect(exportLedgerCsv).toHaveBeenCalled())
+    expect(getBalance).not.toHaveBeenCalled()
+    expect(getBeneficiaries).not.toHaveBeenCalled()
+    expect(exportLedgerCsv.mock.lastCall![0].items.map((i) => i.value_zat)).toEqual([25000000, 120000000, 80000000, 150000000])
+  })
+
+  it('a payroll whose lines could not be read reaches the spreadsheet marked as such, at its own value', async () => {
+    getProposalDetail.mockResolvedValue(null)
+    mount()
+    await screen.findByText('October rent')
+    await clickExport()
+    const roll = exported().items.filter((i) => i.unread)
+    expect(roll).toHaveLength(1)
+    expect(roll[0]).toMatchObject({ kind: en('kind.payroll'), address: '', value_zat: 200000000 })
+    expect(exported().items.filter((i) => !i.unread).map((i) => i.address)).toEqual(['u1open', 'u1rent'])
   })
 })
