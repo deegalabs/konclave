@@ -46,7 +46,26 @@ history to tidy it is how context gets lost.
   of the read it comes from, how many proposals are open, when the last proposal was made, and
   when this device last read it. The list reads nothing itself (a balance read makes the
   coordinator sync the wallet); it shows what this device's last reads of that vault saw, greys
-  the figures after a day, and says "not opened on this device yet" until a first read.
+  the figures after a day, and says "not opened on this device yet" until a first read (#779).
+
+### Changed
+
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo", the crash screen's "confira o livro" and the in-app docs), the plain word
+  over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
+  the screen title and the activity tab equal in every language, and fails if any Portuguese text or
+  in-app doc says "razão" again.
+
+### Fixed
+
+- **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
+  "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
+  Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
+  showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
+  live formula (#812).
 
 ### Known limits
 

@@ -116,12 +116,20 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   const sheet = (name: string) => (/\s/.test(name) ? `'${name}'` : name) // quote a sheet name only if it has spaces
   const MV = sheet(L.movements)
   const span = (col: string) => `${col}${firstData}:${col}${lastData}`
-  const sumIf = (col: string, yesNo: string) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(col)},"${yesNo}",${MV}!${span(valueCol)})` })
+  // Each formula carries the value it computes (#812): a viewer that does not recalculate (Excel's
+  // Protected View, a phone previewer) shows that value, and without it the totals were blank. The
+  // export already knows the rows, so it sums them itself, in whole zatoshi: adding ZEC as floating
+  // point makes 0.1 + 0.2 a figure no ledger holds.
+  const zatOf = (it: LedgerXlsxItem) => Math.round(it.zec * 1e8)
+  const sumZat = (keep: (it: LedgerXlsxItem) => boolean) => data.items.reduce((acc, it) => acc + (keep(it) ? zatOf(it) : 0), 0)
+  const settledZat = sumZat((it) => it.settled)
+  const openZat = sumZat((it) => it.open)
+  const sumIf = (col: string, yesNo: string, zat: number) => (n === 0 ? 0 : { formula: `SUMIF(${MV}!${span(col)},"${yesNo}",${MV}!${span(valueCol)})`, result: zat / 1e8 })
 
   // ---- Summary sheet (first tab) with live formulas referencing Movements ----
   const sm = wb.addWorksheet(L.summary)
   sm.columns = [{ key: 'k', width: 20 }, { key: 'v', width: 34 }]
-  const put = (k: string, v: string | number | { formula: string }, opts?: { money?: boolean; bold?: boolean }) => {
+  const put = (k: string, v: string | number | { formula: string; result: number }, opts?: { money?: boolean; bold?: boolean }) => {
     const row = sm.addRow({ k, v })
     row.getCell('k').font = { bold: true }
     if (opts?.bold) row.getCell('v').font = { bold: true }
@@ -137,8 +145,8 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   put(L.generated, data.generatedAt.toISOString().slice(0, 16).replace('T', ' '))
   put(L.entries, n)
   sm.addRow({})
-  put(L.settledOut, sumIf(settledCol, L.yes), { money: true, bold: true })
-  put(L.open, sumIf(openCol, L.yes), { money: true, bold: true })
+  put(L.settledOut, sumIf(settledCol, L.yes, settledZat), { money: true, bold: true })
+  put(L.open, sumIf(openCol, L.yes, openZat), { money: true, bold: true })
 
   // ---- Movements sheet (itemized) ----
   const mv = wb.addWorksheet(L.movements, { views: [{ state: 'frozen', ySplit: 1 }] })
@@ -165,7 +173,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   // column added the refused and expired rows, whose money never left and which enter neither
   // summary total, so the sheet's own total disagreed with both of them.
   const sumIfHere = (col: string) => `SUMIF(${span(col)},"${L.yes}",${span(valueCol)})`
-  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}` } })
+  const totalRow = mv.addRow({ document: L.total, zec: n === 0 ? 0 : { formula: `${sumIfHere(settledCol)}+${sumIfHere(openCol)}`, result: (settledZat + openZat) / 1e8 } })
   const header = mv.getRow(1)
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }
