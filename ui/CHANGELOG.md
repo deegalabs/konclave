@@ -58,6 +58,15 @@ history to tidy it is how context gets lost.
   Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
   showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
   live formula (#812).
+- **The book's PDF is a document, the same from a phone and from a computer (#811).** The "PDF"
+  button prints the page, and the page printed as laid out: from a phone that was the stacked cards
+  with the menu and the filter buttons, and a table that broke across pages. Printed, the book now
+  has a full-width table whose header repeats on each page, rows that never split across a page, the
+  totals and rows the screen shows, the active filter written out, and no menu or buttons. Amounts
+  hidden on screen are not in the PDF at all, from any page: until now the figure was drawn under
+  its bar, so even with the bar printed it could be selected and copied out of the file, and a
+  browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
+  printing. The XLSX export does not change.
 
 ## [0.17.0] 2026-11-06
 
