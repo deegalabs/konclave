@@ -299,11 +299,14 @@ export default function NewPayroll() {
   function enableUsd() { setUsdEnabled(true); setUsdOn(true); void refreshRate() }
   useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
 
-  function updateRow(i: number, patch: Partial<Row>) {
-    setRows((prev) => patchRow(prev, i, patch))
+  // A line is addressed by its identity, found in the sheet as it is when the write lands: a write
+  // that arrives late (the recipient field saves after an await) must not land on whichever line
+  // took the old position after a delete.
+  function updateRow(k: string, patch: Partial<Row>) {
+    setRows((prev) => { const i = prev.findIndex((r) => r.k === k); return i < 0 ? prev : patchRow(prev, i, patch) })
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
-  const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+  const removeRow = (k: string) => setRows((prev) => { const rest = prev.filter((r) => r.k !== k); return rest.length ? rest : [emptyRow()] })
   // Funds are released when someone else's proposal is sent or refused, and a payroll blocked by a
   // reservation must see it lift without a reload: the same cadence as the balance and as Pay.
   usePoll(() => {
@@ -529,7 +532,7 @@ export default function NewPayroll() {
                 <div key={r.k} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
                   <span className="plr-n mono">{i + 1}</span>
                   {/* Leaving the address field after looking at it retires the "check" mark (blur bubbles). */}
-                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(i, {}) }}>
+                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(r.k, {}) }}>
                     <RecipientCombobox
                       compact
                       invalid={!!issue}
@@ -539,20 +542,20 @@ export default function NewPayroll() {
                       name={r.label || null}
                       placeholder={t('payroll.recipientPlaceholder')}
                       onReloadBenefs={reloadBenefs}
-                      onChange={(rc) => updateRow(i, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
+                      onChange={(rc) => updateRow(r.k, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
                     />
                   </div>
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(r.k, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
-                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
-                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
+                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(r.k, { memo: e.target.value })} disabled={k === 'transparent'} />
+                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(r.k)}>×</button>
                   {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
                   {note && <div className={'cell-warn plr-issue' + (issue ? ' err' : ' warn')} id={`plr-issue-${i}`} role={issue ? 'status' : undefined}>{note}</div>}
-                  {needsVouch(r, benefs) && <button className="btn ghost sm-btn" aria-describedby={`plr-issue-${i}`} onClick={() => updateRow(i, { vouched: true })}>{t('payroll.vouchBtn', { n: i + 1 })}</button>}
+                  {needsVouch(r, benefs) && <button className="btn ghost sm-btn" aria-describedby={`plr-issue-${i}`} onClick={() => updateRow(r.k, { vouched: true })}>{t('payroll.vouchBtn', { n: i + 1 })}</button>}
                 </div>
               )
             })}

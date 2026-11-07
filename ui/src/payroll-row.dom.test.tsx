@@ -180,7 +180,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
   it('S10 a restored draft with rows saved by an older build (no identity) still gets one each', async () => {
     localStorage.setItem(DRAFT, JSON.stringify({ rows: [{ address: A }, { address: B }, { address: C }] }))
     const { container: c } = await mount()
-    typeAddr(c, 0, A) // pasted over the restored row, so the field holds local text
+    typeAddr(c, 0, C) // a different address over the restored row, so the field holds local text
     del(c, 0)
     expect(shown(c).map((s) => s.recipient)).toEqual([B, C])
   })
@@ -232,6 +232,52 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     expect(after[0]!.recipient).toContain('Saved Sam')
     expect(after[1]!.recipient).toContain('Other Olga')
     expect(state().map((r) => r.address)).toEqual([SAVED, B])
+  })
+
+  it('S14 a stored identity is never trusted: a draft with duplicate or odd keys still gives each line its own', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    localStorage.setItem(DRAFT, JSON.stringify({ rows: [
+      { label: '', address: A, value: '0.1', memo: '', k: 'r1' }, { label: '', address: A, value: '0.1', memo: '', k: 'r1' },
+      { label: '', address: B, value: '0.2', memo: '', k: 7 }] }))
+    const { container: c } = await mount()
+    expect(shown(c).map((s) => s.recipient)).toEqual([A, A, B])
+    typeAddr(c, 0, C)
+    del(c, 0)
+    expect(shown(c).map((s) => s.recipient)).toEqual([A, B])
+    expect(err.mock.calls.filter((x) => x.join(' ').includes('same key'))).toEqual([])
+    err.mockRestore()
+  })
+
+  it('S15 a CSV-imported line keeps its typed text on the first keystroke (it is not remounted)', async () => {
+    previewPayroll.mockResolvedValue({ errors: [], lines: [
+      { label: '', address: B, value_zec: '0.2', memo: '' }, { label: '', address: C, value_zec: '0.3', memo: '' }] })
+    const { container: c } = await mount()
+    fireEvent.click(screen.getByRole('button', { name: dict['payroll.importCsv'] }))
+    fireEvent.click(screen.getByRole('button', { name: dict['payroll.csvRead'] }))
+    await waitFor(() => expect(shown(c)).toHaveLength(2))
+    const before = lines(c)[0]!.querySelector('input.rcb-input')!
+    fireEvent.change(before, { target: { value: 'Ol' } })
+    const after = lines(c)[0]!.querySelector<HTMLInputElement>('input.rcb-input')!
+    expect(after).toBe(before)
+    expect(after.value).toBe('Ol')
+  })
+
+  it('S16 a recipient saved while a line above is deleted lands on its own line, not the one that took its place', async () => {
+    let resolveSave: (v: unknown) => void = () => {}
+    addBeneficiary.mockImplementation((name: string, address: string) => new Promise((res) => {
+      resolveSave = () => res({ ok: true, beneficiary: { id: 'n', name, address, memo: '' } })
+    }))
+    const { container: c } = await mount()
+    typeAddr(c, 0, A); setVal(c, 0, '0.1'); addRow(); typeAddr(c, 1, B); setVal(c, 1, '0.2'); addRow(); typeAddr(c, 2, C); setVal(c, 2, '0.3')
+    fireEvent.click(lines(c)[1]!.querySelector('button.rcb-savesuggest')!)
+    fireEvent.change(lines(c)[1]!.querySelector('.rcb-savebox input')!, { target: { value: 'Bea' } })
+    fireEvent.click(lines(c)[1]!.querySelector('.rcb-savebox .btn.ok')!)
+    await waitFor(() => expect(addBeneficiary).toHaveBeenCalled())
+    del(c, 0) // B's line moves up while the save is in flight
+    resolveSave(null)
+    await waitFor(() => expect(state().find((r) => r.label === 'Bea')).toBeTruthy())
+    expect(state().map((r) => [r.address, r.value])).toEqual([[B, '0.2'], [C, '0.3']])
+    expect(state().find((r) => r.label === 'Bea')!.address).toBe(B)
   })
 
   it('CONTROL C0 row 1 pasted, row 2 SAVED: the survivor renders the chip, the stale text is hidden', async () => {
