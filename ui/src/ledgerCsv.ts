@@ -10,6 +10,7 @@
 // when the file opens in a spreadsheet. Only text cells are candidates: the amount column is ours.
 
 import { downloadBlob } from './download'
+import { zatToZec } from './format'
 import type { LedgerXlsxData, LedgerXlsxItem } from './ledgerXlsx'
 
 export type CsvLocale = 'pt-BR' | 'en'
@@ -22,8 +23,8 @@ export function csvCell(raw: string, delimiter: string): string {
   return /["\n\r]/.test(safe) || safe.includes(delimiter) ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 
-function amount(zec: number, decimal: string): string {
-  const s = zec.toFixed(8)
+function amount(zat: number, decimal: string): string {
+  const s = zatToZec(zat)
   return decimal === '.' ? s : s.replace('.', decimal)
 }
 
@@ -36,7 +37,7 @@ export function ledgerCsvText(data: LedgerXlsxData, locale: CsvLocale): string {
   const row = (it: LedgerXlsxItem) => [
     it.dateISO, it.document, it.kind, it.beneficiary, it.address, it.memo, it.proposer, it.approvers, it.state,
     it.settled ? L.yes : L.no, it.open ? L.yes : L.no,
-  ].map((c) => csvCell(c, delimiter)).concat([amount(it.zec, decimal), csvCell(it.txid, delimiter)])
+  ].map((c) => csvCell(c, delimiter)).concat([amount(it.value_zat, decimal), csvCell(it.txid, delimiter)])
   const lines = [head.map((c) => csvCell(c, delimiter)), ...data.items.map(row)]
   return '﻿' + lines.map((cells) => cells.join(delimiter)).join('\r\n') + '\r\n'
 }

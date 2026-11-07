@@ -51,6 +51,18 @@ describe('"What changed", as the member uses it', () => {
   })
   afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); poll.fn = null })
 
+  it('with no vault selected, says so instead of "nothing changed", and asks for nothing', async () => {
+    getSelectedVault.mockReturnValue(null)
+    getProposals.mockResolvedValue([p('x', 'ready')])
+    mount()
+    await screen.findByText(en('since.noVault'))
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByText(en('since.nothing'))).toBeNull()
+    expect(screen.queryByText(en('since.firstTime'))).toBeNull()
+    expect(screen.queryByRole('button', { name: en('since.markSeen') })).toBeNull()
+    expect(getProposals).not.toHaveBeenCalled()
+  })
+
   it('a first look takes this vault\'s snapshot, says there is nothing to compare, and offers nothing to mark', async () => {
     localStorage.setItem(`konclave.seen.${B}`, JSON.stringify({ at: 5, states: { x: 'awaiting' } }))
     getProposals.mockResolvedValue([p('x', 'ready')])

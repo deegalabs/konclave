@@ -3,7 +3,8 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { balanceParts, reservedZatOf } from '../balance-parts'
 import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
@@ -142,7 +143,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   }
 
   // The rows and labels both exports share (#302, #301): built once, from what the screen shows.
-  async function exportData(): Promise<LedgerXlsxData> {
+  async function exportData(kind: 'xlsx' | 'csv'): Promise<LedgerXlsxData> {
       // The entry's local date, the one the table shows, not the UTC day (#304).
       const iso = (ts?: number) => {
         if (!ts) return ''
@@ -162,6 +163,27 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         read[p.id] = lines
         setLinesById((m) => ({ ...m, [p.id]: lines }))
       }
+      const head = {
+        vaultName: vaultName ?? 'Konclave',
+        period: win ? winLabel : periodOf(filtered),
+        filter: filterLabel,
+        generatedAt: new Date(),
+        labels: {
+          summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'), byPayee: t('ledger.byPayee'),
+          vault: t('ledger.vault'), period: t('ledger.period'), filter: t('ledger.xlsxFilter'), generated: t('ledger.xlsxGenerated'),
+          entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
+          colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
+          colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colMemo: t('ledger.colMemo'),
+          colProposedBy: t('ledger.colProposedBy'), colApprovedBy: t('ledger.colApprovedBy'),
+          colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
+          colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
+          outPayments: t('ledger.xlsxOutPayments'), outPayrolls: t('ledger.xlsxOutPayrolls'), byState: t('ledger.xlsxByState'),
+          kindPayment: t('kind.payment'), kindPayroll: t('kind.payroll'),
+          position: t('ledger.xlsxPosition'), committed: t('ledger.xlsxCommitted'), available: t('ledger.xlsxAvailable'), confirming: t('ledger.xlsxConfirming'), asOf: t('ledger.xlsxAsOf'),
+          difference: t('ledger.xlsxDifference'), overCommitted: t('ledger.xlsxOverCommitted'), noAddress: t('ledger.xlsxNoAddress'),
+          unreadPayrolls: t('ledger.xlsxUnreadPayrolls'), balanceUnread: t('ledger.xlsxBalanceUnread'),
+        },
+      }
       const items: LedgerXlsxItem[] = itemizeBook(filtered, read).map((it) => {
         const p = it.proposal
         return {
@@ -170,33 +192,32 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           state: t('state.' + p.state), settled: SETTLED(p.state), open: isOpen(p),
           proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '',
           kind: p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'),
-          beneficiary: it.label, address: it.address, memo: it.memo, zec: Number(zatToZec(it.value_zat)),
+          beneficiary: it.label, address: it.address, memo: it.memo, value_zat: it.value_zat, unread: it.unread,
         }
       })
-      return {
-        vaultName: vaultName ?? 'Konclave',
-        period: win ? winLabel : periodOf(filtered),
-        filter: filterLabel,
-        generatedAt: new Date(),
-        items,
-        labels: {
-          summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'),
-          vault: t('ledger.vault'), period: t('ledger.period'), filter: t('ledger.xlsxFilter'), generated: t('ledger.xlsxGenerated'),
-          entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
-          colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
-          colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colMemo: t('ledger.colMemo'),
-          colProposedBy: t('ledger.colProposedBy'), colApprovedBy: t('ledger.colApprovedBy'),
-          colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
-          colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
-        },
-      }
+      // The CSV carries the rows only: it does not wait for the balance or the registry.
+      if (kind === 'csv') return { ...head, items }
+      // The balance as of the export, read once: the position, what open proposals of the WHOLE
+      // book hold, what is free, what is confirming. Left out, and said so, when the read brings nothing.
+      const bal = await getBalance()
+      const reserved = reservedZatOf(ledger)
+      const parts = bal && bal.total_zat != null && reserved != null
+        ? balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
+        : null
+      // Committed is the whole book's open proposals, unclamped (the composition clamps it for the
+      // bar); the sheet writes the real figure and says when it exceeds what can be spent.
+      const balance = parts
+        ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved ?? 0)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
+        : undefined
+      const registry = benefs.length ? benefs : (await getBeneficiaries()) ?? []
+      return { ...head, items, balance, registry }
   }
 
   async function exportAs(kind: 'xlsx' | 'csv') {
     if (exporting) return
     setExporting(kind)
     try {
-      const data = await exportData()
+      const data = await exportData(kind)
       if (kind === 'xlsx') await exportLedgerXlsx(data)
       else await exportLedgerCsv(data, locale)
     } finally {

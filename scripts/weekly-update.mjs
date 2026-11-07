@@ -25,6 +25,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { unreleasedOf } from './changelog-sections.mjs'
 
 // `--posted` moves the window. Deliberately a separate act from generating the material: the hook
 // never advances it, so a week that did not get posted is still there next time.
@@ -105,12 +106,7 @@ function claimFor(txid) {
 }
 
 function unreleased() {
-  const lines = readFileSync('CHANGELOG.md', 'utf8').split('\n')
-  const s = lines.findIndex((l) => l.startsWith('## [Unreleased]'))
-  if (s === -1) return ''
-  let e = lines.length
-  for (let i = s + 1; i < lines.length; i++) if (lines[i].startsWith('## ')) { e = i; break }
-  return lines.slice(s + 1, e).join('\n').trim()
+  return unreleasedOf(readFileSync('CHANGELOG.md', 'utf8'), 'CHANGELOG.md')
 }
 
 const prs = mergedPrs()
