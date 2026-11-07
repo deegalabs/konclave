@@ -2020,6 +2020,10 @@ fn with_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cur
         &cors_allow_headers(),
     ));
     r.add_header(header("Content-Type", "application/json"));
+    // Every answer goes through here, so none is kept by the browser's HTTP cache: the private
+    // reads are fetched under URLs that carry the vault id, and a stored copy would outlive the
+    // session, the lock and a removal of the vault from the device.
+    r.add_header(header("Cache-Control", "no-store"));
     r
 }
 
@@ -3052,6 +3056,34 @@ use orchestrator::helper::set_read_key;
 
 #[cfg(test)]
 mod tests {
+
+    /// No answer of the coordinator may be kept by the browser's HTTP cache. Its private reads
+    /// (proposals, ledger, transactions, members, the viewing key) are fetched under URLs that carry
+    /// the vault id, and a cached copy would outlive the session, the lock and a removal of the vault
+    /// from the device. Asserted on what a worker sends (`http_response`) for a gated read, and on
+    /// the preflight, with the header name and value as literals.
+    #[test]
+    fn no_answer_may_be_kept_by_the_browser_cache() {
+        let st = HelperState::new();
+        let read = handle(
+            &st,
+            &cfg(),
+            &Method::Get,
+            "/api/vault/proposals?vault=00",
+            b"",
+        );
+        for r in [
+            http_response(read),
+            with_cors(Response::from_data(Vec::new())),
+        ] {
+            let cache = r
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv("Cache-Control"))
+                .map(|h| h.value.as_str().to_string());
+            assert_eq!(cache.as_deref(), Some("no-store"));
+        }
+    }
 
     /// The preflight must ANNOUNCE the read token, or a browser never sends it and every private
     /// read fails before it reaches a handler - which is what production did on 2026-09-06: the

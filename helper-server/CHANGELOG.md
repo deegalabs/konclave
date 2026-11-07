@@ -203,6 +203,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
+  read made under a vault's address does not stay in the browser after the session ends.
+
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
   failure after everyone had voted. Creating one is now refused with a `422` `too many actions`,

@@ -183,11 +183,14 @@ async function fetchRetryingBusy(
  *  per-route memory for the screens that ask for it (read-failure.ts), as every read always did. */
 type ReadResult<T> = { ok: T } | { failure: ReadFailure | null; saturated?: boolean }
 
+// Every read asks the browser not to store the answer (`cache: 'no-store'`), as the coordinator
+// also says: a private read lives under a URL with the vault id, and a stored copy would outlive
+// the session, the lock and a removal of the vault from the device.
 async function readJsonResult<T>(path: string): Promise<ReadResult<T>> {
   const base = helperBase()
   if (!base) return { failure: null }
   try {
-    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path), cache: 'no-store' })
     if (res.status === 503) {
       // A saturated coordinator is read like a busy wallet: the screen keeps what it shows.
       const kind = busyOf(res.status, await res.json().catch(() => null))
@@ -303,7 +306,7 @@ async function getText(path: string): Promise<string | null> {
   const base = helperBase()
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path), cache: 'no-store' })
     if (!res.ok) return null
     return await res.text()
   } catch {
@@ -346,7 +349,7 @@ export async function coordinatorCreationMin(): Promise<number | null> {
   if (!base) return null
   try {
     // A coordinator that hangs must not hold a creation up: no answer in time is no minimum.
-    const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(4000) })
+    const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(4000), cache: 'no-store' })
     if (!res.ok) return null
     const h = (await res.json()) as { client?: { creation?: unknown } } | null
     const c = h?.client?.creation
