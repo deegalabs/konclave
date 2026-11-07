@@ -141,3 +141,52 @@ describe('every fragment in the repository is a valid fragment (the gate reads p
     expect(fragmentProblem('ui/changelog.d/fixed/x.md', '- ok')).toBeNull()
   })
 })
+
+// "What is unreleased" has one reader, unreleasedOf, used by the release notes and the weekly material.
+// Before it, release.mjs folded the fragments in and weekly-update.mjs did not, so a fragment vanished
+// from the weekly material.
+describe('the one reader of Unreleased', () => {
+  it('folds the fragments beside a changelog into its Unreleased section', async () => {
+    // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+    const { unreleasedOf } = await import('../../scripts/changelog-sections.mjs')
+    const dir = mkdtempSync(join(tmpdir(), 'kc-unrel-'))
+    const file = join(dir, 'CHANGELOG.md')
+    const md = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- in the file\n\n## [0.1.0] 2026-01-01\n\n- old\n'
+    writeFileSync(file, md)
+    mkdirSync(join(dir, 'changelog.d', 'added'), { recursive: true })
+    writeFileSync(join(dir, 'changelog.d', 'added', 'x.md'), '- from a fragment\n')
+    const body = unreleasedOf(md, file)
+    expect(body).toContain('- in the file')
+    expect(body).toContain('- from a fragment')
+    expect(body).not.toContain('- old')
+  })
+
+  it('no other script parses the Unreleased heading itself', () => {
+    const scripts = new URL('../../scripts/', import.meta.url).pathname
+    const offenders = readdirSync(scripts)
+      .filter((f) => f.endsWith('.mjs') && f !== 'changelog-sections.mjs')
+      .filter((f) => {
+        const src = readFileSync(join(scripts, f), 'utf8')
+        // An escaped heading in a regex, a string search for the heading, or a section read by name.
+        return /\\\[Unreleased\\\]/.test(src) ||
+          /(startsWith|includes|indexOf)\([^\n]*\[Unreleased\]/.test(src) ||
+          /sectionBody\(.*['"]Unreleased['"]/.test(src)
+      })
+    expect(offenders).toEqual([])
+  })
+})
+
+// The lock step in ci.yml names the changelogs it guards; the changelog gate's OWNERS names the
+// changelogs a change must touch. A new product changelog added to one and not the other would go
+// unguarded without a word.
+describe('the lock guards every changelog the gate knows', () => {
+  it('ci.yml lists exactly the OWNERS changelogs', async () => {
+    // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+    const { OWNERS } = await import('../../scripts/changelog-gate.mjs')
+    const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    const line = ci.split('\n').find((l) => l.includes('changelog-sections.mjs lock'))!
+    const listed = line.split(/\s+/).filter((w) => w.endsWith('CHANGELOG.md')).sort()
+    const owned = [...new Set((OWNERS as [string, string][]).map(([, c]) => c))].sort()
+    expect(listed).toEqual(owned)
+  })
+})

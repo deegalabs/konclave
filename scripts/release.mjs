@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments } from './changelog-sections.mjs'
+import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments, replaceUnreleasedHeading } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -288,16 +288,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     let md
     try { md = readFileSync(file, 'utf8') } catch { return false }
     // Already cut: re-running must be a no-op, not a second empty section.
-    if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(md)) return false
+    if (hasSection(md, version)) return false
     // A source with nothing unreleased is skipped, not fatal. The shell can be untouched for a
     // release that is all app, and the reverse happens too.
-    if (!/^## \[Unreleased\]/m.test(md)) return false
+    if (!hasSection(md, 'Unreleased')) return false
     // Fold the per-PR fragments into the file first, under the right headings, and delete them.
     compileFragments(file, fragmentDirOf(file))
     md = readFileSync(file, 'utf8')
     const day = new Date().toISOString().slice(0, 10)
     const head = `## [Unreleased]\n\n## [${version}] ${day}` + (note ? `\n\n${note}` : '')
-    writeFileSync(file, md.replace(/^## \[Unreleased\]/m, head))
+    writeFileSync(file, replaceUnreleasedHeading(md, head))
     return true
   }
 

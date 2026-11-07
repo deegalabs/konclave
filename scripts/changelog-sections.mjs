@@ -128,13 +128,19 @@ export function mergeFragments(md, frags) {
   return [...lines.slice(0, start), rebuilt, ...lines.slice(end)].join('\n')
 }
 
-/** Cut-time: fold the fragments into the file and delete them. Returns how many were compiled. */
 /** What a changelog says is coming: its [Unreleased] section with the per-PR fragments beside it folded
  *  in. The one reader of "what is unreleased", for the release notes and the weekly material alike. */
 export function unreleasedOf(md, file) {
   return sectionBody(mergeFragments(md, readFragments(fragmentDirOf(file))), 'Unreleased')
 }
 
+/** Cut-time: the `## [Unreleased]` heading replaced by `replacement` (the new empty Unreleased plus the
+ *  version's heading). Kept here so the heading is parsed in one file. */
+export function replaceUnreleasedHeading(md, replacement) {
+  return md.replace(/^## \[Unreleased\]/m, replacement)
+}
+
+/** Cut-time: fold the fragments into the file and delete them. Returns how many were compiled. */
 export function compileFragments(file, dir) {
   const frags = readFragments(dir)
   if (!frags.length) return 0
