@@ -9,7 +9,7 @@ import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import MembersPeek from '../MembersPeek'
-import { fmtZec as fmt4, fmtZecExact, expiryLabel, fmtDate } from '../format'
+import { fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
@@ -351,8 +351,12 @@ export default function Dashboard() {
   // Reserved = funds committed by every OPEN proposal (awaiting approval OR approved and awaiting
   // signing). An approved-not-yet-sent proposal still holds its funds; counting only `awaiting`
   // made the reservation vanish the moment quorum was reached.
-  const reservedZec = open.reduce((a, p) => a + parseZ(p.value_zec), 0)
-  const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
+  // Summed in zatoshi, as the composition below is: the decimal strings would put the KPIs through
+  // floating point and could show a figure a cent away from the book's.
+  const reservedZec = open.reduce((a, p) => a + p.value_zat, 0) / 1e8
+  const paidZec = settled.reduce((a, p) => a + p.value_zat, 0) / 1e8
+  const reservedTxt = fmtZecExact(reservedZec)
+  const paidTxt = fmtZecExact(paidZec)
 
   // The balance as a composition rather than one number. `free` is spendable MINUS what open
   // proposals already claim, which is the figure a treasurer is actually asking for: what can be
@@ -383,7 +387,8 @@ export default function Dashboard() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     const label = d.toLocaleDateString(undefined, { month: 'short' })
     const cur = byMonth.get(key) ?? { label, zec: 0 }
-    cur.zec += parseZ(p.value_zec)
+    // Summed in zatoshi, so the month's figure is the sum of the book's, to the zatoshi.
+    cur.zec = (Math.round(cur.zec * 1e8) + p.value_zat) / 1e8
     byMonth.set(key, cur)
   }
   const spendSeries: SpendPoint[] = Array.from(byMonth.entries())
@@ -486,7 +491,7 @@ export default function Dashboard() {
             <div className="ny-body">
               <Identicon seed={lead.p.proposer} size={38} />
               <div className="ny-main">
-                <div className="ny-amt"><Secret>{fmt4(lead.p.value_zec)}</Secret> <span className="dim small">ZEC</span></div>
+                <div className="ny-amt"><Secret>{fmtZecExact(lead.p.value_zat / 1e8)}</Secret> <span className="dim small">ZEC</span></div>
                 <div className="a-to">{tr('dashboard.memoProposedBy', { memo: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
                 <div className="a-meta">
                   <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < lead.p.approvals_count ? 'on' : ''} />)}</span>
@@ -521,7 +526,7 @@ export default function Dashboard() {
                   return (
                     <Link className="desk-row" key={it.p.id} to="/proposal" state={{ id: it.p.id }}>
                       <span className={'stamp ' + STAMP_CLASS[it.band]}>{t(stampKey(it.band, desk.personal))}</span>
-                      <span className="dq-amt"><Secret sm>{fmt4(it.p.value_zec)}</Secret> <span className="dim">ZEC</span></span>
+                      <span className="dq-amt"><Secret sm>{fmtZecExact(it.p.value_zat / 1e8)}</Secret> <span className="dim">ZEC</span></span>
                       <span className="dq-what">{whatOf(it.p, t)}</span>
                       <span className="prog sm">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < it.p.approvals_count ? 'on' : ''} />)}</span>
                       <span className="dq-when">{when || t('dashboard.ofApprovals', { count: it.p.approvals_count, total: thr })}</span>
@@ -632,7 +637,7 @@ export default function Dashboard() {
             <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
               <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
               <span>{hasFree
-                ? tr('dashboard.readyFree', { amt: fmt4(String((parts?.freeZat ?? 0) / 1e8)) })
+                ? tr('dashboard.readyFree', { amt: fmtZecExact((parts?.freeZat ?? 0) / 1e8) })
                 : !hasBal
                   ? t('dashboard.readyFreeUnknown')
                   : t('dashboard.readyNoFree')}</span>
@@ -663,7 +668,7 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="fig">
-                <Secret><span className="amt">{amt}</span></Secret>
+                <Secret><span className={'amt' + (amt.length > 7 ? ' amt-long' : '')}>{amt}</span></Secret>
                 <span className="unit">ZEC</span>
               </div>
               {/* The balance as a composition. Free is what can be committed WITHOUT
@@ -673,9 +678,9 @@ export default function Dashboard() {
                 <div className="bal-comp">
                   <div className="comp" role="img"
                     aria-label={t('dashboard.compAria', {
-                      free: fmt4(String(parts.freeZat / 1e8)),
-                      reserved: fmt4(String(parts.reservedZat / 1e8)),
-                      confirming: fmt4(String(parts.confirmingZat / 1e8)),
+                      free: fmtZecExact(parts.freeZat / 1e8),
+                      reserved: fmtZecExact(parts.reservedZat / 1e8),
+                      confirming: fmtZecExact(parts.confirmingZat / 1e8),
                     })}>
                     {parts.pct.free > 0 && <span className="c-free" style={{ width: `${parts.pct.free}%` }} />}
                     {parts.pct.reserved > 0 && <span className="c-res" style={{ width: `${parts.pct.reserved}%` }} />}
@@ -683,14 +688,14 @@ export default function Dashboard() {
                   </div>
                   <div className="comp-legend">
                     <span className="cl"><i className="c-free" /> {t('dashboard.compFree')}
-                      <b><Secret sm>{fmt4(String(parts.freeZat / 1e8))}</Secret></b></span>
+                      <b><Secret sm>{fmtZecExact(parts.freeZat / 1e8)}</Secret></b></span>
                     {parts.reservedZat > 0 && (
                       <span className="cl"><i className="c-res" /> {t('dashboard.compReserved')}
-                        <b><Secret sm>{fmt4(String(parts.reservedZat / 1e8))}</Secret></b></span>
+                        <b><Secret sm>{fmtZecExact(parts.reservedZat / 1e8)}</Secret></b></span>
                     )}
                     {parts.confirmingZat > 0 && (
                       <span className="cl"><i className="c-conf" /> {t('dashboard.compConfirming')}
-                        <b><Secret sm>{fmt4(String(parts.confirmingZat / 1e8))}</Secret></b></span>
+                        <b><Secret sm>{fmtZecExact(parts.confirmingZat / 1e8)}</Secret></b></span>
                     )}
                   </div>
                   {parts.overCommitted && (
@@ -708,7 +713,7 @@ export default function Dashboard() {
                       same money counted twice, on the balance card. The composition bar (when
                       `parts` is available) shows the split honestly; this is its fallback and has
                       to be equally honest. */}
-                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: fmt4(String(pendNum)) })}</span>}
+                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: fmtZecExact(pendNum) })}</span>}
                   {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.
@@ -780,11 +785,11 @@ export default function Dashboard() {
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
-              <span className="kpi-v"><Secret sm><b>{fmt4(String(reservedZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              <span className={'kpi-v' + (reservedTxt.length > 7 ? ' kpi-long' : '')}><Secret sm><b>{reservedTxt}</b></Secret> <span className="kpi-u">ZEC</span></span>
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
-              <span className="kpi-v"><Secret sm><b>{fmt4(String(paidZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              <span className={'kpi-v' + (paidTxt.length > 7 ? ' kpi-long' : '')}><Secret sm><b>{paidTxt}</b></Secret> <span className="kpi-u">ZEC</span></span>
               {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
             </div>
           </section>

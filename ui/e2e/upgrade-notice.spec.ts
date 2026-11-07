@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 
 // The dashboard told a member, around a network upgrade, that payments pause around it. NU7 activated
-// on 2026-11-05 and payments after it are proven on mainnet, so the notice was removed (2026-11-07).
+// at block 3,543,405 and payments after it are proven on mainnet, so the notice was removed.
 // This drives the real screen with a stubbed balance at tips that used to show it, and checks that
 // nothing does now. The window rule (`upgrade-notice.ts`) stays in the code for the next upgrade.
 

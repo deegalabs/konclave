@@ -118,18 +118,20 @@ history to tidy it is how context gets lost.
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
 - **The dashboard no longer shows the network-upgrade notice.** It told of the pause around NU7
-  ("The Zcash network has upgraded. If a payment is refused for a while..."). NU7 activated on
-  2026-11-05 and payments after it are proven on mainnet, so the notice is gone with its text. The
+  ("The Zcash network has upgraded. If a payment is refused for a while..."). NU7 activated at block
+  3,543,405 and payments after it are proven on mainnet, so the notice is gone with its text. The
   rule that decides when such a notice applies stays in the code for the next upgrade, and a payment
   refused during an upgrade pause still says why.
 
 ### Fixed
 
-- **The dashboard shows amounts exactly, not rounded to four decimals.** The balance card and the
-  movements rounded every figure to four decimals, so a payment of 0.00015 ZEC was listed as 0.0001,
-  an amount the vault never paid. Both now show the exact figure, as the book and the proposal do
-  since #777: four decimals when that is all the figure has (0.0120), more only when it has them
-  (0.00015).
+- **The dashboard shows amounts exactly, not rounded to four decimals.** Every figure on it rounded
+  to four decimals, so a payment of 0.00015 ZEC was listed as 0.0001, an amount the vault never paid.
+  The balance, its free, reserved and confirming parts, the readiness line, the desk, the movements,
+  the reserved and paid figures and the monthly spend now all show the exact figure, as the book and
+  the proposal do since #777: four decimals when that is all the figure has (0.0120), more only when
+  it has them (0.00015). One amount reads the same everywhere on the screen. A balance or figure with
+  more than four decimals is set smaller so it stays inside its card on a computer.
 - **On the payroll screen, deleting a line could leave the next line showing the deleted line's
   address.** Lines were tracked by their position, so after a delete the line below kept the text
   typed or pasted into the one above (an address never picked from the list). The screen showed that
