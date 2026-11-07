@@ -136,16 +136,16 @@ jobs:
         # version over the runner's pre-installed wasm-pack.
         run: cargo install wasm-pack --version 0.13.1 --locked --force
       - name: Build for the browser (wasm32 + wasm-bindgen)
-        working-directory: konclave-wasm
-        run: wasm-pack build --target web --out-dir /tmp/pkg
+        # The ONE recipe, shared with whoever regenerates the package by hand (scripts/build-wasm-pkg.sh).
+        run: scripts/build-wasm-pkg.sh /tmp/pkg
       - name: The committed package is the build of this source (byte for byte)
         # What the browser runs is ui/src/wasm-pkg/konclave_wasm_bg.wasm, and what gets reviewed is the
         # Rust. Nothing else compared the two, so a binary changed without a Rust diff (or Rust changed
-        # without regenerating) stayed green. Three things are pinned so a red here means a real
+        # without regenerating) stayed green. Four things are pinned so a red here means a real
         # difference and not drift: the compiler (konclave-wasm/rust-toolchain.toml), wasm-pack
-        # (0.13.1 above, which downloads its own wasm-opt, binaryen version_117), and the dependency
-        # versions (the root Cargo.lock). To regenerate after a deliberate change:
-        # `cd konclave-wasm && wasm-pack build --target web --out-dir ../ui/src/wasm-pkg`.
+        # (0.13.1 above, which downloads its own wasm-opt, binaryen version_117), the dependency
+        # versions (the root Cargo.lock) and the absolute paths the .wasm embeds (remapped by
+        # scripts/build-wasm-pkg.sh). To regenerate after a deliberate change: `scripts/build-wasm-pkg.sh --install`.
         run: |
           set -euo pipefail
           for f in konclave_wasm_bg.wasm konclave_wasm.js konclave_wasm.d.ts konclave_wasm_bg.wasm.d.ts; do

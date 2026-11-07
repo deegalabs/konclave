@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-// The committed `ui/src/wasm-pkg` is what the BROWSER runs. CI builds the wasm to a temp directory
-// and never compares it with this one, so a Rust change can merge green and never reach production.
+// The committed `ui/src/wasm-pkg` is what the BROWSER runs. The CI job `wasm` rebuilds it with
+// scripts/build-wasm-pkg.sh and compares it byte for byte; this test is the quick, local half of the same
+// question (is every exported function in the committed declarations?).
 //
 // That is not hypothetical. #430 (refuse a small-order X25519 key) merged on 2026-09-05 and the
 // committed package still predated it: the fix existed in the repo and not in the app. Nothing
@@ -29,8 +30,7 @@ describe('the committed wasm-pkg is not behind the Rust that produced it', () =>
     expect(
       missing,
       `these exports exist in konclave-wasm/src/lib.rs and NOT in the committed package. ` +
-        `Regenerate it: (cd konclave-wasm && wasm-pack build --target web --out-dir /tmp/pkg) ` +
-        `then copy /tmp/pkg/* over ui/src/wasm-pkg/. Missing:`,
+        `Regenerate it: scripts/build-wasm-pkg.sh --install (the one recipe CI also uses). Missing:`,
     ).toEqual([])
   })
 })
