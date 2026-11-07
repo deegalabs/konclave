@@ -33,6 +33,10 @@ describe('the payroll draft belongs to one vault', () => {
     expect(codeOf('Layout.tsx')).toMatch(/clearPayrollDraft\(v\.id\)/)
     const store = codeOf('storage.ts')
     expect(store.slice(store.indexOf('export async function deleteVault'))).toMatch(/clearPayrollDraft\(id\)/)
-    expect(codeOf('screens/Settings.tsx')).toMatch(/clearPayrollDraft\(vault\.id\)/)
+    // The local bridge deletes the record itself; Settings then clears what the browser kept for the
+    // vault through one function (#813), and the draft is part of it.
+    expect(codeOf('screens/Settings.tsx')).toMatch(/clearVaultTraces\(vault\.id\)/)
+    const traces = codeOf('remove-vault.ts')
+    expect(traces.slice(traces.indexOf('export function clearVaultTraces'))).toMatch(/clearPayrollDraft\(id\)/)
   })
 })

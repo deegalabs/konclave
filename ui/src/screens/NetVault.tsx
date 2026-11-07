@@ -4,7 +4,7 @@ import { proposalsReadable, type HostedState, type NetPhase } from '../net-propo
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
 import CopyButton from '../CopyButton'
-import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
+import { getUnlockedShare, setUnlockedShare } from '../session'
 import {
   DeviceKey,
   identifierBytes,
@@ -31,13 +31,13 @@ import {
   updateVaultMeta,
   loadVault,
   listVaults,
-  deleteVault,
   storageAvailable,
   type VaultPublic,
   type VaultLoaded,
   type Governance,
 } from '../storage'
 import { downloadText } from '../download'
+import { removeVaultFromDevice } from '../remove-vault'
 import {
   helperConfigured,
   helperBase,
@@ -987,8 +987,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const doDelete = useCallback(
     async (id: string) => {
       try {
-        await deleteVault(id)
-        clearUnlockedShare(id) // drop the in-memory share when the vault leaves this device
+        // The one removal every screen uses (#813): the record and what this device keeps with it.
+        await removeVaultFromDevice(id)
         await refreshSaved()
       } catch {
         /* deletion failure is non-fatal */
