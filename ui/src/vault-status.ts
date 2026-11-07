@@ -38,7 +38,8 @@ export type VaultStatus = {
   proposalsAt: number | null
 }
 
-const key = (vault: string) => `konclave.status.${vault}`
+export const statusKey = (vault: string) => `konclave.status.${vault}`
+const key = statusKey
 /** A private vault's amounts, in this tab only. */
 const memory = new Map<string, Amounts>()
 
