@@ -30,7 +30,7 @@ export function loadPrfWrap(vaultId: string): PrfWrap | null {
 export function savePrfWrap(vaultId: string, wrap: PrfWrap): void {
   try {
     // The four wrap fields by name, not the object as handed in: `enrolPrf` returns more than the
-    // wrap (D95's `backupEligible`), and what lands in storage is decided here, not by the caller.
+    // wrap (its `backupEligible`), and what lands in storage is decided here, not by the caller.
     const { credentialId, salt, iv, cipher } = wrap
     localStorage.setItem(KEY(vaultId), JSON.stringify({ credentialId, salt, iv, cipher }))
   } catch {

@@ -105,7 +105,7 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
-  // D95: the passkey just created may sync (BE read from its authenticator data). Shown once, after
+  // Decided by the maintainer on 2026-11-06: the passkey just created may sync (BE read from its authenticator data). Shown once, after
   // enrolment, and never blocking it: the shortcut is per device by design, so a synced passkey is
   // the case it does not rely on, and the member is owed that sentence before they do.
   const [pkSynced, setPkSynced] = useState(false)

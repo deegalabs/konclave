@@ -58,7 +58,7 @@ export interface PrfWrap {
 
 /**
  * What a successful enrolment hands back: the wrap to store, plus what the credential said about
- * itself (D95).
+ * itself.
  *
  * `backupEligible` is the BE flag read from the authenticator data's bytes: true means a passkey
  * that may sync to other devices, which is the case the per-device rule refuses to rely on, so the
@@ -236,7 +236,7 @@ export async function enrolPrf(
     const cipher = new Uint8Array(
       await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv.slice().buffer }, await keyFrom(out), secret.slice().buffer),
     )
-    // D95: BE from the bytes. The creation response first, the assertion's as a fallback; BE is
+    // BE from the bytes. The creation response first, the assertion's as a fallback; BE is
     // fixed for the life of the credential, so either says the same thing. Never blocks enrolment.
     const flags = readBackupFlags(authenticatorDataOf(cred))
       ?? (asserted !== cred ? readBackupFlags(authenticatorDataOf(asserted)) : null)

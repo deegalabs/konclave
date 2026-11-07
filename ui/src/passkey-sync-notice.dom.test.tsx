@@ -5,13 +5,15 @@ import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { ToastProvider } from './toast'
 import { en as dict } from './i18n/en'
+import { ptBR } from './i18n/pt-BR'
 const en = (k: string): string => dict[k] ?? k
 
-// D95. Turning the passkey shortcut on from Settings, with a passkey that may sync: the member is
-// told that a synced passkey may stop opening the shortcut on other devices or after a sync, and
-// that the passphrase stays the way in. Enrolment is never blocked. Mounted for real; only the
-// enrolment ceremony, the session secret and the vault's reads are fakes. `backupEligible` is what
-// `enrolPrf` read from the authenticator data's bytes (webauthn-flags.test.ts covers that half).
+// Decided by the maintainer on 2026-11-06. Turning the passkey shortcut on from Settings, with a
+// passkey that may sync: the member is told that the shortcut still works only on this device, that
+// a sync may stop it working here too, and that the passphrase stays the way in. Enrolment is never
+// blocked. Mounted for real; only the enrolment ceremony, the session secret and the vault's reads
+// are fakes. `backupEligible` is what `enrolPrf` read from the authenticator data's bytes
+// (webauthn-flags.test.ts covers that half).
 const enrol = vi.hoisted(() => ({ backupEligible: null as boolean | null }))
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
@@ -41,7 +43,7 @@ async function turnOn() {
   expect(await screen.findByRole('button', { name: en('set.passkeyOff') })).toBeTruthy()
 }
 
-describe('the synced-passkey notice (D95)', () => {
+describe('the synced-passkey notice', () => {
   beforeEach(() => {
     localStorage.clear()
     localStorage.setItem('konclave.locale', 'en')
@@ -72,5 +74,23 @@ describe('the synced-passkey notice (D95)', () => {
     await turnOn()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en('set.passkeyOff') })) })
     expect(screen.queryByText(en('settings.passkeySynced'))).toBeNull()
+  })
+})
+
+describe('the synced-passkey copy', () => {
+  // A synced passkey does not carry the shortcut to another device: the wrap lives on this device
+  // alone. The first version of this sentence said a synced passkey "may stop opening the shortcut
+  // on another device", which reads as if it could open it there. Both languages must say the
+  // shortcut stays on this device.
+  it('en says the shortcut works only on this device, and the passphrase stays the way in', () => {
+    expect(dict['settings.passkeySynced']).toContain('only on this device')
+    expect(dict['settings.passkeySynced']).toContain('passphrase')
+    expect(dict['settings.passkeySynced']).not.toMatch(/another device/)
+  })
+
+  it('pt-BR says the same: s\u00f3 neste aparelho', () => {
+    expect(ptBR['settings.passkeySynced']).toContain('s\u00f3 neste aparelho')
+    expect(ptBR['settings.passkeySynced']).toContain('frase-senha')
+    expect(ptBR['settings.passkeySynced']).not.toMatch(/outro aparelho/)
   })
 })

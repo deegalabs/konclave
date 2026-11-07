@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readBackupFlags } from './webauthn-flags'
 import { enrolPrf, type Authenticator } from './prf-wrap'
 
-// D95. Whether a passkey is a SYNCED one is read from the authenticator data the credential
+// Decided by the maintainer on 2026-11-06. Whether a passkey is a SYNCED one is read from the authenticator data the credential
 // returned, byte by byte (WebAuthn §6.1: rpIdHash is bytes 0..31, the flags byte is byte 32, BE is
 // bit 3 and BS is bit 4). Nothing here trusts a boolean a browser or a library volunteered.
 
@@ -20,7 +20,7 @@ const BE = 0x08
 const BS = 0x10
 const AT = 0x40
 
-describe('reading BE and BS from authenticator data (D95)', () => {
+describe('reading BE and BS from authenticator data', () => {
   it('BE set and BS set: a synced passkey that is backed up', () => {
     expect(readBackupFlags(authData(UP | UV | BE | BS))).toEqual({ eligible: true, backedUp: true })
   })
@@ -67,7 +67,7 @@ describe('reading BE and BS from authenticator data (D95)', () => {
   })
 })
 
-describe('enrolPrf reports BE from the bytes, never from a convenience field (D95)', () => {
+describe('enrolPrf reports BE from the bytes, never from a convenience field', () => {
   const S = new Uint8Array(32).fill(9)
   const RP = 'konclave.xyz'
   const prf = { prf: { results: { first: new Uint8Array(32).fill(7).buffer } } }

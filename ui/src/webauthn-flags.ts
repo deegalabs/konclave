@@ -1,4 +1,4 @@
-// Reading the backup flags a passkey carries (D95).
+// Reading the backup flags a passkey carries (decided by the maintainer on 2026-11-06).
 //
 // The shortcut is per DEVICE by design (prf-wrap.ts, rule 2): the spec guarantees nothing about PRF
 // output surviving a passkey sync. A synced passkey is the case that design refuses to rely on, so
