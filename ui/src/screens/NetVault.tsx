@@ -55,6 +55,7 @@ import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
 import { CREATION_PROTOCOL, creationAllowed } from '../creation-protocol'
+import { CREATE_DEVICE_CAP, noMarginWarning } from '../create-rule'
 import { WALLET_BUSY } from '../helper'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
@@ -1226,7 +1227,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos aparelhos', 'fewer devices')}
                     onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
                   <span className="cv-num">{n}</span>
-                  <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais aparelhos', 'more devices')}
+                  <button type="button" className="cv-step" disabled={n >= CREATE_DEVICE_CAP} aria-label={pe('mais aparelhos', 'more devices')}
                     onClick={() => setN(n + 1)}>+</button>
                 </div>
               </div>
@@ -1249,10 +1250,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             {n === t && (
               <div className="cv-warn" role="note">
                 <span className="cv-warn-tag">{pe('Sem margem de recuperação', 'No recovery margin')}</span>
-                {pe(
-                  `Se um aparelho for perdido, os fundos ficam presos, sem como recuperar. Recomendamos ${t} de ${t + 1}.`,
-                  `If one device is lost, the funds are locked, with no way to recover. We recommend ${t} of ${t + 1}.`,
-                )}
+                {noMarginWarning(t, pe)}
               </div>
             )}
 
