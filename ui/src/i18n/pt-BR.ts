@@ -269,6 +269,17 @@ export const ptBR: Record<string, string> = {
   'activity.tab.proposals': 'Propostas',
   'activity.tab.ledger': 'Livro',
   'activity.tab.evidence': 'Evidências de assinatura',
+  'activity.tab.since': 'O que mudou',
+  'since.title': 'O que mudou desde que este aparelho olhou',
+  'since.seenAt': 'Marcado como visto neste aparelho em {when}.',
+  'since.firstTime': 'Primeira vez neste aparelho: ainda não há com o que comparar. O que mudar de estado daqui em diante aparece aqui.',
+  'since.changes': '{n} mudanças desde que este aparelho olhou.',
+  'since.fromTo': 'de {from} para {to}',
+  'since.nothing': 'Nada mudou de estado desde então.',
+  'since.markSeen': 'Marcar como visto',
+  'since.unreadTitle': 'Não deu para ler as propostas',
+  'since.kind.arrived': 'Chegou para você',
+  'since.kind.new': 'Proposta nova',
 
 
   // Landing / explainer (Intro)
