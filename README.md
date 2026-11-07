@@ -399,6 +399,13 @@ Konclave does **not** reimplement cryptography. It stands on
 [librustzcash](https://github.com/zcash/librustzcash), adding the usability, orchestration, and
 accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash community.
 
+## Built with AI assistance
+
+Konclave is built with AI assistance (Claude Code). A person answers for every line, and AI-assisted
+commits carry a `Co-Authored-By:` trailer going forward; earlier history is unchanged. Contributions
+made with an AI assistant are welcome on the same terms:
+[CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
+
 ## Documentation
 
 - **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** - use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
