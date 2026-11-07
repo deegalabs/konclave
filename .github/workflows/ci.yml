@@ -68,6 +68,28 @@ jobs:
           # say which of them a given entry has actually reached.
           printf '%s\n' "$changed" | node scripts/changelog-gate.mjs
 
+      # Released sections are locked: an entry that lands inside an already-cut `## [x.y.z]` is the
+      # classic merge accident (the branch left before the cut). HEAD^1 is the base and HEAD the
+      # merge result, because pull_request checks out the merge ref. This asks WHERE, never WHAT.
+      # A deliberate amendment carries the `changelog-amend` label (read live, like no-changelog).
+      - name: Released changelog sections are untouched
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' | grep -qx 'changelog-amend'; then
+            echo "Labelled changelog-amend - skipping, deliberately."
+            exit 0
+          fi
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && { [ "$HEAD_REF" = staging ] || [ "$HEAD_REF" = main ]; }; then
+            echo "Head is $HEAD_REF of this repository - already passed the lock on the way."
+            exit 0
+          fi
+          node scripts/changelog-sections.mjs lock --branch "$HEAD_REF" CHANGELOG.md ui/CHANGELOG.md helper-server/CHANGELOG.md relay-server/CHANGELOG.md
+
   # Branch name (blocking) and PR size (warning only). The rules live in scripts/pr-rules.mjs and the
   # pre-push hook calls the same file. Values from the PR enter through env, never inside `run:`.
   # The job name is short and fixed on purpose (see the `rust` job): it may become a required check.
