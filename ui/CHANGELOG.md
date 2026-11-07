@@ -40,6 +40,27 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **Removing a vault left its personal data in this browser (#813).** Since 2026-08-21, removing a
+  vault from a device deleted only its record (the one holding your part of the key). The people
+  saved for the vault (names, addresses and memos) and the last addresses it paid stayed in the
+  browser's storage, readable afterwards by anyone with access to the device or to that browser
+  profile. Removing from Settings, or from the saved vaults listed on the create and join screen,
+  also left the passkey shortcut (since 2026-09-06; encrypted, of no use without that passkey) and
+  the vault's read key in memory until the tab was reloaded. The payroll draft had the same problem
+  until v0.17.0, which clears it. The recent addresses were also one list for every vault on the
+  device, so one vault offered another vault's payees. Removing a vault now takes all of this, the
+  same from Settings, from the vault list and from the create and join screen, and for a vault on a
+  local bridge as on the web (there it cleared only the payroll draft). The confirm says what goes
+  and what stays: the device's record of the payments it signed (summaries and dates, no names or
+  amounts), kept on purpose because it stops the device signing a second, different transaction for
+  the same payment. The recent addresses are now kept per vault, and the shared list of earlier
+  versions is dropped the first time the app reads it. **Not covered:** the saved people of a vault
+  removed before this version, and its passkey shortcut if it was removed from Settings or from the
+  create and join screen, stay in that browser; this change clears them only for vaults removed from
+  now on.
+
 ### Changed
 
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
