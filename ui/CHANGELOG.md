@@ -52,10 +52,11 @@ history to tidy it is how context gets lost.
   until v0.17.0, which clears it. The recent addresses were also one list for every vault on the
   device, so one vault offered another vault's payees. Removing a vault now takes all of this, the
   same from Settings, from the vault list and from the create and join screen, and for a vault on a
-  local bridge as on the web (there it cleared only the payroll draft). The confirm says what goes
-  and what stays: the device's record of the payments it signed (summaries and dates, no names or
-  amounts), kept on purpose because it stops the device signing a second, different transaction for
-  the same payment. The recent addresses are now kept per vault, and the shared list of earlier
+  local bridge as on the web (there it cleared only the payroll draft). The confirm in Settings and
+  on the vault list says what goes and what stays: the device's record of the payments it signed, kept on purpose because it stops the
+  device signing a second, different transaction for the same payment. That record is not harmless:
+  anyone who can read the browser's storage can tell from it which vault it was and which of its
+  payments the device signed. The recent addresses are now kept per vault, and the shared list of earlier
   versions is dropped the first time the app reads it. **Not covered:** the saved people of a vault
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
