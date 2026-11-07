@@ -8,7 +8,8 @@
 // not shown. Below three complete months it says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getBalance, getLedger, ledgerReadFailure, type Balance, type Proposal } from '../api'
+import { getBalance, getLedger, getVault, ledgerReadFailure, type Balance, type Proposal } from '../api'
+import { analysesReport, exportAnalyses } from '../analysesReport'
 import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
@@ -134,6 +135,9 @@ export default function Analyses() {
   // Nothing is said about the balance or the book until the first read answers: before it, both
   // are null, and "could not be read" would report a failure that has not happened.
   const [loaded, setLoaded] = useState(false)
+  const [vaultName, setVaultName] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'html'>(null)
+  const [exportFailed, setExportFailed] = useState(false)
 
   useEffect(() => {
     // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
@@ -145,10 +149,11 @@ export default function Analyses() {
       inFlight = true
       if (first) begin()
       try {
-        const [l, b] = await Promise.all([getLedger(), getBalance()])
+        const [l, b, v] = await Promise.all([getLedger(), getBalance(), first ? getVault() : Promise.resolve(null)])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
         if (b) setBal(b)
+        if (v) setVaultName(v.name)
       } finally {
         inFlight = false
         if (first) { end(); if (on) setLoaded(true) }
@@ -160,9 +165,33 @@ export default function Analyses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, readable])
 
+  // Both files come from one list of rows (analysesReport), each row saying where its number came
+  // from. Built from what this screen has read; nothing to export until the book was read.
+  async function exportAs(kind: 'xlsx' | 'html') {
+    if (exporting || rows === null) return
+    setExporting(kind)
+    setExportFailed(false)
+    try {
+      const report = analysesReport({ bal, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale })
+      if (!(await exportAnalyses(report, kind, locale))) setExportFailed(true)
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(null)
+    }
+  }
+  const actions = (
+    <>
+      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('analyses.exportHint')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('analyses.exporting') : t('analyses.exportXlsx')}</button>
+      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('analyses.exportHint')} onClick={() => void exportAs('html')}>{exporting === 'html' ? t('analyses.exporting') : t('analyses.exportHtml')}</button>
+    </>
+  )
+
   return (
     <main className="page">
-      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} />
+      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} actions={actions} />
+      <p className="cap">{t('analyses.exportHint')}</p>
+      {exportFailed && <p className="hint warn" role="alert">{t('analyses.exportFailed')}</p>}
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
