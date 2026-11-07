@@ -48,10 +48,10 @@ carries the `.wasm` binary. This SDK does not bundle that binary (it is around 4
 `init()` at it.
 
 > Building `konclave-wasm` yourself: from the Konclave repo, run
-> `wasm-pack build --target web` in `konclave-wasm/`, then use the generated `pkg/` (the same
-> files live at `ui/src/wasm-pkg/`: `konclave_wasm.js`, `konclave_wasm_bg.wasm`,
-> `konclave_wasm.d.ts`). You can `npm install` that folder by path or publish it under the name
-> `konclave-wasm`.
+> `scripts/build-wasm-pkg.sh <out-dir>` and use what it writes there (`konclave_wasm.js`,
+> `konclave_wasm_bg.wasm`, `konclave_wasm.d.ts`). That script is the recipe of the package the app
+> ships at `ui/src/wasm-pkg/`, byte for byte; a plain `wasm-pack build` gives different bytes. You
+> can `npm install` that folder by path or publish it under the name `konclave-wasm`.
 
 ## Loading the wasm
 
