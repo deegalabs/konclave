@@ -763,6 +763,7 @@ export const ptBR: Record<string, string> = {
   'payroll.errCsvRows': '{count} linha(s) do CSV com erro foram ignoradas (ex.: linha {row}: {reason}).',
   'payroll.errNoRows': 'Adicione ao menos uma linha válida.',
   'payroll.errFixRows': 'Corrija as linhas marcadas antes de enviar para aprovação.',
+  'payroll.errTitleTooLong': 'O nome da folha (competência e descrição juntas) passa de {max} caracteres. Encurte-o.',
   'payroll.docPrefix': 'Folha',
   'payroll.title': 'Nova folha',
   'payroll.cap': 'Um documento: vários pagamentos numa transação, aprovada uma vez.',

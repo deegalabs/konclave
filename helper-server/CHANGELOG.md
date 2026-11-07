@@ -77,6 +77,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
 
+### Added
+
+- **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
+  trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
+  bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
+  own field, never as the memo, and returned on the reads. A payroll without one, a single payment,
+  and every proposal stored before this version carry no `title` key, so an older reader sees the
+  same record. It is a label: no signature covers it yet (#567). Not yet on the hosted coordinator.
+
 ### Changed
 
 - **How long a send waits for the devices is the operator's setting.** The coordinator waits for

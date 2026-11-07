@@ -10,6 +10,7 @@ import { lastReadFailure } from '../read-failure'
 import { startVisiblePoll } from '../usePoll'
 import { Identicon } from '../avatar'
 import { getProposals, getSelectedVault, type Proposal } from '../api'
+import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { fmtDateTime, fmtZec } from '../format'
 import { useI18n, useT, useTr } from '../i18n'
@@ -98,7 +99,7 @@ export default function SinceLast() {
   }, [rows])
 
   const open = (p: Proposal) => nav('/proposal', { state: { id: p.id } })
-  const title = (p: Proposal) => p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+  const title = (p: Proposal) => proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
 
   // What a screen reader hears when the list settles: the count, the first-look sentence, or nothing changed.
   const status = !loaded || !rows ? ''

@@ -7,6 +7,7 @@ import ReadState from '../ReadState'
 import { lastReadFailure } from '../read-failure'
 import { useT, useI18n } from '../i18n'
 import { getSelectedVault, getLedger, type Proposal } from '../api'
+import { proposalName } from '../proposal-name'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
 import { useVaultReadable } from '../vault-readable'
 import { fmtDate, fmtZec, shortAddr } from '../format'
@@ -96,7 +97,7 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
       <ul className="cer-list mt" role="list">
         {records && records.map((c, i) => {
           const p = c.txid ? byTxid.get(c.txid) : undefined
-          const doc = p ? (p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))) : ''
+          const doc = p ? proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')) : ''
           const here = !!hilite && c.txid === hilite
           return (
           <li key={i} className={'cer-row' + (here ? ' hilite' : '')} tabIndex={here ? -1 : undefined} ref={here ? hiliteRef : undefined} aria-current={here ? 'true' : undefined}>

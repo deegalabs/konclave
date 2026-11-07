@@ -767,6 +767,7 @@ export const en: Record<string, string> = {
   'payroll.errCsvRows': '{count} CSV line(s) with errors were ignored (e.g. line {row}: {reason}).',
   'payroll.errNoRows': 'Add at least one valid line.',
   'payroll.errFixRows': 'Fix the flagged lines before sending for approval.',
+  'payroll.errTitleTooLong': "The payroll's name (period and description together) is longer than {max} characters. Shorten it.",
   'payroll.docPrefix': 'Payroll',
   'payroll.title': 'New payroll',
   'payroll.cap': 'One document: several payments in one transaction, approved once.',

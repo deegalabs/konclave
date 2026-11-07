@@ -4,6 +4,7 @@ import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
 import { getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { proposalName } from '../proposal-name'
 import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
@@ -166,7 +167,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         const p = it.proposal
         return {
           dateISO: iso(p.created_at),
-          document: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
+          document: proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
           state: t('state.' + p.state), settled: SETTLED(p.state), open: isOpen(p),
           proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '',
           kind: p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'),
@@ -363,7 +364,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                     <td className="mono">{fmtDate(p.created_at, locale)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
-                      {p.memo || (isPayroll ? t('kind.payroll') : t('kind.payment'))}
+                      {proposalName(p, isPayroll ? t('kind.payroll') : t('kind.payment'))}
                       <div className="by">
                         {isPayroll ? t('kindShort.payroll') : t('kindShort.payment')}
                         {isPayroll ? t('ledger.opensPerBeneficiary') : (p.to_address ? t('ledger.toAddress', { addr: shortAddr(p.to_address) }) : '')}

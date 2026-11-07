@@ -18,6 +18,7 @@ import {
   readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
 } from '../api'
 import { useVaultReadable } from '../vault-readable'
+import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
 
@@ -219,7 +220,7 @@ export default function Proposal() {
 
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
-  const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
+  const title = proposalName(p, isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
   // The payment's destination is stated in full in the facts below, so the subtitle does not repeat it shortened.
   const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : ''
 

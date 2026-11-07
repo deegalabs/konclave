@@ -77,6 +77,8 @@ export type Proposal = {
   value_zat: number
   value_zec: string
   memo?: string
+  /** A payroll's own name on the web path (#296). Shown through `proposalName`, never as approved (#567). */
+  title?: string
   to_address?: string
   is_public: boolean
   expiry_unix?: number
@@ -137,6 +139,7 @@ export function mapNetProposal(p: NetProposal): Proposal {
     value_zat: p.amount_zat,
     value_zec: zatToZec(p.amount_zat),
     memo: p.memo ?? undefined,
+    title: p.title ?? undefined,
     to_address: p.to,
     is_public: classifyAddress(p.to) !== 'unified',
     expiry_unix: p.expiry_unix || undefined,
@@ -797,7 +800,7 @@ export async function createPayroll(
       if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
-    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, proof: await writeProof(id, 'propose', proposer.trim()) })
+    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, title: description, proof: await writeProof(id, 'propose', proposer.trim()) })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.
