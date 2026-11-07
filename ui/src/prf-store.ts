@@ -29,7 +29,10 @@ export function loadPrfWrap(vaultId: string): PrfWrap | null {
 /** Store it. Best-effort: a failure means the member types their passphrase next time, nothing more. */
 export function savePrfWrap(vaultId: string, wrap: PrfWrap): void {
   try {
-    localStorage.setItem(KEY(vaultId), JSON.stringify(wrap))
+    // The four wrap fields by name, not the object as handed in: `enrolPrf` returns more than the
+    // wrap (its `backupEligible`), and what lands in storage is decided here, not by the caller.
+    const { credentialId, salt, iv, cipher } = wrap
+    localStorage.setItem(KEY(vaultId), JSON.stringify({ credentialId, salt, iv, cipher }))
   } catch {
     /* private mode, quota, storage blocked - all the same answer: no shortcut, no harm */
   }

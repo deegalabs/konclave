@@ -480,6 +480,9 @@ export const ptBR: Record<string, string> = {
   'settings.passkeyCancelled': 'N\u00e3o foi conclu\u00eddo. Nada mudou - pode tentar de novo.',
   // Diz o LUGAR, porque esta \u00e9 a \u00fanica recusa que o membro n\u00e3o resolve dentro do Konclave.
   'settings.passkeyExists': 'Este aparelho j\u00e1 tem uma passkey deste cofre. Remova ela nos ajustes de passkey do aparelho e crie de novo aqui.',
+  // Decidido pelo mantenedor em 2026-11-06: aparece depois de criar uma passkey cujos dados do autenticador têm BE ligado (ela pode
+  // sincronizar). Não bloqueia nada; diz a única coisa que o membro precisa saber antes de contar com o atalho.
+  'settings.passkeySynced': 'Esta passkey pode sincronizar com seus outros aparelhos. O atalho continua valendo s\u00f3 neste aparelho, e uma sincroniza\u00e7\u00e3o pode fazer ele parar de funcionar aqui tamb\u00e9m. A sua frase-senha continua sendo o caminho.',
   'settings.remove': 'Remover deste aparelho',
   'settings.removing': 'Removendo…',
   'settings.confirmRemove': 'Confirmar remoção',
