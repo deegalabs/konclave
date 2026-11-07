@@ -65,13 +65,22 @@ history to tidy it is how context gets lost.
 ### Added
 
 - **"What changed", a tab under Approvals.** What changed state since this device last looked:
-  what arrived for you, became ready, was sent, confirmed, refused, withdrawn or expired (by this
-  device's clock, as on the desk), most pressing first, each named with the word the proposal list
+  what arrived for you, became ready, was sent, confirmed, rejected, cancelled, invalidated or
+  expired (by this device's clock, as on the desk), most pressing first, each named with the word the proposal list
   uses and opening its proposal. The comparison is local, against the list as it was when you last
   pressed "Mark as seen" on this device; a first look takes that snapshot and says there is nothing
   to compare yet, and a change that arrives while the tab is open is shown before it can be marked.
   Nothing new is asked of the coordinator and nothing leaves the device; removing the vault removes
   what this tab kept for it (#151, #125).
+- **Settings says who sees what, and who can do what.** A new section, for the vault on
+  screen: what you and the members, the vault's server, the messages service and anyone with the
+  vault's link can read or do, from the balance and the memos to moving money and voting, with
+  the Private or Open badge, from the one fact this device holds (private or open). What it
+  cannot see is said as such: whether the write gate is on, whether every member's device has
+  registered. The limits are listed as limits: the server builds what the quorum signs and holds
+  the viewing key, the metadata a link still reads on a private vault, the product's own rules,
+  and that Konclave is not audited, and the list says these are the main limits, not all of them.
+  The whole trust model stays in the docs (#244, #308).
 - **Each vault on the list says how it stands.** Under its members: what is free, with the time
   of the reads it comes from, how many proposals are open (by this device's clock, as on the desk),
   with the time of that read, and when the last proposal was made. The list reads nothing itself (a

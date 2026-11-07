@@ -47,6 +47,8 @@ export default function SinceLast() {
 
   // Read, and keep reading on the shared cadence, so a change that lands while the tab is open shows.
   useEffect(() => {
+    // No vault selected: nothing to read and nothing to compare.
+    if (!vault) return
     let on = true
     let inFlight = false
     let good = false
@@ -67,7 +69,7 @@ export default function SinceLast() {
     void load()
     const stop = startVisiblePoll(() => void load(), 12_000)
     return () => { on = false; stop() }
-  }, [attempt])
+  }, [attempt, vault])
 
   const unread = loaded && rows === null ? (lastReadFailure('/api/vault/proposals') ?? lastReadFailure('/api/proposals')) : null
   const changes: Change[] | null = rows ? changesSince(seen?.states ?? null, rows, me) : null
@@ -105,6 +107,15 @@ export default function SinceLast() {
     : firstLook ? t('since.firstTime')
     : hasChanges ? t('since.changes', { n: String(changes!.length) })
     : t('since.nothing')
+
+  if (!vault) {
+    return (
+      <section className="since" aria-labelledby="since-title">
+        <div className="since-head"><h2 id="since-title" className="since-h">{t('since.title')}</h2></div>
+        <p className="hint">{t('since.noVault')}</p>
+      </section>
+    )
+  }
 
   return (
     <section className="since" aria-labelledby="since-title">
