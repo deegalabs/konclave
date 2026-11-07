@@ -1003,6 +1003,7 @@ export const ptBR: Record<string, string> = {
   'ledger.yes': 'sim',
   'ledger.no': 'não',
   'ledger.pdf': '↓ PDF',
+  'ledger.printHidden': 'Os valores estão ocultos. Para imprimi-los, mostre os valores na tela antes.',
   'ledger.title': 'Livro',
   'ledger.vault': 'Cofre',
   'ledger.period': 'Período',
