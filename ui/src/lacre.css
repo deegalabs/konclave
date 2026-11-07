@@ -427,3 +427,45 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important;
     transition-duration:.001ms !important; scroll-behavior:auto !important}
 }
+
+/* The Ledger, printed (#811). The "PDF" button prints the page, and the page used to print as laid
+   out: on a phone that was the stacked cards, with the menu and the filter chips. Printed, the book
+   is a document, the same at every width: the rows and totals the screen shows, a full-width table
+   whose header repeats on each page, rows never split across a page, the active filter written out
+   (the chips are not printed), and no controls. Scoped to a page that holds the book, so no other
+   screen's printing changes. */
+.print-only{display:none}
+@media print{
+  body:has(table.razao) .rail,
+  body:has(table.razao) .nav-more-sheet,
+  body:has(table.razao) .nav-more-scrim,
+  body:has(table.razao) .vault-pop,
+  body:has(table.razao) .pwa-update,
+  body:has(table.razao) [class^="kc-toast"],
+  body:has(table.razao) .page-header-actions,
+  body:has(table.razao) .lg-actions,
+  body:has(table.razao) .filters,
+  body:has(table.razao) .db-reveal,
+  body:has(table.razao) .doc-band ~ .cap,
+  body:has(table.razao) .read-state button{display:none !important}
+  body:has(table.razao) .applayout{display:block; max-width:none}
+  body:has(table.razao) .applayout .page,
+  body:has(table.razao) .page{max-width:none; margin:0; padding:0}
+  .print-only{display:block}
+  .ledger-print-filter, .ledger-print-hidden{margin:4px 0 10px; font-size:10pt}
+
+  /* A table at every width: the phone's card layout (above, max-width 640px) is undone here. */
+  .tbl.razao{display:table !important; width:100%; border-collapse:collapse}
+  .tbl.razao thead{display:table-header-group !important}
+  .tbl.razao tbody{display:table-row-group !important}
+  .tbl.razao tr{display:table-row !important; break-inside:avoid; page-break-inside:avoid}
+  .tbl.razao td, .tbl.razao th{display:table-cell !important; padding:6px 8px; border-bottom:1px solid #ccc;
+    font-size:10.5pt; grid-column:auto; order:0; text-align:left}
+  .tbl.razao td.num{text-align:right}
+
+  /* A hidden amount stays hidden on paper, on any page. Browsers drop backgrounds when printing,
+     which would print the figure under its bar, so the bar is kept as the screen shows it; and the
+     figure under it is not drawn, since drawn text stays in the PDF even when a bar covers it. */
+  .secret .bar{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  .secret:not(.on) .secret-val{visibility:hidden}
+}
