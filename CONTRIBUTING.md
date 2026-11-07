@@ -29,7 +29,8 @@ correctness, privacy, and honesty matter more than speed.
 2. Commits: Conventional Commits in English, `type(scope): summary` (e.g.
    `fix(ui): guard the no-expiry sentinel (#123)`). The summary is lower case, with no final
    period, and says what changes; an optional body says why.
-   **No AI co-author trailer.**
+   If an AI assistant helped, add the trailer described in
+   [AI-assisted contributions](#ai-assisted-contributions).
    - **Types:** `feat`, `fix`, `security`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`,
      `chore`, `revert`. `security` is this project's own type: its changelog entry goes under
      `Security`.
@@ -38,6 +39,32 @@ correctness, privacy, and honesty matter more than speed.
      summary: `(#610)`.
    - **A version cut** is `chore(release): vX.Y.Z`.
 3. Fill in the PR checklist.
+
+## AI-assisted contributions
+
+Konclave is built with AI assistance (Claude Code), and you are welcome to use an AI assistant
+too. I do not want to make it harder; I want it said, so a reviewer knows what they are reading.
+
+- **Commit trailer.** A commit made with an AI assistant ends with a `Co-Authored-By:` line that
+  names the assistant, generically and without a model version:
+
+  ```
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  ```
+
+  Use the equivalent line for another assistant.
+- **No session link.** Never add a link to the assistant's session (a `Claude-Session` trailer, a
+  claude.ai URL) to a commit, PR or comment. The committed
+  [`.claude/settings.json`](.claude/settings.json) turns it off for Claude Code.
+- **The PR says so** on the "AI disclosure" line of the template, with the tool and roughly what
+  it did.
+- **You are the author.** You read, understand and stand behind every line, as if you had typed it.
+  "The assistant wrote it" is not an answer in review.
+
+This applies from the merge of the PR that set it (decision D91, 2026-11-05); earlier history is
+not rewritten. Projects differ here: librustzcash, the ZIPs and Zallet also ask for a
+`Co-Authored-By:` trailer, while Zebra asks for disclosure in the PR description and no trailer.
+This repository follows its own rule. It is a prose rule for now; a CI check may come later.
 
 ## Verify before finishing
 
