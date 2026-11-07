@@ -67,9 +67,11 @@ history to tidy it is how context gets lost.
   outflows by kind and entries by state as live formulas over Movements, and the vault's position:
   what the whole book's open proposals hold, what is confirming, and what is available, as a visible
   subtraction (negative, and said so, when the open proposals exceed what can be spent), dated at the
-  export and left out when the balance could not be read. A third sheet, By beneficiary, has one row
-  per address with settled and open sums as live SUMIFS over Movements, a total row and a
-  "Difference vs Summary" row the accountant can re-run in the spreadsheet. Every new formula
+  export, with a line saying so when the balance could not be read. A third sheet, By beneficiary,
+  follows the same rule as the book by beneficiary on screen: one row per address with settled and
+  open sums as live SUMIFS over Movements, refused and expired entries left out, a total row and a
+  "Difference vs Summary" row the accountant can re-run in the spreadsheet; a payroll whose lines
+  could not be read is not a row, it is in that difference and its count is said. Every new formula
   carries the value it computes, summed in whole zatoshi, so the figures show in a viewer that does
   not recalculate, as the totals do since #812 (#302; a sheet by category waits for the field on
   the proposal).
