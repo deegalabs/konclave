@@ -2,8 +2,8 @@
 // to sign. One module so the cap the stepper enforces and the rule the warning recommends cannot
 // drift apart (#839: the stepper stopped at 5 and the warning still recommended "5 of 6").
 
-/** How many devices the create screen lets a vault have today (D73, #839). The protocol allows 32
- *  and the app's N_MAX is 16; the screen stays at 5 until a creation with more devices is tested. */
+/** The most devices the create screen offers (#839). The protocol and the coordinator accept up to
+ *  MAX_SEATS (32); the screen stays at 5 until a creation with more devices has been tested. */
 export const CREATE_DEVICE_CAP = 5
 
 type Pe = (pt: string, en: string) => string

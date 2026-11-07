@@ -3,7 +3,7 @@ import { CREATE_DEVICE_CAP, noMarginWarning, recommendedRule } from './create-ru
 import { quorumIsPossible } from './dkg-ceremony'
 import { codeOf } from './source-scan'
 
-// #839 (D73): with 5 of 5 on the create screen, the no-margin warning recommended "5 de 6", a rule
+// #839: with 5 of 5 on the create screen, the no-margin warning recommended "5 de 6", a rule
 // the screen cannot create (its device stepper stops at 5). What it recommends has to be a rule the
 // same screen can make, read from the same cap.
 const en = (_pt: string, e: string) => e
