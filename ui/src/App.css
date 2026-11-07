@@ -1636,6 +1636,8 @@ body:has(.pwa-update) .page{padding-bottom:140px}
   .ledger-doc .doc-band{padding:22px 26px; gap:24px 36px; margin-top:18px}
   .ledger-doc .db-meta{gap:40px}
   .ledger-doc .db-meta b{font-size:14px; font-weight:600}
+  /* The period keeps `mono` for print; on screen it reads in sans like its neighbours. */
+  .ledger-doc .db-meta b.mono{font-family:var(--font-sans)}
   .ledger-doc .db-t b{font-size:24px; font-weight:600; letter-spacing:-.01em}
   .ledger-doc .db-totals{gap:34px; flex-wrap:wrap}
   .ledger-doc .cap{font-family:var(--font-sans); font-size:12.5px; margin:10px 0 18px}

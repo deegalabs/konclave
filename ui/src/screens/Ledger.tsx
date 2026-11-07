@@ -291,7 +291,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         <div className="doc-band">
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? '…'}</b></div>
-            <div><span className="klab">{t('ledger.period')}</span><b>{period}</b></div>
+            <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{rows === null ? '—' : inWin.length}</b></div>
           </div>
           <div className="db-totals">

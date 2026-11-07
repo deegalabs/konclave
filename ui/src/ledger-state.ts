@@ -1,5 +1,5 @@
 // The proposal's states grouped the way the vocabulary guide fixes them: one grouping, one colour
-// meaning, one word, the same on the screen, in the list and in the exported workbook.
+// meaning, one word. Only the Ledger uses it today, for the colour of each row's state.
 //
 //   need    open (`isOpen`)            colour: action      "needs someone"
 //   way     sent                       colour: neutral     "on its way"

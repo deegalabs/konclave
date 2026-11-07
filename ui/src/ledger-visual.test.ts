@@ -66,6 +66,12 @@ describe('the Ledger wears it', () => {
     expect(css).toMatch(/\.ledger-doc \.st-need/)
     expect(withoutScreenBlocks(css)).not.toMatch(/\.ledger-doc/)
   })
+  it('the period keeps its mono class, so the printed header is unchanged; only the screen sets it in sans', () => {
+    expect(src).toMatch(/\{t\('ledger\.period'\)\}<\/span><b className="mono">\{period\}<\/b>/)
+    const css = CSS()
+    expect(css).toMatch(/\.ledger-doc \.db-meta b\.mono\{font-family:var\(--font-sans\)\}/)
+    expect(withoutScreenBlocks(css)).not.toMatch(/db-meta b\.mono/)
+  })
   it('the body is scoped, so the pass touches the Ledger only', () => {
     expect(src).toMatch(/className="ledger-doc"/)
   })
