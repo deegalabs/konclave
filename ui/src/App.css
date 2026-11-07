@@ -924,6 +924,21 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 
 /* ---- Ledger ---- */
 .filters{display:flex; gap:14px; margin:14px 0; align-items:center; flex-wrap:wrap}
+/* The book by beneficiary (#778): a titled section under the table, opened on demand. */
+.pivot{margin-top:28px}
+.pivot-h{margin:0}
+/* The heading is the disclosure: the caret the payroll rows already use, on a plain button. */
+.pivot-toggle{appearance:none; border:0; background:transparent; color:inherit; font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; padding:6px 0; min-height:24px; border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:6px}
+.pivot-toggle:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.pivot .tblwrap{overflow-x:auto}
+.pivot-tbl th.num, .pivot-tbl td.num{text-align:right; font-family:var(--font-num); font-variant-numeric:tabular-nums}
+.pivot-tbl tbody th{font-weight:500; text-align:left}
+.pivot-tbl tfoot th{border-top:1px solid var(--line); padding-top:10px}
+.pivot-sub{font-size:11px; color:var(--text-muted)}
+/* 2.5.8: in this table the veils sit row under row, so each small bar keeps a 24px target. Scoped
+   here: the small bar elsewhere in the app keeps its size. */
+.pivot-tbl .secret.sm .bar{inset:-3px -4px; min-height:24px}
+.pivot-check.warn{color:var(--warn-strong, var(--warn))}
 .chip-group{display:inline-flex; flex-wrap:wrap; gap:6px}
 .chip{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); border:1px solid var(--line); background:var(--surface-2); padding:7px 12px; border-radius:var(--radius-pill); cursor:pointer; transition:all var(--dur-fast) var(--ease-out)}
 .chip:hover{color:var(--text); border-color:var(--text-muted)}
