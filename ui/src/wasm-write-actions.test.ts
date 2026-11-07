@@ -40,7 +40,7 @@ describe('the committed WASM and the write actions', () => {
       `konclave-seal defines the write action "${tag}" and the committed wasm-pkg does not contain ` +
         'it, so this device cannot sign that action: the WASM answers "unknown write action", the ' +
         'caller falls back to unsigned, and the write is refused only once a vault has write keys. ' +
-        'Rebuild: wasm-pack build --target web --out-dir ../ui/src/wasm-pkg',
+        'Rebuild: scripts/build-wasm-pkg.sh --install',
     ).toBe(true)
   })
 })

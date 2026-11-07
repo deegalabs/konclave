@@ -30,3 +30,6 @@ cargo tree --target wasm32-unknown-unknown | grep -c secp256k1   # 0
 wasm-pack build --target web --out-dir pkg              # ~750 KB .wasm
 # serve pkg/ over http and call selftest() → "OK: 2-of-3 … VERIFIED"
 ```
+
+The package the app ships (`ui/src/wasm-pkg`) is built by `scripts/build-wasm-pkg.sh --install`, never
+by `wasm-pack` by hand: CI rebuilds it with that script and compares it byte for byte.
