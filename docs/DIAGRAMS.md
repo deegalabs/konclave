@@ -3,13 +3,14 @@
 Complete system flow of Konclave, from the current MVP through the delivered roadmap. All
 diagrams are Mermaid and render on GitHub. Two vocabularies appear throughout: **public
 material** (commitments, signing packages, signatures) crosses the wire freely, while a
-**share** (the secret piece of the key) never leaves its device.
+**share** (the secret piece of the key) stays sealed on its device and leaves it only inside the
+encrypted backup its member exports.
 
 ## 1. System overview (three layers)
 
 ```mermaid
 flowchart TB
-  A["Member devices: Alice, Bob, Carol. The share never leaves the device"]
+  A["Member devices: Alice, Bob, Carol. The share stays sealed on the device"]
   UI["Layer 3, UI (Vite + React): Dashboard, Payment, Payroll, Proposal, Ledger, /net, /signer"]
   Orch["Layer 2, Orchestrator (Rust): state machine, validation, store (SQLCipher), sealed custody, FROST-to-PCZT bridge"]
   Eng["Layer 1, Engine (Zcash Foundation): frostd, frost-client, zcash-sign, zcash-devtool, librustzcash"]
@@ -185,7 +186,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  Dev["The device: FROST share and signing nonces, never leave"] -->|"produces"| Pub["Public FROST material"]
+  Dev["The device: FROST share (sealed) and signing nonces"] -->|"produces"| Pub["Public FROST material"]
   Pub -->|"broadcast"| Tx["Mainnet sees one ordinary single-signer shielded tx"]
   Dev -.->|"sealed round-2 and deltas"| Relay["Blind relay sees only ciphertext and metadata"]
   Tx --> Key["The whole key is never reconstituted"]

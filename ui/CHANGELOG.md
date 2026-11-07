@@ -93,6 +93,21 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The landing and the help say less than they did, and say what is true.** The landing no longer
+  says the vault "runs entirely in the browser" or that, on the desktop, "nothing runs in the cloud":
+  both the web app and the desktop app use our hosted coordinator and relay, and the page now says
+  so. The hero line no longer says a payment "leaves only when your quorum approves it" (a payment
+  needs the quorum's signatures; the approval vote is a product rule). The help, the vault's desk and the
+  signing panel said a payment is signed by the members who approved it: any member can sign a
+  payment once its proposal reached the quorum, including one who did not vote for it, and they now
+  say that. It no
+  longer lists "your part of the key never leaves your device" among the cryptographic guarantees:
+  that is how the app is built, and the part leaves inside the encrypted backup you export. It no
+  longer says a leaked backup "reveals nothing": it says the backup does not open the vault without
+  the passphrase. The device's reading of a payment is described as shown while the ceremony runs,
+  with no pause to read it first. The roadmap says NU7 is active (since 6 November 2026) and no
+  longer lists work that is done, the desktop links point at v0.17.0, the date of the first
+  cross-machine send is corrected to 2026-08-25, and the fee example says it is today's.
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
   "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
   Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
