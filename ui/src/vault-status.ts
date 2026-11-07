@@ -69,7 +69,9 @@ const timesOf = (s: Stored): Times => ({ balanceAt: s.balanceAt, openCount: s.op
 /** Keeps the amounts where they may live: in storage for an open vault, in memory for a private one. */
 function keep(vault: string, amounts: Amounts, times: Times) {
   const prev = read(vault) ?? {}
-  if (isPrivate(vault)) {
+  // Private if this tab holds the secret OR the record already says so: once a vault was private,
+  // a read in a tab that has not unlocked it never writes its amounts.
+  if (isPrivate(vault) || prev.private) {
     memory.set(vault, { ...(memory.get(vault) ?? {}), ...amounts })
     write(vault, { ...timesOf(prev), ...times, private: true })
   } else {
