@@ -93,6 +93,10 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **In the ledger, colour now means one thing: the state's group.** Blue is a state that needs
+  someone, grey is on its way or closed, green is settled, and the word is always beside the
+  colour. The band's figures lead and the labels step back; the labels, the table's head and the
+  filters are plain text; the rows have room (#780).
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
   opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
   book, three names, and the member had to work out that they were the same thing. Everything now
