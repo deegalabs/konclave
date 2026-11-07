@@ -15,11 +15,10 @@ import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor, getUnlockedShare } from '../session'
 import { buildVaultBackup } from '../build-backup'
-import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, forgetVault, type Governance } from '../storage'
-import { clearPayrollDraft } from '../payroll-draft'
+import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
+import { listVaults, type Governance } from '../storage'
+import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { trustRows, type Cell } from '../trust-facts'
-import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
@@ -63,6 +62,9 @@ export default function Settings() {
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
+  // The quorum as this device recorded it when the vault was made: shown first, the server's answer
+  // only when there is no record (or the record predates the field).
+  const [localQuorum, setLocalQuorum] = useState<{ threshold: number; total: number } | null>(null)
   const [xpOpen, setXpOpen] = useState(false)
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
@@ -87,7 +89,10 @@ export default function Settings() {
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
-            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured) }
+            if (on) {
+              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured)
+              if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
+            }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
@@ -222,8 +227,8 @@ export default function Settings() {
     }
   }
 
-  const thr = vault?.threshold ?? 2
-  const n = vault?.total ?? 3
+  const thr = localQuorum?.threshold ?? vault?.threshold ?? 2
+  const n = localQuorum?.total ?? vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
@@ -235,17 +240,15 @@ export default function Settings() {
     // device's ability to sign. On the local bridge the orchestrator owns the record and deletes
     // it. Either way the member typed the vault's name to get here.
     if (IS_NET) {
-      const gone = await forgetVault(vault.id).catch(() => false)
+      const gone = await removeVaultFromDevice(vault.id)
       setBusy(false)
       if (!gone) { setErr(t('settings.removeFail')); return }
-      clearUnlockedShare(vault.id)
-      clearSelectedVault()
       nav('/vaults')
       return
     }
     const res = await deleteVault(undefined, confirmName.trim())
     setBusy(false)
-    if (res.ok) { clearPayrollDraft(vault.id); nav('/vaults'); return }
+    if (res.ok) { clearVaultTraces(vault.id); nav('/vaults'); return }
     setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
   }
 
@@ -306,7 +309,7 @@ export default function Settings() {
         <a href="#s-vault">{t('set.secVault')}</a>
         <a href="#s-access">{t('set.secAccess')}</a>
         {gov && <a href="#s-gov">{t('set.secGov')}</a>}
-        {gov && <a href="#s-trust">{t('set.secTrust')}</a>}
+        {hasLocal && secured !== undefined && <a href="#s-trust">{t('set.secTrust')}</a>}
         {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
         <a href="#s-remove">{t('set.secRemove')}</a>
       </nav>
@@ -457,9 +460,11 @@ export default function Settings() {
             <li>{t('trust.limit.relay')}</li>
             <li>{t('trust.limit.gate')}</li>
             <li>{t('trust.limit.metadata')}</li>
+            {secured && <li>{t('trust.limit.private')}</li>}
             <li>{t('trust.limit.product')}</li>
             <li>{t('trust.limit.audit')}</li>
           </ul>
+          <p className="set-hint">{t('trust.limitsNotAll')}</p>
           <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
         </>
       )}
@@ -515,6 +520,8 @@ export default function Settings() {
         ) : (
           <div className="set-confirm">
             {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
+            {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
+            <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
             {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
             {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It

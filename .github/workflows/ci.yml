@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 # Cancel superseded runs on the same ref.
@@ -31,7 +31,7 @@ jobs:
       pull-requests: read
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Did this change anything a member can see?
@@ -68,6 +68,37 @@ jobs:
           # say which of them a given entry has actually reached.
           printf '%s\n' "$changed" | node scripts/changelog-gate.mjs
 
+  # Branch name (blocking) and PR size (warning only). The rules live in scripts/pr-rules.mjs and the
+  # pre-push hook calls the same file. Values from the PR enter through env, never inside `run:`.
+  # The job name is short and fixed on purpose (see the `rust` job): it may become a required check.
+  pr-rules:
+    name: PR rules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Branch name and size
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' | grep -qx 'keep-branch-name'; then
+            echo "Labelled keep-branch-name - skipping, deliberately."
+            exit 0
+          fi
+          same=true
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || same=false
+          node scripts/pr-rules.mjs check --branch "$HEAD_REF" --same-repo "$same" --base "$BASE_SHA" --head HEAD
+
   rust:
     # The job NAME is short and fixed on purpose. GitHub truncates a check-run name at 95 characters,
     # and branch protection matches the stored (truncated) string - so naming the crates here meant
@@ -77,7 +108,7 @@ jobs:
     name: Rust (workspace crates)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-05
         with:
           components: rustfmt, clippy
@@ -123,7 +154,7 @@ jobs:
     name: WASM (konclave-wasm → browser build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-05
         with:
           targets: wasm32-unknown-unknown
@@ -143,7 +174,7 @@ jobs:
     name: Relay image (the deploy recipe still builds)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The relay was IMPOSSIBLE TO DEPLOY for ten days and nothing said so (#533). #500 gave it a
       # path dependency on `konclave-http`, which sat outside the Docker build context, so every
       # build failed on `failed to read /konclave-http/Cargo.toml`. Deterministically, from that day.
@@ -196,9 +227,9 @@ jobs:
     name: UI (Vite/React frontend)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -219,9 +250,9 @@ jobs:
     name: UI e2e (Playwright)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -230,7 +261,7 @@ jobs:
         run: pnpm -C ui exec playwright install --with-deps chromium
       - name: Run e2e (builds + serves + drives the app; API stubbed via route interception)
         run: pnpm -C ui run e2e
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: playwright-report
@@ -241,9 +272,9 @@ jobs:
     name: Node packages (mcp-server · sdk)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm

@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { Secret } from '../components'
-import { vaultStatus, forgetStatus } from '../vault-status'
-import { fmtDate, fmtZec, zatToZec } from '../format'
+import { vaultStatus, statusIsStale, openCountKey } from '../vault-status'
+import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
-import { IS_NET, getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { readVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
+import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
+import { removeVaultFromDevice } from '../remove-vault'
 import { storageErrorKey } from '../storage-errors'
 import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup, type VaultBackup } from '../build-backup'
 import { downloadText } from '../download'
-import { clearUnlockedShare, clearReadSecret, getUnlockedShare, unlockedHere } from '../session'
-import { loadPrfWrap, clearPrfWrap } from '../prf-store'
+import { getUnlockedShare, unlockedHere } from '../session'
+import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
@@ -214,12 +215,8 @@ export default function Vaults() {
     try {
       // `forgetVault` re-reads the store and reports whether the record is really gone. A delete
       // that quietly did nothing must not close the dialog looking like a success.
-      if (!(await forgetVault(row.v.id))) { setRemoveErr(true); return }
-      clearUnlockedShare(row.v.id) // the in-memory share goes with the stored one
-      clearReadSecret(row.v.id)
-      clearPrfWrap(row.v.id) // a wrap outliving its vault can only confuse
-      forgetStatus(row.v.id) // and so would last week's figures on a re-import
-      if (getSelectedVault() === row.v.id) clearSelectedVault() // do not leave the app pointing at it
+      // Everything this device keeps for the vault goes with it, in one function both screens call (#813).
+      if (!(await removeVaultFromDevice(row.v.id))) { setRemoveErr(true); return }
       setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
       setRemoving(null)
       setRemoveWord('')
@@ -489,22 +486,24 @@ export default function Vaults() {
                     balance read makes the coordinator sync a wallet), so each figure carries its time. */}
                 {(() => {
                   const st = vaultStatus(v.id)
-                  if (!st) return <div className="rd-state none">{t('vaults.stateNone')}</div>
-                  const when = (ts: number) => new Date(ts * 1000).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
-                  const stale = st.at < Math.floor(Date.now() / 1000) - 86_400
+                  const free = st && st.freeZat !== null && st.freeAt !== null
+                  const count = st && st.openCount !== null && st.proposalsAt !== null
+                  if (!st || (!free && !count)) return <div className="rd-state none">{t('vaults.stateNone')}</div>
+                  // Each figure with the time it was read: the free amount with the older of its two reads,
+                  // the count with the read of the proposals. The free figure greys past a day, by its own time.
+                  const when = (ts: number) => fmtDateTime(ts, locale)
                   const sep = <span className="visually-hidden">, </span>
                   return (
-                    <div className={'rd-state' + (stale ? ' stale' : '')}>
-                      {st.freeZat !== null && st.freeAt !== null && (
+                    <div className={'rd-state' + (statusIsStale(st) ? ' stale' : '')}>
+                      {free && (
                         <span className="rd-state-fig">
                           {/* The veil is a button of its own: its click must not open the vault. */}
-                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat))}</span></Secret></span>
-                          {' '}{t('vaults.stateFree', { when: when(st.freeAt) })}{sep}
+                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret></span>
+                          {' '}{t('vaults.stateFree', { when: when(st.freeAt!) })}{sep}
                         </span>
                       )}
-                      {st.openCount !== null && <span>{st.openCount === 0 ? t('vaults.stateNoOpen') : st.openCount === 1 ? t('vaults.stateOpenOne') : t('vaults.stateOpen', { n: st.openCount })}{sep}</span>}
-                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}{sep}</span>}
-                      <span className="rd-state-at">{t('vaults.stateSeen', { when: when(st.at) })}</span>
+                      {count && <span>{t(openCountKey(st.openCount!), { n: String(st.openCount), when: when(st.proposalsAt!) })}{st.lastProposal !== null ? sep : null}</span>}
+                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}</span>}
                     </div>
                   )
                 })()}

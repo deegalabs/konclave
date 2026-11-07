@@ -26,7 +26,7 @@ of what the primitive can do, and it states plainly what it does and does not de
 
 ## Security model
 
-- **The share never leaves the device.** Key generation (DKG), share storage, and signing all
+- **The share stays on the device.** Key generation (DKG), share storage, and signing all
   run locally in wasm. Only public material (commitments, the signing package, the rerandomizer
   seed, partial signatures) or already-sealed ciphertext ever crosses the wire.
 - **No trusted dealer in production.** Vaults are created by a real DKG across devices. The group

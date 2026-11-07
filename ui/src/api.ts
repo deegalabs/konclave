@@ -31,7 +31,7 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished, beneficiariesKey } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -347,9 +347,10 @@ export async function getProposals(): Promise<Proposal[] | null> {
     rememberProposals(id, mapped) // what the vault list shows as the vault's situation
     return mapped
   }
+  // The vault is named before the request: the selection may change while it is in flight.
+  const sel = getSelectedVault()
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
   const list = r?.proposals ?? null
-  const sel = getSelectedVault()
   if (sel) rememberProposals(sel, list)
   return list
 }
@@ -384,8 +385,9 @@ export async function readBalance(
       ironwood_spendable_zat: b.ironwood_spendable_zat,
     }
   }
-  const bal = await getJson<Balance>(withVault('/api/balance'))
+  // The vault is named before the request: the selection may change while it is in flight.
   const sel = vaultId ?? getSelectedVault()
+  const bal = await getJson<Balance>(withVault('/api/balance'))
   if (sel) rememberBalance(sel, bal)
   return bal
 }
@@ -893,7 +895,7 @@ export type Beneficiary = { id: string; name: string; address: string; memo: str
 // stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
 function benefKey(): string | null {
   const id = getSelectedVault()
-  return id ? `konclave.benef.${id}` : null
+  return id ? beneficiariesKey(id) : null
 }
 function netBenefList(): Beneficiary[] {
   const k = benefKey()
