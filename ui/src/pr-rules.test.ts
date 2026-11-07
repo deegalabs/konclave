@@ -20,6 +20,7 @@ describe('branch names', () => {
     'local/ci-gates',                 // local-only, never pushed
     'fix/UpperCase',
     'kc-produto-1',
+    'fix/kc-produto-thing',           // a session name as the slug
     'pre-release/0.1.0',
   ])('refuses %s', (b) => expect(typeof branchProblem(b)).toBe('string'))
 
