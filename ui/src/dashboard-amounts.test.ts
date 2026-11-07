@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { codeOf } from './source-scan'
 import { fmtZec, fmtZecExact } from './format'
@@ -26,9 +27,34 @@ describe('the Dashboard shows the exact amount', () => {
     expect(fmtZecExact(0.012)).toBe('0.0120')
     expect(fmtZecExact(0.01234567)).toBe('0.01234567')
   })
+
+  it('a long balance is shrunk to stay in its card, and so is a long KPI figure (I1)', () => {
+    // 0.01234567 has ten characters; at the full size it passes the side column on a desktop. The
+    // e2e (dashboard-amounts.spec.ts) measures it on the real screen.
+    expect(fmtZecExact(0.01234567).length).toBeGreaterThan(7)
+    expect(fmtZecExact(0.012).length).toBeLessThanOrEqual(7)
+    expect(src).toMatch(/className=\{'amt' \+ \(amt\.length > 7 \? ' amt-long' : ''\)\}/)
+    expect(src).toMatch(/className=\{'kpi-v' \+ \(reservedTxt\.length > 7 \? ' kpi-long' : ''\)\}/)
+    expect(src).toMatch(/className=\{'kpi-v' \+ \(paidTxt\.length > 7 \? ' kpi-long' : ''\)\}/)
+    const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.amt-long\{font-size:clamp\(30px,4\.6vw,40px\)\}/)
+    expect(css).toMatch(/\.kpi-v\.kpi-long\{font-size:16px\}/)
+  })
+
+  it('one figure has one precision: nothing on the Dashboard rounds to four decimals (I2)', () => {
+    // The total exact and its composition rounded, or the desk rounded and the movements exact, put
+    // two readings of one amount on one screen.
+    expect(src).not.toMatch(/\bfmt4\(|fmtZec as|\bfmtZec\(/)
+    // From zatoshi where the figure has them, so no decimal string goes through floating point.
+    expect(src).not.toMatch(/parseZ\(p\.value_zec\)/)
+    // The month bars are the Dashboard's too: their tooltip and their table for a screen reader.
+    const charts = codeOf('charts.tsx')
+    expect(charts).toMatch(/const fmt = fmtZecExact\b/)
+    expect(charts).not.toMatch(/maximumFractionDigits/)
+  })
 })
 
-// NU7 activated on 2026-11-05 and payments after it are proven on mainnet, so the Dashboard no
+// NU7 activated at block 3,543,405 and payments after it are proven on mainnet, so the Dashboard no
 // longer tells of the upgrade. The rule that decides the window (`upgrade-notice.ts`) and the height
 // WASM reads from the epoch table stay for the next upgrade; the screen and its copy go.
 describe('the Dashboard no longer shows the network-upgrade notice', () => {
@@ -36,6 +62,17 @@ describe('the Dashboard no longer shows the network-upgrade notice', () => {
     const src = codeOf('screens/Dashboard.tsx')
     expect(src).not.toMatch(/upgradeNotice|upgradeHeight|upgradeAt/)
     expect(src).not.toMatch(/dashboard\.upgrade(Before|After)/)
+  })
+
+  it('the removal names the upgrade by its block, not by a calendar date (M1)', () => {
+    // A calendar date for an activation is an estimate from the block time; the height is the fact.
+    // Only the CHANGELOG is pinned: the code says it in comments, and no test reads source raw
+    // (source-scan.test.ts), so a comment cannot satisfy a pin.
+    const entry = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8')
+      .split('\n- **').find((e) => e.startsWith('The dashboard no longer shows the network-upgrade notice'))
+    expect(entry, 'the CHANGELOG entry for the removal').toBeTruthy()
+    expect(entry).toMatch(/block\s+3,543,405/)
+    expect(entry).not.toMatch(/2026-11-05|November 2026/)
   })
 
   it('its copy is gone in both languages', () => {
