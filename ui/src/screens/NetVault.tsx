@@ -26,6 +26,7 @@ import { buildVaultBackup } from '../build-backup'
 import { writeProof } from '../api'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
+import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
   updateVaultMeta,
@@ -855,7 +856,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       setSaveErr(L.unavailable)
       return
     }
-    if (savePass.length < 8) return
+    if (newPassphraseProblem(savePass)) return
     const dkg = dkgRef.current
     // A member may save its share as soon as its own round 3 is done; only the address waits for
     // every member (see finishVault).
@@ -1704,10 +1705,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             )}
             <div className="cv-join">
               <PassphraseField inputClassName="cv-input" autoFocus
-                placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
+                placeholder={pe('Frase-senha (mínimo 12 caracteres)', 'Passphrase (at least 12 characters)')}
                 value={savePass} onChange={setSavePass} />
               {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState !== 'idle' || !hasSecret}
+              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? pe('A chave de acesso não chegou. Peça a quem criou para conferir a conexão, ou comecem de novo.', 'The access key has not arrived. Ask the creator to check their connection, or start again.')
@@ -1860,9 +1861,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
                 />
+                {savePass && newPassphraseProblem(savePass) && (
+                  <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
+                )}
                 <button
                   className="net-btn"
-                  disabled={saveState === 'saving' || savePass.length < 8 || !hasSecret}
+                  disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || !hasSecret}
                   onClick={() => void doSave()}
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}

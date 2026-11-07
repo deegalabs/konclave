@@ -235,7 +235,9 @@ not promise what we do not deliver.
 - **Security posture:** in the browser and in the desktop app (the same interface code, bundled
   into a native window and not yet validated on real hardware), the share is stored encrypted
   (AES-256-GCM under a PBKDF2-SHA256 key: 600,000 iterations for anything sealed since 2026-09-06;
-  records stored before then keep 210,000 until the passphrase is changed, and a backup made before
+  records stored before then keep 210,000 until the passphrase is next typed on that device (a
+  passkey unlock does not re-seal, and a record with a sealed field that no longer opens stays at its
+  count), and a backup made before
   then keeps 210,000 for good, so make a new one) and decrypted only in memory. Moving the
   desktop's copy into the OS keychain is planned: the native commands exist, but no screen calls
   them and the released build does not enable a platform keychain yet

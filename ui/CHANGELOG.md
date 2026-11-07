@@ -89,9 +89,27 @@ history to tidy it is how context gets lost.
   over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
+- The signing screen and the proposal page now show proposals through one shared reading, and the confirmation lists every
+  line of a payroll.
+- A vault saved on this device under an older, weaker key setting is re-saved at the current one the next time its
+  passphrase is typed. The first unlock after this takes a moment longer. A passkey unlock does not do it.
+- **A new passphrase has to be harder to guess.** Creating or joining a vault, and changing a passphrase, now ask for at
+  least 12 characters and refuse common passwords and repetition. Below 20 characters they also refuse the most common
+  patterns of a word with numbers or a year. The generator and random passwords from a password manager pass: all of them from 20 characters, and most shorter ones that mix upper and lower case. A passphrase you
+  already have still opens your vault and your backups, and you can change it at any time. The check reads the shape of the
+  text and knows only a short list of seasons, months and common names, so a passphrase it accepts is not proof
+  of a strong one.
 
 ### Fixed
 
+- **The signing sheet now behaves like the dialog it says it is.** It announced itself as modal but
+  left focus on the button behind it, let Tab walk the page underneath, and had no Escape or focus
+  return. Focus now moves into the sheet, Tab stays inside, and closing returns you to the button that
+  opened it. Escape closes it only while this device is not signing or waiting on a signature: closing stops the signer.
+- **The confirm can no longer change from "Sign" to "Send" in silence.** If another member signed while
+  the confirm was open, its wording became "Send" without a word to a screen reader. It now closes and
+  says the signatures changed, so you read it again.
+- **Waiting, ready and "checking whether the payment went out" are now announced** by a screen reader.
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
   "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
   Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate

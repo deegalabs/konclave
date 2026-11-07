@@ -10,12 +10,126 @@ export interface PassScore {
   bits: number
 }
 
+export type PassProblem = 'too-short' | 'guessable'
+
+/** What a person reaches for, and what a cracker tries first. Short on purpose: the shape check below
+ *  catches a single word with numbers whatever the word is, so this holds what that shape misses. */
+const COMMON = [
+  'password', 'passw0rd', 'senha', 'qwerty', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm', 'admin', 'welcome', 'letmein',
+  'iloveyou', 'teamo', 'konclave', 'zcash', 'bitcoin', 'brasil', 'flamengo', 'corinthians', 'palmeiras',
+  '123456789', '987654321', 'abcdefghijklmnopqrstuvwxyz', 'abcdefgh', 'abc123', 'a1b2c3d4', '1q2w3e4r', '1qaz2wsx',
+]
+const LEET: Record<string, string> = { '@': 'a', '4': 'a', '$': 's', '0': 'o', '1': 'l', '3': 'e', '5': 's', '7': 't' }
+/** Only so a huge paste stays cheap: the checks below read this much. */
+const MAX_READ = 256
+/** From here the shape of the text is no longer judged (Daniel, 2026-10-31). */
+const LONG_ENOUGH = 20
+/** How a word is cased when a person types it: lower, capitalised, or all upper. */
+const WORD_CASE = /^(?:\p{Lu}?\p{Ll}+|\p{Lu}+)$/u
+
+/** Seasons, months and common first names and surnames (PT and EN), and a few of the most leaked words:
+ *  read as words below 20 characters whatever their case, so `SUmmer2024!!` is not let through by its odd
+ *  capitals. Short on purpose; it is not a dictionary. */
+const NAMED = new Set([
+  'spring', 'summer', 'autumn', 'fall', 'winter', 'january', 'february', 'march', 'april', 'may', 'june', 'july',
+  'august', 'september', 'october', 'november', 'december', 'primavera', 'verao', 'outono', 'inverno', 'janeiro', 'fevereiro', 'marco',
+  'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro', 'joao', 'maria', 'jose',
+  'ana', 'pedro', 'paulo', 'lucas', 'gabriel', 'rafael', 'carlos', 'marcos', 'luiz', 'luis', 'felipe', 'bruno',
+  'thiago', 'tiago', 'mateus', 'matheus', 'daniel', 'fernanda', 'juliana', 'camila', 'amanda', 'beatriz', 'larissa', 'leticia',
+  'mariana', 'patricia', 'aline', 'vanessa', 'bianca', 'rodrigo', 'gustavo', 'eduardo', 'ricardo', 'fernando', 'antonio', 'francisco',
+  'andre', 'diego', 'vitor', 'victor', 'john', 'james', 'robert', 'michael', 'william', 'david', 'richard', 'joseph',
+  'thomas', 'charles', 'mary', 'jennifer', 'linda', 'elizabeth', 'susan', 'jessica', 'sarah', 'karen', 'emily', 'jack',
+  'oliver', 'harry', 'george', 'silva', 'santos', 'oliveira', 'souza', 'sousa', 'lima', 'pereira', 'ferreira', 'costa',
+  'rodrigues', 'almeida', 'nascimento', 'carvalho', 'gomes', 'martins', 'araujo', 'ribeiro', 'alves', 'smith', 'johnson', 'williams',
+  'brown', 'jones', 'miller', 'davis', 'wilson', 'taylor', 'password', 'dragon', 'monkey', 'shadow', 'master', 'sunshine',
+  'princess', 'football', 'baseball', 'welcome',
+])
+
+/** Is the lowercased core one listed word, two joined, or mostly made of listed tokens? */
+function mostlyNamed(core: string): boolean {
+  const c = core.toLowerCase()
+  const letters = c.replace(/[^\p{L}]+/gu, '')
+  const isNamed = (t: string) => NAMED.has(t) || [...Array(Math.max(0, t.length - 1)).keys()].some((i) => i >= 2 && NAMED.has(t.slice(0, i)) && NAMED.has(t.slice(i)))
+  if (letters && isNamed(letters)) return true
+  const named = c.split(/[^\p{L}]+/u).filter((t) => t && isNamed(t)).join('').length
+  return named * 2 >= [...c].length
+}
+
+/** Could this run of letters be a word? Random letters mostly cannot: too short, no vowel, or a long
+ *  run of consonants. Letters outside this alphabet get the benefit of the doubt towards a word. */
+function isWordLike(run: string): boolean {
+  if (run.length < 4) return false
+  const w = run.toLowerCase()
+  return !/^[a-z]+$/.test(w) || (/[aeiouy]/.test(w) && !/[^aeiouy]{4}/.test(w))
+}
+
+/** Does most of the text repeat at some period? Tolerant, so a character added at the end or a
+ *  block cut short does not hide it. */
+function repeatsABlock(text: string): boolean {
+  const c = [...text]
+  for (let period = 1; period <= Math.ceil(c.length * 0.6); period++) {
+    let same = 0
+    for (let i = period; i < c.length; i++) if (c[i] === c[i - period]) same++
+    if (same >= (c.length - period) * 0.9 && c.length > period) return true
+  }
+  return false
+}
+
+/**
+ * Why a passphrase may not be CHOSEN, or null if it may. The one rule: storage enforces it on every
+ * writer that seals under a new passphrase, and the screens read it to say why. It never applies to
+ * a passphrase a member already has.
+ *
+ * Under 12 characters is refused. From 20 characters, only a listed common password or repetition is:
+ * at that length a person's word-and-year shape stops mattering as much as refusing what a password
+ * manager generated. Between the two it also judges the shape people actually use, which the meter
+ * cannot, since it counts character classes and `Konclave2026` looks rich to it: what the meter calls
+ * weak, and text that is mostly fewer than four different words, whatever digits and symbols surround
+ * them. It reads shape and knows only a short list of seasons, months and common names, so what it accepts is not proof of strength.
+ */
+export function newPassphraseProblem(s: string): PassProblem | null {
+  // Close to what a person sees: composed, without format characters. Combining marks and blank-looking
+  // letters still count, so someone determined can pad past 20; this guards against mistakes, not that.
+  const visible = s.normalize('NFC').replace(/\p{Cf}/gu, '')
+  const length = [...visible].length
+  if (length < 12) return 'too-short'
+  const kept = visible.slice(0, MAX_READ).normalize('NFD').replace(/\p{M}/gu, '')
+  const plain = kept.toLowerCase()
+  // Repetition: few distinct characters, little left once runs are collapsed, or a repeated block.
+  if (new Set(plain).size < 5 || plain.replace(/(.)\1+/gu, '$1').length < Math.max(8, plain.length * 0.6) || repeatsABlock(plain)) return 'guessable'
+
+  const core = [...kept.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')].map((c) => LEET[c] ?? c).join('')
+  // Below 20, also with digits at the edges off and look-alikes read as letters. From 20 only as typed:
+  // a listed word beside random text is not a listed password.
+  for (const text of length >= LONG_ENOUGH ? [plain] : [plain, core.toLowerCase()]) {
+    const rest = COMMON.reduce((t, word) => t.split(word).join(''), text)
+    if (rest !== text && rest.length < 8) return 'guessable'
+  }
+  if (length >= LONG_ENOUGH) return null
+
+  if (rawScore(s).score <= 1) return 'guessable'
+  if (mostlyNamed(core)) return 'guessable'
+  const tokens = core.split(/[^\p{L}]+|(?<=\p{Ll})(?=\p{Lu})/u).filter(Boolean)
+  // Only a token cased the way a word is typed (all lower, capitalised, or all upper) counts: random
+  // letters from a manager change case mid-run, and reading them as words refused one in five of them.
+  const words = tokens.filter((t) => WORD_CASE.test(t) && isWordLike(t)).map((w) => w.toLowerCase())
+  const inWords = words.join('').length
+  if (new Set(words).size < 4 && inWords * 2 >= [...core].length) return 'guessable'
+  return null
+}
+
 /**
  * Strength of a passphrase: 0 empty · 1 weak · 2 fair · 3 good · 4 strong. Estimates entropy from the
  * character-class pool and length, then scales it DOWN for low variety (few distinct characters),
  * repeated runs, and obvious sequences, so quantity alone never reads as strong.
  */
 export function scorePassphrase(s: string): PassScore {
+  const raw = rawScore(s)
+  // One the rule refuses is weak: a meter saying "good" beside a refusal would contradict it.
+  return raw.score > 1 && newPassphraseProblem(s) ? { ...raw, score: 1, label: 'weak' } : raw
+}
+
+function rawScore(s: string): PassScore {
   if (!s) return { score: 0, label: 'empty', bits: 0 }
   const len = s.length
 
@@ -59,8 +173,8 @@ function randInt(max: number): number {
 }
 
 /**
- * How many passwords the generator draws before it gives up. About 3 draws in 1,000 are rated below
- * strong, so 32 in a row is below one chance in 10^80: the bound is there so the loop cannot run
+ * How many passwords the generator draws before it gives up. About 4 draws in 1,000 are rated below
+ * strong, so 32 in a row is below one chance in 10^70: the bound is there so the loop cannot run
  * forever, not because anyone should expect to reach it.
  */
 const MAX_DRAWS = 32
@@ -69,9 +183,9 @@ const MAX_DRAWS = 32
  * A strong password for a digital vault, and one the meter on the same screen rates strong.
  *
  * Twenty random characters sometimes contain a character three times in a row, or a run like
- * "defg", and `scorePassphrase` marks both down, so about 3 in 1,000 draws read "fair" or "good" on
- * the password the app chose. Those draws are discarded and drawn again. The meter is not relaxed to
- * make them pass. Discarding them costs well under a hundredth of a bit.
+ * "defg", and `scorePassphrase` marks those down, so about 4 in 1,000 draws rate
+ * below strong on the password the app chose. Those draws are discarded and drawn again. The meter is
+ * not relaxed to make them pass. Discarding them costs well under a hundredth of a bit.
  *
  * `draw` is replaceable only so a test can reach the bound; the app always uses the default.
  */

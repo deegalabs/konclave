@@ -31,7 +31,7 @@ const saveTreasury = () => saveVault(GK, {
   name: 'Treasury', governance: 'quorum', myName: 'Ana', creatorName: 'Ana',
   groupKey: new Uint8Array(32).fill(0xab), address: 'u1test', roster: ['Ana', 'Bia'],
   sealedShare: new Uint8Array(32).fill(1),
-}, 'correct horse')
+}, 'correct horse battery staple')
 // The database will not open: what a browser does when the profile's storage is broken or blocked.
 const refuseOpen = () => vi.spyOn(indexedDB, 'open').mockImplementation(() => { throw new Error('storage closed') })
 

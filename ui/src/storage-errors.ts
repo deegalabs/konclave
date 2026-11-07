@@ -17,6 +17,7 @@ export type StorageErrorCode =
   | 'already-exists'
   | 'same-passphrase'
   | 'sealed-field-unreadable'
+  | 'weak-passphrase'
 
 export class StorageError extends Error {
   readonly code: StorageErrorCode
@@ -45,6 +46,7 @@ const KEY: Record<StorageErrorCode, string> = {
   'already-exists': 'storage.err.alreadyExists',
   'same-passphrase': 'storage.err.samePassphrase',
   'sealed-field-unreadable': 'storage.err.sealedFieldUnreadable',
+  'weak-passphrase': 'storage.err.weakPassphrase',
 }
 
 export function storageErrorKey(e: unknown, fallbackKey: string): string {
