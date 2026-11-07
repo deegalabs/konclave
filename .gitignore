@@ -73,6 +73,6 @@ logs/
 # or git never descends into it and the negation below has no effect.
 .claude/*
 !.claude/skills/
-# The project's attribution settings (D91): no session link in commits or PRs. Only this file;
+# The project's attribution settings: no session link in commits or PRs. Only this file;
 # settings.local.json and everything else under .claude/ stay local.
 !.claude/settings.json

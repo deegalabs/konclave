@@ -61,11 +61,11 @@ too. We do not want to make it harder; we want it said, so a reviewer knows what
 - **You are the author.** You read, understand and stand behind every line, as if you had typed it.
   "The assistant wrote it" is not an answer in review.
 
-This applies from the merge of [#856](https://github.com/deegalabs/konclave/pull/856) (decision D91,
-2026-11-05); earlier history is not rewritten. Projects differ here: librustzcash, the ZIPs and
-Zallet also ask for a `Co-Authored-By:` trailer, while Zebra asks for disclosure in the PR
-description and no trailer. This repository follows its own rule. It is a prose rule for now; a CI
-check may come later.
+This applies from the merge of [#856](https://github.com/deegalabs/konclave/pull/856) (decided by
+the maintainer on 2026-11-05); earlier history is not rewritten. Projects differ here:
+librustzcash, the ZIPs and Zallet also ask for a `Co-Authored-By:` trailer, while Zebra asks for
+disclosure in the PR description and no trailer. This repository follows its own rule. It is a
+prose rule for now; a CI check may come later.
 
 ## Verify before finishing
 
