@@ -59,4 +59,9 @@ describe('the PRF wrap store (#446 C)', () => {
     expect(() => clearPrfWrap('v')).not.toThrow()
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: real })
   })
+
+  it('stores the four wrap fields only, never what enrolment said about the passkey (D95)', () => {
+    savePrfWrap('vault-a', { ...wrap, backupEligible: true } as PrfWrap)
+    expect(JSON.parse(localStorage.getItem('konclave.prf.vault-a')!)).toEqual(wrap)
+  })
 })
