@@ -102,7 +102,7 @@ What is fixed and what is open, by kind of attack:
   member unlocks the vault, the signing request is sealed to those devices, so the relay does not
   learn who a payment pays or how much (#63); the coordinator's private reads (balance, history,
   proposals, ledger, members) and the signing room are gated by a per-vault secret, so a leaked
-  vault id opens neither, though it still shows the vault's address and its quorum (#402, #403);
+  vault id opens neither, though it still shows the vault's addresses (receive and change) and its quorum (#402, #403);
   and, once a vault has a registered device, the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
   viewing key and reads its books (#516); a vault where some member has not yet unlocked it on a
   current version still sends its signing requests unsealed; vaults created before the per-vault secret stay

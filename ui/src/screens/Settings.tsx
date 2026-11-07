@@ -64,9 +64,6 @@ export default function Settings() {
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
-  // The quorum as this device recorded it when the vault was made: shown first, the server's answer
-  // only when there is no record (or the record predates the field).
-  const [localQuorum, setLocalQuorum] = useState<{ threshold: number; total: number } | null>(null)
   const [xpOpen, setXpOpen] = useState(false)
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
@@ -93,7 +90,6 @@ export default function Settings() {
             const found = saved.find((s) => s.id === v.id)
             if (on) {
               setGov(found?.governance ?? 'open'); setHasLocal(!!found); setLocalRec(found ?? null); setSecured(found?.secured)
-              if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
             }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
@@ -237,8 +233,9 @@ export default function Settings() {
     }
   }
 
-  const thr = localQuorum?.threshold ?? vault?.threshold ?? 2
-  const n = localQuorum?.total ?? vault?.total ?? 3
+  // The quorum as `getVault` gives it: the device's own record first, the server's answer only without one.
+  const thr = vault?.threshold ?? 2
+  const n = vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
