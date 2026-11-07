@@ -64,3 +64,25 @@ describe('the released-sections lock', () => {
     expect(lock(cut, 'hotfix/signing')).toEqual([])
   })
 })
+
+// CI reads only the exit status of the CLI, so the status itself is tested: a lock that printed the
+// violation and exited 0 would leave every check green.
+describe('the lock CLI', () => {
+  it('exits 1 on an edited released section and 0 on an Unreleased edit', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { execFileSync, spawnSync } = await import('node:child_process')
+    const script = new URL('../../scripts/changelog-sections.mjs', import.meta.url).pathname
+    const dir = mkdtempSync(join(tmpdir(), 'kc-lock-'))
+    const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: dir })
+    git('init', '-q')
+    writeFileSync(join(dir, 'CHANGELOG.md'), base)
+    git('add', '.'); git('commit', '-q', '-m', 'base')
+    const lock = () => spawnSync('node', [script, 'lock', '--branch', 'fix/x', '--base', 'HEAD', 'CHANGELOG.md'], { cwd: dir, encoding: 'utf8' }).status
+    writeFileSync(join(dir, 'CHANGELOG.md'), base.replace('- shipped thing', '- shipped thing\n- slipped in after the cut'))
+    expect(lock()).toBe(1)
+    writeFileSync(join(dir, 'CHANGELOG.md'), base.replace('- a\n', '- a\n- new\n'))
+    expect(lock()).toBe(0)
+  })
+})
