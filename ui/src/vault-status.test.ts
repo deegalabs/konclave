@@ -98,6 +98,17 @@ describe('a private vault keeps no amounts on the device', () => {
     localStorage.setItem('konclave.status.v1', JSON.stringify({ private: true, totalZat: 10, spendableZat: 10, balanceAt: 1, reservedZat: 0, openCount: 0, proposalsAt: 1 }))
     expect(vaultStatus('v1')!.freeZat).toBeNull()
   })
+  it('once private, stays private: a read without the secret in this tab writes no amounts', () => {
+    localStorage.setItem('konclave.status.v1', JSON.stringify({ private: true, openCount: 1, proposalsAt: 1 }))
+    rememberBalance('v1', { total_zat: 10_000, spendable_zat: 8_000 })
+    rememberProposals('v1', [p('a', 'awaiting', 100, 3_000)])
+    const s = stored('v1')
+    expect(s.totalZat).toBeUndefined()
+    expect(s.spendableZat).toBeUndefined()
+    expect(s.reservedZat).toBeUndefined()
+    expect(s.private).toBe(true)
+    expect(s.balanceAt).toBeGreaterThan(0)
+  })
   it('an open vault keeps its figures as before', () => {
     rememberBalance('v2', { total_zat: 10_000, spendable_zat: 8_000 })
     expect(stored('v2').spendableZat).toBe(8_000)
