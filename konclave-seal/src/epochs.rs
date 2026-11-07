@@ -72,7 +72,95 @@ pub struct Anchor {
 #[derive(Clone, Copy, Debug)]
 pub struct Table {
     pub epochs: &'static [Epoch],
+    /// The fee eras. Deliberately NOT rows of `epochs`: a fee change does not change the consensus
+    /// branch, and every reader of `epochs` takes a new row for an upgrade (D1).
+    pub fees: &'static [FeeEra],
     pub anchor: Anchor,
+}
+
+/// ZIP 317's grace actions: the fee is never below this many marginal fees.
+pub const GRACE_ACTIONS: u64 = 2;
+
+/// ZIP 317's conventional fee: `marginal * max(GRACE_ACTIONS, logical_actions)`. `None` on overflow,
+/// which no honest transaction reaches.
+pub fn conventional_fee(marginal: u64, logical_actions: u64) -> Option<u64> {
+    let actions = if logical_actions > GRACE_ACTIONS {
+        logical_actions
+    } else {
+        GRACE_ACTIONS
+    };
+    marginal.checked_mul(actions)
+}
+
+/// The fewest actions a payment is ESTIMATED at before the wallet picks its notes: one spend, one
+/// destination and change, with the spend and the outputs kept in separate actions, which is what a
+/// single payment was charged on mainnet (15,000 at 5,000). Decided for #847 so the payment screen,
+/// the proposal and the signing panel stop showing two figures for one payment (#692).
+pub const ESTIMATE_MIN_ACTIONS: u64 = 3;
+
+/// The actions a payment to `destinations` is estimated at: one spend, the destinations and change,
+/// never fewer than `ESTIMATE_MIN_ACTIONS`. An estimate, and always will be: only the wallet knows
+/// its note selection (#206, #293). What a device signs is judged by `fee_accepted`, not by this.
+pub fn estimated_actions(destinations: u64) -> u64 {
+    let n = destinations.max(1).saturating_add(1);
+    if n > ESTIMATE_MIN_ACTIONS {
+        n
+    } else {
+        ESTIMATE_MIN_ACTIONS
+    }
+}
+
+/// Whether `fee` is exactly the conventional fee of `logical_actions` at one of `accepted`. The one
+/// comparison: `Table::fee_accepted` and the device's `check_fee` both go through here.
+pub fn fee_in(fee: u64, logical_actions: u64, accepted: &[u64]) -> bool {
+    accepted
+        .iter()
+        .any(|m| conventional_fee(*m, logical_actions) == Some(fee))
+}
+
+/// The shape every fee table must have, checked at compile time for the production table: at least
+/// one era, the first from height 0, heights strictly increasing, and each era accepting a non-zero
+/// rate set that contains what it builds.
+pub const fn fees_are_valid(fees: &[FeeEra]) -> bool {
+    if fees.is_empty() || fees[0].from_height != 0 {
+        return false;
+    }
+    let mut i = 0;
+    while i < fees.len() {
+        let e = &fees[i];
+        if i > 0 && e.from_height <= fees[i - 1].from_height {
+            return false;
+        }
+        if e.builds == 0 || e.accepts.is_empty() {
+            return false;
+        }
+        let mut found = false;
+        let mut j = 0;
+        while j < e.accepts.len() {
+            if e.accepts[j] == 0 {
+                return false;
+            }
+            if e.accepts[j] == e.builds {
+                found = true;
+            }
+            j += 1;
+        }
+        if !found {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// A span of heights with one marginal fee rule (ZIP 2009 moves it from 5,000 to 1,000).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeeEra {
+    pub from_height: u32,
+    /// What a builder targeting this era pays per logical action.
+    pub builds: u64,
+    /// What a device accepts per logical action while the clock may be in this era.
+    pub accepts: &'static [u64],
 }
 
 /// The consensus branch of NU7 (ZIP 259), carried by `zcash_protocol` 0.11.0 as `BranchId::Nu7`. The
@@ -104,11 +192,30 @@ pub const MAINNET: Table = Table {
             expiry_delta: 120,
         },
     ],
+    fees: &[
+        FeeEra {
+            from_height: 0,
+            builds: 5_000,
+            accepts: &[5_000],
+        },
+        // ZIP 2009 (Proposed, SHOULD): 1,000 from this height. 5,000 stays accepted afterwards, so a
+        // device takes a payment from a builder that has not switched (it is still a valid fee).
+        FeeEra {
+            from_height: 3_590_000,
+            builds: 1_000,
+            accepts: &[5_000, 1_000],
+        },
+    ],
     anchor: Anchor {
         height: 3_428_143,
         unix: 1_785_247_643,
     },
 };
+
+const _: () = assert!(
+    fees_are_valid(MAINNET.fees),
+    "the mainnet fee table is malformed"
+);
 
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,6 +287,80 @@ impl Table {
     /// The row the anchor lies in.
     fn anchor_epoch(&self) -> &'static Epoch {
         self.epoch_of(self.anchor.height)
+    }
+
+    /// What a builder targeting `target_height` pays per logical action. A validated table starts at
+    /// height 0 (`fees_are_valid`), so some era always applies.
+    pub fn builder_marginal_fee(&self, target_height: u32) -> u64 {
+        self.fees
+            .iter()
+            .rfind(|e| e.from_height <= target_height)
+            .unwrap_or(&self.fees[0])
+            .builds
+    }
+
+    /// The marginal fees a device accepts at `now_unix`: the union of `accepts` over the eras the
+    /// clock window `[lo, top]` meets. Empty when the clock is before the anchor.
+    pub fn accepted_marginal_fees(&self, now_unix: i64) -> Vec<u64> {
+        let b = self.height_bounds(now_unix);
+        if b.lo > b.top {
+            return vec![];
+        }
+        let mut out: Vec<u64> = vec![];
+        for (i, e) in self.fees.iter().enumerate() {
+            let end = self
+                .fees
+                .get(i + 1)
+                .map_or(u32::MAX, |n| n.from_height.saturating_sub(1));
+            if e.from_height <= b.top && end >= b.lo {
+                for a in e.accepts {
+                    if !out.contains(a) {
+                        out.push(*a);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every marginal fee any era of the table accepts, whatever the clock. A fee that matches one
+    /// of these but not the clock's set is a fee for another era: the device's clock, or the
+    /// builder's height, is off, which a member is told apart from a fee no era allows.
+    pub fn every_accepted_marginal_fee(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = vec![];
+        for e in self.fees {
+            for a in e.accepts {
+                if !out.contains(a) {
+                    out.push(*a);
+                }
+            }
+        }
+        out
+    }
+
+    /// The highest accepted value: what a gate reserves.
+    pub fn reserve_marginal_fee(&self, now_unix: i64) -> u64 {
+        self.accepted_marginal_fees(now_unix)
+            .into_iter()
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The fee a screen shows and reserves for a payment to `destinations`, at the highest rate the
+    /// device accepts at `now_unix`, so a reservation never comes up short of what the device would
+    /// sign. `None` when the clock confirms no window (before the anchor): unknown, never a default.
+    pub fn estimated_fee(&self, now_unix: i64, destinations: u64) -> Option<u64> {
+        match self.reserve_marginal_fee(now_unix) {
+            0 => None,
+            m => conventional_fee(m, estimated_actions(destinations)),
+        }
+    }
+
+    /// Whether `fee` is exactly the ZIP 317 fee of `logical_actions` at one of the marginal fees the
+    /// device accepts at `now_unix`. THE device rule for the fee (ZIP 2009): before the clock window
+    /// reaches the switch only 5,000 a action passes, from then on 5,000 or 1,000, and nothing else.
+    pub fn fee_accepted(&self, fee: u64, logical_actions: u64, now_unix: i64) -> bool {
+        fee_in(fee, logical_actions, &self.accepted_marginal_fees(now_unix))
     }
 
     /// The height a clock reading corresponds to, walking the rows from the anchor at each row's own
@@ -343,6 +524,7 @@ mod tests {
                 expiry_delta: 120,
             },
         ],
+        fees: MAINNET.fees,
         anchor: MAINNET.anchor,
     };
 
@@ -355,6 +537,7 @@ mod tests {
     /// expiry alone, a latest row). Defined here, never in the production table, which has two rows.
     const ONE_ROW: Table = Table {
         epochs: &[MAINNET.epochs[0]],
+        fees: MAINNET.fees,
         anchor: MAINNET.anchor,
     };
 
@@ -702,5 +885,267 @@ mod tests {
             !MAINNET.is_crossing_expiry(3_594_240, 0xdead_beef, lo, top),
             "an unknown branch"
         );
+    }
+
+    // ---- fee eras (ZIP 2009). A fee era is NOT a row of `epochs` (D1). ----
+
+    const FEE_H: u32 = 3_590_000;
+
+    #[test]
+    fn a_fee_era_does_not_touch_any_epoch_reader() {
+        // The same epochs with and without fee eras answer every epoch question alike.
+        const NO_FEES: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[],
+            anchor: MAINNET.anchor,
+        };
+        for h in (FEE_H - 300..FEE_H + 300).step_by(7) {
+            assert_eq!(
+                MAINNET.height_at(MAINNET.anchor.unix + i64::from(h)),
+                NO_FEES.height_at(NO_FEES.anchor.unix + i64::from(h))
+            );
+            assert_eq!(MAINNET.epoch_of(h), NO_FEES.epoch_of(h));
+        }
+        for b in [NU63, NU7] {
+            for exp in [0, FEE_H - 1, FEE_H, FEE_H + 1, FEE_H + 500] {
+                assert_eq!(MAINNET.minable_until(b, exp), NO_FEES.minable_until(b, exp));
+                assert_eq!(
+                    MAINNET.capped_by_next(b, exp),
+                    NO_FEES.capped_by_next(b, exp)
+                );
+            }
+            assert_eq!(
+                MAINNET.next_activation_after(b),
+                NO_FEES.next_activation_after(b)
+            );
+        }
+        assert_eq!(MAINNET.minable_until(NU7, 0), Some(u32::MAX));
+        assert_eq!(MAINNET.epochs.len(), 2);
+    }
+
+    /// The unix time at which the estimate reaches `h`, for a clock-based probe.
+    fn unix_for(t: &Table, h: u32) -> i64 {
+        let (mut lo, mut hi) = (t.anchor.unix, t.anchor.unix + 200_000_000);
+        while lo < hi {
+            let m = lo + (hi - lo) / 2;
+            if t.height_at(m) >= h {
+                hi = m
+            } else {
+                lo = m + 1
+            }
+        }
+        lo
+    }
+
+    #[test]
+    fn mainnet_carries_the_zip_2009_height_and_both_eras() {
+        assert_eq!(MAINNET.fees[1].from_height, 3_590_000);
+        assert_eq!(MAINNET.builder_marginal_fee(FEE_H - 1), 5_000);
+        assert_eq!(MAINNET.builder_marginal_fee(FEE_H), 1_000);
+        assert_eq!(MAINNET.fees[0].accepts, &[5_000]);
+        assert_eq!(MAINNET.fees[1].accepts, &[5_000, 1_000]);
+        assert_eq!(MAINNET.every_accepted_marginal_fee(), vec![5_000, 1_000]);
+        assert_eq!(MAINNET.epochs[1].spacing_s, 25);
+    }
+
+    #[test]
+    fn accepted_fees_follow_the_clock_window_at_both_edges() {
+        let t = &MAINNET;
+        // Far before: only 5,000. Far after: phase 1 keeps 5,000 and adds 1,000.
+        let before = unix_for(t, FEE_H - 20_000);
+        assert_eq!(t.accepted_marginal_fees(before), vec![5_000]);
+        assert_eq!(t.reserve_marginal_fee(before), 5_000);
+        let after = unix_for(t, FEE_H + 20_000);
+        let a = t.accepted_marginal_fees(after);
+        assert!(a.contains(&5_000) && a.contains(&1_000));
+        assert_eq!(t.reserve_marginal_fee(after), 5_000);
+        // The edges: scan clock readings and check the window rule against height_bounds.
+        let mut saw_both = false;
+        let mut s = unix_for(t, FEE_H - 6_000);
+        let end = unix_for(t, FEE_H + 6_000);
+        while s < end {
+            let b = t.height_bounds(s);
+            let acc = t.accepted_marginal_fees(s);
+            assert_eq!(acc.contains(&1_000), b.top >= FEE_H, "top edge at {s}");
+            assert!(acc.contains(&5_000));
+            saw_both |= acc.len() == 2;
+            assert_eq!(
+                acc.iter().max().copied().unwrap(),
+                t.reserve_marginal_fee(s)
+            );
+            s += 600;
+        }
+        assert!(saw_both);
+    }
+
+    #[test]
+    fn an_empty_window_accepts_no_fee() {
+        let t = &MAINNET;
+        assert!(t.accepted_marginal_fees(t.anchor.unix - 1).is_empty());
+        assert_eq!(t.reserve_marginal_fee(t.anchor.unix - 1), 0);
+    }
+
+    #[test]
+    fn phase_two_table_stops_accepting_5000_once_the_window_leaves_the_old_era() {
+        const P2: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[
+                FeeEra {
+                    from_height: 0,
+                    builds: 5_000,
+                    accepts: &[5_000],
+                },
+                FeeEra {
+                    from_height: FEE_H,
+                    builds: 1_000,
+                    accepts: &[1_000],
+                },
+            ],
+            anchor: MAINNET.anchor,
+        };
+        let before = unix_for(&P2, FEE_H - 20_000);
+        assert_eq!(P2.accepted_marginal_fees(before), vec![5_000]);
+        let after = unix_for(&P2, FEE_H + 20_000);
+        assert_eq!(P2.accepted_marginal_fees(after), vec![1_000]);
+    }
+
+    // ---- the device's fee rule, against numbers worked out by hand (not through height_bounds) ----
+
+    /// The nominal time the mainnet estimate reaches 3,590,000: the anchor (3,428,143 at
+    /// 1,785,247,643), 115,262 blocks at 75 s to NU7 (3,543,405), then 46,595 blocks at 25 s.
+    const T_F: i64 = 1_785_247_643 + 115_262 * 75 + 46_595 * 25;
+
+    #[test]
+    fn the_switch_time_is_the_hand_computed_one() {
+        assert_eq!(T_F, 1_795_057_168);
+        assert_eq!(MAINNET.height_at(T_F), FEE_H);
+        assert_eq!(MAINNET.height_at(T_F - 25), FEE_H - 1);
+    }
+
+    #[test]
+    fn a_1000_fee_is_refused_until_the_window_reaches_the_switch() {
+        // At T_F - 120,000 s, 129,193 blocks of 75 s have passed since the anchor, so the slack is
+        // 75 x (144 + ceil(129,193 / 100)) = 107,700 s, and the window
+        // top sits 12,300 s (492 blocks) short of 3,590,000: only 5,000 passes.
+        let early = T_F - 120_000;
+        assert_eq!(MAINNET.slack(early), 75 * (144 + 1_292));
+        assert!(MAINNET.fee_accepted(10_000, 2, early));
+        assert!(!MAINNET.fee_accepted(2_000, 2, early));
+        assert!(!MAINNET.fee_accepted(3_000, 3, early));
+        // At T_F - 100,000 s the slack is 75 x (144 + 1,295) = 107,925 s: the top is past the switch,
+        // and the window straddles it, so both rates pass (about 30 h of early acceptance).
+        let straddle = T_F - 100_000;
+        assert_eq!(MAINNET.slack(straddle), 75 * (144 + 1_295));
+        assert!(MAINNET.fee_accepted(10_000, 2, straddle));
+        assert!(MAINNET.fee_accepted(2_000, 2, straddle));
+    }
+
+    #[test]
+    fn after_the_switch_both_rates_pass_and_nothing_else_does() {
+        let late = T_F + 30 * 86_400;
+        for actions in [0, 1, 2, 3, 7, 50] {
+            let n = actions.max(2);
+            assert!(MAINNET.fee_accepted(5_000 * n, actions, late), "5000 x {n}");
+            assert!(MAINNET.fee_accepted(1_000 * n, actions, late), "1000 x {n}");
+            for off in [
+                3_000 * n,
+                5_000 * n + 1,
+                1_000 * n - 1,
+                0,
+                5_000 * (n + 1),
+                1_000 * (n + 1),
+            ] {
+                assert!(
+                    !MAINNET.fee_accepted(off, actions, late),
+                    "{off} for {actions} actions"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_grace_floor_and_overflow_are_exact() {
+        assert_eq!(conventional_fee(5_000, 0), Some(10_000));
+        assert_eq!(conventional_fee(5_000, 1), Some(10_000));
+        assert_eq!(conventional_fee(5_000, 2), Some(10_000));
+        assert_eq!(conventional_fee(1_000, 3), Some(3_000));
+        assert_eq!(conventional_fee(u64::MAX, 3), None);
+        // An overflowing count is never accepted, whatever the fee.
+        assert!(!MAINNET.fee_accepted(u64::MAX, u64::MAX, T_F + 86_400));
+    }
+
+    #[test]
+    fn a_clock_before_the_anchor_accepts_no_fee() {
+        assert!(!MAINNET.fee_accepted(10_000, 2, MAINNET.anchor.unix - 1));
+    }
+
+    #[test]
+    fn the_fee_table_shape_is_checked() {
+        assert!(fees_are_valid(MAINNET.fees));
+        assert!(!fees_are_valid(&[]));
+        let e = |from_height, builds, accepts: &'static [u64]| FeeEra {
+            from_height,
+            builds,
+            accepts,
+        };
+        assert!(
+            !fees_are_valid(&[e(1, 5_000, &[5_000])]),
+            "first era not at 0"
+        );
+        assert!(
+            !fees_are_valid(&[e(0, 5_000, &[1_000])]),
+            "builds outside accepts"
+        );
+        assert!(!fees_are_valid(&[e(0, 0, &[0])]), "zero rate");
+        assert!(!fees_are_valid(&[e(0, 5_000, &[])]), "nothing accepted");
+        assert!(
+            !fees_are_valid(&[e(0, 5_000, &[5_000]), e(0, 1_000, &[1_000])]),
+            "heights not increasing"
+        );
+        assert!(fees_are_valid(&[
+            e(0, 5_000, &[5_000]),
+            e(9, 1_000, &[1_000])
+        ]));
+    }
+
+    #[test]
+    fn the_builder_rate_switches_at_the_target_height() {
+        assert_eq!(MAINNET.builder_marginal_fee(0), 5_000);
+        assert_eq!(MAINNET.builder_marginal_fee(FEE_H - 1), 5_000);
+        assert_eq!(MAINNET.builder_marginal_fee(FEE_H), 1_000);
+        assert_eq!(MAINNET.builder_marginal_fee(u32::MAX), 1_000);
+    }
+
+    #[test]
+    fn the_estimate_is_one_rule_at_the_reserve_rate() {
+        assert_eq!(estimated_actions(0), 3);
+        assert_eq!(estimated_actions(1), 3);
+        assert_eq!(estimated_actions(2), 3);
+        assert_eq!(estimated_actions(3), 4);
+        assert_eq!(estimated_actions(40), 41);
+        // Before and after the switch the reserve is 5,000 (5,000 stays accepted): 15,000 for one.
+        assert_eq!(MAINNET.estimated_fee(T_F - 30 * 86_400, 1), Some(15_000));
+        assert_eq!(MAINNET.estimated_fee(T_F + 30 * 86_400, 1), Some(15_000));
+        assert_eq!(MAINNET.estimated_fee(T_F + 30 * 86_400, 5), Some(30_000));
+        // No window, no estimate.
+        assert_eq!(MAINNET.estimated_fee(MAINNET.anchor.unix - 1, 1), None);
+        // Once a table stops accepting 5,000, the estimate follows the reserve down.
+        const LATER: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[
+                FeeEra {
+                    from_height: 0,
+                    builds: 5_000,
+                    accepts: &[5_000],
+                },
+                FeeEra {
+                    from_height: FEE_H,
+                    builds: 1_000,
+                    accepts: &[1_000],
+                },
+            ],
+            anchor: MAINNET.anchor,
+        };
+        assert_eq!(LATER.estimated_fee(T_F + 30 * 86_400, 1), Some(3_000));
     }
 }

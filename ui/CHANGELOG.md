@@ -81,6 +81,19 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **A device accepts the lower network fee from block 3,590,000 (ZIP 2009, #847).** ZIP 2009
+  (Proposed) lowers the fee per action from 5,000 to 1,000 zatoshis at mainnet block 3,590,000. A
+  device on this version accepts a payment at either rate once its clock says the chain may have
+  reached that block, and only at 5,000 before it. Any other fee is still refused, and so is padding
+  that raises it. A payment at 1,000 that reaches a device whose clock is behind is refused with a
+  message to check the date and time, not one about tampering. Nothing changes for a payment today:
+  the coordinator still builds at 5,000, which stays valid after the switch.
+- **One network fee estimate on every screen (#692).** The payment screen reserved 0.00015 ZEC for a
+  payment while the proposal page and the signing panel showed 0.0001 for the same payment. The four
+  screens now read one estimate from the rule the device signs by: 0.00015 ZEC for a payment to one
+  person, and one more action for each payroll line beyond two. If the device cannot work it out (the
+  app did not finish loading, or the device's clock is set before July 2026), Propose stays closed
+  and says why.
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
   opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
   book, three names, and the member had to work out that they were the same thing. Everything now
@@ -114,6 +127,18 @@ history to tidy it is how context gets lost.
 
 - **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
   stays open for that).
+- **Until the coordinator switches, every vault payment pays 5,000 zatoshis per action, and can be
+  told apart.** After block 3,590,000 (expected around 19 November 2026), wallets that follow ZIP 2009
+  pay 1,000; the fee is public, so a vault transaction paying five times that stands out from theirs.
+  The plan is for the coordinator to build at 1,000 in a later release, only for a vault whose every
+  device accepts that rate; that is not built yet. A vault with one device that is never updated (a
+  desktop install has no updater, #606) would keep paying 5,000.
+- **The estimate stays at 5,000 per action after the switch**, because a device still accepts 5,000.
+  Once the coordinator pays 1,000, the screens reserve more than a payment costs.
+- **5,000 per action stays accepted with no end date**, so a coordinator can still choose the higher
+  fee after the switch: the fee every vault pays today.
+- **A device starts accepting 1,000 about 30 hours before its clock expects block 3,590,000.** It
+  judges the height by its own clock, which cannot place the chain closer than that.
 
 ## [0.17.0] 2026-11-06
 

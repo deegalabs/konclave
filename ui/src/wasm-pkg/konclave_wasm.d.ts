@@ -232,6 +232,13 @@ export function describeOutputs(pczt: Uint8Array): string;
 export function deviceWritePubHex(key_package: Uint8Array): string;
 
 /**
+ * The fee a screen shows and reserves for a payment to `destinations`, in zatoshis, read from the
+ * one rule (`konclave_seal::epochs`, ZIP 2009) with this device's clock. `0` when the clock
+ * confirms no window: the caller treats that as unknown and blocks, never as a default.
+ */
+export function estimatedFeeZat(destinations: number): number;
+
+/**
  * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
  * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
  */
@@ -386,6 +393,7 @@ export interface InitOutput {
     readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
     readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly estimatedFeeZat: (a: number) => number;
     readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
     readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
@@ -404,6 +412,30 @@ export interface InitOutput {
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly upgradeHeight: () => number;
+    readonly selftest: () => [number, number];
+    readonly __wbg_coordinator_free: (a: number, b: number) => void;
+    readonly __wbg_round1_free: (a: number, b: number) => void;
+    readonly __wbg_testvault_free: (a: number, b: number) => void;
+    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
+    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly coordinator_checkShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly coordinator_prepare: (a: number) => [number, number];
+    readonly coordinator_seed: (a: number) => [number, number];
+    readonly coordinator_signingPackage: (a: number) => [number, number];
+    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
+    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly participantRound1: (a: number, b: number) => [number, number, number];
+    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly round1_commitment: (a: number) => [number, number];
+    readonly testvault_groupVk: (a: number) => [number, number];
+    readonly testvault_id: (a: number, b: number) => [number, number];
+    readonly testvault_key_package: (a: number, b: number) => [number, number];
+    readonly testvault_new: () => [number, number, number];
+    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
@@ -452,30 +484,6 @@ export interface InitOutput {
     readonly signWrite: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
-    readonly selftest: () => [number, number];
-    readonly __wbg_coordinator_free: (a: number, b: number) => void;
-    readonly __wbg_round1_free: (a: number, b: number) => void;
-    readonly __wbg_testvault_free: (a: number, b: number) => void;
-    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
-    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly coordinator_checkShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly coordinator_prepare: (a: number) => [number, number];
-    readonly coordinator_seed: (a: number) => [number, number];
-    readonly coordinator_signingPackage: (a: number) => [number, number];
-    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
-    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly participantRound1: (a: number, b: number) => [number, number, number];
-    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
-    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
-    readonly round1_commitment: (a: number) => [number, number];
-    readonly testvault_groupVk: (a: number) => [number, number];
-    readonly testvault_id: (a: number, b: number) => [number, number];
-    readonly testvault_key_package: (a: number, b: number) => [number, number];
-    readonly testvault_new: () => [number, number, number];
-    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
