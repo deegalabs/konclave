@@ -86,7 +86,7 @@ production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on ma
   presence, never the secret) and an honest warning banner on an open/legacy vault; the copy is honest
   that protecting an open vault means re-creating it, not an auto-migration.
 - **Encrypted export v2 (PR #405 / #214) - DONE.** A vault export is a single opaque blob (metadata +
-  share + `S` + beneficiaries under the passphrase); a leaked backup reveals nothing, not even the id.
+  share + `S` + beneficiaries under the passphrase); the contents of a leaked backup, the id included, stay unreadable.
   Import reads v1 + v2. `docs/RECOVERY.md` is the runbook - the export restores the share, not the
   vault identity/UFVK, so the full kit is the share export plus the helper's `registration.json`.
 - **Ops.** A census reversibly retired 21 disposable test vaults (26 -> 5 active, moved to
