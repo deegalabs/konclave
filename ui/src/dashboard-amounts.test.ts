@@ -38,7 +38,7 @@ describe('the Dashboard shows the exact amount', () => {
     expect(src).toMatch(/className=\{'kpi-v' \+ \(paidTxt\.length > 7 \? ' kpi-long' : ''\)\}/)
     const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
     expect(css).toMatch(/\.amt-long\{font-size:clamp\(30px,4\.6vw,40px\)\}/)
-    expect(css).toMatch(/\.kpi-v\.kpi-long\{font-size:16px\}/)
+    expect(css).toMatch(/\.kpi-v\.kpi-long\{font-size:14px\}/)
   })
 
   it('one figure has one precision: nothing on the Dashboard rounds to four decimals (I2)', () => {

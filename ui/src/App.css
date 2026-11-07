@@ -394,8 +394,9 @@
 .kpi-k{color:var(--text-muted)}
 .kpi-v{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
 .kpi-u{font-size:12px; color:var(--text-muted); letter-spacing:.12em}
-/* An exact figure with more than four decimals, so it and its unit stay on one line in a ~130px column. */
-.kpi-v.kpi-long{font-size:16px}
+/* An exact figure with more than four decimals, so it and its unit stay on one line in the rail's
+   ~127px column: 111px in Archivo, and 125px even in DejaVu Sans if Archivo has not loaded. */
+.kpi-v.kpi-long{font-size:14px}
 .kpi-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
 
 /* Spend-by-month bars (charts.tsx) */
