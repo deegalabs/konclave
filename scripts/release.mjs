@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { sectionBody, hasSection, versionsIn, mergeFragments, readFragments, fragmentDirOf, compileFragments } from './changelog-sections.mjs'
+import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -41,11 +41,10 @@ function sectionOf(file, version) {
   // A source that does not exist yet contributes nothing rather than failing the release. Cutting a
   // release is the worst moment to discover a missing file.
   try { md = readFileSync(file, 'utf8') } catch { return '' }
-  // Fragments are part of [Unreleased] before the cut, so --notes shows them.
-  if (!sectionBody(md, version)) md = mergeFragments(md, readFragments(fragmentDirOf(file)))
   // A section that exists and is EMPTY is the version's own (the cut renames even when [Unreleased] is
-  // empty): falling back to [Unreleased] would print the NEXT release's notes under this one.
-  return hasSection(md, version) ? sectionBody(md, version) : sectionBody(md, 'Unreleased')
+  // empty): falling back to [Unreleased] would print the NEXT release's notes under this one. Before the
+  // cut, the fragments are part of [Unreleased], so --notes shows them.
+  return hasSection(md, version) ? sectionBody(md, version) : unreleasedOf(md, file)
 }
 
 /** The versions this repo actually released, newest first. A section with no tag was cut and then
@@ -328,5 +327,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     : `CHANGELOG already has [${version}]; bumped ui/package.json and src-tauri/tauri.conf.json.`)
   console.log('Next:')
   console.log(`  git commit -am "release: v${version}"`)
-  console.log(`  git tag v${version} && git push origin <branch> --tags   # the cut goes through pre-release/vX.Y.Z into staging`)
+  console.log(`  git tag v${version} && git push origin main --tags`)
 }

@@ -129,6 +129,12 @@ export function mergeFragments(md, frags) {
 }
 
 /** Cut-time: fold the fragments into the file and delete them. Returns how many were compiled. */
+/** What a changelog says is coming: its [Unreleased] section with the per-PR fragments beside it folded
+ *  in. The one reader of "what is unreleased", for the release notes and the weekly material alike. */
+export function unreleasedOf(md, file) {
+  return sectionBody(mergeFragments(md, readFragments(fragmentDirOf(file))), 'Unreleased')
+}
+
 export function compileFragments(file, dir) {
   const frags = readFragments(dir)
   if (!frags.length) return 0

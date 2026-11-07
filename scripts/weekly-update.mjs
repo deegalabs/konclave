@@ -25,7 +25,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { sectionBody } from './changelog-sections.mjs'
+import { unreleasedOf } from './changelog-sections.mjs'
 
 // `--posted` moves the window. Deliberately a separate act from generating the material: the hook
 // never advances it, so a week that did not get posted is still there next time.
@@ -106,7 +106,7 @@ function claimFor(txid) {
 }
 
 function unreleased() {
-  return sectionBody(readFileSync('CHANGELOG.md', 'utf8'), 'Unreleased')
+  return unreleasedOf(readFileSync('CHANGELOG.md', 'utf8'), 'CHANGELOG.md')
 }
 
 const prs = mergedPrs()
