@@ -9,7 +9,7 @@ import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import MembersPeek from '../MembersPeek'
-import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
+import { fmtZec as fmt4, fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
@@ -18,9 +18,6 @@ import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, type Walle
 import { WALLET_BUSY } from '../helper'
 import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useT, useTr } from '../i18n'
-import { ensureWasm } from '../wasm-ready'
-import { upgradeHeight } from '../wasm-pkg/konclave_wasm.js'
-import { upgradeNotice } from '../upgrade-notice'
 import {
   getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
   type Vault, type Proposal,
@@ -106,15 +103,6 @@ export default function Dashboard() {
   // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
   // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
-  // The height of the next network upgrade, from the epoch table WASM carries (the one home of it).
-  // Unknown until WASM is ready, and a failure to load it is silent on purpose: the notice is a
-  // courtesy ahead of a pause the coordinator enforces on its own, so its absence misleads no one.
-  const [upgradeAt, setUpgradeAt] = useState<number | undefined>(undefined)
-  useEffect(() => {
-    let live = true
-    void ensureWasm().then(() => { if (live) setUpgradeAt(upgradeHeight()) }).catch(() => {})
-    return () => { live = false }
-  }, [])
   // #307: whether this browser has promised to keep the share. `undefined` while unasked, so the
   // banner never flashes before we know. The answer is read here rather than stored at save time
   // because it can change under the member (a granted origin can be revoked in settings).
@@ -293,7 +281,7 @@ export default function Dashboard() {
   const balLoading = loading || (isLive && !balLoaded)
   // Show a figure only when it is real (hasBal). Never fabricate a balance: while loading or
   // offline we show a neutral dash.
-  const amt = hasBal ? fmt4(balance!.total_zec) : '-'
+  const amt = hasBal ? fmtZecExact(Number(balance!.total_zec)) : '-'
 
   // The desk: every OPEN proposal, ranked for THIS device (the rule lives in desk.ts). This
   // replaces the old "pick one" logic, which hid a ready-to-sign proposal behind any awaiting one,
@@ -318,7 +306,7 @@ export default function Dashboard() {
           date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
           title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
           by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
-          value: movement.out ? `−${fmt4(p.value_zec)}` : fmt4(p.value_zec),
+          value: movement.out ? `−${fmtZecExact(p.value_zat / 1e8)}` : fmtZecExact(p.value_zat / 1e8),
           dir: 'out' as const,
           movement,
         }
@@ -405,7 +393,6 @@ export default function Dashboard() {
 
   // USD estimate (opt-in). Only priceable when there is a real ZEC figure.
   const tip = hasBal ? balance!.chain_tip_height : undefined
-  const notice = upgradeNotice(tip, upgradeAt)
   const confs = tip && newestHeight ? Math.max(0, tip - newestHeight + 1) : null
   const balZecNum = hasBal ? parseZ(balance!.total_zec) : undefined
   const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
@@ -446,22 +433,6 @@ export default function Dashboard() {
         {/* #821: the coordinator refused to register this device for its seat, so it cannot sign
             or vote from here. Shown, not only logged. */}
         {seatRefused && <BannerWarn>{t(seatRefused)}</BannerWarn>}
-
-        {/* The pause around a network upgrade is enforced by the coordinator and reaches a member as an
-            error when they try to pay. This tells them before, from the tip the balance already carries.
-            Not an alarm (nothing is wrong, nothing is lost): the quiet notice the install prompt uses. */}
-        <div role="status" aria-live="polite">
-          {notice !== null && upgradeAt !== undefined && (
-            <div className="dash-persist">
-              <span className="dp-ic" aria-hidden="true">◆</span>
-              <span>
-                {t(notice === 'before' ? 'dashboard.upgradeBefore' : 'dashboard.upgradeAfter', {
-                  height: upgradeAt.toLocaleString(dpt() ? 'pt-BR' : 'en-US'),
-                })}
-              </span>
-            </div>
-          )}
-        </div>
 
         {/* #307: the browser did not promise to keep the share. Not a bug in the app - it is how
             browser storage works - but staying silent about it is how someone loses a seat with no

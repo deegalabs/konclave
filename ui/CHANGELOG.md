@@ -89,8 +89,19 @@ history to tidy it is how context gets lost.
   over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
+- **The dashboard no longer shows the network-upgrade notice.** It told of the pause around NU7
+  ("The Zcash network has upgraded. If a payment is refused for a while..."). NU7 activated on
+  2026-11-05 and payments after it are proven on mainnet, so the notice is gone with its text. The
+  rule that decides when such a notice applies stays in the code for the next upgrade, and a payment
+  refused during an upgrade pause still says why.
 
 ### Fixed
+
+- **The dashboard shows amounts exactly, not rounded to four decimals.** The balance card and the
+  movements rounded every figure to four decimals, so a payment of 0.00015 ZEC was listed as 0.0001,
+  an amount the vault never paid. Both now show the exact figure, as the book and the proposal do
+  since #777: four decimals when that is all the figure has (0.0120), more only when it has them
+  (0.00015).
 
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
   "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
