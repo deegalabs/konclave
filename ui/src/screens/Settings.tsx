@@ -105,6 +105,10 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
+  // D95: the passkey just created may sync (BE read from its authenticator data). Shown once, after
+  // enrolment, and never blocking it: the shortcut is per device by design, so a synced passkey is
+  // the case it does not rely on, and the member is owed that sentence before they do.
+  const [pkSynced, setPkSynced] = useState(false)
   useEffect(() => { setHasPasskey(!!(vaultId && loadPrfWrap(vaultId))) }, [vaultId])
   // Offered only when this device can actually do it: a vault selected, `S` in the session, and a
   // browser with WebAuthn. Advertising a control that cannot work is worse than not offering it.
@@ -114,7 +118,7 @@ export default function Settings() {
     if (!vaultId) return
     const s = readSecretFor(vaultId)
     if (!s) { setPkErr(t('settings.passkeyNeedUnlock')); return }
-    setPkBusy(true); setPkErr(null)
+    setPkBusy(true); setPkErr(null); setPkSynced(false)
     try {
       const label = vault?.name || t('settings.vault')
       const r = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
@@ -125,6 +129,9 @@ export default function Settings() {
       if (typeof r === 'string') { setPkErr(t(DENIAL_COPY[r])); return }
       savePrfWrap(vaultId, r)
       setHasPasskey(true)
+      // Only a BE we read as SET earns the notice. Null (nothing readable) is unknown, not a reason
+      // to alarm anyone, and the always-shown access note below already says the rule.
+      setPkSynced(r.backupEligible === true)
     } finally {
       setPkBusy(false)
     }
@@ -136,6 +143,7 @@ export default function Settings() {
     clearPrfWrap(vaultId)
     setHasPasskey(false)
     setPkErr(null)
+    setPkSynced(false)
   }
 
   // #470: rotating the passphrase that seals this device's share. Local and per DEVICE - the
@@ -390,6 +398,7 @@ export default function Settings() {
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
+      {hasPasskey && pkSynced && <p className="set-hint" role="status">{t('settings.passkeySynced')}</p>}
       {/* Unconditional. It used to render only when this device could use a passkey, so a device
           that cannot never learned the rule it is subject to. */}
       <p className="set-hint">{t('set.accessNote')}</p>

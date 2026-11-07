@@ -90,6 +90,15 @@ history to tidy it is how context gets lost.
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
 
+- **Creating a passkey in Settings now says when that passkey can sync (D95).** The unlock
+  shortcut is made for one device: nothing guarantees a passkey keeps opening it after it syncs to
+  another device, and on some phones it has stopped working even without a sync. Until now Settings
+  created the passkey and said nothing about which kind it was. It now reads, from the data the
+  device returns, whether the passkey is eligible for backup (one your passkey manager can sync),
+  and if so says that a synced passkey may stop opening the shortcut on another device or after a
+  sync, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
+  on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
+
 ### Fixed
 
 - **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
