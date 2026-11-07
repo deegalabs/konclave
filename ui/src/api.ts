@@ -38,6 +38,7 @@ import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
 import { addressText } from './approved-payment'
 import { protocolOfRecord } from './creation-protocol'
+import { PAYROLL_TITLE_MAX } from './proposal-name'
 
 export type Member = { name: string; pubkey: string }
 
@@ -589,6 +590,11 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
   const has = (s: string) => e.includes(s) || d.includes(s)
+
+  // #296. The coordinator's two refusals of a payroll's name, before any rule that reads looser
+  // words (a "control character" must not read as anything else).
+  if (has('payroll title is longer than')) return t('payroll.errTitleTooLong', { max: PAYROLL_TITLE_MAX })
+  if (has('payroll title contains')) return t('payroll.errTitleChars')
 
   // The engine reports the two figures that decide it. Pass them through: "the vault has X and this
   // needs Y" is actionable, where a generic "insufficient funds" leaves you guessing by how much -

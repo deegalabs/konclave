@@ -517,7 +517,7 @@ export default function Dashboard() {
               <Identicon seed={lead.p.proposer} size={38} />
               <div className="ny-main">
                 <div className="ny-amt"><Secret>{fmt4(lead.p.value_zec)}</Secret> <span className="dim small">ZEC</span></div>
-                <div className="a-to">{tr('dashboard.memoProposedBy', { memo: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
+                <div className="a-to">{tr('dashboard.whatProposedBy', { what: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
                 <div className="a-meta">
                   <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < lead.p.approvals_count ? 'on' : ''} />)}</span>
                   <span>

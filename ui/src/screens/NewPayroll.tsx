@@ -7,7 +7,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom'
 import type { VaultLockContext } from '../Layout'
 import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
-import { proposalName, titleTooLong, PAYROLL_TITLE_MAX } from '../proposal-name'
+import { proposalName, titleProblem, PAYROLL_TITLE_MAX } from '../proposal-name'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
@@ -403,7 +403,9 @@ export default function NewPayroll() {
     const desc = competencia.trim()
       ? `${t('payroll.docPrefix')} · ${competencia.trim()}${description.trim() ? ` · ${description.trim()}` : ''}`
       : (description.trim() || undefined)
-    if (desc && titleTooLong(desc)) { setError(t('payroll.errTitleTooLong', { max: PAYROLL_TITLE_MAX })); return }
+    const titleIssue = desc ? titleProblem(desc) : null
+    if (titleIssue === 'long') { setError(t('payroll.errTitleTooLong', { max: PAYROLL_TITLE_MAX })); return }
+    if (titleIssue === 'chars') { setError(t('payroll.errTitleChars')); return }
     setBusy(true)
     const res = await createPayroll(
       proposer,

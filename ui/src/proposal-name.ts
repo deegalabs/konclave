@@ -14,7 +14,25 @@ export function proposalName(p: { title?: string | null; memo?: string | null },
   return p.title?.trim() || p.memo?.trim() || fallback
 }
 
-/** Characters, not UTF-16 units, so the screen counts the way the coordinator does. */
-export function titleTooLong(title: string): boolean {
-  return [...title.trim()].length > PAYROLL_TITLE_MAX
+/** The direction marks, embeddings, overrides and isolates the coordinator refuses, as inclusive
+ *  code point ranges. Read against `payroll_title` in `orchestrator/src/helper.rs` by a test. */
+export const TITLE_BIDI_RANGES: readonly (readonly [number, number])[] = [
+  [0x061c, 0x061c],
+  [0x200e, 0x200f],
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+]
+
+const refused = (c: string): boolean => {
+  if (/\p{Cc}/u.test(c)) return true // Rust's char::is_control is the same Unicode category
+  const cp = c.codePointAt(0) ?? 0
+  return TITLE_BIDI_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi)
+}
+
+/** What the coordinator would refuse in this title, checked the same way and in the same order:
+ *  trimmed first, then the characters, then the length in characters (not UTF-16 units). */
+export function titleProblem(title: string): 'long' | 'chars' | null {
+  const chars = [...title.trim()]
+  if (chars.some(refused)) return 'chars'
+  return chars.length > PAYROLL_TITLE_MAX ? 'long' : null
 }
