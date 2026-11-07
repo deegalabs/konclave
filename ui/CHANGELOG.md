@@ -72,6 +72,12 @@ history to tidy it is how context gets lost.
   to compare yet, and a change that arrives while the tab is open is shown before it can be marked.
   Nothing new is asked of the coordinator and nothing leaves the device; removing the vault removes
   what this tab kept for it (#151, #125).
+- **Each vault on the list says how it stands.** Under its members: what is free, with the time
+  of the reads it comes from, how many proposals are open (by this device's clock, as on the desk),
+  with the time of that read, and when the last proposal was made. The list reads nothing itself (a
+  balance read makes the coordinator sync the wallet); it shows what this device's last reads of
+  that vault saw, greys the free figure after a day, and says "nothing read on this device yet"
+  until a first read. Removing the vault removes what the list kept for it (#779).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks
@@ -115,6 +121,13 @@ history to tidy it is how context gets lost.
 
 - **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
   stays open for that).
+- **The vault list shows what this device saw.** Another device shows what it saw, and the free
+  figure can come from a balance read and a proposals read made at different times (it carries the
+  older time).
+- **On a private vault, the list shows the free amount only while the vault is unlocked.** What it
+  keeps on this device for a private vault is the count of open proposals and the times, no
+  amounts; after a reload the amount comes back once the vault is unlocked and read again. An open
+  vault keeps its figures on the device, as the rest of its data.
 
 ## [0.17.0] 2026-11-06
 

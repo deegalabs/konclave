@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
+import { Secret } from '../components'
+import { vaultStatus, statusIsStale, openCountKey } from '../vault-status'
+import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
@@ -479,6 +482,31 @@ export default function Vaults() {
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
+                {/* The vault's situation as this device last read it: the list reads nothing itself (a
+                    balance read makes the coordinator sync a wallet), so each figure carries its time. */}
+                {(() => {
+                  const st = vaultStatus(v.id)
+                  const free = st && st.freeZat !== null && st.freeAt !== null
+                  const count = st && st.openCount !== null && st.proposalsAt !== null
+                  if (!st || (!free && !count)) return <div className="rd-state none">{t('vaults.stateNone')}</div>
+                  // Each figure with the time it was read: the free amount with the older of its two reads,
+                  // the count with the read of the proposals. The free figure greys past a day, by its own time.
+                  const when = (ts: number) => fmtDateTime(ts, locale)
+                  const sep = <span className="visually-hidden">, </span>
+                  return (
+                    <div className={'rd-state' + (statusIsStale(st) ? ' stale' : '')}>
+                      {free && (
+                        <span className="rd-state-fig">
+                          {/* The veil is a button of its own: its click must not open the vault. */}
+                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret></span>
+                          {' '}{t('vaults.stateFree', { when: when(st.freeAt!) })}{sep}
+                        </span>
+                      )}
+                      {count && <span>{t(openCountKey(st.openCount!), { n: String(st.openCount), when: when(st.proposalsAt!) })}{st.lastProposal !== null ? sep : null}</span>}
+                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}</span>}
+                    </div>
+                  )
+                })()}
                 {resumeDone[v.id] !== undefined && (
                   <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
                     <strong>{t('vaults.resumeDone')}</strong>
