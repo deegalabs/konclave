@@ -7,6 +7,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom'
 import type { VaultLockContext } from '../Layout'
 import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
+import { proposalName, titleTooLong, PAYROLL_TITLE_MAX } from '../proposal-name'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
@@ -173,7 +174,7 @@ export default function NewPayroll() {
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
   const [pendingFrom, setPendingFrom] = useState<Proposal | null>(null)
   const competenceRef = useRef<HTMLInputElement>(null)
-  const docName = (f: Proposal) => f.memo || t('kind.payroll')
+  const docName = (f: Proposal) => proposalName(f, t('kind.payroll'))
   // Start a new payroll from a previous one: its lines, each marked to be checked, and nothing
   // else. The period is never copied ("April" carried into May is a document that lies about
   // itself): it keeps whatever the member typed for this payroll, empty if nothing. Approvals,
@@ -383,10 +384,12 @@ export default function NewPayroll() {
     if (count === 0) { setError(t('payroll.errNoRows')); return }
     if (anyBadTouched) { setError(t('payroll.errFixRows')); return }
     if (unvouched > 0) { setError(t('payroll.blockUnvouched', { n: unvouched })); return }
-    setBusy(true)
+    // The payroll's name (#296): on the web it travels as its own `title`, bounded by the coordinator.
     const desc = competencia.trim()
       ? `${t('payroll.docPrefix')} · ${competencia.trim()}${description.trim() ? ` · ${description.trim()}` : ''}`
       : (description.trim() || undefined)
+    if (desc && titleTooLong(desc)) { setError(t('payroll.errTitleTooLong', { max: PAYROLL_TITLE_MAX })); return }
+    setBusy(true)
     const res = await createPayroll(
       proposer,
       validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: amountTyped(r.value), memo: r.memo || undefined })),
@@ -431,7 +434,7 @@ export default function NewPayroll() {
               <input ref={competenceRef} className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
             </label>
             <label className="field inline wide"><span>{t('payroll.description')}</span>
-              <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
+              <input className="input" placeholder={t('payroll.descriptionPlaceholder')} maxLength={PAYROLL_TITLE_MAX} value={description} onChange={(e) => setDescription(e.target.value)} />
             </label>
           </div>
 

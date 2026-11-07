@@ -15,6 +15,7 @@ import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, type WalletTx } from '../api'
+import { proposalName } from '../proposal-name'
 import { WALLET_BUSY } from '../helper'
 import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useT, useTr } from '../i18n'
@@ -80,7 +81,7 @@ function lineKey(band: Band, personal: boolean): string {
 
 /** What a proposal is about, in the member's own words when they left any. */
 function whatOf(p: Proposal, t: (k: string) => string): string {
-  return p.memo?.trim() || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+  return proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
 }
 
 export default function Dashboard() {
@@ -316,7 +317,7 @@ export default function Dashboard() {
         const movement = movementOf(p.state, settlementOf(p, txs))
         return {
           date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
-          title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
+          title: proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
           by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
           value: movement.out ? `−${fmt4(p.value_zec)}` : fmt4(p.value_zec),
           dir: 'out' as const,

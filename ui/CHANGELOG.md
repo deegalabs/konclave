@@ -63,6 +63,15 @@ history to tidy it is how context gets lost.
 
 ### Added
 
+- **A payroll has a name on the web (#296).** The period and description typed on the payroll
+  screen were dropped on the web, so every payroll showed as "Payroll" on the desk, the proposal,
+  the ledger and the exported book. They now travel as the payroll's own name and are shown in all
+  of those places, including the Document column of the CSV and XLSX export. It is never put in a
+  memo: on a single payment the memo is the one written on the chain. A name longer than 120
+  characters is refused on the screen before anything is sent. The name is a label, and no
+  signature covers it yet (#567), so read the lines, not the name, before you approve. A payroll
+  created before this version, or on a coordinator that does not accept the name yet, still shows
+  "Payroll".
 - **"What changed", a tab under Approvals.** What changed state since this device last looked:
   what arrived for you, became ready, was sent, confirmed, refused, withdrawn or expired (by this
   device's clock, as on the desk), most pressing first, each named with the word the proposal list

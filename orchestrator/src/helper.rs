@@ -471,6 +471,12 @@ pub struct HelperProposal {
     /// The single-payment amount, or the payroll TOTAL (sum of the lines).
     pub amount_zat: u64,
     pub memo: Option<String>,
+    /// A payroll's name (#296), e.g. "Payroll · April 2026". Its OWN field, never `memo`: on a
+    /// single payment `memo` is the on-chain memo. Display-only and NOT covered by any signature
+    /// yet (the vote signs no content, #567), so nothing may present it as something the members
+    /// approved. Absent on records written before it existed, and on every single payment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Payroll beneficiaries (empty for a single payment).
     #[serde(default)]
     pub lines: Vec<PayrollLine>,
@@ -491,6 +497,56 @@ pub struct HelperProposal {
 
 fn kind_payment() -> String {
     "payment".into()
+}
+
+/// The longest payroll title the coordinator stores, in characters (not bytes, so an accented name
+/// gets the same room as a plain one). Room for the screen's "Payroll · <period> · <description>".
+pub const PAYROLL_TITLE_MAX_CHARS: usize = 120;
+
+/// Why a payroll title was refused at the boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayrollTitleError {
+    /// Longer than [`PAYROLL_TITLE_MAX_CHARS`].
+    TooLong,
+    /// Carries a control character (a line break, a NUL) or a bidirectional override, either of
+    /// which can make the name read differently on one member's screen than on another's.
+    Control,
+}
+
+impl std::fmt::Display for PayrollTitleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PayrollTitleError::TooLong => write!(
+                f,
+                "payroll title is longer than {PAYROLL_TITLE_MAX_CHARS} characters"
+            ),
+            PayrollTitleError::Control => {
+                write!(f, "payroll title contains a control character")
+            }
+        }
+    }
+}
+
+/// The one rule for a payroll's title (#296): trimmed, an empty one is no title, and a title that
+/// is too long or carries a control or bidi character is refused rather than silently cut.
+pub fn payroll_title(raw: Option<&str>) -> Result<Option<String>, PayrollTitleError> {
+    let t = match raw.map(str::trim) {
+        None | Some("") => return Ok(None),
+        Some(t) => t,
+    };
+    // Bidi embeddings, overrides, isolates and marks: U+200E/F, U+202A-202E, U+2066-2069, U+061C.
+    let bidi = |c: char| {
+        matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}')
+            || ('\u{202A}'..='\u{202E}').contains(&c)
+            || ('\u{2066}'..='\u{2069}').contains(&c)
+    };
+    if t.chars().any(|c| c.is_control() || bidi(c)) {
+        return Err(PayrollTitleError::Control);
+    }
+    if t.chars().count() > PAYROLL_TITLE_MAX_CHARS {
+        return Err(PayrollTitleError::TooLong);
+    }
+    Ok(Some(t.to_string()))
 }
 
 impl HelperProposal {
@@ -4038,6 +4094,7 @@ mod tests {
             to: "utest1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -4049,6 +4106,70 @@ mod tests {
             expiry_unix: 0,
             txid: None,
         }
+    }
+
+    /// #296. The title is trimmed, an empty one is no title, and absent stays absent.
+    #[test]
+    fn a_payroll_title_is_trimmed_and_an_empty_one_is_none() {
+        assert_eq!(
+            payroll_title(Some("  Payroll · April 2026  ")),
+            Ok(Some("Payroll · April 2026".into()))
+        );
+        assert_eq!(payroll_title(Some("   ")), Ok(None));
+        assert_eq!(payroll_title(Some("")), Ok(None));
+        assert_eq!(payroll_title(None), Ok(None));
+    }
+
+    /// #296. The bound counts characters, not bytes: 120 accented characters fit, 121 do not, and
+    /// a long title is refused rather than cut (a cut name is a different name).
+    #[test]
+    fn a_payroll_title_over_the_bound_is_refused_not_cut() {
+        let at_bound = "ç".repeat(PAYROLL_TITLE_MAX_CHARS);
+        assert_eq!(payroll_title(Some(&at_bound)), Ok(Some(at_bound.clone())));
+        let over = "a".repeat(PAYROLL_TITLE_MAX_CHARS + 1);
+        assert_eq!(payroll_title(Some(&over)), Err(PayrollTitleError::TooLong));
+        // Padding does not count: the bound is checked after the trim.
+        let padded = format!("   {at_bound}   ");
+        assert_eq!(payroll_title(Some(&padded)), Ok(Some(at_bound)));
+    }
+
+    /// #296. A line break, a NUL or a bidi override would let the same stored name read one way on
+    /// one member's screen and another way on another's (or in the exported book).
+    #[test]
+    fn a_payroll_title_with_a_control_or_bidi_character_is_refused() {
+        for bad in [
+            "Payroll\nApril",
+            "Pay\rroll",
+            "Pay\u{0}roll",
+            "Pay\troll",
+            "Payroll \u{202E}lirpA",
+            "Payroll \u{2066}April\u{2069}",
+            "Pay\u{200F}roll",
+        ] {
+            assert_eq!(
+                payroll_title(Some(bad)),
+                Err(PayrollTitleError::Control),
+                "{bad:?} should be refused"
+            );
+        }
+    }
+
+    /// #296. Backward compatible both ways: a record written before the field existed reads with no
+    /// title, and a proposal with no title writes no `title` key, so an older reader sees the same
+    /// bytes it always did. A titled one round-trips.
+    #[test]
+    fn a_proposal_without_a_title_reads_and_writes_as_before() {
+        let mut v = serde_json::to_value(mk_prop("v", "p1")).unwrap();
+        assert!(v.get("title").is_none(), "no title, no key: {v}");
+        v.as_object_mut().unwrap().remove("title");
+        let old: HelperProposal = serde_json::from_value(v).unwrap();
+        assert_eq!(old.title, None);
+
+        let mut titled = mk_prop("v", "p2");
+        titled.title = Some("Payroll · April 2026".into());
+        let back: HelperProposal =
+            serde_json::from_str(&serde_json::to_string(&titled).unwrap()).unwrap();
+        assert_eq!(back.title.as_deref(), Some("Payroll · April 2026"));
     }
 
     #[test]
@@ -4965,6 +5086,7 @@ mod tests {
             to: "u1x".into(),
             amount_zat: amount,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "ready".into(),
