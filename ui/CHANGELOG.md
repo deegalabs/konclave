@@ -120,6 +120,17 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **On the payroll screen, deleting a line could leave the next line showing the deleted line's
+  address.** Lines were tracked by their position, so after a delete the line below kept the text
+  typed or pasted into the one above (an address never picked from the list). The screen showed that
+  address while the line held its own, and the shielded or public hint beside it, read from the
+  line's own address, could contradict what was on screen; saving the line's recipient stored the
+  name against the address that was not on screen. And a recipient saved just as a line above was
+  deleted could land on the line that took its place, replacing that line's address. Each line now
+  has its own identity, whether typed, restored from the draft, imported from CSV, copied from a
+  previous payroll or added from the registry, and every edit finds its line by that identity. The
+  delete alone sent nothing to the wrong address, since the proposal was built from the line's own
+  data; the late save did change a line's data, and is closed by the same fix.
 - **The landing and the help say less than they did, and say what is true.** The landing no longer
   says the vault "runs entirely in the browser" or that, on the desktop, "nothing runs in the cloud":
   both the web app and the desktop app use our hosted coordinator and relay, and the page now says
