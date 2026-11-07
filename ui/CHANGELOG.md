@@ -63,6 +63,14 @@ history to tidy it is how context gets lost.
 
 ### Added
 
+- **"What changed", a tab under Approvals.** What changed state since this device last looked:
+  what arrived for you, became ready, was sent, confirmed, refused, withdrawn or expired (by this
+  device's clock, as on the desk), most pressing first, each named with the word the proposal list
+  uses and opening its proposal. The comparison is local, against the list as it was when you last
+  pressed "Mark as seen" on this device; a first look takes that snapshot and says there is nothing
+  to compare yet, and a change that arrives while the tab is open is shown before it can be marked.
+  Nothing new is asked of the coordinator and nothing leaves the device; removing the vault removes
+  what this tab kept for it (#151, #125).
 - **Each vault on the list says how it stands.** Under its members: what is free, with the time
   of the reads it comes from, how many proposals are open (by this device's clock, as on the desk),
   with the time of that read, and when the last proposal was made. The list reads nothing itself (a
@@ -104,9 +112,14 @@ history to tidy it is how context gets lost.
   its bar, so even with the bar printed it could be selected and copied out of the file, and a
   browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
   printing. The XLSX export does not change.
+- **The tabs under Approvals work from the keyboard as tabs do.** Before, each tab was its own Tab
+  stop and the arrow keys did nothing. Now the selected tab is the one Tab stop, the arrows move
+  between tabs, Home and End go to the first and the last, and the panel is named by its tab.
 
 ### Known limits
 
+- **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
+  stays open for that).
 - **The vault list shows what this device saw.** Another device shows what it saw, and the free
   figure can come from a balance read and a proposals read made at different times (it carries the
   older time).

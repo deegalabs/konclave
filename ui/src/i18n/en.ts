@@ -275,6 +275,17 @@ export const en: Record<string, string> = {
   'activity.tab.proposals': 'Proposals',
   'activity.tab.ledger': 'Ledger',
   'activity.tab.evidence': 'Signing evidence',
+  'activity.tab.since': 'What changed',
+  'since.title': 'What changed since this device last looked',
+  'since.seenAt': 'Marked as seen on this device on {when}.',
+  'since.firstTime': 'First look on this device: nothing to compare yet. What changes state from now on shows up here.',
+  'since.changes': '{n} changes since this device last looked.',
+  'since.fromTo': 'from {from} to {to}',
+  'since.nothing': 'Nothing changed state since then.',
+  'since.markSeen': 'Mark as seen',
+  'since.unreadTitle': 'Could not read the proposals',
+  'since.kind.arrived': 'Arrived for you',
+  'since.kind.new': 'New proposal',
 
 
   // Landing / explainer (Intro)
