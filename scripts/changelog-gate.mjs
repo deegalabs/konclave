@@ -56,10 +56,32 @@ export function requiredChangelogs(changed) {
   return [...need].sort()
 }
 
+/** `git diff --name-status` lines are `M\tpath` (renames `R100\told\tnew`); plain paths still work. */
+function parse(line) {
+  if (!line.includes('\t')) return { status: 'M', path: line }
+  const cols = line.split('\t')
+  return { status: cols[0][0], path: cols[cols.length - 1] }
+}
+
+const CATEGORY_DIRS = ['security', 'added', 'changed', 'fixed', 'known-limits']
+
+/** A changelog is satisfied by its own file, or by a fragment ADDED or MODIFIED beside it:
+ *  `<dir>/changelog.d/<category>/<slug>.md`. Deleting one records nothing. */
+function satisfies(file, entries) {
+  const dir = file.replace(/CHANGELOG\.md$/, 'changelog.d/')
+  return entries.some(({ status, path }) => {
+    if (status === 'D') return false
+    if (path === file) return true
+    if (!path.startsWith(dir) || !path.endsWith('.md')) return false
+    const rest = path.slice(dir.length).split('/')
+    return rest.length === 2 && CATEGORY_DIRS.includes(rest[0])
+  })
+}
+
 /** What the gate should report: the files still missing, given what the PR touched. */
 export function missingChangelogs(changed) {
-  const touched = new Set(changed)
-  return requiredChangelogs(changed).filter((f) => !touched.has(f))
+  const entries = changed.map(parse)
+  return requiredChangelogs(entries.map((e) => e.path)).filter((f) => !satisfies(f, entries))
 }
 
 // CLI: changed paths on stdin, one per line. Exits non-zero naming what is missing.
@@ -73,7 +95,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const changed = input.split('\n').map((l) => l.trim()).filter(Boolean)
   const missing = missingChangelogs(changed)
   if (missing.length === 0) {
-    const need = requiredChangelogs(changed)
+    const need = requiredChangelogs(changed.map((l) => parse(l).path))
     console.log(need.length ? `Updated: ${need.join(', ')}` : 'No member-visible source touched.')
     process.exit(0)
   }

@@ -58,7 +58,7 @@ jobs:
           # updated" for a PR whose only file was `ui/src/theme.ts`, because the diff had swept in
           # the base branch's own changelog commit.
           merge_base="$(git merge-base "$BASE" "$HEAD")"
-          changed="$(git diff --name-only "$merge_base".."$HEAD")"
+          changed="$(git diff --name-status "$merge_base".."$HEAD")"
           # The RULE lives in scripts/changelog-gate.mjs, not here, and has tests. This gate has
           # already shipped one real bug (the merge-base one above), and shell inside a workflow is
           # the one kind of code nobody can run before merging it.
