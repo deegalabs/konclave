@@ -17,10 +17,11 @@ const getLedger = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
 const getProposals = vi.hoisted(() => vi.fn())
 const readBalance = vi.hoisted(() => vi.fn())
+const fee = vi.hoisted(() => ({ ready: true }))
 vi.mock('./fee-estimate', async (orig) => ({
   ...(await orig<typeof import('./fee-estimate')>()),
   // The real estimate needs the wasm, which jsdom does not load; this is the rule's figure (fee-estimate.test.ts).
-  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+  useFeeEstimate: () => (fee.ready ? { state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) } : { state: 'unavailable' }),
 }))
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()), health, getBeneficiaries, getLedger, getVault, getProposals, readBalance, IS_NET: true,
@@ -67,6 +68,21 @@ describe('a reservation disables the payroll button, in the browser (#293)', () 
     expect(block.textContent).toContain('0.9')
     expect(block.textContent).toContain(en('money.blockReserved').slice(0, 24))
     expect(submit().getAttribute('aria-describedby')).toContain('payroll-block')
+  })
+
+  it('an unavailable fee estimate: the fee line says it is not known, never "+ - ZEC", and the button stays closed', async () => {
+    getProposals.mockResolvedValue([])
+    fee.ready = false
+    try {
+      mount()
+      await fillOneLine()
+      await screen.findByText(en('money.blockFeeUnknown'))
+      expect(screen.getByText(en('money.feeNotKnown'))).toBeTruthy()
+      expect(document.body.textContent).not.toContain('+ - ZEC')
+      expect(submit().disabled).toBe(true)
+    } finally {
+      fee.ready = true
+    }
   })
 
   it('open proposals that could not be read block the button, like an unknown balance', async () => {

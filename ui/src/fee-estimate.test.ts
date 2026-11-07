@@ -7,6 +7,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import init, { estimatedFeeZat } from './wasm-pkg/konclave_wasm.js'
 import { readFeeEstimator } from './fee-estimate'
 import { codeAt, codeOf } from './source-scan'
+import { en as enDict } from './i18n/en'
+import { ptBR as ptDict } from './i18n/pt-BR'
 
 beforeAll(async () => {
   await init({ module_or_path: readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)) })
@@ -52,6 +54,17 @@ describe('the fee estimate is the rule in konclave_seal', () => {
     const later = readFeeEstimator(() => n)
     n = 0
     expect(later?.(1)).toBeNull()
+  })
+})
+
+// The clock refusal must never invite moving the clock forward: a member who sets it ahead to make
+// the device sign gets a payment below the fee in force signed (security review of #855).
+describe('the clock refusal warns against setting the clock ahead', () => {
+  it('in both languages', () => {
+    expect(enDict['net.err.feeClock']).toMatch(/never set it ahead of the real time/)
+    expect(ptDict['net.err.feeClock']).toMatch(/nunca adiante além da hora real/)
+    expect(enDict['net.err.feeClock']).not.toMatch(/usually/)
+    expect(ptDict['net.err.feeClock']).not.toMatch(/Em geral/)
   })
 })
 

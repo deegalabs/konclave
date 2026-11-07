@@ -58,7 +58,7 @@ explicitly accepted.
 
 ### Changed
 
-- **The network fee rule has one home, and follows ZIP 2009 by block height (#847).** The fee per
+- **The network fee rule has one home, and follows ZIP 2009 by the block height the device's clock allows (#847).** The fee per
   action (5,000 zatoshis, and 1,000 from mainnet block 3,590,000 under ZIP 2009, Proposed) lives in
   one table in the shared crate, beside the network-upgrade rows; the device's signing check and the
   app's fee estimate both read it. Source scans fail the build when the Rust crates or the app write

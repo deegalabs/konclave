@@ -2790,8 +2790,8 @@ pub mod pczt_bridge {
     /// needs the device to know which notes a payment should spend.
     ///
     /// `accepted` is the set of marginal fees this device's clock allows; `known` is every rate the
-    /// table accepts in any era. A fee that is exact at one of the `known` rates but not at an
-    /// `accepted` one is refused with `[clock]`, not `[fee]`: it is what an honest builder sends to a
+    /// table accepts in any era. A fee that is exact at one of the `known` rates, not at an
+    /// `accepted` one, and below the lowest accepted one is refused with `[clock]`, not `[fee]`: it is what an honest builder sends to a
     /// device whose clock is behind the fee switch (ZIP 2009), and the member is asked to check the
     /// date and time instead of being told the request may have been tampered with. Nothing is
     /// signed either way.
