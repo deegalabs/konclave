@@ -103,3 +103,41 @@ describe('with real git', () => {
     expect(readdirSync(join(d, 'changelog.d/fixed'))).toEqual([])
   })
 })
+
+describe('fragments: only the changelogs the cut compiles may be satisfied by one', () => {
+  it('a fragment beside the helper or the relay file does not satisfy the gate, because the release never publishes it', () => {
+    const m = (...lines: string[]) => missingChangelogs(lines)
+    expect(m('M\thelper-server/src/main.rs', 'A\thelper-server/changelog.d/fixed/x.md')).toEqual(['helper-server/CHANGELOG.md'])
+    expect(m('M\trelay-server/src/main.rs', 'A\trelay-server/changelog.d/fixed/x.md')).toEqual(['relay-server/CHANGELOG.md'])
+    // The two the cut compiles still work.
+    expect(m('M\tui/src/App.tsx', 'A\tui/changelog.d/fixed/x.md')).toEqual([])
+    expect(m('M\torchestrator/src/send.rs', 'A\tchangelog.d/fixed/x.md')).toEqual([])
+  })
+})
+
+describe('every fragment in the repository is a valid fragment (the gate reads paths, this reads the body)', () => {
+  const repo = join(__dirname, '..', '..')
+  const dirs = [join(repo, 'ui', 'changelog.d'), join(repo, 'changelog.d')]
+  const walk = (d: string): string[] =>
+    !existsSync(d)
+      ? []
+      : readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]))
+
+  it('has a body that starts with "- " and a path of the form <changelog.d>/<category>/<slug>.md', () => {
+    for (const d of dirs) {
+      for (const f of walk(d)) {
+        const rel = f.slice(repo.length + 1)
+        expect(fragmentProblem(rel, readFileSync(f, 'utf8')), rel).toBeNull()
+      }
+    }
+  })
+
+  it('the check itself can fail: an empty body, a body without a bullet and a stray path are problems', () => {
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', '')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', 'no bullet')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/sub/x.md', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.txt', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/nonsense/x.md', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', '- ok')).toBeNull()
+  })
+})

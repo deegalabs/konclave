@@ -14,9 +14,9 @@
 // the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { sectionBody, versionsIn, mergeFragments, readFragments, fragmentDirOf, compileFragments } from './changelog-sections.mjs'
+import { sectionBody, hasSection, versionsIn, mergeFragments, readFragments, fragmentDirOf, compileFragments } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -43,7 +43,9 @@ function sectionOf(file, version) {
   try { md = readFileSync(file, 'utf8') } catch { return '' }
   // Fragments are part of [Unreleased] before the cut, so --notes shows them.
   if (!sectionBody(md, version)) md = mergeFragments(md, readFragments(fragmentDirOf(file)))
-  return sectionBody(md, version) || sectionBody(md, 'Unreleased')
+  // A section that exists and is EMPTY is the version's own (the cut renames even when [Unreleased] is
+  // empty): falling back to [Unreleased] would print the NEXT release's notes under this one.
+  return hasSection(md, version) ? sectionBody(md, version) : sectionBody(md, 'Unreleased')
 }
 
 /** The versions this repo actually released, newest first. A section with no tag was cut and then
@@ -263,7 +265,7 @@ export function buildsNote(builds, day) {
 
 // Only when RUN, never when imported. A test that imports this to check one pure function must
 // not trip the argument parsing and call `process.exit` on the way in.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [arg, arg2] = process.argv.slice(2)
 
   if (arg === '--notes') {

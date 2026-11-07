@@ -4,6 +4,7 @@
 //
 // The lock asks WHERE, never WHAT: a numbered section already released must be the same after the
 // change as before (blank lines and trailing spaces aside). It never judges the prose.
+import { pathToFileURL } from 'node:url'
 import { readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -33,6 +34,11 @@ export function parseSections(md) {
   }))
 }
 
+/** Whether the file has a section with this version (an EMPTY section still counts). */
+export function hasSection(md, version) {
+  return parseSections(md).some((s) => s.version === version)
+}
+
 /** One section's body, or '' when absent. */
 export function sectionBody(md, version) {
   return parseSections(md).find((s) => s.version === version)?.body ?? ''
@@ -43,6 +49,9 @@ export function versionsIn(md) {
   return parseSections(md).filter((s) => /^\d+\.\d+\.\d+/.test(s.version)).map((s) => s.version)
 }
 
+// Lines are trimmed and blank runs collapsed on purpose: the lock asks WHERE a released section changed, not
+// how it is laid out. The cost is known: a change of indentation (`- x` to `  - x`, which nests the markdown)
+// passes, and so does the indentation inside an indented code block.
 const norm = (s) => s.split('\n').map((l) => l.trim()).join('\n').replace(/\n{2,}/g, '\n').trim()
 
 /** Versions whose released section changed between `baseMd` and `headMd`.
@@ -129,7 +138,7 @@ export function compileFragments(file, dir) {
 }
 
 // CLI: node scripts/changelog-sections.mjs lock --branch B [--base REF=HEAD^1] file...
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [cmd, ...rest] = process.argv.slice(2)
   if (cmd !== 'lock') { console.error('usage: changelog-sections.mjs lock --branch B [--base REF] file...'); process.exit(2) }
   let branch = ''

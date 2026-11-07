@@ -14,6 +14,9 @@
 // in `orchestrator` or `konclave-seal` can reach the desktop, the coordinator and the browser at
 // once, and picking one of them would be a guess. The root file stays the place for anything whose
 // blast radius is more than one product.
+import { pathToFileURL } from 'node:url'
+import { CATEGORIES } from './changelog-sections.mjs'
+
 
 /** Path prefix -> the changelog that must be touched alongside it. Order matters: first match wins. */
 export const OWNERS = [
@@ -63,18 +66,21 @@ function parse(line) {
   return { status: cols[0][0], path: cols[cols.length - 1] }
 }
 
-const CATEGORY_DIRS = ['security', 'added', 'changed', 'fixed', 'known-limits']
+// Fragments are compiled by scripts/release.mjs for ONLY these two changelogs. A fragment beside the helper's or the
+// relay's file would satisfy this gate and never be published, so those keep their file.
+const FRAGMENT_OWNERS = ['ui/CHANGELOG.md', 'CHANGELOG.md']
 
 /** A changelog is satisfied by its own file, or by a fragment ADDED or MODIFIED beside it:
  *  `<dir>/changelog.d/<category>/<slug>.md`. Deleting one records nothing. */
 function satisfies(file, entries) {
   const dir = file.replace(/CHANGELOG\.md$/, 'changelog.d/')
+  const fragmentsCount = FRAGMENT_OWNERS.includes(file)
   return entries.some(({ status, path }) => {
     if (status === 'D') return false
     if (path === file) return true
-    if (!path.startsWith(dir) || !path.endsWith('.md')) return false
+    if (!fragmentsCount || !path.startsWith(dir) || !path.endsWith('.md')) return false
     const rest = path.slice(dir.length).split('/')
-    return rest.length === 2 && CATEGORY_DIRS.includes(rest[0])
+    return rest.length === 2 && CATEGORIES.includes(rest[0])
   })
 }
 
@@ -85,7 +91,7 @@ export function missingChangelogs(changed) {
 }
 
 // CLI: changed paths on stdin, one per line. Exits non-zero naming what is missing.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const input = await new Promise((r) => {
     let s = ''
     process.stdin.setEncoding('utf8')
