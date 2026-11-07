@@ -98,6 +98,11 @@ history to tidy it is how context gets lost.
   its bar, so even with the bar printed it could be selected and copied out of the file, and a
   browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
   printing. The XLSX export does not change.
+- **Creating a vault, the warning under 5 of 5 recommended "5 of 6".** When every device has to
+  sign, the screen recommends a rule that leaves a margin, and it always added one device; at 5 of 5
+  that is a rule the screen cannot create, since it stops at 5 devices. At 5 of 5 it now recommends
+  4 of 5, and the recommendation reads the same cap as the device control. Below 5 devices nothing
+  changes (#839).
 
 ## [0.17.0] 2026-11-06
 
