@@ -24,7 +24,13 @@ const { default: Settings } = await import('./screens/Settings')
 const confirmField = () => screen.getByLabelText(en('set.confirmLabel').replace('{name}', 'Treasury')) as HTMLInputElement
 
 describe('the export shortcut in the removal gate', () => {
-  beforeEach(() => { localStorage.setItem('konclave.locale', 'en') })
+  // jsdom has no scrolling; the shortcut scrolls to the export block, and the test records where.
+  const scrolled: string[] = []
+  beforeEach(() => {
+    localStorage.setItem('konclave.locale', 'en')
+    scrolled.length = 0
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id) }
+  })
   afterEach(() => cleanup())
 
   it('clears the typed name, so coming back to remove starts over', async () => {
@@ -33,6 +39,7 @@ describe('the export shortcut in the removal gate', () => {
     fireEvent.change(confirmField(), { target: { value: 'Treasury' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en('set.removeExportFirst') })) })
     expect(screen.queryByRole('button', { name: en('settings.confirmRemove') })).toBeNull()
+    expect(scrolled).toEqual(['s-keys'])
     fireEvent.click(screen.getByRole('button', { name: en('settings.remove') }))
     expect(confirmField().value).toBe('')
   })
