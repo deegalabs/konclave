@@ -3,7 +3,9 @@
 //
 // What a machine cannot judge stays in review: whether a name of an embargoed branch is neutral,
 // and whether the slug says the problem.
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 
 export const TYPES = ['feat', 'fix', 'docs', 'chore', 'security', 'test', 'refactor', 'perf', 'build', 'ci', 'revert', 'hotfix']
 export const MAX_BRANCH = 40
@@ -69,16 +71,21 @@ export function remoteBranchesToCheck(stdin) {
 function report(name, { sameRepo = true, base, head = 'HEAD' } = {}) {
   let failed = false
   const why = branchProblem(name, { sameRepo })
-  if (why) { console.error(`Branch name "${name}": ${why}`); failed = true }
+  if (why) {
+    console.error(`Branch name "${name}": ${why}`)
+    console.error('Rename the branch before it has a pull request (renaming one closes it). A push may be forced past this check with `git push --no-verify`; CI still applies the rule.')
+    failed = true
+  }
   if (base && !/^(staging|main|release\/|pre-release\/)/.test(name)) {
     try {
-      const files = parseNumstat(execSync(`git diff --numstat ${base} ${head}`, { encoding: 'utf8' }))
+      const files = parseNumstat(execFileSync('git', ['diff', '--numstat', base, head], { encoding: 'utf8' }))
       const r = sizeReport(files)
       if (r.warn) {
         const msg = `${r.lines} lines of code outside tests, generated files and changelogs (limit ${SIZE_LIMIT}); ${r.touchedTests ? 'tests were touched' : 'no test was touched'}. Consider splitting.`
-        console.log(`::warning::${msg}`)
+        // The `::warning::` annotation is GitHub's syntax: on a laptop it is only noise.
+        console.log(process.env.GITHUB_ACTIONS ? `::warning::${msg}` : `warning: ${msg}`)
         if (process.env.GITHUB_STEP_SUMMARY) {
-          execSync(`cat >> "$GITHUB_STEP_SUMMARY"`, { input: `### PR size\n${msg}\n`, shell: '/bin/sh' })
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### PR size\n${msg}\n`)
         }
       }
     } catch { console.error('Size check skipped: base reference not available.') }
@@ -86,7 +93,7 @@ function report(name, { sameRepo = true, base, head = 'HEAD' } = {}) {
   return failed
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [cmd, ...rest] = process.argv.slice(2)
   const arg = (k) => { const i = rest.indexOf(k); return i >= 0 ? rest[i + 1] : undefined }
   if (cmd === 'check') {

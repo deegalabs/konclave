@@ -67,3 +67,23 @@ describe('pre-push hook input', () => {
     expect(run(line('local/x', 'fix/y') + '\n').status).toBe(0)
   })
 })
+
+describe('the CLI runs from a path with a space (the hook must never approve everything in silence)', () => {
+  it('refuses a bad branch name even when the script sits in a directory with a space in its name', async () => {
+    const { execFileSync } = await import('node:child_process')
+    const { mkdtempSync, mkdirSync, copyFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = join(mkdtempSync(join(tmpdir(), 'pr rules ')), 'scripts dir')
+    mkdirSync(dir)
+    const script = join(dir, 'pr-rules.mjs')
+    copyFileSync(join(__dirname, '..', '..', 'scripts', 'pr-rules.mjs'), script)
+    let code = 0
+    try {
+      execFileSync('node', [script, 'check', '--branch', 'Bad'], { stdio: 'pipe' })
+    } catch (e) {
+      code = (e as { status?: number }).status ?? -1
+    }
+    expect(code).toBe(1)
+  })
+})
