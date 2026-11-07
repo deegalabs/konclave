@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { sectionBody, versionsIn } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -33,22 +34,14 @@ const SOURCES = [
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading.
+// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading. The
+// parsing lives in changelog-sections.mjs, the one reader of this format.
 function sectionOf(file, version) {
   let md
   // A source that does not exist yet contributes nothing rather than failing the release. Cutting a
   // release is the worst moment to discover a missing file.
   try { md = readFileSync(file, 'utf8') } catch { return '' }
-  const lines = md.split('\n')
-  const head = (s) => s.startsWith('## ')
-  let start = lines.findIndex((l) => head(l) && l.includes(`[${version}]`))
-  if (start === -1) start = lines.findIndex((l) => head(l) && l.includes('[Unreleased]'))
-  if (start === -1) return ''
-  let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) if (head(lines[i])) { end = i; break }
-  // Trim the `---` that separates versions in the file: it belongs to the CHANGELOG's layout,
-  // not to this release, and it rendered as a stray rule at the foot of the GitHub release body.
-  return lines.slice(start + 1, end).join('\n').trim().replace(/\n*-{3,}$/, '').trimEnd()
+  return sectionBody(md, version) || sectionBody(md, 'Unreleased')
 }
 
 /** The versions this repo actually released, newest first. A section with no tag was cut and then
@@ -70,10 +63,10 @@ function taggedVersions() {
 }
 
 /** The version headings in a changelog, in file order (newest first). */
-function versionsIn(file) {
+function versionsFrom(file) {
   let md
   try { md = readFileSync(file, 'utf8') } catch { return [] }
-  return [...md.matchAll(/^## \[(\d+\.\d+\.\d+[^\]]*)\]/gm)].map((m) => m[1])
+  return versionsIn(md)
 }
 
 /**
@@ -103,7 +96,7 @@ export function versionsToReport(version, tagged = taggedVersions()) {
   // exists. A release candidate, a tag that is not a version at all, or a newer release when an old
   // tag is rebuilt are all "another tag", and none of them is a place for the walk to stop.
   if (!tagged) return [version]
-  const all = versionsIn(CHANGELOG)
+  const all = versionsFrom(CHANGELOG)
   const start = all.indexOf(version)
   if (start === -1) return [version]
   const beneath = all.slice(start + 1)
@@ -123,7 +116,7 @@ export function versionsToReport(version, tagged = taggedVersions()) {
 export function commitRange(version, tagged = taggedVersions()) {
   if (!tagged) return null
   const reported = versionsToReport(version, tagged)
-  const all = versionsIn(CHANGELOG)
+  const all = versionsFrom(CHANGELOG)
   const last = all.indexOf(reported[reported.length - 1])
   const previous = last === -1
     ? [...tagged].filter((v) => v !== version && semverLess(v, version)).sort(semverCompare).pop()
