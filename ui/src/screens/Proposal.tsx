@@ -364,10 +364,15 @@ export default function Proposal() {
               {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
             {iAmPending ? (
-              <div className="btns mt">
-                <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approve')}</button>
-                <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
-              </div>
+              <>
+                {/* Approving is not paying: the sentence sits where the button is, and the button is
+                    described by it, so the two moments that move money are two sentences (#309). */}
+                <p className="hint mt" id="vote-means">{t('proposal.approveMeans')}</p>
+                <div className="btns mt-sm">
+                  <button className="btn ok" onClick={() => vote(true)} disabled={busy} aria-describedby="vote-means">{busy ? '…' : t('proposal.approve')}</button>
+                  <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
+                </div>
+              </>
             ) : (
               <div className="hint mt">{iAlreadyVoted ? t('proposal.alreadyVoted') : t('proposal.waitingMembers')}</div>
             )}
@@ -383,16 +388,17 @@ export default function Proposal() {
             {IS_NET ? (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => openSigning(p)}>
+                  <button className="btn ok" onClick={() => openSigning(p)} aria-describedby="sign-means">
                     {t('signing.title')}
                   </button>
                 </div>
+                <p className="hint mt-sm" id="sign-means">{t('proposal.signMeans')}</p>
                 <div className="hint mt-sm">{t('proposal.ceremonyNote')}</div>
               </>
             ) : (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
+                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null} aria-describedby="sign-means">
                     {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
                   </button>
                   <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
@@ -400,6 +406,8 @@ export default function Proposal() {
                   </button>
                 </div>
                 {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}{t('proposal.dryOkPost')}</div>}
+                {/* One operator's confirm runs the whole ceremony here: no "last signature" to see. */}
+                <p className="hint mt-sm" id="sign-means">{t('proposal.signBridgeMeans')}</p>
               </>
             )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>

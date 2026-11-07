@@ -13,4 +13,5 @@
 - [ ] Every fund-moving path keeps preview + explicit confirmation
 - [ ] If this touches the FROST signer, PCZT, or the loopback bridge: security impact considered and, if relevant, logged in `SECURITY_AUDIT.md`
 - [ ] User-facing strings go through i18n (English keys + PT-BR locale); no hardcoded UI copy
-- [ ] Docs/comments in English; commit is `type(scope): description`, no AI co-author trailer
+- [ ] Docs/comments in English; commit is `type(scope): description`
+- [ ] AI disclosure: none, or the tool and what it did; its commits carry `Co-Authored-By: Claude <noreply@anthropic.com>` (or the equivalent), no session link

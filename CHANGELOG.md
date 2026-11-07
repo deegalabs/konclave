@@ -56,6 +56,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- Konclave now says it is built with AI assistance (Claude Code). From this change on, a commit made
+  with an AI assistant carries a generic `Co-Authored-By: Claude <noreply@anthropic.com>` trailer
+  and never a session link; earlier history is not rewritten. Contributions made with an AI
+  assistant are welcome, and the person who sends them answers for every line (CONTRIBUTING.md).
+
 ## [0.17.0] 2026-11-06
 
 > **Services deployed when this was cut (2026-11-06):** coordinator `aa778cd`, relay `f8dc88d0970337a3`.

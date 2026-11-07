@@ -123,9 +123,36 @@ history to tidy it is how context gets lost.
   over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
+- **Approving is not paying, said where the buttons are.** Above "Approve": approving is your
+  yes to this payment, it moves no money, once enough members approve, any member can sign, and
+  the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
+  signature nothing has left the vault; the local build's "Sign and send" says instead that one
+  confirm gathers the parts and sends in one step. In Settings, the removal gate offers the
+  cheaper fix first ("export this vault first if you might want it back: the backup file and the
+  passphrase are what bring your part back") and links the page that says what to do if the device is lost (#309).
+
+- **Creating a passkey in Settings now says when that passkey can sync.** The unlock
+  shortcut is made for one device: nothing guarantees a passkey keeps opening it after it syncs to
+  another device, and on some phones it has stopped working even without a sync. Until now Settings
+  created the passkey and said nothing about which kind it was. It now reads, from the data the
+  device returns, whether the passkey is eligible for backup (one your passkey manager can sync),
+  and if so says that the shortcut still works only on this device, that a sync may stop it working
+  here too, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
+  on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
 
 ### Fixed
 
+- **On the payroll screen, deleting a line could leave the next line showing the deleted line's
+  address.** Lines were tracked by their position, so after a delete the line below kept the text
+  typed or pasted into the one above (an address never picked from the list). The screen showed that
+  address while the line held its own, and the shielded or public hint beside it, read from the
+  line's own address, could contradict what was on screen; saving the line's recipient stored the
+  name against the address that was not on screen. And a recipient saved just as a line above was
+  deleted could land on the line that took its place, replacing that line's address. Each line now
+  has its own identity, whether typed, restored from the draft, imported from CSV, copied from a
+  previous payroll or added from the registry, and every edit finds its line by that identity. The
+  delete alone sent nothing to the wrong address, since the proposal was built from the line's own
+  data; the late save did change a line's data, and is closed by the same fix.
 - **The landing and the help say less than they did, and say what is true.** The landing no longer
   says the vault "runs entirely in the browser" or that, on the desktop, "nothing runs in the cloud":
   both the web app and the desktop app use our hosted coordinator and relay, and the page now says
@@ -155,6 +182,11 @@ history to tidy it is how context gets lost.
   its bar, so even with the bar printed it could be selected and copied out of the file, and a
   browser that drops backgrounds printed it in plain sight. The page says to show the amounts before
   printing. The XLSX export does not change.
+- **Creating a vault, the warning under 5 of 5 recommended "5 of 6".** When every device has to
+  sign, the screen recommends a rule that leaves a margin, and it always added one device; at 5 of 5
+  that is a rule the screen cannot create, since it stops at 5 devices. At 5 of 5 it now recommends
+  4 of 5, and the recommendation reads the same cap as the device control. Below 5 devices nothing
+  changes (#839).
 - **The tabs under Approvals work from the keyboard as tabs do.** Before, each tab was its own Tab
   stop and the arrow keys did nothing. Now the selected tab is the one Tab stop, the arrows move
   between tabs, Home and End go to the first and the last, and the panel is named by its tab.
