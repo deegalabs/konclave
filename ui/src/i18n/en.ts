@@ -446,6 +446,9 @@ export const en: Record<string, string> = {
   'settings.passkeyCancelled': 'That was not finished. Nothing changed - you can try again.',
   // Names the place, because this is the only denial the member cannot resolve inside Konclave.
   'settings.passkeyExists': 'This device already holds a passkey for this vault. Remove it in your device\u2019s passkey settings, then create it again here.',
+  // D95: shown after enrolling a passkey whose authenticator data has BE set (it may sync). It does
+  // not block anything; it says the one thing a member needs before relying on the shortcut.
+  'settings.passkeySynced': 'This passkey can sync to your other devices. A synced passkey may stop opening the shortcut on another device or after a sync. Your passphrase stays the way in.',
   'settings.remove': 'Remove from this device',
   'settings.removing': 'Removing…',
   'settings.confirmRemove': 'Confirm removal',
