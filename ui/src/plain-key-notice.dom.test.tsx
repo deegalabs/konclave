@@ -13,6 +13,7 @@ const en = (k: string): string => dict[k] ?? k
 // itself comes from the store (plain-key.test.ts, over the real store); here the store is a fake.
 
 const listVaults = vi.hoisted(() => vi.fn())
+import { storageError } from './storage-errors'
 const loadVault = vi.hoisted(() => vi.fn())
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults, readVaults: listVaults, loadVault }))
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), health: async () => false, getVaults: async () => [], isVaultUnlocked: () => false }))
@@ -46,7 +47,7 @@ describe('the notice for a viewing key still in the clear (#784)', () => {
   })
 
   it('goes away after the passphrase ran the rewrite, and says when the passphrase was wrong', async () => {
-    loadVault.mockRejectedValueOnce(new Error('wrong'))
+    loadVault.mockRejectedValueOnce(storageError('wrong-passphrase-saved', 'wrong'))
     mount()
     await screen.findByText('Plain')
     const card = cardOf('Plain')

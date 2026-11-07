@@ -17,7 +17,7 @@ import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
-import { unlockOnDevice, importAndUnlock } from '../unlock'
+import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
@@ -150,8 +150,8 @@ export default function Vaults() {
     try {
       const b = await buildVaultBackup(id, backupPass, getUnlockedShare(id), recs[id]?.name)
       setResumeDone((d) => ({ ...d, [id]: b }))
-    } catch {
-      setResumeMsg((m) => ({ ...m, [id]: t('vaults.unlockWrong') }))
+    } catch (e) {
+      setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(isWrongPassphrase(e))) }))
     } finally {
       setBackupPass('')
       concluding.current.delete(id)
@@ -168,7 +168,7 @@ export default function Vaults() {
       setResumeBusy(id)
       const u = await unlockOnDevice(id, 'net', resumePass).catch(() => ({ ok: false as const, wrong: true }))
       if (!u.ok) {
-        setResumeMsg((m) => ({ ...m, [id]: t(u.wrong ? 'vaults.unlockWrong' : 'vaults.unlockFail') }))
+        setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(u.wrong)) }))
         setResumePass('')
         setResumeBusy(null)
         return
@@ -338,9 +338,9 @@ export default function Vaults() {
         await openUnlocked(unlocking, used)
         return
       }
-      setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
-    } catch {
-      setUnlockErr(t('vaults.unlockWrong'))
+      setUnlockErr(t(openFailKey(r.wrong, src)))
+    } catch (e) {
+      setUnlockErr(t(openFailKey(isWrongPassphrase(e), src)))
     } finally {
       setUnlockBusy(false)
     }

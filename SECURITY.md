@@ -38,7 +38,7 @@ Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zc
   in the desktop app (the same interface code, bundled into a native window), shares are
   stored in IndexedDB under AES-256-GCM with a key derived by PBKDF2-HMAC-SHA256 from the
   member's passphrase: 600,000 iterations for anything sealed since 2026-09-06 (#479); records
-  stored before that keep 210,000 until the passphrase is changed, and an export made before
+  stored before that keep 210,000 until the passphrase is next typed on that device (a passkey unlock does not re-seal, and a record with a sealed field that no longer opens stays at its count), and an export made before
   that keeps 210,000 for good.
 - `frostd` (local build) and the relay see only public or sealed protocol material, plus, on the
   relay, the member names and the quorum exchanged while a vault is created and, until every

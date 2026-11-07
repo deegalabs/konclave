@@ -11,6 +11,7 @@
 
 import { clearPayrollDraft } from './payroll-draft'
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
+import { newPassphraseProblem } from './passphrase'
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
 import { CREATION_PROTOCOL } from './creation-protocol'
@@ -27,11 +28,8 @@ const PBKDF2_ITERS_LEGACY = 210_000
 /**
  * The count NEW records are sealed with (#435).
  *
- * OWASP's current floor for PBKDF2-HMAC-SHA256 is 600,000 and this is deliberately still 210,000.
- * Raising it is phase TWO of a two-phase migration, and doing it before every device can READ the
- * stored parameter is destructive in both directions: a record written at the higher count cannot
- * be opened by a build that assumes the lower one, and vice versa. Phase one - this - only makes
- * the parameter travel with the ciphertext. Raise it once the reader has shipped, not sooner.
+ * 600,000, OWASP's floor for PBKDF2-HMAC-SHA256. Phase one of the migration (#443) made the count
+ * travel with the ciphertext; this is phase two (#479), and a record keeps opening at its own count.
  */
 // OWASP's PBKDF2 guidance is per HASH, and the two numbers look interchangeable: 600k for
 // HMAC-SHA256, ~210k for SHA-512. `deriveKey` uses SHA-256 and this was 210k - the SHA-512 number
@@ -39,7 +37,8 @@ const PBKDF2_ITERS_LEGACY = 210_000
 //
 // Raising it is safe only because #443 made the count travel WITH the ciphertext: every vault and
 // every backup already sealed keeps opening at its own count, and only new writes use this one. A
-// member migrates by rotating their passphrase (#470), which re-seals at whatever is current.
+// record at an older count is re-sealed at this one the next time its passphrase opens it (not on a
+// passkey unlock, and not while one of its sealed fields does not open).
 //
 // Measured before choosing: 27ms at 210k, 71ms at 600k on a laptop - so a few hundred ms on a
 // phone, once per unlock. That is a fair price for three times the work an attacker must do.
@@ -330,6 +329,14 @@ function bufOf(b: Uint8Array): ArrayBuffer {
  *  this the field could be pointed at the share's or `S`'s ciphertext and open as a "viewing key". */
 const UFVK_AAD = new TextEncoder().encode('konclave-ufvk-at-rest')
 
+/** Refuse a passphrase being chosen that the rule refuses (`newPassphraseProblem`). Called by every
+ *  writer that seals under a NEW passphrase, so no screen can skip it. Export and import do not: they
+ *  seal under one they have just proved, and nobody is locked out of what they already have. The
+ *  message never carries the passphrase. */
+function requireNewPassphrase(passphrase: string): void {
+  if (newPassphraseProblem(passphrase)) throw storageError('weak-passphrase', 'That passphrase is too short or too easy to guess')
+}
+
 /** Seal the viewing key under a record's key, with its own iv. */
 async function sealUfvk(key: CryptoKey, ufvk: string): Promise<{ ufvkIv: Uint8Array; ufvkCipher: Uint8Array }> {
   const ufvkIv = crypto.getRandomValues(new Uint8Array(12))
@@ -405,6 +412,53 @@ async function retireClearUfvk(record: VaultRecord, key: CryptoKey, ufvk: string
 }
 
 /**
+ * Re-seal a record that was sealed at an older PBKDF2 count, at the current one, with a fresh salt.
+ * Runs only after a successful open, so the passphrase is known to be right.
+ *
+ * The new envelope is opened again before anything is written, and the write happens only if the
+ * stored record still has the salt this one was opened with, in one `put` (the same
+ * guard as `retireClearUfvk`). Any failure leaves the old record, which still opens, and the next
+ * unlock tries again.
+ */
+async function upgradeSeal(
+  record: VaultRecord,
+  passphrase: string,
+  plain: { share: Uint8Array; accessSecret?: Uint8Array; ufvk?: string },
+): Promise<void> {
+  try {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const key = await deriveKey(passphrase, salt, PBKDF2_ITERS)
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(plain.share)))
+    let secretIv: Uint8Array | undefined
+    let secretCipher: Uint8Array | undefined
+    if (plain.accessSecret) {
+      secretIv = crypto.getRandomValues(new Uint8Array(12))
+      secretCipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(plain.accessSecret)))
+    }
+    const sealedUfvk = plain.ufvk ? await sealUfvk(key, plain.ufvk) : { ufvkIv: undefined, ufvkCipher: undefined }
+
+    // Prove the new seal opens, and to the same bytes, before replacing anything.
+    const back = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(cipher)))
+    if (hex(back) !== hex(plain.share)) throw storageError('corrupt', 're-sealed share does not match')
+    if (secretIv && secretCipher) {
+      const s2 = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(secretCipher)))
+      if (hex(s2) !== hex(plain.accessSecret!)) throw storageError('corrupt', 're-sealed secret does not match')
+    }
+    if (plain.ufvk && (await openUfvk(key, { ...record, ...sealedUfvk })) !== plain.ufvk) throw storageError('corrupt', 're-sealed viewing key does not match')
+
+    await updateRecord(record.id, (latest) => {
+      if (hex(latest.salt) !== hex(record.salt)) return undefined
+      const next: VaultRecord = { ...latest, salt, iv, cipher, secretIv, secretCipher, ...sealedUfvk, kdfIters: PBKDF2_ITERS }
+      delete next.ufvk
+      return next
+    })
+  } catch {
+    console.error('[konclave] could not re-seal this vault at the current key strength; the next unlock tries again', { id: record.id.slice(0, 8) })
+  }
+}
+
+/**
  * Encrypt `data.sealedShare` under a key derived from `passphrase` and store the vault.
  * Overwrites any existing record with the same id. Public metadata is stored in the clear.
  */
@@ -412,6 +466,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
   if (!id) throw storageError('no-id', 'A vault id is required to save')
   if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to save the vault')
+  requireNewPassphrase(passphrase)
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
@@ -513,6 +568,11 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   // never reads this record, so a clear field waits for the next time the passphrase is typed.
   const ufvk = (await openUfvk(key, record)) ?? record.ufvk
   if (record.ufvk !== undefined) await retireClearUfvk(record, key, ufvk)
+  // Not over a sealed field that did not open: the new seal could not carry it, and the old one might.
+  const fieldLost = (!!record.ufvkCipher && !ufvk) || (!!record.secretCipher && !accessSecret)
+  if ((record.kdfIters ?? PBKDF2_ITERS_LEGACY) < PBKDF2_ITERS && !fieldLost) {
+    await upgradeSeal(record, passphrase, { share: new Uint8Array(plainBuf), accessSecret, ufvk })
+  }
 
   return {
     name: record.name,
@@ -942,6 +1002,7 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
   if (!newPassphrase) throw storageError('new-passphrase-required', 'A new passphrase is required')
   if (newPassphrase === oldPassphrase) throw storageError('same-passphrase', 'The new passphrase is the same as the current one')
+  requireNewPassphrase(newPassphrase)
 
   // Throws on a wrong current passphrase, which is also the proof that the member can still open
   // the vault. A rotation must never be a way to re-seal a share you cannot read.

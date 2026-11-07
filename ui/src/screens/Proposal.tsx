@@ -7,7 +7,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
+import { fmtZecExact, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
 import { estimatedFeeZat } from '../fee-estimate'
@@ -18,6 +18,7 @@ import {
   readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
 } from '../api'
 import { useVaultReadable } from '../vault-readable'
+import { readPlan } from '../approved-payment'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
 
@@ -190,20 +191,37 @@ export default function Proposal() {
       </main></>)
   }
 
+  const plan = readPlan(p.id, p, { proposal: p, lines })
+  if (!plan) {
+    const done = p.state === 'sent' || p.state === 'confirmed'
+    const canRefuse = p.state === 'awaiting' && !!me && members.includes(me) && !p.approvals.includes(me) && !p.refusals.includes(me)
+    return (<><main className="page narrow">
+        <PageHeader back={{ to: '/proposals', label: t('proposals.title') }} title={t('proposal.planRefusedTitle')}
+          actions={<span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>} />
+        <div className="hint warn" role="alert">{t(done ? 'proposal.planRefusedSent' : 'proposal.planRefusedBody')}</div>
+        {/* Enough to name this proposal to the others, and no amount or destination. */}
+        <dl className="p-facts">
+          <div><dt>{t('proposal.factCreated')}</dt><dd className="mono">{fmtDateTime(p.created_at, locale)}</dd></div>
+          <div><dt>{t('proposal.factProposer')}</dt><dd>{p.proposer}</dd></div>
+          {p.txid && <div><dt>{t('proposal.factTxid')}</dt><dd className="mono addr-full"><span>{p.txid}</span></dd></div>}
+        </dl>
+        {canRefuse && <div className="btns mt"><button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button></div>}
+        {error && <div className="hint err mt" role="alert">{error}</div>}
+      </main></>)
+  }
   // Exact, never rounded to four places: the fee and total beside it are exact, and the signing
   // panel reads the same figure (#777). The amount sent was never affected by the display.
-  const val = fmtZecExact(p.value_zat / 1e8)
-  const dest = p.to_address ? shortAddr(p.to_address) : '-'
-  const isPayroll = p.kind === 'payroll'
+  const val = fmtZecExact(plan.totalZat / 1e8)
+  const single = plan.kind === 'payment' ? plan.lines[0] : undefined
+  const dest = single ? shortAddr(single.address) : '-'
+  const isPayroll = plan.kind === 'payroll'
   // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
   // count is spends + outputs (orchard's builder pairs each with a fabricated zero-valued
   // counterpart), so one spend + N destinations + change. Measured against a real refusal: a 2-line
   // payroll of 4000 zat was charged 20000, exactly four actions.
   const cost = (() => {
-    const amountZat = parseZecToZat(p.value_zec ?? '')
-    if (amountZat === null) return null
-    const dests = isPayroll ? Math.max(1, lines.length) : 1
-    const feeZat = estimatedFeeZat(dests)
+    const amountZat = plan.totalZat
+    const feeZat = estimatedFeeZat(plan.lines.length)
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }
@@ -219,9 +237,9 @@ export default function Proposal() {
 
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
-  const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
+  const title = plan.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
   // The payment's destination is stated in full in the facts below, so the subtitle does not repeat it shortened.
-  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : ''
+  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: plan.lines.length }) : ''
 
   // State trail: Approval → Signature → Sent (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
@@ -244,7 +262,7 @@ export default function Proposal() {
           back={{ to: '/proposals', label: t('proposals.title') }}
           eyebrow={eyebrow}
           title={title}
-          subtitle={<>{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
+          subtitle={<>{subtitle}{single?.isPublic && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
           actions={<span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>}
         />
 
@@ -295,8 +313,8 @@ export default function Proposal() {
               {p.expiry_unix ? <>{fmtDateTime(p.expiry_unix, locale)} <span className="dim">{expiryLabel(p.expiry_unix, t)}</span></> : t('proposal.noExpiry')}
             </dd></div>
           )}
-          {!isPayroll && p.to_address && (
-            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full"><span>{p.to_address}</span><CopyButton value={p.to_address} label={t('proposal.copyAddress')} /></dd></div>
+          {single && (
+            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full"><span>{single.address}</span><CopyButton value={single.address} label={t('proposal.copyAddress')} /></dd></div>
           )}
           {isSent && (() => {
             // Loading is not "unconfirmed": say nothing until the list has answered.
@@ -313,11 +331,11 @@ export default function Proposal() {
           <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
             <tbody>
-              {lines.map((l, i) => (
+              {plan.lines.map((l, i) => (
                 <tr key={i}>
                   <td>{l.label || '-'}</td>
-                  <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
-                  <td className="num"><Secret sm><span>{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
+                  <td className={'mono' + (l.isPublic ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.isPublic ? ` · ${t('proposal.linePublic')}` : ''}</td>
+                  <td className="num"><Secret sm><span>{fmtZecExact(l.amountZat / 1e8)}</span></Secret></td>
                   <td className="mono dim">{l.memo || '-'}</td>
                 </tr>
               ))}

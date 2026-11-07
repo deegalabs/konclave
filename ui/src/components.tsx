@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent as Reac
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useT } from './i18n'
-import { scorePassphrase, generatePassphrase } from './passphrase'
+import { scorePassphrase, generatePassphrase, newPassphraseProblem } from './passphrase'
 
 /** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
  *  below, announced via `role="status"`. Shown while an initial fetch is in flight instead of
@@ -275,6 +275,7 @@ export function PassphraseField({
   const t = useT()
   const [show, setShow] = useState(false)
   const s = scorePassphrase(value)
+  const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
@@ -330,6 +331,7 @@ export function PassphraseField({
           <span className={'pf-label s' + s.score}>{t('pass.' + s.label)}</span>
         </div>
       )}
+      {problem && <p className="dim" aria-live="polite">{t(problem === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>}
     </div>
   )
 }
