@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
@@ -482,7 +483,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   return (
     <>
       <main className="page">
-        <PageHeader title={t('ledger.title')} actions={exportActions} />
+        <PageHeader title={t('ledger.title')} actions={<><Link className="btn ghost sm-btn" to="/analyses">{t('ledger.toAnalyses')}</Link>{exportActions}</>} />
         {body}
         <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>
