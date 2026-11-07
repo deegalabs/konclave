@@ -14,6 +14,7 @@ import { useLoading } from '../loading'
 import ReadState from '../ReadState'
 import { useT, useI18n } from '../i18n'
 import { useVaultReadable } from '../vault-readable'
+import { useReveal } from '../reveal'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
@@ -28,6 +29,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
+  const { revealed } = useReveal()
   // A book that could not be read is said as such, never left on the skeleton (#320). `attempt`
   // counts the retries asked for and re-runs the read; `failed` counts the ones that failed again.
   const [unread, setUnread] = useState(false)
@@ -258,6 +260,10 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
+        {/* Printed only (#811): the filter chips are not printed, so the paper says which part of the
+            book it is; and a page printed with the amounts hidden says how to print them. */}
+        <p className="print-only by ledger-print-filter">{t('ledger.xlsxFilter')}: {filterLabel || t('ledger.filterAll')}</p>
+        {!revealed && <p className="print-only by ledger-print-hidden">{t('ledger.printHidden')}</p>}
         {/* The period hint is on screen, not visually hidden: a hidden box that clips its text reads as a cropped control at 320px. */}
         <div className="cap">{t('ledger.capLive')}<br /><span id="ledger-period-hint">{t('ledger.periodHint')}</span> <span>{t('ledger.xlsxIncludes')}</span></div>
 
