@@ -129,6 +129,29 @@ describe('the XLSX ledger export (#302)', () => {
     expect(fmt).toBe('0.00000000')
   })
 
+  it('stores the value of each total beside its formula, summed in whole zatoshi (#812)', async () => {
+    // A viewer that does not recalculate (Excel's Protected View, a phone previewer) shows the value
+    // stored with a formula, and there was none, so the three totals were blank. Read back from the
+    // written file, as such a viewer would. 0.1 + 0.2 is 0.30000000000000004 in floating point.
+    const wb = await buildLedgerWorkbook(data([
+      item({ zec: 0.1 }), item({ zec: 0.2 }),
+      item({ state: 'awaiting', settled: false, open: true, zec: 0.00000001 }),
+      item({ state: 'rejected', settled: false, open: false, zec: 5 }),
+    ]))
+    const buf = await wb.xlsx.writeBuffer()
+    const mod = await import('exceljs')
+    const ExcelJS = (mod as unknown as { default?: typeof import('exceljs') }).default ?? mod
+    const back = new ExcelJS.Workbook()
+    await back.xlsx.load(buf as ArrayBuffer)
+    const result = (v: unknown) => (v as { result?: unknown } | undefined)?.result
+    expect(summaryValue(back, 'Settled out')).toMatchObject({ formula: expect.stringMatching(/^SUMIF\(/) })
+    expect(result(summaryValue(back, 'Settled out'))).toBe(0.3)
+    expect(result(summaryValue(back, 'Open'))).toBe(0.00000001)
+    const total = back.getWorksheet('Movements')!.getRow(6).getCell(12) // header, four rows, total; Value is column L
+    expect(total.formula).toMatch(/^SUMIF\(/)
+    expect(total.result).toBe(0.30000001)
+  })
+
   it('counts as open only what can still move: a refused or expired row is neither settled nor open', async () => {
     const wb = await buildLedgerWorkbook(data([
       item(), // confirmed, 1.5: settled

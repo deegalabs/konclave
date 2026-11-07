@@ -48,13 +48,34 @@ history to tidy it is how context gets lost.
   subtraction (negative, and said so, when the open proposals exceed what can be spent), dated at the
   export and left out when the balance could not be read. A third sheet, By beneficiary, has one row
   per address with settled and open sums as live SUMIFS over Movements, a total row and a
-  "Difference vs Summary" row the accountant can re-run in the spreadsheet (#302; a sheet by
-  category waits for the field on the proposal).
+  "Difference vs Summary" row the accountant can re-run in the spreadsheet. Every new formula
+  carries the value it computes, summed in whole zatoshi, so the figures show in a viewer that does
+  not recalculate, as the totals do since #812 (#302; a sheet by category waits for the field on
+  the proposal).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks
   itself against the book: the sums match, or the difference is named with the number of payrolls
   whose lines could not be read (#778; by category waits for the field on the proposal).
+
+### Changed
+
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo", the crash screen's "confira o livro" and the in-app docs), the plain word
+  over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
+  the screen title and the activity tab equal in every language, and fails if any Portuguese text or
+  in-app doc says "razão" again.
+
+### Fixed
+
+- **The XLSX ledger's totals show without "Enable Editing".** The Summary's "Settled out" and
+  "Open" and the Movements "TOTAL" were formulas with no value stored beside them, so Excel's
+  Protected View (any downloaded file), a phone previewer, or any viewer that does not recalculate
+  showed them blank. Each now carries the figure it computes, summed in whole zatoshi, and stays a
+  live formula (#812).
 
 ## [0.17.0] 2026-11-06
 
