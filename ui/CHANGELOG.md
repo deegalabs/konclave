@@ -127,9 +127,6 @@ history to tidy it is how context gets lost.
 
 - **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
   stays open for that).
-
-### Known limits
-
 - **Until the coordinator switches, every vault payment pays 5,000 zatoshis per action, and can be
   told apart.** After block 3,590,000 (expected around 19 November 2026), wallets that follow ZIP 2009
   pay 1,000; the fee is public, so a vault transaction paying five times that stands out from theirs.
