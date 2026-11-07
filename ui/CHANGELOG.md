@@ -52,10 +52,11 @@ history to tidy it is how context gets lost.
   until v0.17.0, which clears it. The recent addresses were also one list for every vault on the
   device, so one vault offered another vault's payees. Removing a vault now takes all of this, the
   same from Settings, from the vault list and from the create and join screen, and for a vault on a
-  local bridge as on the web (there it cleared only the payroll draft). The confirm says what goes
-  and what stays: the device's record of the payments it signed (summaries and dates, no names or
-  amounts), kept on purpose because it stops the device signing a second, different transaction for
-  the same payment. The recent addresses are now kept per vault, and the shared list of earlier
+  local bridge as on the web (there it cleared only the payroll draft). The confirm in Settings and
+  on the vault list says what goes and what stays: the device's record of the payments it signed, kept on purpose because it stops the
+  device signing a second, different transaction for the same payment. That record is not harmless:
+  anyone who can read the browser's storage can tell from it which vault it was and which of its
+  payments the device signed. The recent addresses are now kept per vault, and the shared list of earlier
   versions is dropped the first time the app reads it. **Not covered:** the saved people of a vault
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
@@ -63,6 +64,14 @@ history to tidy it is how context gets lost.
 
 ### Added
 
+- **"What changed", a tab under Approvals.** What changed state since this device last looked:
+  what arrived for you, became ready, was sent, confirmed, refused, withdrawn or expired (by this
+  device's clock, as on the desk), most pressing first, each named with the word the proposal list
+  uses and opening its proposal. The comparison is local, against the list as it was when you last
+  pressed "Mark as seen" on this device; a first look takes that snapshot and says there is nothing
+  to compare yet, and a change that arrives while the tab is open is shown before it can be marked.
+  Nothing new is asked of the coordinator and nothing leaves the device; removing the vault removes
+  what this tab kept for it (#151, #125).
 - **The book by beneficiary.** Under the ledger's table, "By beneficiary" opens a pivot of the
   rows in view: settled so far and still open per beneficiary, in the band's own words, over the
   same period and kind as the totals above, named from the registry or the payroll line. It checks
@@ -103,6 +112,14 @@ history to tidy it is how context gets lost.
   that is a rule the screen cannot create, since it stops at 5 devices. At 5 of 5 it now recommends
   4 of 5, and the recommendation reads the same cap as the device control. Below 5 devices nothing
   changes (#839).
+- **The tabs under Approvals work from the keyboard as tabs do.** Before, each tab was its own Tab
+  stop and the arrow keys did nothing. Now the selected tab is the one Tab stop, the arrows move
+  between tabs, Home and End go to the first and the last, and the panel is named by its tab.
+
+### Known limits
+
+- **"What changed" does not alert you.** It shows what moved only once the tab is opened (#151
+  stays open for that).
 
 ## [0.17.0] 2026-11-06
 

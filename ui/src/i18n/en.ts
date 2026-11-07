@@ -269,6 +269,17 @@ export const en: Record<string, string> = {
   'activity.tab.proposals': 'Proposals',
   'activity.tab.ledger': 'Ledger',
   'activity.tab.evidence': 'Signing evidence',
+  'activity.tab.since': 'What changed',
+  'since.title': 'What changed since this device last looked',
+  'since.seenAt': 'Marked as seen on this device on {when}.',
+  'since.firstTime': 'First look on this device: nothing to compare yet. What changes state from now on shows up here.',
+  'since.changes': '{n} changes since this device last looked.',
+  'since.fromTo': 'from {from} to {to}',
+  'since.nothing': 'Nothing changed state since then.',
+  'since.markSeen': 'Mark as seen',
+  'since.unreadTitle': 'Could not read the proposals',
+  'since.kind.arrived': 'Arrived for you',
+  'since.kind.new': 'New proposal',
 
 
   // Landing / explainer (Intro)
@@ -609,7 +620,7 @@ export const en: Record<string, string> = {
   'dashboard.deleteThisVaultDesc': 'Removes the vault from this device. Does not affect the Zcash network or the other members.',
   'dashboard.deleteVault': 'Delete vault',
   'dashboard.deleteConfirmTitle': 'Delete “{name}”?',
-  'dashboard.deleteConfirmBody': 'This removes the vault **from this device only**: its record with your part of the key, the saved people, the payroll draft and the recent addresses. This device keeps its record of the payments it signed (summaries and dates, no names or amounts), which stops it signing a second, different transaction for the same payment. **It cannot be undone.**',
+  'dashboard.deleteConfirmBody': 'This removes the vault **from this device only**: its record with your part of the key, the saved people, the payroll draft and the recent addresses. This device keeps its record of the payments it signed for this vault, which stops it signing a second, different transaction for the same payment. Anyone who can read this browser’s storage can tell from that record which vault it was and which of its payments this device signed. **It cannot be undone.**',
   'dashboard.deleteFundsWarn': 'If this vault holds **ZEC**, deleting it means you **lose access to that money** · your share of the key disappears from this device. **Send the balance elsewhere before deleting.**',
   'dashboard.deleteSeesFunds': 'This device sees a balance of **{amt} ZEC**.',
   'dashboard.deleteLocalHint': 'This erases nothing on the Zcash network or on the other members’ devices · it’s only your local copy.',

@@ -269,6 +269,17 @@ export const ptBR: Record<string, string> = {
   'activity.tab.proposals': 'Propostas',
   'activity.tab.ledger': 'Livro',
   'activity.tab.evidence': 'Evidências de assinatura',
+  'activity.tab.since': 'O que mudou',
+  'since.title': 'O que mudou desde que este aparelho olhou',
+  'since.seenAt': 'Marcado como visto neste aparelho em {when}.',
+  'since.firstTime': 'Primeira vez neste aparelho: ainda não há com o que comparar. O que mudar de estado daqui em diante aparece aqui.',
+  'since.changes': '{n} mudanças desde que este aparelho olhou.',
+  'since.fromTo': 'de {from} para {to}',
+  'since.nothing': 'Nada mudou de estado desde então.',
+  'since.markSeen': 'Marcar como visto',
+  'since.unreadTitle': 'Não deu para ler as propostas',
+  'since.kind.arrived': 'Chegou para você',
+  'since.kind.new': 'Proposta nova',
 
 
   // Landing / explainer (Intro)
@@ -605,7 +616,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.deleteThisVaultDesc': 'Remove o cofre deste aparelho. Não afeta a rede Zcash nem os outros membros.',
   'dashboard.deleteVault': 'Excluir cofre',
   'dashboard.deleteConfirmTitle': 'Excluir “{name}”?',
-  'dashboard.deleteConfirmBody': 'Isto remove o cofre **só deste aparelho**: o registro dele com a sua parte da chave, as pessoas salvas, o rascunho da folha e os endereços recentes. Fica a memória deste aparelho dos pagamentos que ele assinou (resumos e datas, sem nomes nem valores), que o impede de assinar uma segunda transação diferente para o mesmo pagamento. **Não dá para desfazer.**',
+  'dashboard.deleteConfirmBody': 'Isto remove o cofre **só deste aparelho**: o registro dele com a sua parte da chave, as pessoas salvas, o rascunho da folha e os endereços recentes. Fica a memória deste aparelho dos pagamentos que ele assinou para este cofre, que o impede de assinar uma segunda transação diferente para o mesmo pagamento. Quem puder ler o armazenamento deste navegador consegue saber por ela qual era o cofre e quais pagamentos dele este aparelho assinou. **Não dá para desfazer.**',
   'dashboard.deleteFundsWarn': 'Se este cofre tiver **ZEC**, ao excluir você **perde o acesso a esse dinheiro** · a sua parte da chave some deste aparelho. **Envie o saldo para outro lugar antes de excluir.**',
   'dashboard.deleteSeesFunds': 'Este dispositivo vê um saldo de **{amt} ZEC**.',
   'dashboard.deleteLocalHint': 'Isto não apaga nada na rede Zcash nem no aparelho dos outros membros · é só a sua cópia local.',

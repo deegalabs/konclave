@@ -19,6 +19,7 @@ import { setSelectedVault, getSelectedVault } from './api'
 import { setReadSecret, readSecretFor } from './session'
 import { savePrfWrap } from './prf-store'
 import { pushRecentPayee, recentPayees } from './recent-payees'
+import { writeSeen } from './seen-store'
 
 const A = 'aa'.repeat(32)
 const B = 'bb'.repeat(32)
@@ -35,6 +36,7 @@ function seedLocal(id: string) {
   setSelectedVault(id)
   pushRecentPayee(`u1recent${id.slice(0, 4)}`)
   setReadSecret(id, new Uint8Array(32).fill(9))
+  writeSeen(id, { at: 1, states: { p1: 'awaiting' } })
 }
 const keysWith = (id: string) => Object.keys(localStorage).filter((k) => k.includes(id))
 
@@ -55,7 +57,7 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
 
     // The other vault keeps all of its own.
     expect(keysWith(B).sort()).toEqual([
-      `konclave.benef.${B}`, `konclave.folha.rascunho.${B}`, `konclave.prf.${B}`, `konclave.recentPayees.${B}`, `konclave.signed.${B}`,
+      `konclave.benef.${B}`, `konclave.folha.rascunho.${B}`, `konclave.prf.${B}`, `konclave.recentPayees.${B}`, `konclave.seen.${B}`, `konclave.signed.${B}`,
     ].sort())
     expect(readSecretFor(B)).toBeDefined()
   })
@@ -134,7 +136,7 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     expect(keysWith(A)).toEqual([`konclave.signed.${A}`])
     expect(getSelectedVault()).toBeNull()
     expect(readSecretFor(A)).toBeUndefined()
-    expect(keysWith(B)).toHaveLength(5)
+    expect(keysWith(B)).toHaveLength(6)
     const settings = codeOf('screens/Settings.tsx')
     expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(vault\.id\)/)
     // No screen clears a part of a vault's leftovers on its own: that is how the two lists drifted.
@@ -155,6 +157,7 @@ const STORAGE_WRITES: Record<string, Record<string, Fate>> = {
   'prf-store.ts': { 'KEY(vaultId)': 'cleared' },
   'price.ts': { KEY_ENABLED: 'device', KEY_CACHE: 'device' },
   'recent-payees.ts': { 'recentPayeesKey(id)': 'cleared' },
+  'seen-store.ts': { 'seenKey(id)': 'cleared' /* what "What changed" last showed for this vault */ },
   'screens/NewPayroll.tsx': { draftAt: 'cleared' /* the payroll draft */ },
   'signed-record.ts': { k: 'kept' /* what this device signed: hashes and expiries, refuses a second tx */ },
   'storage.ts': { 'beneficiariesKey(id)': 'cleared' },
