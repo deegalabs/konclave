@@ -3,22 +3,27 @@
 // A local comparison: the states of the proposals, by id, as they were when the member last
 // said "seen" on this device, against the list read now. Nothing is asked of the coordinator
 // beyond the list it already serves, and nothing is written anywhere but this device.
-import { bandOf } from './desk'
+import { bandOf, expiredByClock } from './desk'
 import type { Proposal } from './api'
 
 /** The proposals' states by id, as last seen on this device. */
 export type Snapshot = Record<string, string>
 
-export type ChangeKind = 'arrived' | 'ready' | 'readyOthers' | 'sent' | 'confirmed' | 'refused' | 'withdrawn' | 'expired' | 'new' | 'changed'
+export type ChangeKind = 'arrived' | 'ready' | 'sent' | 'confirmed' | 'refused' | 'withdrawn' | 'expired' | 'new' | 'changed'
 export type Change = { id: string; kind: ChangeKind; from: string | null; to: string; proposal: Proposal }
 
-const ORDER: ChangeKind[] = ['arrived', 'ready', 'readyOthers', 'sent', 'confirmed', 'refused', 'withdrawn', 'expired', 'new', 'changed']
+const ORDER: ChangeKind[] = ['arrived', 'ready', 'sent', 'confirmed', 'refused', 'withdrawn', 'expired', 'new', 'changed']
 
-function kindOf(from: string | null, p: Proposal, me: string | null): ChangeKind {
-  const to = p.state
-  if (from === null) return to === 'awaiting' && me !== null && bandOf(p, me) === 'vote' ? 'arrived' : 'new'
-  // Whoever approved signs: "ready to sign" is a promise only to a member who approved.
-  if (to === 'ready') return me !== null && bandOf(p, me) === 'sign' ? 'ready' : 'readyOthers'
+/** The state as this device reads it: an open proposal past its deadline on this device's clock has
+ *  expired, as on the desk, even before the coordinator recomputes it. */
+const stateOf = (p: Proposal) => (expiredByClock(p) ? 'expired' : p.state)
+
+function kindOf(from: string | null, to: string, p: Proposal, me: string | null): ChangeKind {
+  // New since the last look and still open: for you when it waits on your vote. One that was created
+  // and closed between two looks is named by how it ended, below.
+  if (from === null && (to === 'awaiting' || to === 'ready')) return to === 'awaiting' && me !== null && bandOf(p, me) === 'vote' ? 'arrived' : 'new'
+  // Ready names the state, not who signs: who may sign is the vault's rule, not this screen's.
+  if (to === 'ready') return 'ready'
   if (to === 'sent') return 'sent'
   if (to === 'confirmed') return 'confirmed'
   if (to === 'rejected') return 'refused'
@@ -34,15 +39,22 @@ export function changesSince(prev: Snapshot | null, now: readonly Proposal[], me
   if (prev === null) return null
   const out: Change[] = []
   for (const p of now) {
+    const to = stateOf(p)
     const from = Object.prototype.hasOwnProperty.call(prev, p.id) ? prev[p.id]! : null
-    if (from === p.state) continue
-    out.push({ id: p.id, kind: kindOf(from, p, me), from, to: p.state, proposal: p })
+    if (from === to) continue
+    out.push({ id: p.id, kind: kindOf(from, to, p, me), from, to, proposal: p })
   }
   return out.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind))
 }
 
+/** The words for a change: its own for what is new, otherwise the state's word the proposal list
+ *  already uses (`stamp.*`), so the two screens name a state alike. */
+export function changeLabelKey(c: Change): string {
+  return c.kind === 'arrived' || c.kind === 'new' ? `since.kind.${c.kind}` : `stamp.${c.to}`
+}
+
 export function snapshotOf(now: readonly Proposal[]): Snapshot {
   const s: Snapshot = {}
-  for (const p of now) s[p.id] = p.state
+  for (const p of now) s[p.id] = stateOf(p)
   return s
 }

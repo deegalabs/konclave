@@ -1,6 +1,6 @@
 // "What changed" (#151, #125): the Approvals tab that lists what changed state since this device
-// last looked. The snapshot lives on this device only (localStorage, per vault); the comparison is
-// `since-last.ts`; the coordinator is asked for nothing it does not already serve.
+// last looked. The snapshot lives on this device only (`seen-store.ts`, per vault); the comparison
+// is `since-last.ts`; the coordinator is asked for nothing it does not already serve.
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Secret } from '../components'
@@ -9,25 +9,12 @@ import ReadState from '../ReadState'
 import { lastReadFailure } from '../read-failure'
 import { startVisiblePoll } from '../usePoll'
 import { Identicon } from '../avatar'
-import { getProposals, getSelectedVault, getVault, type Proposal } from '../api'
+import { getProposals, getSelectedVault, type Proposal } from '../api'
 import { listVaults } from '../storage'
 import { fmtDateTime, fmtZec } from '../format'
 import { useI18n, useT, useTr } from '../i18n'
-import { changesSince, snapshotOf, type Change, type Snapshot } from '../since-last'
-
-type Seen = { at: number; states: Snapshot }
-const key = (vault: string) => `konclave.seen.${vault}`
-function readSeen(vault: string): Seen | null {
-  try {
-    const raw = localStorage.getItem(key(vault))
-    if (!raw) return null
-    const d = JSON.parse(raw) as Partial<Seen>
-    return typeof d.at === 'number' && d.states && typeof d.states === 'object' ? { at: d.at, states: d.states } : null
-  } catch { return null }
-}
-function writeSeen(vault: string, seen: Seen) {
-  try { localStorage.setItem(key(vault), JSON.stringify(seen)) } catch { /* a device that cannot keep it compares nothing */ }
-}
+import { changeLabelKey, changesSince, snapshotOf, type Change } from '../since-last'
+import { readSeen, writeSeen, type Seen } from '../seen-store'
 
 export default function SinceLast() {
   const t = useT()
@@ -44,37 +31,51 @@ export default function SinceLast() {
   const [first, setFirst] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [retrying, setRetrying] = useState(false)
+  // Two reads in a row failed after a good one: the list on screen is no longer current, and says so.
+  const [stale, setStale] = useState(false)
+  const misses = useRef(0)
+  const loadRef = useRef<(() => Promise<void>) | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+
+  // Who this device is in the vault, read once: it does not change between two reads of the list.
+  useEffect(() => {
+    if (!vault) return
+    let on = true
+    listVaults().then((vs) => { if (on) setMe(vs.find((s) => s.id === vault)?.myName ?? null) }).catch(() => { /* no record: neutral wording */ })
+    return () => { on = false }
+  }, [vault])
 
   // Read, and keep reading on the shared cadence, so a change that lands while the tab is open shows.
   useEffect(() => {
     let on = true
     let inFlight = false
+    let good = false
     const load = async () => {
       if (inFlight) return
       inFlight = true
       try {
-        const [ps, v] = await Promise.all([getProposals(), getVault()])
+        const ps = await getProposals()
         if (!on) return
-        if (ps) setRows(ps)
-        else if (rows === null) setRows(null)
-        if (v) {
-          try { setMe((await listVaults()).find((s) => s.id === v.id)?.myName ?? null) } catch { /* no record: neutral wording */ }
-        }
+        if (ps) { setRows(ps); good = true; misses.current = 0; setStale(false) }
+        else if (good) { misses.current += 1; if (misses.current >= 2) setStale(true) }
       } finally {
         inFlight = false
         if (on) { setLoaded(true); setRetrying(false) }
       }
     }
+    loadRef.current = load
     void load()
     const stop = startVisiblePoll(() => void load(), 12_000)
     return () => { on = false; stop() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt])
 
   const unread = loaded && rows === null ? (lastReadFailure('/api/vault/proposals') ?? lastReadFailure('/api/proposals')) : null
   const changes: Change[] | null = rows ? changesSince(seen?.states ?? null, rows, me) : null
-  const canMark = !!changes && changes.length > 0
+  const hasChanges = !!changes && changes.length > 0
+  // The first-look sentence stands only while nothing has changed since that snapshot: a change that
+  // arrives on a later read is shown, so what "Mark as seen" records is always what is on screen.
+  const firstLook = first && !hasChanges
+  const canMark = hasChanges
 
   // "Seen": the snapshot becomes the list as it is now. On a first look there is nothing to compare,
   // so the snapshot is taken at once and said so; from then on the member decides when the list
@@ -101,8 +102,8 @@ export default function SinceLast() {
 
   // What a screen reader hears when the list settles: the count, the first-look sentence, or nothing changed.
   const status = !loaded || !rows ? ''
-    : first ? t('since.firstTime')
-    : changes && changes.length > 0 ? t('since.changes', { n: String(changes.length) })
+    : firstLook ? t('since.firstTime')
+    : hasChanges ? t('since.changes', { n: String(changes!.length) })
     : t('since.nothing')
 
   return (
@@ -118,28 +119,32 @@ export default function SinceLast() {
         <ReadState title={t('since.unreadTitle')} failure={unread} attempt={attempt} busy={retrying}
           onRetry={() => { setRetrying(true); setLoaded(false); setAttempt((a) => a + 1) }} />
       )}
-      {loaded && rows && first && <p className="hint" id="since-hint" aria-hidden="true">{t('since.firstTime')}</p>}
-      {loaded && rows && !first && changes && changes.length === 0 && <p className="hint" id="since-hint" aria-hidden="true">{t('since.nothing')}</p>}
+      {stale && rows !== null && (
+        <ReadState compact title={t('since.unreadTitle')} failure={lastReadFailure('/api/vault/proposals') ?? lastReadFailure('/api/proposals')} onRetry={() => void loadRef.current?.()} />
+      )}
+      {loaded && rows && firstLook && <p className="hint" id="since-hint" aria-hidden="true">{t('since.firstTime')}</p>}
+      {loaded && rows && !first && !hasChanges && <p className="hint" id="since-hint" aria-hidden="true">{t('since.nothing')}</p>}
 
-      {!first && changes && changes.length > 0 && (
+      {hasChanges && (
         <ul className="since-list">
-          {changes.map((c) => {
-            const sub = `${c.proposal.proposer} · ${fmtZec(c.proposal.value_zec)} ZEC`
+          {changes!.map((c) => {
+            const what = t(changeLabelKey(c))
             return (
               <li key={c.id} className={'since-row kind-' + c.kind}>
-                <button type="button" className="since-btn" onClick={() => open(c.proposal)}
-                  aria-label={`${title(c.proposal)}, ${t('since.kind.' + c.kind)}, ${sub}`}>
-                  <Identicon seed={c.proposal.proposer} size={30} />
-                  <span className="since-main">
-                    <span className="since-kind">{t('since.kind.' + c.kind)}</span>
+                <Identicon seed={c.proposal.proposer} size={30} />
+                <span className="since-main">
+                  <span className="since-kind">{what}</span>
+                  {/* The title is the button; the amount below stays under its bar, outside it, so the
+                      bar is never a button inside a button and its name never carries the figure. */}
+                  <button type="button" className="since-btn" onClick={() => open(c.proposal)} aria-label={`${title(c.proposal)}, ${what}`}>
                     <span className="since-title">{title(c.proposal)}</span>
-                    <span className="since-sub">
-                      {c.proposal.proposer} · <Secret sm><span>{fmtZec(c.proposal.value_zec)} ZEC</span></Secret>
-                      {c.kind === 'changed' && c.from && <> · {t('since.fromTo', { from: t('state.' + c.from), to: t('state.' + c.to) })}</>}
-                    </span>
+                    <span className="since-go" aria-hidden="true"> →</span>
+                  </button>
+                  <span className="since-sub">
+                    {c.proposal.proposer} · <Secret sm><span>{fmtZec(c.proposal.value_zec)} ZEC</span></Secret>
+                    {c.kind === 'changed' && c.from && <> · {t('since.fromTo', { from: t('stamp.' + c.from), to: t('stamp.' + c.to) })}</>}
                   </span>
-                  <span className="since-go" aria-hidden="true">→</span>
-                </button>
+                </span>
               </li>
             )
           })}

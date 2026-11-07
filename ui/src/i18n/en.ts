@@ -280,14 +280,6 @@ export const en: Record<string, string> = {
   'since.unreadTitle': 'Could not read the proposals',
   'since.kind.arrived': 'Arrived for you',
   'since.kind.new': 'New proposal',
-  'since.kind.ready': 'Ready to sign',
-  'since.kind.readyOthers': 'Ready, others sign',
-  'since.kind.sent': 'Sent',
-  'since.kind.confirmed': 'Confirmed',
-  'since.kind.refused': 'Refused',
-  'since.kind.withdrawn': 'Withdrawn',
-  'since.kind.expired': 'Expired',
-  'since.kind.changed': 'Changed state',
 
 
   // Landing / explainer (Intro)

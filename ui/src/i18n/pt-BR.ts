@@ -280,14 +280,6 @@ export const ptBR: Record<string, string> = {
   'since.unreadTitle': 'Não deu para ler as propostas',
   'since.kind.arrived': 'Chegou para você',
   'since.kind.new': 'Proposta nova',
-  'since.kind.ready': 'Pronta para assinar',
-  'since.kind.readyOthers': 'Pronta, outros assinam',
-  'since.kind.sent': 'Enviada',
-  'since.kind.confirmed': 'Confirmada',
-  'since.kind.refused': 'Recusada',
-  'since.kind.withdrawn': 'Retirada',
-  'since.kind.expired': 'Expirou',
-  'since.kind.changed': 'Mudou de estado',
 
 
   // Landing / explainer (Intro)
