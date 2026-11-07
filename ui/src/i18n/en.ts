@@ -1039,7 +1039,7 @@ export const en: Record<string, string> = {
   'ledger.pivotDiff': 'Difference from the book',
   'ledger.pivotMatches': 'The sums match the book.',
   'ledger.pivotMismatch': 'The sums differ from the book by {diff} ZEC (the two columns’ differences added): {n} payroll(s) whose lines could not be read.',
-  'ledger.pivotMismatchNone': 'The sums differ from the book by {diff} ZEC (the two columns’ differences added) and no payroll is missing its lines. That should not happen: please report it to the Konclave team at github.com/deegalabs/konclave/issues.',
+  'ledger.pivotMismatchNone': 'The sums differ from the book by {diff} ZEC (the two columns’ differences added) and no payroll is missing its lines. That should not happen. Tell the Konclave team at github.com/deegalabs/konclave/issues; the page is public, so do not include amounts, addresses, names, or the vault’s name or link.',
   'ledger.pivotLoading': 'Reading the payrolls’ lines…',
   'ledger.pivotEmpty': 'Nothing settled or open in this view.',
   'ledger.emptyNone': 'No entries yet. Proposals appear here as they are created.',

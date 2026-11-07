@@ -93,7 +93,19 @@ describe('the Ledger shows it', () => {
     for (const k of ['ledger.byPayee', 'ledger.byPayeeHint', 'ledger.colPayee', 'ledger.colPaid', 'ledger.colDue', 'ledger.colLines', 'ledger.pivotMatches', 'ledger.pivotMismatch', 'ledger.pivotMismatchNone', 'ledger.pivotLoading', 'ledger.pivotEmpty', 'ledger.pivotDiff', 'ledger.pivotNone']) {
       expect(en[k], k).toBeTruthy(); expect(ptBR[k], k).toBeTruthy()
     }
-    expect(en['ledger.pivotMismatch']).toContain('{diff}')
+    for (const d of [en, ptBR]) {
+      expect(d['ledger.pivotMismatch']).toContain('{diff}')
+      expect(d['ledger.pivotMismatch']).toContain('{n}')
+      expect(d['ledger.pivotMismatchNone']).toContain('{diff}')
+    }
+    // The tracker it points to is public, on a screen that shows names, addresses and amounts: the
+    // line says so, and asks for none of them, nor the vault's name or link.
+    expect(en['ledger.pivotMismatchNone']).toMatch(/public/)
+    expect(en['ledger.pivotMismatchNone']).toMatch(/amounts, addresses, names/)
+    expect(en['ledger.pivotMismatchNone']).toMatch(/vault’s name or link/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/pública/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/valores, endereços, nomes/)
+    expect(ptBR['ledger.pivotMismatchNone']).toMatch(/nome ou o link do cofre/)
     // the columns carry the band's own words, so the check is visible to the eye
     expect(en['ledger.colPaid']).toBe(en['ledger.settledOut']?.replace(' out', '') ?? 'Settled')
     expect(ptBR['ledger.colDue']).toBe('Em aberto')

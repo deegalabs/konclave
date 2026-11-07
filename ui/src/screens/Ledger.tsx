@@ -438,7 +438,6 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                 </table>
               </div>
             )}
-            {/* One live line, mounted with the section: reading, empty, the sums match, or the difference. */}
             {/* One live line, mounted with the section. The check against the book comes before the
                 empty message: a view whose every payroll is unreadable has no rows and still a total,
                 and saying "nothing settled" there would be the silent zero this section exists to stop. */}

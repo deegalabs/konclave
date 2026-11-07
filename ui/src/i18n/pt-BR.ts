@@ -1035,7 +1035,7 @@ export const ptBR: Record<string, string> = {
   'ledger.pivotDiff': 'Diferença em relação ao livro',
   'ledger.pivotMatches': 'As somas batem com o livro.',
   'ledger.pivotMismatch': 'As somas diferem do livro em {diff} ZEC (as diferenças das duas colunas somadas): {n} folha(s) cujas linhas não foram lidas.',
-  'ledger.pivotMismatchNone': 'As somas diferem do livro em {diff} ZEC (as diferenças das duas colunas somadas) e nenhuma folha está sem linhas. Isso não deveria acontecer: reporte ao time do Konclave em github.com/deegalabs/konclave/issues.',
+  'ledger.pivotMismatchNone': 'As somas diferem do livro em {diff} ZEC (as diferenças das duas colunas somadas) e nenhuma folha está sem linhas. Isso não deveria acontecer. Conte ao time do Konclave em github.com/deegalabs/konclave/issues; a página é pública, então não inclua valores, endereços, nomes nem o nome ou o link do cofre.',
   'ledger.pivotLoading': 'Lendo as linhas das folhas…',
   'ledger.pivotEmpty': 'Nada liquidado nem em aberto nesta vista.',
   'ledger.emptyNone': 'Nenhum lançamento ainda. Propostas aparecem aqui conforme são criadas.',

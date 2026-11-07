@@ -70,6 +70,33 @@ describe('the book by beneficiary, as the member reads it (#778)', () => {
     expect(veiled?.textContent).toBe('2.0000')
   })
 
+  it('prints a difference with more than four decimals to the zatoshi', async () => {
+    // 2.00000001 ZEC unread: four decimals would print 2.0000 and hide the last zatoshi.
+    getLedger.mockResolvedValue([{ ...payroll, value_zat: 200000001, value_zec: '2.00000001' }])
+    getProposalDetail.mockResolvedValue(null)
+    mount()
+    await openPivot()
+    await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMismatch', { diff: '2.00000001', n: '1' })))
+    expect(status().querySelector('.secret')?.textContent).toBe('2.00000001')
+  })
+
+  it('keeps every amount of the table under the bar, rows and footer', async () => {
+    getLedger.mockResolvedValue([pending, payroll, rent])
+    mount()
+    await openPivot()
+    await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMatches')))
+    const cells = [...document.querySelectorAll('.pivot-tbl tbody td.num, .pivot-tbl tfoot th.num')]
+      .filter((c) => /\d\.\d/.test(c.textContent ?? ''))
+    // Rows: Alice 1.2, rent 1.50000001, Bob 0.8, open 0.25; footer: the two totals.
+    expect(cells).toHaveLength(6)
+    for (const c of cells) {
+      const veil = c.querySelector('.secret')
+      expect(veil, c.textContent ?? '').not.toBeNull()
+      expect(veil!.textContent).toBe(c.textContent)
+      expect(veil!.querySelector('button.bar')).not.toBeNull()
+    }
+  })
+
   it('does not say "nothing settled" when every payroll in view is unreadable and the book has a total', async () => {
     getLedger.mockResolvedValue([payroll])
     getProposalDetail.mockResolvedValue(null)
