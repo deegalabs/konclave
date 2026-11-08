@@ -42,7 +42,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
   })
 
   it('rejects a wrong passphrase (AES-GCM authentication fails)', async () => {
-    await saveVault('v2', data, 'right-passphrase')
+    await saveVault('v2', data, 'right amber willow falcon')
     await expect(loadVault('v2', 'wrong-passphrase')).rejects.toThrow(/wrong passphrase|tampered/i)
   })
 
@@ -61,21 +61,21 @@ describe('storage - encrypted IndexedDB persistence', () => {
   })
 
   it('lists and deletes a vault; a deleted vault cannot be loaded', async () => {
-    await saveVault('v3', data, 'p')
+    await saveVault('v3', data, 'pale orchid thunder basket')
     expect((await listVaults()).map((x) => x.id)).toContain('v3')
     await deleteVault('v3')
     expect((await listVaults()).map((x) => x.id)).not.toContain('v3')
-    await expect(loadVault('v3', 'p')).rejects.toThrow(/no saved vault/i)
+    await expect(loadVault('v3', 'pale orchid thunder basket')).rejects.toThrow(/no saved vault/i)
   })
 
   it('requires an id and a passphrase to save', async () => {
-    await expect(saveVault('', data, 'p')).rejects.toThrow(/id is required/i)
+    await expect(saveVault('', data, 'pale orchid thunder basket')).rejects.toThrow(/id is required/i)
     await expect(saveVault('x', data, '')).rejects.toThrow(/passphrase is required/i)
   })
 })
 
 describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#388)', () => {
-  const pass = 'move-me-to-another-device'
+  const pass = 'carry-this-vault-across-devices'
   const shareHex = share.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
 
   it('exports a v2 opaque blob that leaks no metadata or share', async () => {
@@ -390,8 +390,8 @@ describe('storage - per-vault access secret (#388)', () => {
   const accessSecret = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 100)) // 100..131
 
   it('round-trips the sealed access secret alongside the share', async () => {
-    await saveVault('sec1', { ...data, accessSecret }, 'pw')
-    const loaded = await loadVault('sec1', 'pw')
+    await saveVault('sec1', { ...data, accessSecret }, 'plain walnut ember quiet')
+    const loaded = await loadVault('sec1', 'plain walnut ember quiet')
     expect(loaded.accessSecret).toBeDefined()
     expect(Array.from(loaded.accessSecret!)).toEqual(Array.from(accessSecret))
     // The share is unaffected.
@@ -399,21 +399,21 @@ describe('storage - per-vault access secret (#388)', () => {
   })
 
   it('a vault saved without an access secret loads with accessSecret undefined (pre-#388 compat)', async () => {
-    await saveVault('sec2', data, 'pw') // no accessSecret
-    const loaded = await loadVault('sec2', 'pw')
+    await saveVault('sec2', data, 'plain walnut ember quiet') // no accessSecret
+    const loaded = await loadVault('sec2', 'plain walnut ember quiet')
     expect(loaded.accessSecret).toBeUndefined()
   })
 
   it('listVaults reports whether a vault is secured (has S) - never the secret itself', async () => {
-    await saveVault('secured1', { ...data, accessSecret }, 'pw')
-    await saveVault('open1', data, 'pw') // no accessSecret -> legacy/open vault
+    await saveVault('secured1', { ...data, accessSecret }, 'plain walnut ember quiet')
+    await saveVault('open1', data, 'plain walnut ember quiet') // no accessSecret -> legacy/open vault
     const list = await listVaults()
     expect(list.find((v) => v.id === 'secured1')?.secured).toBe(true)
     expect(list.find((v) => v.id === 'open1')?.secured).toBe(false)
   })
 
   it('never leaks the access secret bytes into public metadata', async () => {
-    await saveVault('sec3', { ...data, accessSecret }, 'pw')
+    await saveVault('sec3', { ...data, accessSecret }, 'plain walnut ember quiet')
     const v = (await listVaults()).find((x) => x.id === 'sec3')
     expect(v).toBeTruthy()
     const secretHex = accessSecret.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
@@ -476,7 +476,7 @@ describe('storage persistence - #307, a refusal must not be silent', () => {
 
 describe("forgetVault - removing this device's copy (#426)", () => {
   it('removes the record and reports that it is really gone', async () => {
-    await saveVault('forget-1', data, 'pass')
+    await saveVault('forget-1', data, 'river stone maple lantern')
     expect((await listVaults()).some((v) => v.id === 'forget-1')).toBe(true)
     expect(await forgetVault('forget-1')).toBe(true)
     expect((await listVaults()).some((v) => v.id === 'forget-1')).toBe(false)
@@ -485,9 +485,9 @@ describe("forgetVault - removing this device's copy (#426)", () => {
   it('takes the sealed share with it - this device can no longer open the vault at all', async () => {
     // The whole point of the control: after it, this device cannot sign for the vault. If the
     // record survived, the share survived with it.
-    await saveVault('forget-2', data, 'pass')
+    await saveVault('forget-2', data, 'river stone maple lantern')
     await forgetVault('forget-2')
-    await expect(loadVault('forget-2', 'pass')).rejects.toThrow()
+    await expect(loadVault('forget-2', 'river stone maple lantern')).rejects.toThrow()
   })
 
   it('reports FALSE when the delete did not take, instead of claiming success', async () => {
@@ -496,7 +496,7 @@ describe("forgetVault - removing this device's copy (#426)", () => {
     // would tell the member their share is off the device while it is still sitting there.
     // Here the store's delete is made into a no-op: the transaction still completes cleanly, and
     // only re-reading catches it.
-    await saveVault('forget-3', data, 'pass')
+    await saveVault('forget-3', data, 'river stone maple lantern')
     const realDelete = IDBObjectStore.prototype.delete
     IDBObjectStore.prototype.delete = (() => undefined) as unknown as typeof realDelete
     try {
@@ -532,13 +532,13 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
     // Phase two (raising the count) has to change this number too, which is the point: the bump
     // becomes a deliberate edit with a test in front of it, not a one-character change to a
     // constant whose blast radius is invisible from the line itself.
-    await saveVault('kdf-1', data, 'pass')
+    await saveVault('kdf-1', data, 'river stone maple lantern')
     expect(await raw('kdf-1').then((r) => r.kdfIters)).toBe(600_000)
   })
 
   it('an export carries it too, so a backup survives a future bump', async () => {
-    await saveVault('kdf-2', data, 'pass')
-    const blob = await exportVault('kdf-2', 'pass')
+    await saveVault('kdf-2', data, 'river stone maple lantern')
+    const blob = await exportVault('kdf-2', 'river stone maple lantern')
     expect(blob.kdfIters).toBe(600_000)
   })
 
@@ -551,7 +551,7 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
     const ITERS = 310_000
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pass'), 'PBKDF2', false, ['deriveKey'])
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('river stone maple lantern'), 'PBKDF2', false, ['deriveKey'])
     const key = await crypto.subtle.deriveKey(
       { name: 'PBKDF2', salt: salt.slice().buffer, iterations: ITERS, hash: 'SHA-256' },
       base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
@@ -572,7 +572,7 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
       }
     })
 
-    const loaded = await loadVault('kdf-future', 'pass')
+    const loaded = await loadVault('kdf-future', 'river stone maple lantern')
     expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
   })
 
@@ -587,7 +587,7 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
     const LEGACY = 210_000
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pass'), 'PBKDF2', false, ['deriveKey'])
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('river stone maple lantern'), 'PBKDF2', false, ['deriveKey'])
     const key = await crypto.subtle.deriveKey(
       { name: 'PBKDF2', salt, iterations: LEGACY, hash: 'SHA-256' },
       base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
@@ -610,8 +610,161 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
         g.onerror = () => reject(g.error)
       }
     })
-    const loaded = await loadVault('kdf-legacy', 'pass')
+    const loaded = await loadVault('kdf-legacy', 'river stone maple lantern')
     expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+  })
+})
+
+// A record sealed at the legacy count is re-sealed at the current one on the first successful open.
+describe('a legacy-count record is upgraded on unlock', () => {
+  async function seedLegacy(id: string, withUfvk: boolean) {
+    const LEGACY = 210_000
+    const secret = new Uint8Array(32).fill(9)
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pass'), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: LEGACY, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const secretIv = crypto.getRandomValues(new Uint8Array(12))
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, share))
+    const secretCipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: secretIv }, key, secret))
+    const rec: Record<string, unknown> = {
+      id, name: 'Legacy', groupKey: hexOf(groupKey), address: 'u1x', roster: ['A'], createdAt: 42,
+      salt, iv, cipher, secretIv, secretCipher, ...(withUfvk ? { ufvk: 'uview1clear' } : {}),
+    } // no kdfIters
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const tx = req.result.transaction('vaults', 'readwrite')
+        tx.objectStore('vaults').put(rec)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      }
+    })
+    return { salt, secret }
+  }
+  async function rawRec(id: string): Promise<Record<string, unknown>> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const g = req.result.transaction('vaults', 'readonly').objectStore('vaults').get(id)
+        g.onsuccess = () => resolve(g.result)
+        g.onerror = () => reject(g.error)
+      }
+    })
+  }
+
+  it('re-seals share, S and viewing key at the current count with a fresh salt', async () => {
+    const { salt, secret } = await seedLegacy('up-1', true)
+    const first = await loadVault('up-1', 'pass')
+    expect(first.ufvk).toBe('uview1clear')
+    const r = await rawRec('up-1')
+    expect(r.kdfIters).toBe(600_000)
+    expect(hexOf(r.salt as Uint8Array)).not.toBe(hexOf(salt))
+    expect(r.ufvk).toBeUndefined()
+    expect(r.createdAt).toBe(42)
+    const again = await loadVault('up-1', 'pass')
+    expect(Array.from(again.sealedShare)).toEqual(Array.from(share))
+    expect(Array.from(again.accessSecret!)).toEqual(Array.from(secret))
+    expect(again.ufvk).toBe('uview1clear')
+  })
+
+  /** Run `during` between the upgrade opening the record and writing it: its first encryption. */
+  function inTheUpgradeGap(during: () => Promise<unknown>) {
+    const real = crypto.subtle.encrypt.bind(crypto.subtle)
+    return vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+      await during()
+      return real(...args)
+    })
+  }
+
+  it('a passphrase change during the upgrade is not undone', async () => {
+    await seedLegacy('up-gap', false)
+    const moved = 'carry this vault elsewhere now'
+    const spy = inTheUpgradeGap(() => changePassphrase('up-gap', 'pass', moved))
+    await loadVault('up-gap', 'pass')
+    spy.mockRestore()
+    expect(Array.from((await loadVault('up-gap', moved)).sealedShare)).toEqual(Array.from(share))
+    await expect(loadVault('up-gap', 'pass')).rejects.toThrow()
+  })
+
+  it('a salt changed by anything during the upgrade leaves that record alone', async () => {
+    await seedLegacy('up-salt', false)
+    const other = new Uint8Array(16).fill(7)
+    const spy = inTheUpgradeGap(async () => {
+      const rec = await rawRec('up-salt')
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('konclave', 1)
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+          const tx = req.result.transaction('vaults', 'readwrite')
+          tx.objectStore('vaults').put({ ...rec, salt: other })
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => reject(tx.error)
+        }
+      })
+    })
+    await loadVault('up-salt', 'pass')
+    spy.mockRestore()
+    const after = await rawRec('up-salt')
+    expect(hexOf(after.salt as Uint8Array)).toBe(hexOf(other))
+    expect(after.kdfIters).toBeUndefined()
+  })
+
+  it('a rename during the upgrade is kept', async () => {
+    await seedLegacy('up-name', false)
+    const spy = inTheUpgradeGap(() => updateVaultMeta('up-name', { name: 'Renamed' }))
+    await loadVault('up-name', 'pass')
+    spy.mockRestore()
+    const after = await rawRec('up-name')
+    expect(after.name).toBe('Renamed')
+    expect(after.kdfIters).toBe(600_000)
+  })
+
+  it('a viewing-key field that did not open is not re-sealed away', async () => {
+    await seedLegacy('up-lost', false)
+    const rec = await rawRec('up-lost')
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const tx = req.result.transaction('vaults', 'readwrite')
+        tx.objectStore('vaults').put({ ...rec, ufvkIv: new Uint8Array(12), ufvkCipher: new Uint8Array(40) })
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      }
+    })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await loadVault('up-lost', 'pass')
+    error.mockRestore()
+    const after = await rawRec('up-lost')
+    expect(after.ufvkCipher).toEqual(new Uint8Array(40))
+    expect(after.kdfIters).toBeUndefined()
+  })
+
+  it('a failed upgrade leaves the old record and the unlock still succeeds', async () => {
+    const { salt } = await seedLegacy('up-2', false)
+    const spy = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValue(new Error('boom'))
+    try {
+      const loaded = await loadVault('up-2', 'pass')
+      expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+    } finally {
+      spy.mockRestore()
+    }
+    const r = await rawRec('up-2')
+    expect(r.kdfIters).toBeUndefined()
+    expect(hexOf(r.salt as Uint8Array)).toBe(hexOf(salt))
+    expect(Array.from((await loadVault('up-2', 'pass')).sealedShare)).toEqual(Array.from(share))
+    expect((await rawRec('up-2')).kdfIters).toBe(600_000) // retried on the next unlock
+  })
+
+  it('a current-count record is not touched', async () => {
+    await saveVault('up-3', data, 'river stone maple lantern')
+    const before = await rawRec('up-3')
+    await loadVault('up-3', 'river stone maple lantern')
+    const after = await rawRec('up-3')
+    expect(hexOf(after.salt as Uint8Array)).toBe(hexOf(before.salt as Uint8Array))
   })
 })
 
@@ -626,28 +779,28 @@ function hexOf(b: Uint8Array): string {
 describe('the export carries the viewing key, so it can rebuild the vault (#214)', () => {
   it('round-trips the UFVK through export and import', async () => {
     const UFVK = 'uview1testviewingkey'
-    await saveVault(GK7, data, 'pass')
-    const blob = await exportVault(GK7, 'pass', UFVK)
-    await importVault(blob, 'pass', { overwrite: true })
-    expect((await loadVault(GK7, 'pass')).ufvk).toBe(UFVK)
+    await saveVault(GK7, data, 'river stone maple lantern')
+    const blob = await exportVault(GK7, 'river stone maple lantern', UFVK)
+    await importVault(blob, 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(GK7, 'river stone maple lantern')).ufvk).toBe(UFVK)
   })
 
   it('the UFVK is INSIDE the encrypted blob, never in the envelope', async () => {
     // It is the whole transaction history, amounts and memos included. A leaked export file must
     // reveal nothing without the passphrase - which is the entire point of the v2 format.
     const UFVK = 'uview1testviewingkey'
-    await saveVault(GK7, data, 'pass')
-    const blob = await exportVault(GK7, 'pass', UFVK)
+    await saveVault(GK7, data, 'river stone maple lantern')
+    const blob = await exportVault(GK7, 'river stone maple lantern', UFVK)
     expect(JSON.stringify(blob)).not.toContain(UFVK)
   })
 
   it('an export made without it still works: the vault is exportable before it is protected', async () => {
     // An open (pre-#388) vault cannot fetch its own UFVK - the helper refuses by design. The export
     // must still be possible, just incomplete, rather than failing outright.
-    await saveVault(GK7, data, 'pass')
-    const blob = await exportVault(GK7, 'pass')
-    await importVault(blob, 'pass', { overwrite: true })
-    const back = await loadVault(GK7, 'pass')
+    await saveVault(GK7, data, 'river stone maple lantern')
+    const blob = await exportVault(GK7, 'river stone maple lantern')
+    await importVault(blob, 'river stone maple lantern', { overwrite: true })
+    const back = await loadVault(GK7, 'river stone maple lantern')
     expect(back.ufvk).toBeUndefined()
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
   })
@@ -659,11 +812,11 @@ describe('changePassphrase', () => {
   const id = 'rotate-me'
 
   it('the new passphrase opens the vault and the old one no longer does', async () => {
-    await saveVault(id, data, 'old-one')
-    await changePassphrase(id, 'old-one', 'new-one')
-    const back = await loadVault(id, 'new-one')
+    await saveVault(id, data, 'older river stone maple')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
+    const back = await loadVault(id, 'newer cedar lantern harbor')
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
-    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+    await expect(loadVault(id, 'older river stone maple')).rejects.toThrow()
   })
 
   // THE TRAP. `saveVault` writes `createdAt: Date.now()` and does not persist `ufvk`, so the
@@ -672,16 +825,16 @@ describe('changePassphrase', () => {
   // can see. Asserted rather than left to a comment asking someone to remember.
   it('keeps the viewing key and the creation date', async () => {
     const withKey = GK7
-    await saveVault(withKey, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'old-one')
-    const before = await loadVault(withKey, 'old-one')
+    await saveVault(withKey, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'older river stone maple')
+    const before = await loadVault(withKey, 'older river stone maple')
     // The UFVK reaches a record through import, so that is how it gets here.
-    const bundle = await exportVault(withKey, 'old-one', 'u1viewingkeyplaceholder', 3_470_000)
-    await importVault(bundle, 'old-one', { overwrite: true })
-    const seeded = await loadVault(withKey, 'old-one')
+    const bundle = await exportVault(withKey, 'older river stone maple', 'u1viewingkeyplaceholder', 3_470_000)
+    await importVault(bundle, 'older river stone maple', { overwrite: true })
+    const seeded = await loadVault(withKey, 'older river stone maple')
     expect(seeded.ufvk, 'precondition: the record carries a viewing key').toBeTruthy()
 
-    await changePassphrase(withKey, 'old-one', 'new-one')
-    const after = await loadVault(withKey, 'new-one')
+    await changePassphrase(withKey, 'older river stone maple', 'newer cedar lantern harbor')
+    const after = await loadVault(withKey, 'newer cedar lantern harbor')
     expect(after.ufvk, 'the viewing key must survive a passphrase change').toBe(seeded.ufvk)
     // Same trap, second field (#480). The careless re-seal drops whatever `saveVault` does not
     // persist, and the scan floor is exactly that kind of field: losing it is silent until the day
@@ -700,11 +853,11 @@ describe('changePassphrase', () => {
     const pinned = 'rotate-change'
     const OURS = 'aa'.repeat(43)
     const ATTACKER = 'bb'.repeat(43)
-    await saveVault(pinned, data, 'old-one')
+    await saveVault(pinned, data, 'older river stone maple')
     expect(await recordChangeReceiver(pinned, OURS), 'precondition: the pin is captured').toBe(true)
 
-    await changePassphrase(pinned, 'old-one', 'new-one')
-    expect((await loadVault(pinned, 'new-one')).changeReceiver, 'the pin must survive a passphrase change')
+    await changePassphrase(pinned, 'older river stone maple', 'newer cedar lantern harbor')
+    expect((await loadVault(pinned, 'newer cedar lantern harbor')).changeReceiver, 'the pin must survive a passphrase change')
       .toBe(OURS)
     expect(await recordChangeReceiver(pinned, ATTACKER), 'a rotation must not reopen the slot').toBe(false)
     expect((await listVaults()).find((v) => v.id === pinned)?.changeReceiver).toBe(OURS)
@@ -713,26 +866,26 @@ describe('changePassphrase', () => {
   it('carries the access secret S across', async () => {
     const withS = 'rotate-s'
     const S = new Uint8Array(32).fill(9)
-    await saveVault(withS, { ...data, accessSecret: S }, 'old-one')
-    await changePassphrase(withS, 'old-one', 'new-one')
-    const after = await loadVault(withS, 'new-one')
+    await saveVault(withS, { ...data, accessSecret: S }, 'older river stone maple')
+    await changePassphrase(withS, 'older river stone maple', 'newer cedar lantern harbor')
+    const after = await loadVault(withS, 'newer cedar lantern harbor')
     expect(after.accessSecret && Array.from(after.accessSecret)).toEqual(Array.from(S))
   })
 
   it('refuses a wrong current passphrase and leaves the record alone', async () => {
     const keep = 'rotate-refuse'
-    await saveVault(keep, data, 'old-one')
-    await expect(changePassphrase(keep, 'not-it', 'new-one')).rejects.toThrow()
+    await saveVault(keep, data, 'older river stone maple')
+    await expect(changePassphrase(keep, 'not-it', 'newer cedar lantern harbor')).rejects.toThrow()
     // Still openable with the original: a failed rotation must not be a lost share.
-    const back = await loadVault(keep, 'old-one')
+    const back = await loadVault(keep, 'older river stone maple')
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
   })
 
   it('refuses an empty new passphrase', async () => {
     const keep = 'rotate-empty'
-    await saveVault(keep, data, 'old-one')
-    await expect(changePassphrase(keep, 'old-one', '')).rejects.toThrow()
-    await expect(loadVault(keep, 'old-one')).resolves.toBeTruthy()
+    await saveVault(keep, data, 'older river stone maple')
+    await expect(changePassphrase(keep, 'older river stone maple', '')).rejects.toThrow()
+    await expect(loadVault(keep, 'older river stone maple')).resolves.toBeTruthy()
   })
 })
 
@@ -751,13 +904,13 @@ describe('the KDF parameters', () => {
   // raising the number would lock every vault on every device and every backup in a drawer (#435).
   it('opens a vault sealed at the OLD count after the new one is in force', async () => {
     const id = 'kdf-migration'
-    await saveVault(id, data, 'pass')
-    const back = await loadVault(id, 'pass')
+    await saveVault(id, data, 'river stone maple lantern')
+    const back = await loadVault(id, 'river stone maple lantern')
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
 
     // And an export written before `kdfIters` existed at all falls back to the legacy count rather
     // than the current one - a v1 bundle in someone's backup must still import.
-    const bundle = await exportVault(id, 'pass')
+    const bundle = await exportVault(id, 'river stone maple lantern')
     const legacy = { ...bundle } as Record<string, unknown>
     delete legacy.kdfIters
     expect(() => parseVaultExport(JSON.stringify(legacy)), 'a bundle with no count still parses').not.toThrow()
@@ -776,10 +929,10 @@ describe('the export carries the scan floor (#480)', () => {
   const withKey = GK7
 
   it('a restore gets the scan floor, not just the viewing key', async () => {
-    await saveVault(withKey, data, 'pass')
-    const bundle = await exportVault(withKey, 'pass', 'uview1example', 3_459_814)
-    await importVault(bundle, 'pass', { overwrite: true })
-    const back = await loadVault(withKey, 'pass')
+    await saveVault(withKey, data, 'river stone maple lantern')
+    const bundle = await exportVault(withKey, 'river stone maple lantern', 'uview1example', 3_459_814)
+    await importVault(bundle, 'river stone maple lantern', { overwrite: true })
+    const back = await loadVault(withKey, 'river stone maple lantern')
     expect(back.ufvk, 'the viewing key survives').toBe('uview1example')
     expect(back.birthday, 'and the height it must scan from').toBe(3_459_814)
   })
@@ -789,10 +942,10 @@ describe('the export carries the scan floor (#480)', () => {
     // a fabricated height is worse than none, because a TOO-HIGH one silently skips real notes
     // while looking like a successful restore.
     const noKey = GK7
-    await saveVault(noKey, data, 'pass')
-    const bundle = await exportVault(noKey, 'pass')
-    await importVault(bundle, 'pass', { overwrite: true })
-    expect((await loadVault(noKey, 'pass')).birthday).toBeUndefined()
+    await saveVault(noKey, data, 'river stone maple lantern')
+    const bundle = await exportVault(noKey, 'river stone maple lantern')
+    await importVault(bundle, 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(noKey, 'river stone maple lantern')).birthday).toBeUndefined()
   })
 })
 
@@ -801,7 +954,7 @@ describe('the export carries the scan floor (#480)', () => {
 // These read the record straight out of IndexedDB: going through `loadVault` would pass either way.
 describe('the viewing key is sealed at rest (#599)', () => {
   it('a repair leaves no key of the old vault, sealed or in the clear', async () => {
-    await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'pass')
+    await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'river stone maple lantern')
     await putRaw({ ...(await rawRecord()), ufvk: UFVK })
     await recordReceiversRefused(id, 'SERVED')
     await replaceRefusedReceivers(id, 'a', 'c', 'NEW')
@@ -838,12 +991,12 @@ describe('the viewing key is sealed at rest (#599)', () => {
       v instanceof Uint8Array ? new TextDecoder().decode(v) : v)
     return text.includes(UFVK)
   }
-  async function imported(pass = 'pass'): Promise<void> {
+  async function imported(pass = 'river stone maple lantern'): Promise<void> {
     await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, pass)
     await importVault(await exportVault(id, pass, UFVK, 3_470_000), pass, { overwrite: true })
   }
   /** The record a build before this fix wrote on import: same envelope, the key in the clear. */
-  async function writtenBeforeTheFix(pass = 'pass'): Promise<void> {
+  async function writtenBeforeTheFix(pass = 'river stone maple lantern'): Promise<void> {
     await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, pass)
     await putRaw({ ...(await rawRecord()), ufvk: UFVK, birthday: 3_470_000, changeReceiver: 'u1change' })
   }
@@ -853,7 +1006,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
     const rec = await rawRecord()
     expect('ufvk' in rec, 'the plain field is not written at all').toBe(false)
     expect(holdsClearKey(rec)).toBe(false)
-    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+    expect((await loadVault(id, 'river stone maple lantern')).ufvk).toBe(UFVK)
     await expect(loadVault(id, 'wrong')).rejects.toThrow(/wrong passphrase|tampered/i)
   })
 
@@ -862,7 +1015,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
     const before = await rawRecord()
     expect(holdsClearKey(before), 'precondition: the old record holds the key in the clear').toBe(true)
 
-    const loaded = await loadVault(id, 'pass')
+    const loaded = await loadVault(id, 'river stone maple lantern')
     expect(loaded.ufvk).toBe(UFVK)
 
     const after = await rawRecord()
@@ -873,7 +1026,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
     expect(after.createdAt).toBe(before.createdAt)
     expect(after.cipher, 'the share envelope is not re-sealed').toEqual(before.cipher)
 
-    const again = await loadVault(id, 'pass')
+    const again = await loadVault(id, 'river stone maple lantern')
     expect(again.ufvk).toBe(UFVK)
     expect(Array.from(again.sealedShare)).toEqual(Array.from(share))
     expect(Array.from(again.accessSecret!)).toEqual(Array.from(new Uint8Array(32).fill(3)))
@@ -886,20 +1039,20 @@ describe('the viewing key is sealed at rest (#599)', () => {
   })
 
   it('a passphrase change re-seals it: the old envelope would not open under the new key', async () => {
-    await imported('old-one')
-    await changePassphrase(id, 'old-one', 'new-one')
+    await imported('older river stone maple')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
     expect(holdsClearKey(await rawRecord())).toBe(false)
-    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
-    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+    expect((await loadVault(id, 'newer cedar lantern harbor')).ufvk).toBe(UFVK)
+    await expect(loadVault(id, 'older river stone maple')).rejects.toThrow()
   })
 
   it('a passphrase change on a record from before the fix leaves no plain field either', async () => {
-    await writtenBeforeTheFix('old-one')
-    await changePassphrase(id, 'old-one', 'new-one')
+    await writtenBeforeTheFix('older river stone maple')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
     const rec = await rawRecord()
     expect('ufvk' in rec).toBe(false)
     expect(holdsClearKey(rec)).toBe(false)
-    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
+    expect((await loadVault(id, 'newer cedar lantern harbor')).ufvk).toBe(UFVK)
   })
 
   /** Run `during` in the gap between the migration reading the record and writing it: the seal is
@@ -913,21 +1066,21 @@ describe('the viewing key is sealed at rest (#599)', () => {
   }
 
   it('a passphrase change landing during the migration is not undone', async () => {
-    await writtenBeforeTheFix('old-one')
-    const spy = inTheMigrationGap(() => changePassphrase(id, 'old-one', 'new-one'))
-    await loadVault(id, 'old-one')
+    await writtenBeforeTheFix('older river stone maple')
+    const spy = inTheMigrationGap(() => changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor'))
+    await loadVault(id, 'older river stone maple')
     spy.mockRestore()
-    const back = await loadVault(id, 'new-one')
+    const back = await loadVault(id, 'newer cedar lantern harbor')
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
     expect(back.ufvk).toBe(UFVK)
-    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+    await expect(loadVault(id, 'older river stone maple')).rejects.toThrow()
   })
 
   it('a record re-sealed by an older build during the migration keeps its plain field for the next unlock', async () => {
     // An old tab rotates without touching `ufvk`, so only the salt shows the key in hand is stale.
     await writtenBeforeTheFix()
     const spy = inTheMigrationGap(async () => putRaw({ ...(await rawRecord()), salt: new Uint8Array(16).fill(9) }))
-    await loadVault(id, 'pass')
+    await loadVault(id, 'river stone maple lantern')
     spy.mockRestore()
     const rec = await rawRecord()
     expect(rec.ufvk).toBe(UFVK)
@@ -937,7 +1090,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
   it('a rename landing during the migration is kept', async () => {
     await writtenBeforeTheFix()
     const spy = inTheMigrationGap(() => updateVaultMeta(id, { name: 'Renamed' }))
-    await loadVault(id, 'pass')
+    await loadVault(id, 'river stone maple lantern')
     spy.mockRestore()
     const rec = await rawRecord()
     expect(rec.name).toBe('Renamed')
@@ -945,21 +1098,21 @@ describe('the viewing key is sealed at rest (#599)', () => {
   })
 
   it('a change landing during a passphrase change is kept, and a vault removed meanwhile is an error', async () => {
-    await imported('old-one')
+    await imported('older river stone maple')
     const rename = inTheMigrationGap(() => updateVaultMeta(id, { name: 'Renamed' }))
-    await changePassphrase(id, 'old-one', 'new-one')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
     rename.mockRestore()
     expect((await rawRecord()).name).toBe('Renamed')
 
     const removal = inTheMigrationGap(() => deleteVault(id))
-    await expect(changePassphrase(id, 'new-one', 'third-one')).rejects.toThrow(/no saved vault/i)
+    await expect(changePassphrase(id, 'newer cedar lantern harbor', 'third meadow copper violin')).rejects.toThrow(/no saved vault/i)
     removal.mockRestore()
   })
 
   it('a passphrase change writes in the transaction it reads the record in', async () => {
-    await imported('old-one')
+    await imported('older river stone maple')
     const open = vi.spyOn(IDBDatabase.prototype, 'transaction')
-    await changePassphrase(id, 'old-one', 'new-one')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
     expect(open, 'the unlock that proves the passphrase, then one read-and-write').toHaveBeenCalledTimes(2)
     open.mockRestore()
   })
@@ -968,25 +1121,25 @@ describe('the viewing key is sealed at rest (#599)', () => {
     await writtenBeforeTheFix()
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const spy = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
-    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+    expect((await loadVault(id, 'river stone maple lantern')).ufvk).toBe(UFVK)
     spy.mockRestore()
     expect(error).toHaveBeenCalled()
     error.mockRestore()
     expect((await rawRecord()).ufvk).toBe(UFVK)
-    await loadVault(id, 'pass')
+    await loadVault(id, 'river stone maple lantern')
     expect('ufvk' in (await rawRecord())).toBe(false)
   })
 
   it('a passphrase change removes the plain field even when the migration before it failed', async () => {
-    await writtenBeforeTheFix('old-one')
+    await writtenBeforeTheFix('older river stone maple')
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const spy = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
-    await changePassphrase(id, 'old-one', 'new-one')
+    await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor')
     spy.mockRestore()
     error.mockRestore()
     const rec = await rawRecord()
     expect('ufvk' in rec).toBe(false)
-    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
+    expect((await loadVault(id, 'newer cedar lantern harbor')).ufvk).toBe(UFVK)
   })
 
   it('the viewing-key field cannot be pointed at another envelope of the record', async () => {
@@ -994,7 +1147,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
     const rec = await rawRecord()
     await putRaw({ ...rec, ufvkIv: rec.secretIv, ufvkCipher: rec.secretCipher })
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect((await loadVault(id, 'pass')).ufvk).toBeUndefined()
+    expect((await loadVault(id, 'river stone maple lantern')).ufvk).toBeUndefined()
     error.mockRestore()
   })
 
@@ -1026,11 +1179,11 @@ describe('the viewing key is sealed at rest (#599)', () => {
     const damaged = (rec.ufvkCipher as Uint8Array).slice()
     damaged[0]! ^= 0xff
     await putRaw({ ...rec, ufvkCipher: damaged })
-    await loadVault(id, 'pass')
+    await loadVault(id, 'river stone maple lantern')
     // The migration of a plain key cannot seal it.
     await writtenBeforeTheFix()
     const seal = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
-    await loadVault(id, 'pass')
+    await loadVault(id, 'river stone maple lantern')
     seal.mockRestore()
     const logged = JSON.stringify(error.mock.calls)
     error.mockRestore()
@@ -1065,10 +1218,10 @@ describe('the viewing key is sealed at rest (#599)', () => {
 
   it('an export from a sealed record still carries it, with no fetch to supply it', async () => {
     await imported()
-    const blob = parseVaultExport(JSON.stringify(await exportVault(id, 'pass')))
+    const blob = parseVaultExport(JSON.stringify(await exportVault(id, 'river stone maple lantern')))
     await deleteVault(id)
-    await importVault(blob, 'pass')
-    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+    await importVault(blob, 'river stone maple lantern')
+    expect((await loadVault(id, 'river stone maple lantern')).ufvk).toBe(UFVK)
   })
 
   it('a damaged viewing-key field does not lock the member out of the share', async () => {
@@ -1080,7 +1233,7 @@ describe('the viewing key is sealed at rest (#599)', () => {
     damaged[0]! ^= 0xff
     await putRaw({ ...rec, ufvkCipher: damaged })
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const back = await loadVault(id, 'pass')
+    const back = await loadVault(id, 'river stone maple lantern')
     expect(error).toHaveBeenCalled()
     error.mockRestore()
     expect(back.ufvk).toBeUndefined()
@@ -1090,22 +1243,22 @@ describe('the viewing key is sealed at rest (#599)', () => {
 
 describe('replacing a refused pin', () => {
   it('only while refused, and the old sealed key goes with the old address', async () => {
-    await saveVault(GK7, data, 'pw')
-    await importVault(await exportVault(GK7, 'pw', 'old-key', 1), 'pw', { overwrite: true })
-    expect((await loadVault(GK7, 'pw')).ufvk).toBe('old-key')
+    await saveVault(GK7, data, 'river stone maple lantern')
+    await importVault(await exportVault(GK7, 'river stone maple lantern', 'old-key', 1), 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(GK7, 'river stone maple lantern')).ufvk).toBe('old-key')
     expect(await replaceRefusedReceivers(GK7, 'new', 'newc', 'CODE')).toBe(false)
     await recordReceiversRefused(GK7, 'SERVED')
     expect(await replaceRefusedReceivers(GK7, 'new', 'newc', 'CODE')).toBe(true)
     const rec = (await listVaults()).find((v) => v.id === GK7)
     expect(rec).toMatchObject({ address: 'new', changeReceiver: 'newc', viewingFingerprint: 'CODE', receiversState: 'verified' })
-    expect((await loadVault(GK7, 'pw')).ufvk).toBeUndefined()
+    expect((await loadVault(GK7, 'river stone maple lantern')).ufvk).toBeUndefined()
   })
 })
 
 describe('the writers of a protocol-3 record', () => {
   const ID = '09'.repeat(32)
   const rec = async () => (await listVaults()).find((v) => v.id === ID)!
-  const fresh = async () => { await saveVault(ID, { ...data, groupKey: new Uint8Array(32).fill(9), address: '', cp: 3 }, 'pw') }
+  const fresh = async () => { await saveVault(ID, { ...data, groupKey: new Uint8Array(32).fill(9), address: '', cp: 3 }, 'river stone maple lantern') }
   it('a meta patch or a change-receiver record does not write the receivers', async () => {
     await fresh()
     await updateVaultMeta(ID, { address: 'served' })
@@ -1129,33 +1282,33 @@ describe('the writers of a protocol-3 record', () => {
     expect(await recordVerifiedReceivers(ID, 'x', 'y', 'OLD', { address: 'stale', change: 'c' }, 900)).toBe(false)
     expect(await rec()).toMatchObject({ address: 'a', viewingFingerprint: 'HELD' })
     await recordVerifiedReceivers(ID, 'a', 'c', 'HELD', { address: 'a', change: 'c' }, 900)
-    expect((await loadVault(ID, 'pw')).birthday).toBe(5)
+    expect((await loadVault(ID, 'river stone maple lantern')).birthday).toBe(5)
   })
   it('the stop travels with the loaded record', async () => {
     await fresh()
     await updateVaultMeta(ID, { abandoned: 'secret' })
-    expect((await loadVault(ID, 'pw')).abandoned).toBe('secret')
+    expect((await loadVault(ID, 'river stone maple lantern')).abandoned).toBe('secret')
   })
   it('an export can leave out the key the record holds', async () => {
-    await saveVault(GK7, data, 'pw')
-    await importVault(await exportVault(GK7, 'pw', 'old-key', 1), 'pw', { overwrite: true })
-    const back = await parseVaultExport(JSON.stringify(await exportVault(GK7, 'pw', undefined, undefined, { storedKey: false })))
-    await importVault(back as never, 'pw', { overwrite: true })
-    expect((await loadVault(GK7, 'pw')).ufvk).toBeUndefined()
+    await saveVault(GK7, data, 'river stone maple lantern')
+    await importVault(await exportVault(GK7, 'river stone maple lantern', 'old-key', 1), 'river stone maple lantern', { overwrite: true })
+    const back = await parseVaultExport(JSON.stringify(await exportVault(GK7, 'river stone maple lantern', undefined, undefined, { storedKey: false })))
+    await importVault(back as never, 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(GK7, 'river stone maple lantern')).ufvk).toBeUndefined()
   })
 })
 
 describe('what a backup keeps of a stopped creation and its scan floor', () => {
   it('a stopped creation stays stopped when restored', async () => {
-    await saveVault(GK7, data, 'pw')
+    await saveVault(GK7, data, 'river stone maple lantern')
     await updateVaultMeta(GK7, { abandoned: 'secretSplit' })
-    await importVault(await exportVault(GK7, 'pw'), 'pw', { overwrite: true })
-    expect((await loadVault(GK7, 'pw')).abandoned).toBe('secretSplit')
+    await importVault(await exportVault(GK7, 'river stone maple lantern'), 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(GK7, 'river stone maple lantern')).abandoned).toBe('secretSplit')
   })
   it('a scan floor that is not a height does not come in', async () => {
-    await saveVault(GK7, data, 'pw')
-    await importVault(await exportVault(GK7, 'pw', 'k', 1.5), 'pw', { overwrite: true })
-    expect((await loadVault(GK7, 'pw')).birthday).toBeUndefined()
+    await saveVault(GK7, data, 'river stone maple lantern')
+    await importVault(await exportVault(GK7, 'river stone maple lantern', 'k', 1.5), 'river stone maple lantern', { overwrite: true })
+    expect((await loadVault(GK7, 'river stone maple lantern')).birthday).toBeUndefined()
   })
 })
 

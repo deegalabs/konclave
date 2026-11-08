@@ -1,3 +1,4 @@
+import { isWrongPassphrase, openFailKey } from './unlock'
 import { useState, type FormEvent } from 'react'
 import { loadVault } from './storage'
 import { useT } from './i18n'
@@ -22,8 +23,8 @@ export default function PlainKeyNotice({ vaultId, onSealed }: { vaultId: string;
       await loadVault(vaultId, pass) // seals the clear key and removes it (#781); the share is not kept
       setPass('')
       onSealed()
-    } catch {
-      setErr(t('vaults.plainKeyWrong'))
+    } catch (e) {
+      setErr(t(isWrongPassphrase(e) ? 'vaults.plainKeyWrong' : openFailKey(false)))
     } finally {
       setBusy(false)
     }

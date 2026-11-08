@@ -5,7 +5,9 @@ import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
+import { newPassphraseProblem } from '../passphrase'
 import { StorageError, storageErrorKey } from '../storage-errors'
+import { isWrongPassphrase, openFailKey } from '../unlock'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
@@ -180,7 +182,8 @@ export default function Settings() {
       // record was NOT touched - which is what the message promises.
       setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
         : e instanceof StorageError && e.code === 'sealed-field-unreadable' ? t('storage.err.sealedFieldUnreadable')
-        : t('rotate.errWrong'))
+        : e instanceof StorageError && e.code === 'weak-passphrase' ? t('storage.err.weakPassphrase')
+        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false)))
     } finally {
       setRotBusy(false)
     }
@@ -632,7 +635,7 @@ export default function Settings() {
               </label>
               <div className="unlock-btns">
                 <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2}
+                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>

@@ -10,6 +10,7 @@
 import { unlockVault, markVaultUnlocked } from './api'
 import { importVault, type VaultExport, type VaultPublic } from './storage'
 import { loadVault } from './storage'
+import { StorageError } from './storage-errors'
 import { setUnlockedShare } from './session'
 import { noteSeatRefused, noteSeatRegistered } from './seat-registration'
 import { registerThisDevice } from './device-registration'
@@ -35,6 +36,17 @@ export interface UnlockDeps {
   unlockVault: typeof unlockVault
   registerThisDevice: typeof registerThisDevice
   adoptVaultReceivers: typeof adoptVaultReceivers
+}
+
+/** Was this failure the seal refusing to open, the one thing retyping can fix? */
+export function isWrongPassphrase(e: unknown): boolean {
+  return e instanceof StorageError && e.code === 'wrong-passphrase-saved'
+}
+
+/** The sentence a screen shows when a vault did not open: the one decision. On a local vault the
+ *  fallback names the bridge; on a device vault nothing is offline, so it must not say so. */
+export function openFailKey(wrong: boolean, src: VaultSrc = 'net'): string {
+  return wrong ? 'vaults.unlockWrong' : src === 'net' ? 'vaults.openFailed' : 'vaults.unlockFail'
 }
 
 /**
@@ -77,7 +89,7 @@ export async function unlockWith(
         // Never on a creation that has not finished or was stopped: only its registration finishes it.
         if ((share.cp ?? 0) >= 3 && !share.pending && !share.abandoned) return deps.adoptVaultReceivers(id, share)
       }).catch((error) => {
-        console.error('[konclave] this device could not register its seat', { id, error })
+        console.error('[konclave] this device could not register its seat', { id: id.slice(0, 8), error })
       })
       return { ok: true }
     }
@@ -89,10 +101,12 @@ export async function unlockWith(
     // The bridge already told us WHICH kind of failure this is. Passing its answer through, rather
     // than collapsing every failure to "wrong passphrase", is the whole point of the flag.
     return { ok: false, wrong: !!r.wrong }
-  } catch {
-    // The seal refused to open, which on a `net` vault is the passphrase - the only thing the
-    // member can act on.
-    return { ok: false, wrong: true }
+  } catch (e) {
+    console.error('[konclave] this vault did not open', { id: id.slice(0, 8), kind: e instanceof StorageError ? e.code : (e as Error)?.name })
+    // Only the seal refusing to open is the passphrase. Storage missing, a quota, a corrupt field
+    // are not something retyping fixes, and saying "wrong passphrase" for them sends the member
+    // down the wrong road.
+    return { ok: false, wrong: isWrongPassphrase(e) }
   }
 }
 

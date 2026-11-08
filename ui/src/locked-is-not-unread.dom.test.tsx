@@ -50,7 +50,7 @@ const save = (secret: boolean) => saveVault(GK, {
   name: 'Treasury', governance: 'quorum', myName: 'Ana', creatorName: 'Ana',
   groupKey: new Uint8Array(32).fill(0xcd), address: 'u1test', roster: ['Ana', 'Bia'],
   sealedShare: new Uint8Array(32).fill(1), ...(secret ? { accessSecret: S } : {}),
-}, 'correct horse')
+}, 'river stone maple lantern')
 
 // Layout's part, and only that: the overlay context. `unlock()` does what the overlay's passphrase
 // does to the app's state - S lands in the session and the nonce moves.

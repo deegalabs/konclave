@@ -27,6 +27,7 @@ vi.mock('./VaultSigner', () => ({
     threshold: 2,
     myName: 'Ana',
     active: { id: 'p1', kind: 'payment', to_address: PAY_UA, value_zec: '1', state: 'ready' },
+    plan: { kind: 'payment', totalZat: 100_000_000, lines: [{ address: PAY_UA, amountZat: 100_000_000, memo: '', isPublic: false }] },
     open: () => {}, close: () => {}, reseat: () => {}, armed: state.armed,
     unarmActive: async () => {}, armActive: async () => {}, armedUntil: null,
     isOurReceiver: (r: string | null) => state.ours(r),
@@ -237,7 +238,7 @@ describe('whether a device may sign again', () => {
   })
   it('the panel asks through againFromPanel, with what it knows', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
-    expect(src).toMatch(/againFromPanel\(\{\s*refusedAsSigned: signAgain, armed, ready: bg\.ready, quorumHere, phase: bg\.phase, sending, arming, shortZat,\s*sent: !!sent, unresolved: !!unresolved, checking,\s*\}\)/)
+    expect(src).toMatch(/againFromPanel\(\{\s*refusedAsSigned: signAgain, armed, ready: bg\.ready && !!plan, quorumHere, phase: bg\.phase, sending, arming, shortZat,\s*sent: !!sent, unresolved: !!unresolved, checking,\s*\}\)/)
     expect(src).not.toContain('signAgainState(')
   })
   it('says why when it cannot offer it yet', () => {
@@ -355,7 +356,7 @@ describe('the confirm for signing again', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/void doSign\(\{ again: confirming === 'again' \}\)/)
     expect(src).toMatch(/await armActive\(\{ again: opts\.again \}\)/)
-    expect(src).toMatch(/onClick=\{\(\) => \{ refreshRate\(\); setConfirming\('again'\) \}\}/)
+    expect(src).toMatch(/onClick=\{\(\) => \{ refreshRate\(\); openConfirm\('again'\) \}\}/)
   })
 })
 
@@ -424,7 +425,7 @@ describe('what the panel shows before signing', () => {
   it('marks the fee box when the vault is short, and costs a payroll only once its lines are known', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/className=\{'p-cost' \+ \(shortZat > 0 \? ' short' : ''\)\}/)
-    expect(src).toMatch(/const feeKnown = feeEst !== null && \(!isPayroll \|\| payrollLines !== null\)/)
+    expect(src).toMatch(/const feeKnown = !!plan && feeEst !== null/)
   })
   it('one estimate of the fee, used by every screen that shows one (figures in fee-estimate.test.ts)', () => {
     for (const f of ['./screens/SigningPanel.tsx', './screens/Proposal.tsx', './screens/NewPayroll.tsx']) {
