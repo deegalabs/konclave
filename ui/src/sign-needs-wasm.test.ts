@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,7 +20,7 @@ import { codeAt } from './source-scan'
 // vault is open an unsigned write is accepted, so the bug is invisible. It only bites once a vault
 // has registered write keys, which is exactly when it matters most.
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
