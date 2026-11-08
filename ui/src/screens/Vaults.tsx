@@ -491,7 +491,7 @@ export default function Vaults() {
                   const tid = (k: string) => `tip-${v.id}-${k}`
                   if (!st || (!free && !count)) {
                     return (
-                      <div className="rd-status">
+                      <div className="rd-figs">
                         <div className="rd-badges">
                           <TipButton id={tid('unread')} className="rd-badge zero" tip={t('vaults.stateNone')}>{t('vaults.badgeUnread')}</TipButton>
                         </div>
@@ -503,7 +503,7 @@ export default function Vaults() {
                   // The amount sits under the veil inside the sentence, wherever the language puts it.
                   const [pre, post] = t('vaults.badgeFree', { amount: '\u0000' }).split('\u0000')
                   return (
-                    <div className={'rd-status' + (stale ? ' stale' : '')}>
+                    <div className={'rd-figs' + (stale ? ' stale' : '')}>
                       <div className="rd-badges">
                         {count && (
                           <TipButton id={tid('open')} className={'rd-badge ' + (st.openCount === 0 ? 'zero' : 'some')} tip={t('vaults.tipOpen')}>

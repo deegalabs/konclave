@@ -109,7 +109,7 @@
 /* The vault's situation as this device last read it, under the members: badges in a fixed order,
    then the one time they carry. Facts the device read, so no accent and no success colour; zero is
    quiet, a count that needs someone is not. The border is real so High Contrast draws the chip. */
-.rd-status { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft, var(--line-2)); }
+.rd-figs { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft, var(--line-2)); }
 .rd-badges { display: flex; flex-wrap: wrap; gap: 16px 8px; }
 .rd-badge {
   position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 8px;
@@ -123,7 +123,9 @@ button.rd-badge::before { content: ""; position: absolute; left: 0; right: 0; to
 .rd-badge.some { color: var(--text); font-weight: 600; }
 .rd-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rd-badge .secret.sm .bar { min-height: 24px; top: 50%; bottom: auto; transform: translateY(-50%); }
-.rd-status.stale .rd-badge, .rd-status.stale .rd-read { color: var(--text-muted); font-weight: 500; }
+/* The veil reaches past the figure, so it keeps clear of the words around it. */
+.rd-badge .secret.sm { margin: 0 5px; }
+.rd-figs.stale .rd-badge, .rd-figs.stale .rd-read { color: var(--text-muted); font-weight: 500; }
 .rd-read { margin: 8px 0 0; font: 12px/1.4 var(--font-mono); color: var(--text-muted); }
 
 /* The tip beside a badge or a tag (card-tip.tsx): no animation, it is there the moment it is asked for. */

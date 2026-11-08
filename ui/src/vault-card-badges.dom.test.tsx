@@ -98,7 +98,7 @@ describe('the badges', () => {
     status(A, openStatus({ balanceAt: NOW - 90_000 }))
     const card = await cardOf('Alpha')
     expect(card.querySelector('.rd-read')!.textContent).toBe(en('vaults.readAtStale', { when: fmtDateTime(NOW - 90_000, 'en') }))
-    expect(card.querySelector('.rd-status')!.classList.contains('stale')).toBe(true)
+    expect(card.querySelector('.rd-figs')!.classList.contains('stale')).toBe(true)
   })
   it('a private vault not unlocked here shows no amount anywhere, and ages by its proposals read', async () => {
     h.list.mockResolvedValue([rec(A, 'Alpha')])
@@ -108,7 +108,7 @@ describe('the badges', () => {
     expect(card.textContent).not.toMatch(/ZEC/)
     for (const t of card.querySelectorAll('[role="tooltip"]')) expect(t.textContent).not.toMatch(/\d+[.,]\d+ ?ZEC|0[.,]0008/)
     expect(card.querySelector('.rd-read')!.textContent).toBe(en('vaults.readAtStale', { when: fmtDateTime(NOW - 90_000, 'en') }))
-    expect(card.querySelector('.rd-status')!.classList.contains('stale')).toBe(true)
+    expect(card.querySelector('.rd-figs')!.classList.contains('stale')).toBe(true)
   })
   it('a vault never read here shows the one badge, explained, and no paragraph', async () => {
     h.list.mockResolvedValue([rec(A, 'Alpha')])
