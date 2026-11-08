@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.18.0] 2026-11-08
+
 ### Security
 
 - **Removing a vault left its personal data in this browser (#813).** Since 2026-08-21, removing a
@@ -61,6 +63,12 @@ history to tidy it is how context gets lost.
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
   now on.
+- **Creating a vault is hardened.** New vaults are created under a new creation protocol, and
+  before a new vault's address is shown the app gives each member a viewing code to compare with
+  the others outside the app, and shows the address once the member confirms they compared it. An
+  app older than this one cannot create or join a new vault: from 0.13.0 it says to update before
+  it starts; an older one fails when it registers the vault. Vaults that already exist keep working
+  as before.
 
 ### Added
 
@@ -139,6 +147,8 @@ history to tidy it is how context gets lost.
   and if so says that the shortcut still works only on this device, that a sync may stop it working
   here too, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
   on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
+- **The largest vault a creation accepts is now 16 devices** (it was 32). The create screen still
+  offers up to 5, as before, and vaults created before keep all their members.
 
 ### Fixed
 
