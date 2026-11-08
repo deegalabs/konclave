@@ -308,18 +308,6 @@ export default function Settings() {
       {live === null && <SkeletonDetail rows={4} />}
 
       {live !== null && <>
-      {/* #488: a section index, the way a settings screen with named sections earns one. Only where
-          there is room BESIDE the content - the app already has a rail, and a second one on a laptop
-          is two navigations competing for the same job. Below that width the page is short enough to
-          scroll, which is the honest reason to hide it rather than shrink it. */}
-      <nav className="set-index" aria-label={t('settings.title')}>
-        <a href="#s-vault">{t('set.secVault')}</a>
-        <a href="#s-access">{t('set.secAccess')}</a>
-        {gov && <a href="#s-gov">{t('set.secGov')}</a>}
-        {hasLocal && secured !== undefined && <a href="#s-trust">{t('set.secTrust')}</a>}
-        {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
-        <a href="#s-remove">{t('set.secRemove')}</a>
-      </nav>
       <div className="set-body">
       <h2 className="set-sec" id="s-vault">{t('set.secVault')}</h2>
       <div className="set-list">
@@ -415,9 +403,9 @@ export default function Settings() {
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
       {hasPasskey && pkSynced && <p className="set-hint" role="status">{t('settings.passkeySynced')}</p>}
-      {/* Unconditional. It used to render only when this device could use a passkey, so a device
-          that cannot never learned the rule it is subject to. */}
-      <p className="set-hint">{t('set.accessNote')}</p>
+      {/* On every device, whether or not it can use a passkey (a device that cannot must still learn
+          the rule it is subject to), except under the synced-passkey notice, which already says it. */}
+      {!(hasPasskey && pkSynced) && <p className="set-hint">{t('set.accessNote')}</p>}
 
       {gov && (
         <>
@@ -444,42 +432,48 @@ export default function Settings() {
             {secured
               ? <span className="set-badge trust-badge" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>
               : <span className="set-badge trust-badge open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
-            {' '}{t('trust.intro')}
+            {' '}{t('trust.summary')}
           </p>
-          {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
-          <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
-            <table className="tbl trust-grid" aria-labelledby="s-trust">
-              <thead>
-                <tr>
-                  <th scope="col">{t('trust.what')}</th>
-                  {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {trustRows({ secured, threshold: thr, total: n }).map((r) => (
-                  <tr key={r.what}>
-                    <th scope="row">{t('trust.row.' + r.what)}</th>
-                    {(['members', 'server', 'relay', 'link'] as const).map((p) => {
-                      const c: Cell = r.cells[p]
-                      return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
-                    })}
+          {/* The table and its limits, closed until the member opens them: native, so the keyboard and
+              a screen reader get it with no script. On a phone the table scrolls sideways inside. */}
+          <details className="trust-details">
+            <summary>{t('trust.disclosure')}</summary>
+            <p className="set-hint">{t('trust.intro')}</p>
+            {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
+            <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
+              <table className="tbl trust-grid" aria-labelledby="s-trust">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('trust.what')}</th>
+                    {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="set-hint">{t('trust.limits')}</p>
-          <ul className="trust-limits">
-            <li>{t('trust.limit.builds')}</li>
-            <li>{t('trust.limit.viewingKey')}</li>
-            <li>{t('trust.limit.relay')}</li>
-            <li>{t('trust.limit.gate')}</li>
-            <li>{t('trust.limit.metadata')}</li>
-            {secured && <li>{t('trust.limit.private')}</li>}
-            <li>{t('trust.limit.product')}</li>
-            <li>{t('trust.limit.audit')}</li>
-          </ul>
-          <p className="set-hint">{t('trust.limitsNotAll')}</p>
+                </thead>
+                <tbody>
+                  {trustRows({ secured, threshold: thr, total: n }).map((r) => (
+                    <tr key={r.what}>
+                      <th scope="row">{t('trust.row.' + r.what)}</th>
+                      {(['members', 'server', 'relay', 'link'] as const).map((p) => {
+                        const c: Cell = r.cells[p]
+                        return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="set-hint">{t('trust.limits')}</p>
+            <ul className="trust-limits">
+              <li>{t('trust.limit.builds')}</li>
+              <li>{t('trust.limit.viewingKey')}</li>
+              <li>{t('trust.limit.relay')}</li>
+              <li>{t('trust.limit.gate')}</li>
+              <li>{t('trust.limit.metadata')}</li>
+              {secured && <li>{t('trust.limit.private')}</li>}
+              <li>{t('trust.limit.product')}</li>
+              <li>{t('trust.limit.audit')}</li>
+            </ul>
+            <p className="set-hint">{t('trust.limitsNotAll')}</p>
+          </details>
           <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
         </>
       )}

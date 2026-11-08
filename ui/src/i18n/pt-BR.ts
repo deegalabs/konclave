@@ -435,6 +435,8 @@ export const ptBR: Record<string, string> = {
   'set.secApp': 'Este app',
   'set.secTrust': 'Quem vê o quê, quem pode o quê',
   'trust.intro': 'Para este cofre, a partir do que este aparelho sabe. Cada palavra é o que o produto faz hoje, não uma promessa; as ressalvas estão abaixo da tabela.',
+  'trust.disclosure': 'Quem vê o quê, e os limites conhecidos',
+  'trust.summary': 'Quem lê os livros do cofre e quem pode mover o dinheiro, pelo que este aparelho sabe.',
   'trust.what': 'O quê',
   'trust.party.members': 'Você e os membros',
   'trust.party.server': 'O servidor do cofre',

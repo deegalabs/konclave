@@ -82,9 +82,10 @@ describe('Settings shows it, in both languages', () => {
     expect(src).toMatch(/\{secured && <li>\{t\('trust\.limit\.private'\)\}<\/li>\}/)
     expect(src).toMatch(/t\('trust\.limitsNotAll'\)/)
   })
-  it('the index links to the section only when the section is there', () => {
-    expect(src).toMatch(/\{hasLocal && secured !== undefined && <a href="#s-trust">/)
-    expect(src).not.toMatch(/\{gov && <a href="#s-trust">/)
+  it('no section index: the sections keep their anchors, and nothing beside the page links to them', () => {
+    expect(src).not.toMatch(/set-index/)
+    expect(src).not.toMatch(/<a href="#s-/)
+    expect(src).toMatch(/id="s-trust"/)
   })
   it('the quorum comes from this device’s own record first, the server’s answer only without one', () => {
     // One rule, in one place: `getVault` prefers the record, and Settings reads only `getVault`.
