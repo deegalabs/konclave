@@ -6,6 +6,7 @@ import { PageHeader, PageFooter } from '../page'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
+import { stateGroupOf, SETTLED } from '../ledger-state'
 import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
 import { exportLedgerCsv } from '../ledgerCsv'
@@ -17,7 +18,6 @@ import { useT, useI18n } from '../i18n'
 import { useVaultReadable } from '../vault-readable'
 import { useReveal } from '../reveal'
 
-const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 // Where the difference goes in the reconciliation sentence, so it can be drawn under the bar.
 const DIFF_MARK = '\u0000'
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
@@ -285,7 +285,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   )
 
   const body = (
-    <>
+    <div className="ledger-doc">
         {embedded && <div className="lg-actions">{exportActions}</div>}
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
@@ -348,7 +348,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="tbl razao mt">
-          <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
+          <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th className="num">{t('ledger.colValue')}</th></tr></thead>
           <tbody>
             {rows === null && !unread && (
               <tr><td colSpan={4}><SkeletonRows n={5} /></td></tr>
@@ -393,7 +393,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                     <td className="by">{who}</td>
                     <td className={closedRow ? 'num dim' : 'num out'}>
                       <Secret sm><span>{closedRow ? '' : '−'}{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
-                      <div className="by">
+                      <div className={'by st st-' + stateGroupOf(p)}>
                         {settledRow && p.txid
                           ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
                           : t('state.' + p.state)}
@@ -473,8 +473,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             </p>
           </div>
         </section>
-
-    </>
+    </div>
   )
 
   if (embedded) return body

@@ -3,9 +3,12 @@
 // Two keys travel in one call, and their consequences are not the same - which is the whole reason
 // this file exists:
 //
-//   COMMS (#63)  lets the coordinator seal a SignRequest to this device. Best-effort is CORRECT
-//                here: a device that did not register still signs, because an unsealed request is
-//                the compat fallback until every device has registered.
+//   COMMS (#63)  lets the coordinator seal a SignRequest to this device. On an older vault a device
+//                that did not register still signs, because an unsealed request is the compat
+//                fallback there. Protocol 3 has no such fallback: a device the coordinator refused
+//                gets no box. A refusal that carries the coordinator's code disarms the signer and
+//                the shell says why; one without a code (a 400, 401, 409, 429) shows the dashboard
+//                banner, and a device left armed has no box to open, so it contributes nothing.
 //
 //   WRITE (#288) is what lets this member VOTE. The gate is per VAULT and the keys are per SEAT, so
 //                the moment ANY member registers, every governance write on that vault must be
@@ -27,6 +30,7 @@ import { decodeBundle } from './signing'
 import { lastHelperPostFailure, registerDeviceKey, registerReadKey } from './helper'
 import { noteSeatRefused, noteSeatRegistered, seatRefusalKey } from './seat-registration'
 import { deriveReadKey } from './vault-secret'
+import { seatCertificateFromBundle } from './wasm-pkg/konclave_wasm.js'
 import { devicePubHex, deviceWriteKeyHex } from './device-key'
 import type { VaultLoaded } from './storage'
 
@@ -41,28 +45,49 @@ const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '
  * Never throws: unlocking must not fail because the coordinator is unreachable. But a failure is
  * LOUD, because the write half decides whether this member can vote at all.
  */
-export async function registerThisDevice(vaultId: string, share: VaultLoaded): Promise<boolean> {
+export async function registerThisDevice(vaultId: string, share: VaultLoaded): Promise<boolean | { refused: string }> {
   try {
     await ensureWasm()
     const b = decodeBundle(share)
     // READ (#388): any member that holds the vault's secret S registers its read key, the same for
-    // every member. Idempotent on the coordinator, so this heals a vault whose creation ended before
-    // anyone registered it: the first unlock of any member turns its read gate on. Only for vaults
+    // every member. Idempotent on the coordinator. Since protocol 3 the coordinator takes no FIRST read
+    // key without the seats' proofs, so this no longer turns the gate on for a vault of an earlier
+    // creation that ended before anyone registered its key: such a vault stays as it was. Only for vaults
     // made by the current creation (they record their quorum): an older vault's gate stays as it was,
     // so a member of it who never received S is not locked out of its reads by someone else's unlock.
     // Waited for, never thrown: the coordinator refuses the viewing key to a vault with no read key,
     // and a caller (the creation's backup) asks for it right after this resolves.
     if (share.accessSecret && share.threshold !== undefined) {
-      await deriveReadKey(share.accessSecret)
+      const taken = await deriveReadKey(share.accessSecret)
         .then((rk) => registerReadKey(hex(share.groupKey), hex(rk)))
-        .then((ok) => { if (!ok) console.error('[konclave] the coordinator did not take this vault\'s read key', { vault: vaultId.slice(0, 8) }) })
-        .catch((error) => console.error('[konclave] could not register this vault\'s read key', { vault: vaultId.slice(0, 8), error }))
+        .catch((error) => {
+          console.error('[konclave] could not register this vault\'s read key', { vault: vaultId.slice(0, 8), error })
+          return null
+        })
+      if (taken === false) {
+        console.error('[konclave] the coordinator did not take this vault\'s read key', { vault: vaultId.slice(0, 8) })
+        const code = lastHelperPostFailure()?.code
+        // A pinned vault's key either is this one or this device does not belong: not a thing to go on from.
+        if (share.cp !== undefined && share.cp >= 3 && code) {
+          noteSeatRefused(vaultId, 'registration.seatRefused', code)
+          return { refused: code }
+        }
+      }
     }
+    // Protocol 3: this seat's own certificate, which is what a pinned vault takes a seat on.
+    const proof = share.cp !== undefined && share.cp >= 3 && share.accessSecret
+      ? seatCertificateFromBundle(b.keyPackage, b.pubkeys, b.seat, b.t, b.n, share.cp, await deriveReadKey(share.accessSecret))
+      : undefined
     const ok = await registerDeviceKey(hex(share.groupKey), devicePubHex(b.keyPackage), {
       seat: b.seat,
       pub: deviceWriteKeyHex(b.keyPackage),
-    })
+    }, proof)
     if (ok === null) {
+      const code = lastHelperPostFailure()?.code
+      if (share.cp !== undefined && share.cp >= 3 && code) {
+        noteSeatRefused(vaultId, 'registration.seatRefused', code)
+        return { refused: code }
+      }
       console.error('[konclave] this device could not register its seat with the coordinator', {
         vault: vaultId.slice(0, 8), seat: b.seat,
       })

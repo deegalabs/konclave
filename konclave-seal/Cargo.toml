@@ -14,11 +14,26 @@ chacha20poly1305 = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"
-# Only for the `pczt` feature: the rule for which spends of a PCZT a vault signs, read by both
-# signers (konclave-wasm and konclave-signer), so it is written once. The same orchard release and
-# features both of them already link; the orchestrator and the helper leave the feature off.
+# For the `pczt` feature: the rule for which spends of a PCZT a vault signs, read by both signers
+# (konclave-wasm and konclave-signer), so it is written once. For the `receivers` feature: what a
+# viewing key derives, read by the device and the coordinator. The same orchard release both link.
 orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"], optional = true }
 ff = { version = "0.14", optional = true }
+zcash_address = { version = "0.14.0", optional = true }
+zcash_protocol = { version = "0.11.0", default-features = false, optional = true }
+# Only for the `share-sig` feature: the 0.5.2 line konclave-wasm signs room messages with, without
+# its `frost` feature. orchard links reddsa 0.6.1 for itself; keys cross between them only as bytes.
+reddsa = { version = "0.5.2", optional = true }
+pasta_curves = { version = "0.5", default-features = false, optional = true }
+# Only for `share-sig`: what a usable write key is, and a certificate's one JSON form.
+ed25519-dalek = { version = "2", default-features = false, optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 [features]
 pczt = ["dep:orchard", "dep:ff"]
+share-sig = ["dep:reddsa", "dep:pasta_curves", "dep:ed25519-dalek", "dep:serde"]
+receivers = ["dep:orchard", "dep:zcash_address", "dep:zcash_protocol"]
+
+[dev-dependencies]
+# A real dealer's package, to test the package check on what the library produces.
+reddsa = { version = "0.5.2", features = ["frost"] }

@@ -11,7 +11,9 @@ import { unlockVault, markVaultUnlocked } from './api'
 import { importVault, type VaultExport, type VaultPublic } from './storage'
 import { loadVault } from './storage'
 import { setUnlockedShare } from './session'
+import { noteSeatRefused, noteSeatRegistered } from './seat-registration'
 import { registerThisDevice } from './device-registration'
+import { adoptVaultReceivers } from './vault-receivers'
 
 /** Where a vault lives, and therefore how its unlock works. Mirrors the picker's `Src`. */
 export type VaultSrc = 'net' | 'local'
@@ -32,6 +34,7 @@ export interface UnlockDeps {
   markVaultUnlocked: typeof markVaultUnlocked
   unlockVault: typeof unlockVault
   registerThisDevice: typeof registerThisDevice
+  adoptVaultReceivers: typeof adoptVaultReceivers
 }
 
 /**
@@ -67,7 +70,13 @@ export async function unlockWith(
       // that way. This exact line shipped without it and CI caught the escape; the local run
       // reported "634 passed" alongside "1 error", and the grep that checked it did not include
       // the second line.
-      void deps.registerThisDevice(id, share).catch((error) => {
+      void deps.registerThisDevice(id, share).then((r) => {
+        if (typeof r === 'object' && r && 'refused' in r) noteSeatRefused(id, 'registration.seatRefused', r.refused)
+        else if (r === true) noteSeatRegistered(id)
+        // A protocol-3 device checks its address on every unlock, and a restored one for the first time.
+        // Never on a creation that has not finished or was stopped: only its registration finishes it.
+        if ((share.cp ?? 0) >= 3 && !share.pending && !share.abandoned) return deps.adoptVaultReceivers(id, share)
+      }).catch((error) => {
         console.error('[konclave] this device could not register its seat', { id, error })
       })
       return { ok: true }
@@ -87,7 +96,7 @@ export async function unlockWith(
   }
 }
 
-const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault, registerThisDevice }
+const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault, registerThisDevice, adoptVaultReceivers }
 
 /** `unlockWith` against the real storage/session/bridge. What the app calls. */
 export function unlockOnDevice(id: string, src: VaultSrc, pass: string): Promise<UnlockResult> {

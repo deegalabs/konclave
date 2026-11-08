@@ -42,6 +42,7 @@ export default function Proposal() {
   const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
+  const [rosterDiffers, setRosterDiffers] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
   // vault record. A device may only ever cast its OWN vote (never another member's).
@@ -67,6 +68,7 @@ export default function Proposal() {
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
+        setRosterDiffers(!!v.roster_differs)
         try {
           const saved = await listVaults()
           const rec = saved.find((s) => s.id === v.id)
@@ -240,6 +242,7 @@ export default function Proposal() {
   return (
     <>
       <main className="page narrow">
+        {rosterDiffers && <p className="unlock-err" role="alert">{t('members.rosterDiffers')}</p>}
         <PageHeader
           back={{ to: '/proposals', label: t('proposals.title') }}
           eyebrow={eyebrow}

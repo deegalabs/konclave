@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.18.0] 2026-11-08
+
 ### Security
 
 - **Removing a vault left its personal data in this browser (#813).** Since 2026-08-21, removing a
@@ -61,6 +63,12 @@ history to tidy it is how context gets lost.
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
   now on.
+- **Creating a vault is hardened.** New vaults are created under a new creation protocol, and
+  before a new vault's address is shown the app gives each member a viewing code to compare with
+  the others outside the app, and shows the address once the member confirms they compared it. An
+  app older than this one cannot create or join a new vault: from 0.13.0 it says to update before
+  it starts; an older one fails when it registers the vault. Vaults that already exist keep working
+  as before.
 
 ### Added
 
@@ -109,6 +117,12 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **In the ledger, colour now means one thing: the state's group.** Blue is a state that needs
+  someone, grey is on its way or closed, green is settled, and the word is always beside the
+  colour, and a proposal past its deadline on this device's clock is closed, as on the desk. The
+  band's figures lead and the labels step back; the labels, the table's head and the filters are
+  plain text; the rows have room. All of it is for the screen: the printed book keeps its own
+  layout (#780).
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
   opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
   book, three names, and the member had to work out that they were the same thing. Everything now
@@ -117,11 +131,6 @@ history to tidy it is how context gets lost.
   over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
-- **The dashboard no longer shows the network-upgrade notice.** It told of the pause around NU7
-  ("The Zcash network has upgraded. If a payment is refused for a while..."). NU7 activated at block
-  3,543,405 and payments after it are proven on mainnet, so the notice is gone with its text. The
-  rule that decides when such a notice applies stays in the code for the next upgrade, and a payment
-  refused during an upgrade pause still says why.
 - **Approving is not paying, said where the buttons are.** Above "Approve": approving is your
   yes to this payment, it moves no money, once enough members approve, any member can sign, and
   the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
@@ -138,16 +147,11 @@ history to tidy it is how context gets lost.
   and if so says that the shortcut still works only on this device, that a sync may stop it working
   here too, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
   on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
+- **The largest vault a creation accepts is now 16 devices** (it was 32). The create screen still
+  offers up to 5, as before, and vaults created before keep all their members.
 
 ### Fixed
 
-- **The dashboard shows amounts exactly, not rounded to four decimals.** Every figure on it rounded
-  to four decimals, so a payment of 0.00015 ZEC was listed as 0.0001, an amount the vault never paid.
-  The balance, its free, reserved and confirming parts, the readiness line, the desk, the movements,
-  the reserved and paid figures and the monthly spend now all show the exact figure, as the book and
-  the proposal do since #777: four decimals when that is all the figure has (0.0120), more only when
-  it has them (0.00015). One amount reads the same everywhere on the screen. A balance or figure with
-  more than four decimals is set smaller so it stays inside its card on a computer.
 - **On the payroll screen, deleting a line could leave the next line showing the deleted line's
   address.** Lines were tracked by their position, so after a delete the line below kept the text
   typed or pasted into the one above (an address never picked from the list). The screen showed that

@@ -5,11 +5,12 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import init, { DeviceKey, CreationSession, sealTo } from './wasm-pkg/konclave_wasm.js'
-import { DkgCeremony, DKG_VERSION, quorumIsPossible, type DkgConfig, type DkgMsg } from './dkg-ceremony'
+import init, { DeviceKey, CreationSession, maxSeats, sealTo } from './wasm-pkg/konclave_wasm.js'
+import { DkgCeremony, DKG_VERSION, MAX_SEATS, quorumIsPossible, type DkgConfig, type DkgMsg } from './dkg-ceremony'
 import { b64, unb64, bytesEqual } from './net'
 import { codeAt } from './source-scan'
-import { signVaultSecret } from './room-auth'
+import { doneIsProven, signDone, signVaultSecret } from './room-auth'
+import { deriveReadKey, deriveSeatProofKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 
 beforeAll(async () => {
@@ -71,13 +72,17 @@ function confirmAll(relay: Relay, devices: Device[]) {
   return true
 }
 
-function start(n = 3, t = 2) {
+const READ = new Uint8Array(32).fill(0x42)
+const PROOF = new Uint8Array(32).fill(0x24)
+
+function start(n = 3, t = 2, keys = true) {
   const relay = new Relay()
   const names = ['Ana', 'Bia', 'Caio', 'Duda', 'Edu']
   const ds = names.slice(0, n).map((nm, i) => device(`p-${String.fromCharCode(97 + i)}`, nm))
   const cfg = { n, t }
   ds[0]!.c.setOwnConfig(cfg)
   relay.post(ds[0]!.c.myTag, { type: 'config', v: DKG_VERSION, ...cfg })
+  if (keys) for (const d of ds) d.c.useVaultKeys(READ, PROOF)
   return { relay, ds }
 }
 
@@ -326,7 +331,7 @@ describe('vault creation, version 2', () => {
     // A second, different box the creator signed: stops.
     const again = a.c.sealSecretToOthers(new Uint8Array(32).fill(8)).find((x) => x.to === b.c.mySeat)!
     b.c.takeSecret(a.c.myTag, again.to, again.box, again.sig)
-    expect(b.c.aborted).toBe('secret')
+    expect(b.c.aborted).toBeNull() // this device holds the whole vault: see the next block
     // The creator never takes one.
     expect(a.c.takeSecret(a.c.myTag, a.c.mySeat, toB.box, toB.sig).secret).toBeNull()
   })
@@ -409,6 +414,18 @@ describe('vault creation, version 2', () => {
     expect(c.c.sealSecretToOthers(new Uint8Array(32))).toEqual([]) // and it offers none
   })
 
+  it('a vault secret of the wrong length is not taken, even from the creator', () => {
+    const { relay, ds } = start()
+    const [a, b] = ds as [Device, Device, Device]
+    for (const d of ds) relay.post(d.c.myTag, hello(d))
+    drain(relay, ds)
+    confirmAll(relay, ds)
+    const s = a.c.session!
+    const box = b64(s.sealToSeat(b.c.mySeat, new Uint8Array(16).fill(4)))
+    const sig = signVaultSecret(s.keyPackage(), a.c.mySeat, b.c.mySeat, bytesToHex(s.groupVk()), box)
+    expect(b.c.takeSecret(a.c.myTag, b.c.mySeat, box, sig).secret).toBeNull()
+  })
+
   it('the same config from another tag, or a different one from the creator, stops it', () => {
     for (const [from, cfg] of [['p-b', { n: 3, t: 2 }], ['p-a', { n: 3, t: 3 }]] as const) {
       const { relay, ds } = start()
@@ -423,7 +440,7 @@ describe('vault creation, version 2', () => {
     const d = device('p-me', 'me')
     for (let i = 0; i < 40; i++) relay.post(`p-${String(i).padStart(3, '0')}`, { type: 'hello', v: DKG_VERSION, encPub: b64(new DeviceKey().publicBytes()), name: 'x'.repeat(100) })
     drain(relay, [d])
-    expect(d.c.rosterSize).toBe(32)
+    expect(d.c.rosterSize).toBe(MAX_SEATS)
     expect(d.c.nameOf('p-000')!.length).toBe(64)
   })
 
@@ -485,7 +502,7 @@ describe('vault creation, version 2', () => {
     for (const d of ds) relay.post(d.c.myTag, hello(d))
     drain(relay, ds)
     const orig = relay.post.bind(relay)
-    relay.post = (from, m) => orig(from, m.type === 'done' && from === ds[2]!.c.myTag ? { type: 'done', sig: '00'.repeat(64) } : m)
+    relay.post = (from, m) => orig(from, m.type === 'done' && from === ds[2]!.c.myTag ? { type: 'done', sig: '00'.repeat(64), proof: '00'.repeat(64) } : m)
     for (const d of ds) for (const m of d.c.confirmCode(d.c.code!).out) relay.post(d.c.myTag, m)
     drain(relay, ds)
     for (const d of ds) for (const m of d.c.markSaved()) relay.post(d.c.myTag, m)
@@ -541,6 +558,7 @@ describe('vault creation, version 2', () => {
     const ds = [device('p-c', 'Caio'), device('p-a', 'Ana'), device('p-b', 'Bia')] // creator sorts last
     ds[0]!.c.setOwnConfig({ n: 3, t: 2 })
     relay.post('p-c', { type: 'config', v: DKG_VERSION, n: 3, t: 2 })
+    for (const d of ds) d.c.useVaultKeys(READ, PROOF)
     for (const d of ds) relay.post(d.c.myTag, hello(d))
     drain(relay, ds)
     expect(ds[0]!.c.mySeat).toBe(3)
@@ -656,9 +674,216 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
   })
   it('a vault left unfinished is finished only by the member, in two steps, from the vault list', () => {
     const vl = codeAt(new URL('./screens/Vaults.tsx', import.meta.url).pathname)
-    expect(vl).toMatch(/finishing !== v\.id \?[\s\S]{0,1200}?disabled=\{finishArmed !== v\.id\}[\s\S]{0,300}?updateVaultMeta\(v\.id, \{ pending: false \}\)/)
+    expect(vl).toMatch(/finishing !== v\.id \?[\s\S]{0,1200}?disabled=\{finishArmed !== v\.id\}[\s\S]{0,500}?updateVaultMeta\(v\.id, \{ pending: false \}\)/)
   })
   it('lets no rejoin touch the seats while a vault is being created', () => {
     expect(nv).toMatch(/parsed\.type === 'rejoin'\) \{\s*if \(ceremonyRef\.current\) return true/)
+  })
+
+  describe('the certificate each seat finishes with', () => {
+    const OTHER = new Uint8Array(32).fill(9)
+
+    /** Every device through round 3, keys held, nobody saved yet. */
+    function atRound3(n = 3, t = 2, keys = true) {
+      const { relay, ds } = start(n, t, keys)
+      for (const d of ds) relay.post(d.c.myTag, hello(d))
+      drain(relay, ds)
+      for (const d of ds) for (const m of d.c.confirmCode(d.c.code!).out) relay.post(d.c.myTag, m)
+      drain(relay, ds)
+      return { relay, ds }
+    }
+
+    it('done carries a sealed certificate and nothing a relay can read', () => {
+      const { ds } = atRound3()
+      const [m] = ds[0]!.c.markSaved()
+      expect(m).toMatchObject({ type: 'done' })
+      const proof = (m as { proof: string }).proof
+      expect(proof).toBeTruthy()
+      expect(atob(proof)).not.toContain('comms_pub')
+    })
+
+    it('a member with other read keys stops the ceremony with its own reason, once, before anything is registered', () => {
+      const { relay, ds } = atRound3(3, 2, false)
+      ds[0]!.c.useVaultKeys(READ, PROOF)
+      ds[2]!.c.useVaultKeys(OTHER, PROOF)
+      for (const m of ds[2]!.c.markSaved()) relay.post(ds[2]!.c.myTag, m)
+      drain(relay, ds)
+      expect(ds[0]!.c.aborted).toBe('secretSplit')
+      expect(ds[0]!.c.complete).toBe(false)
+      expect(ds[0]!.c.markSaved()).toEqual([])
+    })
+
+    it('a seat already counted stops nobody, whatever it sends next', () => {
+      const { relay, ds } = atRound3(2, 2)
+      const [a, b] = ds as [Device, Device]
+      for (const d of ds) for (const m of d.c.markSaved()) relay.post(d.c.myTag, m)
+      drain(relay, ds)
+      expect(a.c.complete).toBe(true)
+      relay.post(b.c.myTag, { type: 'done', sig: '00'.repeat(64), proof: b64(new Uint8Array(40)) })
+      drain(relay, ds)
+      expect(a.c.aborted).toBe(null)
+      expect(a.c.complete).toBe(true)
+    })
+
+    it('a done that arrives before this device holds the keys is kept, and counted when they come', () => {
+      const { relay, ds } = atRound3(2, 2, false)
+      const [a, b] = ds as [Device, Device]
+      b.c.useVaultKeys(READ, PROOF)
+      for (const m of b.c.markSaved()) relay.post(b.c.myTag, m)
+      drain(relay, ds)
+      expect(a.c.waitingFor()).toContain('Bia')
+      a.c.useVaultKeys(READ, PROOF)
+      expect(a.c.waitingFor()).not.toContain('Bia')
+      for (const m of a.c.markSaved()) relay.post(a.c.myTag, m)
+      expect(a.c.complete).toBe(true)
+    })
+
+    it('of two boxes a seat signed before the keys came, the first is what counts', () => {
+      const { relay, ds } = atRound3(2, 2, false)
+      const [a, b] = ds as [Device, Device]
+      b.c.useVaultKeys(READ, PROOF)
+      for (const m of b.c.markSaved()) relay.post(b.c.myTag, m)
+      const s = b.c.session!
+      const other = b64(new Uint8Array(80).fill(1)) // signed by the seat, and opens to nothing
+      relay.post(b.c.myTag, { type: 'done', proof: other, sig: signDone(s.keyPackage(), b.c.mySeat as number, bytesToHex(s.groupVk()), other) })
+      drain(relay, [a])
+      a.c.useVaultKeys(READ, PROOF)
+      expect(a.c.aborted).toBe(null)
+      expect(a.c.waitingFor()).not.toContain('Bia')
+    })
+
+    it('a stopped device counts no done it was holding', () => {
+      const { relay, ds } = atRound3(2, 2, false)
+      const [a, b] = ds as [Device, Device]
+      a.c.useVaultKeys(READ, PROOF)
+      for (const m of a.c.markSaved()) relay.post(a.c.myTag, m)
+      drain(relay, ds)
+      const s = a.c.session!
+      const secret = () => {
+        const box = b64(s.sealToSeat(b.c.mySeat as number, new Uint8Array(32).fill(4)))
+        return [box, signVaultSecret(s.keyPackage(), a.c.mySeat as number, b.c.mySeat as number, bytesToHex(s.groupVk()), box)] as const
+      }
+      const [box1, sig1] = secret()
+      const [box2, sig2] = secret()
+      b.c.takeSecret(a.c.myTag, b.c.mySeat as number, box1, sig1)
+      b.c.takeSecret(a.c.myTag, b.c.mySeat as number, box2, sig2)
+      expect(b.c.aborted).toBe('secret')
+      b.c.useVaultKeys(READ, PROOF)
+      expect(b.c.waitingFor()).toContain('Ana')
+    })
+
+    it('no keys, no done', () => {
+      const { ds } = atRound3(2, 2, false)
+      expect(ds[0]!.c.markSaved()).toEqual([])
+    })
+
+    it('a second, different box from the creator stops a device that does not hold the whole vault yet', () => {
+      const { ds } = atRound3(2, 2)
+      const [a, b] = ds as [Device, Device]
+      for (const secret of [new Uint8Array(32).fill(1), new Uint8Array(32).fill(2)]) {
+        const [{ to, box, sig }] = a.c.sealSecretToOthers(secret) as [{ to: number; box: string; sig: string }]
+        b.c.takeSecret(a.c.myTag, to, box, sig)
+      }
+      expect(b.c.aborted).toBe('secret')
+    })
+
+    it('two seats with one name stop the creation before anything secret moves', () => {
+      const relay = new Relay()
+      const ds = [device('p-a', 'Ana'), device('p-b', ' Ana ')]
+      ds[0]!.c.setOwnConfig({ n: 2, t: 2 })
+      relay.post('p-a', { type: 'config', v: DKG_VERSION, n: 2, t: 2 })
+      for (const d of ds) relay.post(d.c.myTag, hello(d))
+      drain(relay, ds)
+      expect(ds[0]!.c.aborted).toBe('names')
+      expect(ds[1]!.c.aborted).toBe('names')
+      expect(posted(relay, 'r2')).toEqual([])
+    })
+
+    it('a done is bound to its box, its seat and its vault', () => {
+      const { ds } = atRound3(2, 2)
+      const [m] = ds[1]!.c.markSaved() as unknown as [{ proof: string; sig: string }]
+      const s = (c: DkgCeremony) => c as unknown as { session: { groupVk(): Uint8Array; pubkeys(): Uint8Array } }
+      const material = { groupVk: s(ds[0]!.c).session.groupVk(), pubkeys: s(ds[0]!.c).session.pubkeys() }
+      expect(doneIsProven(material, 2, m.proof, m.sig)).toBe(true)
+      expect(doneIsProven(material, 2, m.proof + 'AA', m.sig)).toBe(false)
+      expect(doneIsProven(material, 1, m.proof, m.sig)).toBe(false)
+      const other = { ...material, groupVk: new Uint8Array(32).fill(1) }
+      expect(doneIsProven(other, 2, m.proof, m.sig)).toBe(false)
+    })
+
+    it('a real split of the vault secret stops the ceremony: two secrets, the keys each derives', async () => {
+      const { relay, ds } = atRound3(3, 2, false)
+      const one = new Uint8Array(32).fill(1)
+      const two = new Uint8Array(32).fill(2)
+      for (const [d, secret] of [[ds[0]!, one], [ds[1]!, one], [ds[2]!, two]] as const) {
+        d.c.useVaultKeys(await deriveReadKey(secret), await deriveSeatProofKey(secret))
+      }
+      for (const m of ds[2]!.c.markSaved()) relay.post(ds[2]!.c.myTag, m)
+      drain(relay, ds)
+      expect(ds[0]!.c.aborted).toBe('secretSplit')
+      expect(ds[1]!.c.aborted).toBe('secretSplit')
+    })
+
+    it('a done nobody in that seat signed stops nothing, names nobody, and does not take the honest one\'s place', () => {
+      const { relay, ds } = atRound3(2, 2, false)
+      const [a, b] = ds as [Device, Device]
+      const logged: unknown[] = []
+      a.c.onLog = (...args: unknown[]) => { logged.push(args) }
+      relay.post(b.c.myTag, { type: 'done', sig: '00'.repeat(64), proof: b64(new Uint8Array(40)) })
+      drain(relay, ds)
+      b.c.useVaultKeys(READ, PROOF)
+      for (const m of b.c.markSaved()) relay.post(b.c.myTag, m)
+      drain(relay, ds)
+      a.c.useVaultKeys(READ, PROOF)
+      expect(a.c.aborted).toBe(null)
+      expect(a.c.waitingFor()).not.toContain('Bia')
+      expect(logged).toEqual([])
+    })
+
+    it('the creator cannot stop a device that already holds the whole vault', () => {
+      const { relay, ds } = atRound3(2, 2)
+      const [a, b] = ds as [Device, Device]
+      for (const d of ds) for (const m of d.c.markSaved()) relay.post(d.c.myTag, m)
+      drain(relay, ds)
+      expect(b.c.complete).toBe(true)
+      for (const secret of [new Uint8Array(32).fill(1), new Uint8Array(32).fill(2)]) {
+        const [{ to, box, sig }] = a.c.sealSecretToOthers(secret) as [{ to: number; box: string; sig: string }]
+        b.c.takeSecret(a.c.myTag, to, box, sig)
+      }
+      expect(b.c.aborted).toBe(null)
+      expect(b.c.complete).toBe(true)
+    })
+
+    it('nothing is complete or offered after a stop', () => {
+      const { relay, ds } = atRound3(2, 2)
+      for (const d of ds) for (const m of d.c.markSaved()) relay.post(d.c.myTag, m)
+      drain(relay, ds)
+      const c = ds[0]!.c as unknown as { abort: (why: string) => void }
+      c.abort('failed')
+      expect(ds[0]!.c.complete).toBe(false)
+      expect(ds[0]!.c.pinBundle()).toBe(null)
+    })
+
+    it('the proof key and the read key are what the table says, worked out outside this code', async () => {
+      const s = new Uint8Array(32).fill(7)
+      expect(bytesToHex(await deriveSeatProofKey(s))).toBe('eca7387333fd7db30251c065138845d448603994048f376382c243a1610e995e')
+      expect(bytesToHex(await deriveReadKey(s))).toBe('1b2edf3722c7a61615b7110601ccc2916105610f12e4b7affedebdac63cb8e02')
+    })
+
+    it('the bundle exists once the vault is complete, and it is every seat', () => {
+      const { relay, ds } = atRound3(2, 2)
+      expect(ds[0]!.c.pinBundle()).toBe(null)
+      for (const d of ds) for (const m of d.c.markSaved()) relay.post(d.c.myTag, m)
+      drain(relay, ds)
+      const bundle = JSON.parse(ds[0]!.c.pinBundle()!)
+      expect(bundle.proofs).toHaveLength(2)
+      expect(typeof bundle.pkp).toBe('string')
+    })
+
+    it('the seat ceiling is the one the module defines', () => {
+      expect(MAX_SEATS).toBe(maxSeats())
+      expect(quorumIsPossible(2, MAX_SEATS)).toBe(true)
+      expect(quorumIsPossible(2, MAX_SEATS + 1)).toBe(false)
+    })
   })
 })

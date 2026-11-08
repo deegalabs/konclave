@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { describe, expect, it } from 'vitest'
-import { gateDecision, matchesApprovedPayment, ourReceiversFrom, paysOurselves, type ApprovedLine, type PcztOutput } from './approved-payment'
+import { gateDecision, matchesApprovedPayment, mayContribute, ourReceiversFrom, paysOurselves, type ApprovedLine, type PcztOutput } from './approved-payment'
 import { codeOf } from './source-scan'
 
 // Receivers as the device reads them: raw 43-byte Orchard/Ironwood addresses, hex. Short distinct
@@ -267,5 +267,31 @@ describe('matchesApprovedPayment — fail closed', () => {
       { address: null, value: 500_000, recipient: VAULT_CHG, memo: '' },
     ]
     expect(matchesApprovedPayment(outs, [line(ALICE_RCV, 1_000_000)], OURS)).toBe(true)
+  })
+})
+
+describe('a protocol 3 record is the vault\'s own only once verified', () => {
+  const decode = (ua: string) => `raw-${ua}`
+  it('no share moves on an address nobody checked', () => {
+    const rec = { address: 'a', changeReceiver: 'c', cp: 3 }
+    expect(ourReceiversFrom(rec, decode)).toBeNull()
+    expect(ourReceiversFrom({ ...rec, receiversState: 'refused' }, decode)).toBeNull()
+    expect(ourReceiversFrom({ ...rec, receiversState: 'verified' }, decode)).toEqual(['raw-a', 'raw-c'])
+    expect(ourReceiversFrom({ address: 'a', changeReceiver: 'c', cp: 2 }, decode)).toEqual(['raw-a', 'raw-c'])
+    expect(ourReceiversFrom({ ...rec, receiversState: 'verified', pending: true }, decode)).toBeNull()
+    expect(ourReceiversFrom({ ...rec, receiversState: 'verified', abandoned: 'x' }, decode)).toBeNull()
+  })
+})
+
+describe('mayContribute', () => {
+  it('an older vault may, a refused device may not, and a protocol 3 vault only once verified and finished', () => {
+    expect(mayContribute({ cp: 2 }, undefined)).toBe(true)
+    expect(mayContribute({ cp: 2 }, 'seat_bound')).toBe(false)
+    expect(mayContribute({ cp: 3 }, undefined)).toBe(false)
+    expect(mayContribute({ cp: 3, receiversState: 'verified' }, undefined)).toBe(true)
+    expect(mayContribute({ cp: 3, receiversState: 'verified', pending: true }, undefined)).toBe(false)
+    expect(mayContribute({ cp: 3, receiversState: 'refused' }, undefined)).toBe(false)
+    expect(mayContribute(undefined, undefined)).toBe(false)
+    expect(mayContribute({ cp: 3, receiversState: 'verified', abandoned: 'x' }, undefined)).toBe(false)
   })
 })
