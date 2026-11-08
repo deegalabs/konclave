@@ -1706,6 +1706,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         to: req.to,
         amount_zat: req.amount_zat,
         memo: req.memo,
+        title: None,
         lines: vec![],
         proposer: proposer.clone(),
         state: "pending".into(),
@@ -1744,6 +1745,9 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         lines: Vec<Line>,
         #[serde(default)]
         expiry_unix: u64,
+        /// The payroll's name (#296). Display-only, not signed (#567).
+        #[serde(default)]
+        title: Option<String>,
         /// The signed-write envelope (#288 / ADR-0011 D2).
         seat: Option<u16>,
         ts: Option<i64>,
@@ -1760,6 +1764,10 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
     if req.lines.is_empty() {
         return resp(400, json!({ "error": "payroll has no lines" }).to_string());
     }
+    let title = match orchestrator::helper::payroll_title(req.title.as_deref()) {
+        Ok(t) => t,
+        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    };
     let reg = match state.get(&req.vault) {
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
@@ -1837,6 +1845,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         to: String::new(),
         amount_zat: total,
         memo: None,
+        title,
         lines,
         proposer: proposer.clone(),
         state: "pending".into(),
@@ -4163,6 +4172,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -5068,6 +5078,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -5515,6 +5526,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -6558,6 +6570,102 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #296. A payroll on the web path carries its own name: stored on the record, returned on the
+    /// read, and absent (no key at all) when none was sent.
+    #[test]
+    fn a_payroll_title_is_stored_and_returned_on_the_read() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-ptitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let titled = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","title":"  Payroll · April 2026 ","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/payroll",
+            titled.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let made: HelperProposal = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(made.title.as_deref(), Some("Payroll · April 2026"));
+        // The payroll's memo stays empty: the title is not smuggled into the on-chain memo field.
+        assert_eq!(made.memo, None);
+        let listed = orchestrator::helper::list_proposals(&cfg.vaults_dir, "aaaa", now_unix());
+        assert_eq!(listed[0].title.as_deref(), Some("Payroll · April 2026"));
+
+        let untitled = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/payroll",
+            untitled.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(!r.body.contains("\"title\""), "{}", r.body);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #296. A title the rule refuses is a 400 before anything is stored, never a silently cut name.
+    #[test]
+    fn a_payroll_with_a_bad_title_is_refused_and_stores_nothing() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-hs-pbadtitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let long = "a".repeat(orchestrator::helper::PAYROLL_TITLE_MAX_CHARS + 1);
+        for title in [long.as_str(), "Payroll\\nApril", "Payroll \\u202Elirpa"] {
+            let body = format!(
+                r#"{{"vault":"aaaa","proposer":"alice","title":"{title}","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+            );
+            let r = handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/payroll",
+                body.as_bytes(),
+            );
+            assert_eq!(r.status, 400, "{title:?}: {}", r.body);
+            assert!(r.body.contains("payroll title"), "{}", r.body);
+        }
+        no_proposal_stored(&cfg, "aaaa");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #296. A single payment takes no title: `memo` is its on-chain memo, and a `title` in the body
+    /// is not stored on it.
+    #[test]
+    fn a_single_payment_stores_no_title() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-paytitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,"memo":"rent","title":"x"}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let made: HelperProposal = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(made.title, None);
+        assert_eq!(made.memo.as_deref(), Some("rent"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn proposal_send_rejects_before_engine() {
         let dir = std::env::temp_dir().join(format!("konclave-hs-psend-{}", std::process::id()));
@@ -6921,6 +7029,7 @@ mod tests {
             to: "utest1x".into(),
             amount_zat: 5000,
             memo: Some("hi".into()),
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "sent".into(),
@@ -7495,6 +7604,7 @@ mod tests {
             to: TESTNET_ORCHARD_UA.into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "ready".into(),

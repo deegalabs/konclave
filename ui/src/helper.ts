@@ -344,6 +344,8 @@ export type Proposal = {
   to: string
   amount_zat: number
   memo?: string | null
+  /** A payroll's own name (#296). Absent on a payment and on records older than the field. Not signed (#567). */
+  title?: string | null
   lines?: { label?: string; to: string; amount_zat: number; memo?: string | null }[]
   proposer: string
   state: string // pending | ready | sent | refused | expired
@@ -498,6 +500,8 @@ export async function createPayroll(args: {
   vault: string
   proposer: string
   lines: PayrollLine[]
+  /** The payroll's name (#296), its own field and never a memo. Omitted when there is none. */
+  title?: string
   expiryUnix?: number
   /** #288, as on `createProposal`. */
   proof?: WriteProof
@@ -505,6 +509,7 @@ export async function createPayroll(args: {
   return postJson<Proposal>('/api/vault/payroll', {
     vault: args.vault,
     proposer: args.proposer,
+    ...(args.title?.trim() ? { title: args.title.trim() } : {}),
     lines: args.lines.map((l) => ({ label: l.label ?? '', to: l.to, amount_zat: l.amount_zat, memo: l.memo })),
     expiry_unix: args.expiryUnix ?? Math.floor(Date.now() / 1000) + PROPOSAL_TTL_SECONDS,
     ...(args.proof ?? {}),
