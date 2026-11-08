@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -146,6 +146,40 @@ describe('entering, and what does not enter', () => {
     expect(h.select).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('heading', { name: 'Alpha' }))
     expect(h.select).toHaveBeenCalledTimes(1)
+  })  // The card's notes are the member's to read and act on, and the one guard is what keeps a click on
+  // them from entering: no note on the card stops the click itself, so the click must reach the document.
+  // (The viewing-code note shows only while the code is not compared, and entering refuses then too;
+  // what that test can catch is a note that swallows the click again.)
+  // Listened for on the document: React handles clicks at its root, above the card, so a note's
+  // stopPropagation stops the click there, and only a listener past the root can tell.
+  const reachesDocument = () => {
+    const spy = vi.fn()
+    document.addEventListener('click', spy)
+    onTestFinished(() => document.removeEventListener('click', spy))
+    return spy
+  }
+  it('a click on the viewing-code note does not enter', async () => {
+    h.list.mockResolvedValue([rec(A, 'Alpha', { cp: 3, receiversState: 'verified', viewingFingerprint: 'ABCDE-FGHJK-MNPQR-STVWX-YZ012' })])
+    const card = await cardOf('Alpha')
+    const note = card.querySelector('.fp-card') as HTMLElement
+    expect(note).not.toBeNull()
+    const bubbled = reachesDocument()
+    fireEvent.click(note.querySelector('.fp-code')!)
+    fireEvent.click(note.querySelector('.fp-help')!)
+    expect(bubbled).toHaveBeenCalledTimes(2)
+    expect(h.select).not.toHaveBeenCalled()
+  })
+  it('a click on the plain-key notice does not enter', async () => {
+    h.list.mockResolvedValue([rec(A, 'Alpha', { plainViewingKey: true })])
+    const card = await cardOf('Alpha')
+    const note = card.querySelector('.plain-key') as HTMLElement
+    expect(note).not.toBeNull()
+    const bubbled = reachesDocument()
+    fireEvent.click(note)
+    fireEvent.click(note.querySelector('strong')!)
+    fireEvent.click(note.querySelector('p')!)
+    expect(bubbled).toHaveBeenCalledTimes(3)
+    expect(h.select).not.toHaveBeenCalled()
   })
 })
 
@@ -187,6 +221,16 @@ describe('the tips', () => {
     expect(shown(last)).toBe(true)
     fireEvent.blur(last)
     expect(shown(last)).toBe(false)
+  })
+  it('Enter on a badge keeps open the tip its keyboard focus opened; a second Enter closes it', async () => {
+    const { open } = await ready()
+    focusVisible = true
+    fireEvent.focus(open)
+    expect(shown(open)).toBe(true)
+    fireEvent.click(open) // what Enter on a focused button does: a click with no pointer
+    expect(shown(open)).toBe(true)
+    fireEvent.click(open)
+    expect(shown(open)).toBe(false)
   })
   it('one tap opens it and leaves it open', async () => {
     const { open } = await ready()

@@ -7,7 +7,7 @@ export function CodeFirst({ code, compared, onCompared, children }: { code?: str
   const t = useT()
   if (!code || compared) return <>{children}</>
   return (
-    <div className="fp-card" role="note" onClick={(e) => e.stopPropagation()}>
+    <div className="fp-card" role="note">
       <span className="klab">{t('set.viewingCode')}</span>
       {/* Members compare it group by group, out loud: a group split over two lines reads as two. Each
           group is one unbreakable piece, and a line may break only between groups. */}

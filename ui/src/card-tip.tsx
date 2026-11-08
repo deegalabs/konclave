@@ -57,9 +57,11 @@ function useTip(id: string): { trigger: TipTrigger; tip: { id: string; role: 'to
   const shown = open === id
   const timer = useRef<number | undefined>(undefined)
   const pointer = useRef('')
+  // Opened by keyboard focus and not acted on since: the Enter that follows confirms it, not a toggle.
+  const byFocus = useRef(false)
   const cancel = () => { if (timer.current !== undefined) { window.clearTimeout(timer.current); timer.current = undefined } }
   const show = () => { cancel(); setOpen(id) }
-  const hide = () => { cancel(); setOpen((cur) => (cur === id ? null : cur)) }
+  const hide = () => { cancel(); byFocus.current = false; setOpen((cur) => (cur === id ? null : cur)) }
   const hideSoon = () => { cancel(); timer.current = window.setTimeout(hide, TRAVEL_MS) }
   useEffect(() => cancel, [])
   return {
@@ -68,13 +70,16 @@ function useTip(id: string): { trigger: TipTrigger; tip: { id: string; role: 'to
       onPointerDown: (e) => { pointer.current = e.pointerType },
       onPointerEnter: (e) => { if (e.pointerType === 'mouse') show() },
       onPointerLeave: (e) => { if (e.pointerType === 'mouse') hideSoon() },
-      onFocus: (e) => { if (focusVisible(e.currentTarget)) show() },
+      onFocus: (e) => { if (focusVisible(e.currentTarget)) { show(); byFocus.current = true } },
       onBlur: hide,
-      // A mouse click keeps open what its hover opened; a tap or a key toggles.
+      // A mouse click keeps open what its hover opened, a key keeps open what its focus opened; past
+      // that, a tap or a key toggles.
       onClick: () => {
         const by = pointer.current
+        const focused = byFocus.current
         pointer.current = ''
-        if (by === 'mouse' || !shown) show()
+        byFocus.current = false
+        if (by === 'mouse' || (focused && !by) || !shown) show()
         else hide()
       },
     },

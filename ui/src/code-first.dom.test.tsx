@@ -21,11 +21,15 @@ describe('the code before the address', () => {
     fireEvent.click(screen.getByText(dict['set.viewingCodeSeen']!))
     expect(on).toHaveBeenCalledTimes(1)
   })
-  it('a click in it does not reach the card behind it, and it asks for every group', () => {
+  // The card it sits on keeps ONE guard for what is its own (#779): the note does not swallow a click,
+  // it says what it is, and the host's guard skips anything inside a note.
+  it('a click in it reaches the host, from inside a note; and it asks for every group', () => {
     const behind = vi.fn()
     render(<I18nProvider><div onClick={behind}><CodeFirst code="AAAAA" compared={false} onCompared={() => {}}><span /></CodeFirst></div></I18nProvider>)
-    fireEvent.click(screen.getByText(dict['set.viewingCodeSeen']!))
-    expect(behind).not.toHaveBeenCalled()
+    const seen = screen.getByText(dict['set.viewingCodeSeen']!)
+    fireEvent.click(seen)
+    expect(behind).toHaveBeenCalledTimes(1)
+    expect(seen.closest('[role="note"]')).not.toBeNull()
     expect(screen.getByText(dict['set.viewingCodeHintFull']!)).toBeTruthy()
   })
   it('once compared, or with no code to compare, the address shows and the card does not', () => {

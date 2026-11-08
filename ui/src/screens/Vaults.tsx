@@ -42,7 +42,7 @@ type Row = { v: Vault; src: Src }
 
 /** What a click on the card belongs to instead of the card: its controls, its tips, its notices, and a
  *  badge's own words (`[data-tip]`), so a tap beside the veil on the amount is not a tap on the vault. */
-const CARD_OWN = 'button, a, input, select, textarea, [role="tooltip"], [data-tip], .cv-warn'
+const CARD_OWN = 'button, a, input, select, textarea, [role="tooltip"], [data-tip], [role="note"]'
 
 export default function Vaults() {
   const t = useT()
