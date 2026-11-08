@@ -76,8 +76,8 @@ describe('RunwayPanel', () => {
   it('writes months without a trailing period, and says the year where the axis crosses into one', () => {
     const tp: TFn = (k, v) => translateStatic(k, v, 'pt-BR')
     const html = wrap(<RunwayPanel bal={bal(10 * ZEC)} rows={book} now={NOW} revealed t={tp} locale="pt-BR" />)
-    expect(html).toContain('<span>nov</span><span>dez</span><span>jan 27</span>')
-    expect(html).not.toMatch(/<span>[a-z]+\.<\/span>/)
+    expect(html).toMatch(/>nov<\/span><span style="left:[\d.]+%">dez<\/span><span style="left:[\d.]+%">jan 27<\/span>/)
+    expect(html).not.toMatch(/>[a-z]+\.<\/span>/)
   })
 
   it('draws no projection while amounts are hidden, but still warns and states the limits', () => {

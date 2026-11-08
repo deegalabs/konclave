@@ -106,7 +106,8 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             projectedLabel={t('analyses.projected')}
             title={t('analyses.chartTitle')}
             source={t('analyses.source')}
-            runsOut={runsOut ? t('analyses.runsOut', { month: runsOut }) : undefined}
+            tooShort={t('analyses.notEnough')}
+            runsOut={runsOut && proj.runsOutIndex !== null ? { index: proj.runsOutIndex, words: t('analyses.runsOut', { month: runsOut }) } : null}
           />
         )
         : (
