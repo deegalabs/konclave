@@ -31,7 +31,7 @@ describe('who the ceremony says is in the room', () => {
 
   it('consults the helper roster, then this device own roster, then a placeholder', () => {
     const helper = picker.indexOf('names[i]')
-    const local = picker.indexOf('local[i]')
+    const local = picker.lastIndexOf('local[i]')
     const placeholder = picker.indexOf('member ${i + 1}')
     expect(helper, 'the helper roster is not consulted').toBeGreaterThan(-1)
     expect(local, 'this device own roster is not consulted - the live bug').toBeGreaterThan(-1)

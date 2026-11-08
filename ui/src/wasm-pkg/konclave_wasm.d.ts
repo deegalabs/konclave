@@ -45,10 +45,15 @@ export class Coordinator {
 export class CreationSession {
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * `counted`, `secretDiffers` or `invalid`.
+     */
+    addCertificate(from: number, sealed: Uint8Array, proof_key: Uint8Array, read_key: Uint8Array, cp: number): string;
     addMember(seat: number, enc_pub: Uint8Array, name: string, commit: Uint8Array): void;
     addReveal(seat: number, r1: Uint8Array, nonce: Uint8Array): void;
     addRound2(from: number, sealed: Uint8Array): boolean;
     allCommitted(): boolean;
+    certificatesComplete(): boolean;
     code(): string | undefined;
     confirm(code: string): void;
     done(): boolean;
@@ -65,8 +70,14 @@ export class CreationSession {
      * array per seat inside a JS array.
      */
     part2(): Array<any>;
+    pinBundleJson(): string;
+    pkpDigest(): Uint8Array;
     pubkeys(): Uint8Array;
     sealToSeat(to: number, payload: Uint8Array): Uint8Array;
+    /**
+     * This seat's certificate, sealed under the proof key, for its `done`.
+     */
+    sealedCertificate(read_key: Uint8Array, proof_key: Uint8Array, cp: number): Uint8Array;
 }
 
 /**
@@ -251,6 +262,11 @@ export function identifierBytes(index: number): Uint8Array;
 export function injectSigs(pczt: Uint8Array, sighash: Uint8Array, sigs: Uint8Array): Uint8Array;
 
 /**
+ * The most seats a vault may have, from the one place it is defined.
+ */
+export function maxSeats(): number;
+
+/**
  * Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
  * its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
  */
@@ -287,6 +303,11 @@ export function participantRound2WithRandomizer(sp: Uint8Array, round1: Round1, 
 export function pcztSighash(pczt: Uint8Array): Uint8Array;
 
 /**
+ * The digest of a saved package, as the coordinator's pin reports it.
+ */
+export function pkpDigestHex(pubkeys: Uint8Array, t: number, n: number): string;
+
+/**
  * What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
  * "txid": hex, "expiry": number, "branch": number}`. `readPayment`'s reading plus the header checked against the
  * network this build signs for, with the DEVICE's own clock read here (never passed in by a
@@ -307,6 +328,11 @@ export function readForSigning(pczt: Uint8Array): string;
 export function readPayment(pczt: Uint8Array): string;
 
 /**
+ * Whether two names are one member's, by the rule votes are counted by.
+ */
+export function sameMember(a: string, b: string): boolean;
+
+/**
  * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
  * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
  */
@@ -317,6 +343,11 @@ export function sealBody(key: Uint8Array, plaintext: Uint8Array): Uint8Array;
  * relay only ever carries ciphertext). `aad` binds context (sender+recipient) into the tag.
  */
 export function sealTo(recipient_pub: Uint8Array, plaintext: Uint8Array, aad: Uint8Array): Uint8Array;
+
+/**
+ * A seat's certificate again from what the device saved, for registering after an unlock.
+ */
+export function seatCertificateFromBundle(key_package: Uint8Array, pubkeys: Uint8Array, seat: number, t: number, n: number, cp: number, read_key: Uint8Array): string;
 
 /**
  * Browser self-test: runs a full FROST ceremony, touches the Orchard + digest surfaces.
@@ -348,6 +379,11 @@ export function signRoomMsg(key_package: Uint8Array, msg: Uint8Array): Uint8Arra
 export function signWrite(key_package: Uint8Array, vault_id: string, action: string, target: string, seat: number, ts: number, nonce: string): string;
 
 /**
+ * Whether this address is exactly this one receiver.
+ */
+export function uaIsExactly(ua: string, receiver_hex: string): boolean;
+
+/**
  * The raw Orchard receiver of a unified address, hex - the approved destination in the same
  * space as an output's `recipient`, so the money gate can compare them (#281).
  *
@@ -363,6 +399,12 @@ export function uaReceiver(ua: string): string;
  * coordinator use, never one typed in the app.
  */
 export function upgradeHeight(): number;
+
+/**
+ * What a vault's viewing key derives, checked against this device's own package. It takes the
+ * package and not a string, so the key it is checked against is never the caller's to name.
+ */
+export function vaultReceivers(ufvk: string, pubkeys: Uint8Array): string;
 
 /**
  * Verify a group signature against the vault's key - so EVERY device confirms the result
@@ -382,35 +424,15 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
-    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
-    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
-    readonly readPayment: (a: number, b: number) => [number, number, number, number];
-    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
-    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
-    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
-    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_deltaCount: (a: number) => number;
-    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
-    readonly upgradeHeight: () => number;
     readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
+    readonly creationsession_addCertificate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
     readonly creationsession_addMember: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
     readonly creationsession_addReveal: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly creationsession_addRound2: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly creationsession_allCommitted: (a: number) => number;
+    readonly creationsession_certificatesComplete: (a: number) => number;
     readonly creationsession_code: (a: number) => [number, number];
     readonly creationsession_confirm: (a: number, b: number, c: number) => [number, number];
     readonly creationsession_done: (a: number) => number;
@@ -423,8 +445,11 @@ export interface InitOutput {
     readonly creationsession_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly creationsession_openFromSeat: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly creationsession_part2: (a: number) => [number, number, number];
+    readonly creationsession_pinBundleJson: (a: number) => [number, number, number, number];
+    readonly creationsession_pkpDigest: (a: number) => [number, number, number, number];
     readonly creationsession_pubkeys: (a: number) => [number, number];
     readonly creationsession_sealToSeat: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly creationsession_sealedCertificate: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly deviceWritePubHex: (a: number, b: number) => [number, number];
     readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
     readonly devicekey_fromShare: (a: number, b: number) => number;
@@ -445,11 +470,17 @@ export interface InitOutput {
     readonly dkgsession_round2Package: (a: number, b: number) => [number, number];
     readonly dkgsession_round2Recipient: (a: number, b: number) => [number, number];
     readonly identifierBytes: (a: number) => [number, number, number, number];
+    readonly maxSeats: () => number;
     readonly openBody: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly pkpDigestHex: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly sameMember: (a: number, b: number, c: number, d: number) => number;
     readonly sealBody: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly seatCertificateFromBundle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
     readonly signRoomMsg: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly signWrite: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
+    readonly uaIsExactly: (a: number, b: number, c: number, d: number) => number;
+    readonly vaultReceivers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly selftest: () => [number, number];
@@ -476,6 +507,28 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
+    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly upgradeHeight: () => number;
+    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
+    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
+    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
+    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
+    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
+    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_deltaCount: (a: number) => number;
+    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

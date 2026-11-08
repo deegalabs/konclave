@@ -306,7 +306,8 @@ export class SigningMachine {
       await this.d.send({
         type: 'sreq',
         msg: b64(hexBytes(helperReq.sighash)),
-        // A sealed request means every device registered and opened it, so each already holds the
+        // A sealed request means this device opened it; on a protocol-3 vault a seat with no box gets
+        // nothing here and does not arm. Each device that opened it already holds the
         // PCZT: omit it here or it leaks the payment to the relay (#63). A plaintext (compat)
         // request still carries it inline for an older device that only reads the sreq.
         ...(helperReq.sealed ? {} : { pczt: b64(hexBytes(helperReq.pcztHex)) }),

@@ -49,6 +49,8 @@ export interface BackgroundSignerState {
   clearPeerFailure: () => void
   /** Clear what this device last reported, when its owner signs again. */
   clearError: () => void
+  /** Says why this device will not sign, in the panel's own place for it. */
+  sayError: (text: string) => void
   /** Point the signer at the payment now on screen (null when none). Changing payment starts a
    *  fresh tally AND drops any standing "this device sends" decision. */
   setProposal: (id: string | null) => void
@@ -246,6 +248,7 @@ export function useBackgroundSigner(
     peerFailure,
     clearPeerFailure: () => setPeerFailure(null),
     clearError: () => setError(''),
+    sayError: setError,
     setProposal,
     phase,
     signature,

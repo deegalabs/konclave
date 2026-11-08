@@ -13,14 +13,15 @@ import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
-import { readSecretFor, getUnlockedShare } from '../session'
+import { readSecretFor } from '../session'
 import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, type Governance } from '../storage'
+import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { trustRows, type Cell } from '../trust-facts'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
+import { ReceiversRepair } from './ReceiversRepair'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
@@ -53,6 +54,7 @@ export default function Settings() {
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
+  const [localRec, setLocalRec] = useState<VaultPublic | null>(null)
   // #469: everything below the vault card is gated on an async chain (health -> getVault ->
   // listVaults -> fingerprint), and until it lands the sections are simply ABSENT - they pop in one
   // by one. Worse, the danger zone renders `removeNoLocal` meanwhile, which asserts this device
@@ -90,7 +92,7 @@ export default function Settings() {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
             if (on) {
-              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured)
+              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setLocalRec(found ?? null); setSecured(found?.secured)
               if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
             }
             if (found?.groupKey) identity = found.groupKey
@@ -197,7 +199,7 @@ export default function Settings() {
       // The viewing key and the scan floor ride in the export so it can REBUILD the vault, not just
       // restore the seat (#214/#434/#480); the share in session opens the coordinator's sealed
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
-      const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
+      const b = await buildVaultBackup(id, xpPass, vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
       if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
       return { json: b.json, name: b.name, complete: b.complete }
@@ -335,6 +337,13 @@ export default function Settings() {
           {/* Figures are mono. The contract has no exception for small ones. */}
           <span className="set-v mono">{thr} / {n}</span>
         </div>
+        {localRec?.viewingFingerprint && (
+          <div className="set-row">
+            <span className="set-k">{t('set.viewingCode')}</span>
+            <span className="set-v mono">{localRec.viewingFingerprint}</span>
+            <span className="set-hint">{t('set.viewingCodeHintFull')}</span>
+          </div>
+        )}
         <div className="set-row">
           <span className="set-k">{t('settings.members')}</span>
           {/* `?? n` reported the CONFIGURED total as the seated count when the list was missing -
@@ -508,6 +517,8 @@ export default function Settings() {
           </div>
         </div>
       ) : null}
+
+      {localRec && <ReceiversRepair rec={localRec} onDone={() => { void listVaults().then((all) => setLocalRec(all.find((v) => v.id === localRec.id) ?? null)) }} />}
 
       <h2 className="set-sec" id="s-remove">{t('set.secRemove')}</h2>
       <section className="set-danger">

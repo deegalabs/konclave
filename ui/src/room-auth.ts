@@ -168,21 +168,20 @@ export function vaultSecretIsProven(
   }
 }
 
-/** The canonical bytes a seat signs once its share exists: the seat and the vault (group key). */
-function createdMessage(seat: number, groupVkHex: string): Uint8Array {
-  return new TextEncoder().encode(`created:${seat}:${groupVkHex.trim().toLowerCase()}`)
+/** The canonical bytes of a seat's `done`: the seat, the vault and the box itself. */
+function doneMessage(seat: number, groupVkHex: string, box: string): Uint8Array {
+  return new TextEncoder().encode(`done:${seat}:${groupVkHex.trim().toLowerCase()}:${box}`)
 }
 
-/** A seat proves it finished creating the vault: a signature by its new share over the vault. */
-export function signCreated(keyPackage: Uint8Array, seat: number, groupVkHex: string): string {
-  return bytesToHex(signRoomMsg(keyPackage, createdMessage(seat, groupVkHex)))
+export function signDone(keyPackage: Uint8Array, seat: number, groupVkHex: string, box: string): string {
+  return bytesToHex(signRoomMsg(keyPackage, doneMessage(seat, groupVkHex, box)))
 }
 
-/** Did seat `seat` finish this vault, with the share this device's own round 3 expects of it? */
-export function createdIsProven(material: RoomMaterial, seat: number, sigHex: string | undefined): boolean {
+/** Did seat `seat` send this box, by the share this device's own round 3 expects of it? */
+export function doneIsProven(material: RoomMaterial, seat: number, box: string, sigHex: string | undefined): boolean {
   if (!sigHex) return false
   try {
-    return verifyRoomSig(material.pubkeys, seat, createdMessage(seat, bytesToHex(material.groupVk)), hexToBytes(sigHex))
+    return verifyRoomSig(material.pubkeys, seat, doneMessage(seat, bytesToHex(material.groupVk), box), hexToBytes(sigHex))
   } catch {
     return false
   }

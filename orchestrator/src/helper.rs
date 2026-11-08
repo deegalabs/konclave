@@ -764,6 +764,22 @@ pub enum RosterWrite {
 /// This does NOT authenticate the first writer. A vault that has no roster yet - one registered
 /// before rosters were recorded - can still have one claimed by whoever asks first. Closing that
 /// needs the per-vault capability in #267 / the device-key handshake in #63.
+/// Whether a roster can be a protocol-3 vault's: one distinct name per seat. A roster decides who can
+/// vote there, so one member's list must not take that from the others. Which name sits on which seat
+/// is not proven here; each device reads its own.
+pub fn roster_fits(reg: &VaultRegistration, names: &[String]) -> bool {
+    if !holds_pinned_forms(reg.cp) {
+        return true;
+    }
+    names.len() == reg.total as usize
+        && names.iter().all(|n| !n.trim().is_empty())
+        && names.iter().enumerate().all(|(i, a)| {
+            names[..i]
+                .iter()
+                .all(|b| !crate::write_auth::same_member(a, b))
+        })
+}
+
 pub fn claim_members(
     vaults_dir: &Path,
     vault: &str,
@@ -900,6 +916,8 @@ pub enum WriteGate {
     Open,
     /// At least one seat has a write key: every governance write must be signed by the seat's key.
     Keys(Vec<crate::write_auth::WriteKey>),
+    /// A protocol-3 vault with no pin yet: nothing is taken from anyone.
+    Closed,
     /// The registry cannot be read: writes are refused, because reading it as "open" would turn the
     /// gate off exactly for a vault whose keys it holds.
     Unreadable(RegistryUnreadable),
@@ -907,8 +925,20 @@ pub enum WriteGate {
 
 /// The ONE place that decides open, gated or unreadable. `authorize_write` stays free of I/O and is
 /// handed the keys this returns.
-pub fn write_gate(vaults_dir: &Path, vault: &str) -> WriteGate {
-    match load_device_records(vaults_dir, vault) {
+pub fn write_gate(vaults_dir: &Path, reg: &VaultRegistration) -> WriteGate {
+    let protocol_3 = holds_pinned_forms(reg.cp);
+    if protocol_3 {
+        match read_key_state(vaults_dir, reg) {
+            ReadKey::Closed => return WriteGate::Closed,
+            ReadKey::Unreadable => {
+                return WriteGate::Unreadable(RegistryUnreadable(
+                    "the read key file cannot be read".into(),
+                ))
+            }
+            _ => {}
+        }
+    }
+    match load_device_records(vaults_dir, &reg.vault_id) {
         Err(e) => WriteGate::Unreadable(e),
         Ok(recs) => {
             let keys: Vec<_> = recs
@@ -920,10 +950,13 @@ pub fn write_gate(vaults_dir: &Path, vault: &str) -> WriteGate {
                     })
                 })
                 .collect();
-            if keys.is_empty() {
-                WriteGate::Open
-            } else {
+            if !keys.is_empty() {
                 WriteGate::Keys(keys)
+            } else if protocol_3 {
+                // Pinned means seats were recorded. Their absence is damage, never an open vault.
+                WriteGate::Unreadable(RegistryUnreadable("a pinned vault has no seats".into()))
+            } else {
+                WriteGate::Open
             }
         }
     }
@@ -937,8 +970,8 @@ pub fn load_write_keys(
     vaults_dir: &Path,
     vault: &str,
 ) -> Result<Vec<crate::write_auth::WriteKey>, RegistryUnreadable> {
-    match write_gate(vaults_dir, vault) {
-        WriteGate::Open => Ok(Vec::new()),
+    match write_gate(vaults_dir, &reg_for_read_key(vault, None)) {
+        WriteGate::Open | WriteGate::Closed => Ok(Vec::new()),
         WriteGate::Keys(k) => Ok(k),
         WriteGate::Unreadable(e) => Err(e),
     }
@@ -951,6 +984,10 @@ pub fn load_write_keys(
 /// record past it. Each device adds a box to the sealed signing request, so an unbounded registry
 /// would let the request outgrow the relay; with this bound, what a proposal is checked against at
 /// creation is never smaller than what its send is sealed to.
+///
+/// The app offers fewer: protocol 3 is bounded by the seat certificates (`share_sig::N_MAX`), and the
+/// app's number is that one. This bound stays above it so a vault an older app created, or one
+/// registered before protocol 3, keeps its devices (`the_seat_cap_is_the_apps`).
 pub const MAX_SEATS: u16 = 32;
 
 /// The most devices a send of this vault can be sealed to, as far as the registry can tell now: the
@@ -990,7 +1027,7 @@ impl std::fmt::Display for DeviceError {
 impl std::error::Error for DeviceError {}
 
 /// 32 bytes as 64 LOWER-case hex digits: one spelling per key, read by the one decoder.
-fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
+pub(crate) fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
     if h.bytes().any(|b| b.is_ascii_uppercase()) {
         return None;
     }
@@ -1002,12 +1039,13 @@ fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
 /// key, which would make every sealed send and `/ufvk` fail until the registry is edited by hand, is
 /// refused here by the rule that would refuse it there, with no second table of bad points.
 fn check_comms_key(comms: &str) -> Result<(), String> {
-    if is_lower_hex_32(comms).is_none() {
+    let Some(bytes) = is_lower_hex_32(comms) else {
         return Err("device_pub must be 64 lower-case hex characters".into());
+    };
+    if !konclave_seal::share_sig::comms_key_is_usable(&bytes) {
+        return Err("device_pub is not a valid device key".to_string());
     }
-    crate::envelope::seal_to_devices("check", b"", &[comms.to_string()])
-        .map(|_| ())
-        .map_err(|_| "device_pub is not a valid device key".to_string())
+    Ok(())
 }
 
 /// A write key the coordinator can verify with: 64 lower-case hex that decode to an Ed25519 point,
@@ -1015,13 +1053,11 @@ fn check_comms_key(comms: &str) -> Result<(), String> {
 /// the decoded point: `VerifyingKey::to_bytes()` hands back the bytes it was given, so comparing
 /// against that would pass anything that decodes.
 fn check_write_key(write: &str) -> Result<(), String> {
-    const BAD: &str = "write_pub is not a valid write key";
     let Some(bytes) = is_lower_hex_32(write) else {
         return Err("write_pub must be 64 lower-case hex characters".into());
     };
-    let vk = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| BAD.to_string())?;
-    if vk.is_weak() || vk.to_edwards().compress().to_bytes() != bytes {
-        return Err(BAD.into());
+    if !konclave_seal::share_sig::write_key_is_usable(&bytes) {
+        return Err("write_pub is not a valid write key".to_string());
     }
     Ok(())
 }
@@ -1044,9 +1080,22 @@ pub fn register_device(
     write_pub: Option<&str>,
 ) -> Result<bool, DeviceError> {
     let comms = comms.trim();
+    let write = check_device_claim(total, comms, seat, write_pub)?;
+    // Records with no seat are bounded by the seats this vault has (one older device per seat at
+    // most), so they cannot outnumber the seats they stand in for (#821).
+    let unseated_cap = if total > 0 { total } else { MAX_SEATS } as usize;
+    upsert_device_bounded(vaults_dir, vault, comms, write, unseated_cap)
+}
+
+fn check_device_claim<'a>(
+    total: u16,
+    comms: &str,
+    seat: Option<u16>,
+    write_pub: Option<&'a str>,
+) -> Result<Option<(u16, &'a str)>, DeviceError> {
     check_comms_key(comms).map_err(DeviceError::Invalid)?;
-    let write = match (seat, write_pub.map(str::trim)) {
-        (None, None) => None,
+    match (seat, write_pub.map(str::trim)) {
+        (None, None) => Ok(None),
         (Some(seat), Some(wp)) => {
             // A legacy vault registered with `total == 0` has no seat count of its own; it is held to
             // the most seats any vault can have, so seated records stay bounded there too (#821).
@@ -1057,18 +1106,93 @@ pub fn register_device(
                 ));
             }
             check_write_key(wp).map_err(DeviceError::Invalid)?;
-            Some((seat, wp))
+            Ok(Some((seat, wp)))
         }
-        _ => {
-            return Err(DeviceError::Invalid(
-                "seat and write_pub must be sent together".into(),
-            ))
+        _ => Err(DeviceError::Invalid(
+            "seat and write_pub must be sent together".into(),
+        )),
+    }
+}
+
+/// A seat that proved itself with its share: recorded under its seat, whatever its comms key. Nothing
+/// proves who holds a comms key, so a seat naming another's costs that other seat nothing, and the
+/// boxes to that key open only for its holder.
+pub(crate) fn register_proven_seat(
+    vaults_dir: &Path,
+    vault: &str,
+    total: u16,
+    comms: &str,
+    seat: u16,
+    write_pub: &str,
+) -> Result<bool, DeviceError> {
+    let comms = comms.trim();
+    let write = check_device_claim(total, comms, Some(seat), Some(write_pub))?;
+    write_device_records(
+        vaults_dir,
+        vault,
+        &[(comms, write)],
+        DeviceMatch::BySeat,
+        Records::Keep,
+        MAX_SEATS as usize,
+    )
+}
+
+/// The records of a vault being pinned, whole, in one write. It is still closed, so nothing a failed
+/// attempt recorded has been used and nothing of it stays.
+pub(crate) fn record_pinned_seats(
+    vaults_dir: &Path,
+    vault: &str,
+    total: u16,
+    seats: &[(String, u16, String)],
+) -> Result<(), DeviceError> {
+    let mut entries = Vec::with_capacity(seats.len());
+    for (comms, seat, write) in seats {
+        let write = check_device_claim(total, comms, Some(*seat), Some(write))?;
+        entries.push((comms.as_str(), write));
+    }
+    write_device_records(
+        vaults_dir,
+        vault,
+        &entries,
+        DeviceMatch::BySeat,
+        Records::Replace,
+        MAX_SEATS as usize,
+    )
+    .map(|_| ())
+}
+
+/// Who a request is sealed to. Protocol 3 never sends in the clear: the distinct comms keys of the
+/// seated records, refused below `t`, which is all the count can say. Nobody can know a seat holds
+/// the key it named. Older vaults keep [`request_recipients`].
+pub fn recipients_for(
+    reg: &VaultRegistration,
+    records: &[DeviceRecord],
+    signed: bool,
+) -> Result<Vec<String>, UnsealedRefused> {
+    if !holds_pinned_forms(reg.cp) {
+        let registered: Vec<String> = records.iter().map(|r| r.comms.clone()).collect();
+        return request_recipients(reg.total, &registered, signed);
+    }
+    let keys = seal_keys(reg, records);
+    // Never an empty list: to the sender that means "publish in the clear".
+    if keys.is_empty() || keys.len() < reg.threshold as usize {
+        return Err(UnsealedRefused);
+    }
+    Ok(keys)
+}
+
+/// The distinct comms keys of a protocol-3 vault's seated records: who anything is sealed to.
+pub fn seal_keys(reg: &VaultRegistration, records: &[DeviceRecord]) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    for record in records
+        .iter()
+        .filter(|r| r.seat.is_some_and(|seat| (1..=reg.total).contains(&seat)) && r.write.is_some())
+    {
+        if !keys.iter().any(|k| same_key(k, &record.comms)) {
+            keys.push(record.comms.clone());
         }
-    };
-    // Records with no seat are bounded by the seats this vault has (one older device per seat at
-    // most), so they cannot outnumber the seats they stand in for.
-    let unseated_cap = if total > 0 { total } else { MAX_SEATS } as usize;
-    upsert_device_bounded(vaults_dir, vault, comms, write, unseated_cap)
+    }
+    keys
 }
 
 /// A send that no seat signed and that would have to be published unsealed. See [`request_recipients`].
@@ -1096,6 +1220,350 @@ pub fn request_recipients(
         Ok(Vec::new())
     } else {
         Err(UnsealedRefused)
+    }
+}
+
+/// A registration carrying only what the read gate looks at.
+#[cfg(test)]
+pub(crate) fn reg_for_read_key(vault: &str, cp: Option<u32>) -> VaultRegistration {
+    VaultRegistration {
+        vault_id: vault.to_string(),
+        address: String::new(),
+        ufvk: String::new(),
+        wallet_dir: String::new(),
+        account: String::new(),
+        threshold: 2,
+        total: 2,
+        change_receiver: String::new(),
+        birthday: None,
+        cp,
+        created_at_unix: None,
+    }
+}
+
+#[cfg(test)]
+mod read_key_form_tests {
+    use super::*;
+
+    const CP3: Option<u32> = Some(3);
+    const KEY: &str = "ab";
+
+    fn fresh(name: &str) -> (PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("konclave-rk-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("v")).unwrap();
+        (dir, "v".to_string())
+    }
+    fn key() -> String {
+        KEY.repeat(32)
+    }
+    fn hash_of(key_hex: &str) -> [u8; 32] {
+        let bytes: [u8; 32] = konclave_seal::hex::decode(key_hex)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        konclave_seal::share_sig::read_key_hash(&bytes)
+    }
+    fn file(dir: &Path, v: &str) -> PathBuf {
+        read_key_path(dir, v)
+    }
+
+    #[test]
+    fn a_protocol_3_vault_starts_closed_and_an_older_one_open() {
+        let (dir, v) = fresh("absent");
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Closed
+        );
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, Some(2))),
+            ReadKey::Absent
+        );
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, None)),
+            ReadKey::Absent
+        );
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&key())
+        ));
+    }
+
+    #[test]
+    fn a_cp3_vault_with_a_string_read_key_refuses_everything() {
+        let (dir, v) = fresh("cp3-string");
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(key())).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Unreadable
+        );
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&key())
+        ));
+    }
+
+    #[test]
+    fn an_older_vault_with_a_pinned_form_refuses_everything() {
+        let (dir, v) = fresh("cp2-pinned");
+        write_read_key(&dir, &v, &ReadKeyForm::Closed).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, Some(2))),
+            ReadKey::Unreadable
+        );
+        write_read_key(&dir, &v, &ReadKeyForm::Pinned(hash_of(&key()))).unwrap();
+        for cp in [None, Some(2)] {
+            assert_eq!(
+                read_key_state(&dir, &reg_for_read_key(&v, cp)),
+                ReadKey::Unreadable
+            );
+            assert!(!read_authorized(
+                &dir,
+                &reg_for_read_key(&v, cp),
+                Some(&key())
+            ));
+        }
+    }
+
+    #[test]
+    fn the_forms_read_back_and_have_the_planned_fields() {
+        let (dir, v) = fresh("forms");
+        write_read_key(&dir, &v, &ReadKeyForm::Closed).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Closed
+        );
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file(&dir, &v)).unwrap()).unwrap();
+        assert_eq!(on_disk, serde_json::json!({"v": 1, "state": "closed"}));
+
+        let hash = hash_of(&key());
+        write_read_key(&dir, &v, &ReadKeyForm::Pinned(hash)).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Pinned(hash)
+        );
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file(&dir, &v)).unwrap()).unwrap();
+        let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            on_disk,
+            serde_json::json!({"v": 1, "state": "pinned", "read_key_sha256": hex})
+        );
+
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(key())).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, Some(2))),
+            ReadKey::Set(key())
+        );
+    }
+
+    #[test]
+    fn a_pinned_file_with_a_wrong_version_state_or_hash_is_unreadable() {
+        let (dir, v) = fresh("garbage");
+        for body in [
+            "",
+            "{}",
+            "[]",
+            "null",
+            r#"{"v":2,"state":"closed"}"#,
+            r#"{"v":1,"state":"open"}"#,
+            r#"{"v":1,"state":"pinned"}"#,
+            r#"{"v":1,"state":"pinned","read_key_sha256":"abcd"}"#,
+            r#"{"v":1,"state":"pinned","read_key_sha256":7}"#,
+            &format!(
+                r#"{{"v":1,"state":"pinned","read_key_sha256":"{}"}}"#,
+                "AB".repeat(32)
+            ),
+        ] {
+            std::fs::write(file(&dir, &v), body).unwrap();
+            assert_eq!(
+                read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+                ReadKey::Unreadable,
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn pinned_vault_reads_accept_only_a_token_whose_hash_matches() {
+        let (dir, v) = fresh("pinned-read");
+        let k = key();
+        write_read_key(&dir, &v, &ReadKeyForm::Pinned(hash_of(&k))).unwrap();
+        assert!(read_authorized(&dir, &reg_for_read_key(&v, CP3), Some(&k)));
+        assert!(read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&format!(" {k}\n"))
+        ));
+        assert!(!read_authorized(&dir, &reg_for_read_key(&v, CP3), None));
+        assert!(!read_authorized(&dir, &reg_for_read_key(&v, CP3), Some("")));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&"cd".repeat(32))
+        ));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&k[..62])
+        ));
+        // The stored hash itself opens nothing: that is why the key is not stored.
+        let stored: String = hash_of(&k).iter().map(|b| format!("{b:02x}")).collect();
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, CP3),
+            Some(&stored)
+        ));
+    }
+
+    #[test]
+    fn the_first_read_key_of_an_older_vault_is_refused_to_anyone() {
+        let (dir, v) = fresh("first");
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, Some(2)), None, &key()).unwrap(),
+            ReadKeyOutcome::NeedsProof
+        );
+        assert!(!file(&dir, &v).exists());
+    }
+
+    #[test]
+    fn an_older_vaults_key_changes_only_for_the_holder_of_the_current_one() {
+        let (dir, v) = fresh("rotate");
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(key())).unwrap();
+        let new = "cd".repeat(32);
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, Some(2)), None, &new).unwrap(),
+            ReadKeyOutcome::NeedsCurrentKey
+        );
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, Some(2)), Some(&new), &new).unwrap(),
+            ReadKeyOutcome::NeedsCurrentKey
+        );
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, Some(2)), Some(&key()), &key()).unwrap(),
+            ReadKeyOutcome::Unchanged
+        );
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, Some(2))),
+            ReadKey::Set(key())
+        );
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, Some(2)), Some(&key()), &new).unwrap(),
+            ReadKeyOutcome::Set
+        );
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, Some(2))),
+            ReadKey::Set(new)
+        );
+    }
+
+    #[test]
+    fn a_closed_or_pinned_vault_takes_no_key_from_an_offer() {
+        let (dir, v) = fresh("offer-cp3");
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, CP3), None, &key()).unwrap(),
+            ReadKeyOutcome::Closed
+        );
+        assert!(!file(&dir, &v).exists());
+        let hash = hash_of(&key());
+        write_read_key(&dir, &v, &ReadKeyForm::Pinned(hash)).unwrap();
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, CP3), None, &key()).unwrap(),
+            ReadKeyOutcome::Unchanged
+        );
+        let other = "cd".repeat(32);
+        assert_eq!(
+            offer_read_key(&dir, &reg_for_read_key(&v, CP3), Some(&key()), &other).unwrap(),
+            ReadKeyOutcome::PinnedToAnother
+        );
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Pinned(hash)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_takes_no_offer() {
+        let (dir, v) = fresh("offer-bad");
+        std::fs::write(file(&dir, &v), "{").unwrap();
+        for cp in [None, Some(2), CP3] {
+            assert_eq!(
+                offer_read_key(&dir, &reg_for_read_key(&v, cp), Some(&key()), &key()).unwrap(),
+                ReadKeyOutcome::Unreadable
+            );
+        }
+        assert_eq!(std::fs::read_to_string(file(&dir, &v)).unwrap(), "{");
+    }
+
+    #[test]
+    fn a_key_file_that_cannot_be_read_is_not_a_closed_vault() {
+        let (dir, v) = fresh("io");
+        std::fs::create_dir_all(file(&dir, &v)).unwrap();
+        assert_eq!(
+            read_key_state(&dir, &reg_for_read_key(&v, CP3)),
+            ReadKey::Unreadable
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_key_is_never_written_and_spaces_do_not_make_a_new_key() {
+        let (dir, v) = fresh("not-a-key");
+        let older = reg_for_read_key(&v, Some(2));
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(key())).unwrap();
+        for bad in [
+            "",
+            "   ",
+            "abc",
+            &"AB".repeat(32),
+            &format!("{}zz", "ab".repeat(31)),
+        ] {
+            assert_eq!(
+                offer_read_key(&dir, &older, Some(&key()), bad).unwrap(),
+                ReadKeyOutcome::NotAKey,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(read_key_state(&dir, &older), ReadKey::Set(key()));
+        let before = std::fs::read_to_string(file(&dir, &v)).unwrap();
+        assert_eq!(
+            offer_read_key(&dir, &older, Some(&key()), &format!(" {}\n", key())).unwrap(),
+            ReadKeyOutcome::Unchanged
+        );
+        assert_eq!(std::fs::read_to_string(file(&dir, &v)).unwrap(), before);
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(format!(" {}\n", key()))).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(file(&dir, &v)).unwrap(),
+            format!("\"{}\"", key())
+        );
+    }
+
+    #[test]
+    fn the_boot_scan_uses_a_readable_registrations_protocol() {
+        let (dir, v) = fresh("scan-loaded");
+        let reg = reg_for_read_key(&v, CP3);
+        std::fs::write(
+            dir.join(&v).join("registration.json"),
+            serde_json::to_string(&reg).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(read_key_state_on_disk(&dir, &v), ReadKey::Closed);
+        write_read_key(&dir, &v, &ReadKeyForm::Legacy(key())).unwrap();
+        assert_eq!(read_key_state_on_disk(&dir, &v), ReadKey::Unreadable);
+    }
+
+    #[test]
+    fn the_boot_scan_reads_the_protocol_from_the_registration_and_fails_closed_without_one() {
+        let (dir, v) = fresh("scan");
+        assert_eq!(
+            read_key_state_on_disk(&dir, &v),
+            ReadKey::Absent,
+            "no registration at all"
+        );
+        std::fs::write(dir.join("v").join("registration.json"), "{cut").unwrap();
+        assert_eq!(read_key_state_on_disk(&dir, &v), ReadKey::Unreadable);
     }
 }
 
@@ -1153,7 +1621,7 @@ pub fn add_device_key(
     upsert_device(vaults_dir, vault, device_pub, None)
 }
 
-fn same_key(a: &str, b: &str) -> bool {
+pub(crate) fn same_key(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
@@ -1183,15 +1651,9 @@ pub fn upsert_device(
     upsert_device_bounded(vaults_dir, vault, comms, write, MAX_SEATS as usize)
 }
 
-/// [`upsert_device`] with the most records WITHOUT a seat this vault may hold (#821).
-///
-/// The registry holds at most [`MAX_SEATS`] records, because each adds a box to every signing request.
-/// Within that, a seat always wins: a device registering for a seat (new, or binding a record it
-/// already has) is never refused for room. Seats are unique and at most `MAX_SEATS`, so seated
-/// records cannot overflow the registry; when it is full, the oldest record with no seat is dropped
-/// to make room. A record with no seat is refused once the registry is full or once `unseated_cap`
-/// records without a seat are on record. So records without a seat can never keep a seat out of
-/// the sealed request.
+/// [`upsert_device`] with the most records WITHOUT a seat this vault may hold (#821). The registry
+/// holds at most [`MAX_SEATS`] records; a seat always has room, and a record with no seat is refused
+/// once the registry is full or once `unseated_cap` records without a seat are on record.
 fn upsert_device_bounded(
     vaults_dir: &Path,
     vault: &str,
@@ -1199,9 +1661,69 @@ fn upsert_device_bounded(
     write: Option<(u16, &str)>,
     unseated_cap: usize,
 ) -> Result<bool, DeviceError> {
-    let comms = comms.trim();
-    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
+    write_device_records(
+        vaults_dir,
+        vault,
+        &[(comms.trim(), write)],
+        DeviceMatch::ByComms,
+        Records::Keep,
+        unseated_cap,
+    )
+}
 
+/// How a claim finds its record: the one difference between a claim nobody proved and a proven seat.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeviceMatch {
+    /// By comms key, which is bound once to one seat.
+    ByComms,
+    /// By seat: the share proved the seat, and the comms key is only where its boxes go.
+    BySeat,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Records {
+    Keep,
+    /// Start from none. An unreadable registry is still refused rather than written over.
+    Replace,
+}
+
+/// The one writer of the device registry, in one write however many claims it carries.
+fn write_device_records(
+    vaults_dir: &Path,
+    vault: &str,
+    claims: &[(&str, Option<(u16, &str)>)],
+    matching: DeviceMatch,
+    base: Records,
+    unseated_cap: usize,
+) -> Result<bool, DeviceError> {
+    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
+    if base == Records::Replace {
+        recs.clear();
+    }
+    let mut changed = base == Records::Replace;
+    for (comms, write) in claims {
+        changed |= apply_device_claim(&mut recs, comms, *write, matching, unseated_cap)?;
+    }
+    if !changed {
+        return Ok(false);
+    }
+    let path = device_keys_path(vaults_dir, vault);
+    let dir = vaults_dir.join(vault);
+    std::fs::create_dir_all(&dir).map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
+    let json = serde_json::to_string(&recs)
+        .map_err(|e| DeviceError::Io(ToolError::parse("device-keys", e.to_string())))?;
+    write_device_registry(&path, &dir, json.as_bytes())
+        .map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
+    Ok(true)
+}
+
+fn apply_device_claim(
+    recs: &mut Vec<DeviceRecord>,
+    comms: &str,
+    write: Option<(u16, &str)>,
+    matching: DeviceMatch,
+    unseated_cap: usize,
+) -> Result<bool, DeviceError> {
     if let Some((seat, _)) = write {
         if recs
             .iter()
@@ -1214,7 +1736,14 @@ fn upsert_device_bounded(
     }
 
     let mut changed = false;
-    match recs.iter_mut().find(|r| same_key(&r.comms, comms)) {
+    let found = recs.iter_mut().find(|r| match (matching, write) {
+        (DeviceMatch::BySeat, Some((seat, _))) => {
+            r.seat == Some(seat)
+                || (r.seat.is_none() && r.write.is_none() && same_key(&r.comms, comms))
+        }
+        _ => same_key(&r.comms, comms),
+    });
+    match found {
         Some(existing) => {
             if let Some((seat, wk)) = write {
                 let wk = wk.trim();
@@ -1262,18 +1791,7 @@ fn upsert_device_bounded(
             changed = true;
         }
     }
-    if !changed {
-        return Ok(false); // idempotent no-op
-    }
-
-    let path = device_keys_path(vaults_dir, vault);
-    let dir = vaults_dir.join(vault);
-    std::fs::create_dir_all(&dir).map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
-    let json = serde_json::to_string(&recs)
-        .map_err(|e| DeviceError::Io(ToolError::parse("device-keys", e.to_string())))?;
-    write_device_registry(&path, &dir, json.as_bytes())
-        .map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
-    Ok(true)
+    Ok(changed)
 }
 
 /// The registry is replaced whole or not at all ([`replace_file`]): a write cut half way must not
@@ -1350,6 +1868,10 @@ fn burn_write_nonce_with(
     replace_file(&path, &vaults_dir.join(vault), json.as_bytes(), write_tmp).map_err(ToolError::Io)
 }
 
+pub(crate) fn pin_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("creation-pin.json")
+}
+
 fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("read-key.json")
 }
@@ -1359,13 +1881,13 @@ fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
 /// only: the coordinator decides through [`read_key_state`] and [`read_authorized`].
 #[cfg(test)]
 pub fn load_read_key(vaults_dir: &Path, vault: &str) -> Option<String> {
-    match read_key_state(vaults_dir, vault) {
+    match state_with_protocol(vaults_dir, vault, None) {
         ReadKey::Set(key) => Some(key),
-        ReadKey::Absent | ReadKey::Unreadable => None,
+        ReadKey::Absent | ReadKey::Unreadable | ReadKey::Closed | ReadKey::Pinned(_) => None,
     }
 }
 
-/// What a vault's `read-key.json` says. The three answers stay apart, like [`WriteGate`]: a file
+/// What a vault's `read-key.json` says. The answers stay apart, like [`WriteGate`]: a file
 /// that is there and cannot be read must not be read as "no key", which is an open vault.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadKey {
@@ -1373,54 +1895,217 @@ pub enum ReadKey {
     Absent,
     /// A key is registered.
     Set(String),
-    /// The file is there and is not a key (cannot be opened, is empty, is not a JSON string).
+    /// The file is there and is not a key this vault can have.
+    Unreadable,
+    /// A protocol-3 vault with no pinned key yet: everything is refused.
+    Closed,
+    /// A protocol-3 vault's pinned key: its hash, never the key.
+    Pinned([u8; 32]),
+}
+
+/// What one offer of a read key came to. The route maps this and decides nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadKeyOutcome {
+    /// A new key took the place of the one presented.
+    Set,
+    /// It is the key already there; nothing was written.
+    Unchanged,
+    /// No key yet, and a first key is not taken on anyone's word.
+    NeedsProof,
+    /// A key is set, and changing it needs the current one.
+    NeedsCurrentKey,
+    Closed,
+    /// A pinned vault's key is not this one.
+    PinnedToAnother,
+    /// What was offered is not 32 bytes of lower-case hex: nothing is read or written.
+    NotAKey,
     Unreadable,
 }
 
-/// The ONE place that decides absent, set or unreadable for a vault's read key.
-pub fn read_key_state(vaults_dir: &Path, vault: &str) -> ReadKey {
-    match std::fs::read_to_string(read_key_path(vaults_dir, vault)) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ReadKey::Absent,
-        Err(_) => ReadKey::Unreadable,
-        Ok(json) => match serde_json::from_str::<String>(&json) {
-            Ok(key) if !key.trim().is_empty() => ReadKey::Set(key),
-            _ => ReadKey::Unreadable,
-        },
+/// Whether a vault is under protocol 3's rules. The one place this is decided.
+pub fn holds_pinned_forms(cp: Option<u32>) -> bool {
+    cp.is_some_and(|cp| cp >= 3)
+}
+
+/// Every form `read-key.json` can take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReadKeyForm {
+    Legacy(String),
+    Closed,
+    Pinned([u8; 32]),
+}
+
+/// The state read from a vault's directory alone, for the boot scan, which has no registry entry: an
+/// unreadable registration with no key file is not an open vault.
+pub fn read_key_state_on_disk(vaults_dir: &Path, vault: &str) -> ReadKey {
+    match stored_registration(vaults_dir, vault) {
+        StoredRegistration::Loaded(reg) => read_key_state(vaults_dir, &reg),
+        StoredRegistration::Absent => state_with_protocol(vaults_dir, vault, None),
+        StoredRegistration::Unreadable => ReadKey::Unreadable,
     }
+}
+
+/// The one door for offering a read key.
+pub fn offer_read_key(
+    vaults_dir: &Path,
+    reg: &VaultRegistration,
+    presented: Option<&str>,
+    new_key: &str,
+) -> Result<ReadKeyOutcome, ToolError> {
+    let vault = reg.vault_id.as_str();
+    if is_lower_hex_32(new_key.trim()).is_none() {
+        return Ok(ReadKeyOutcome::NotAKey);
+    }
+    Ok(match read_key_state(vaults_dir, reg) {
+        ReadKey::Unreadable => ReadKeyOutcome::Unreadable,
+        ReadKey::Closed => ReadKeyOutcome::Closed,
+        ReadKey::Absent => ReadKeyOutcome::NeedsProof,
+        ReadKey::Pinned(hash) => {
+            if hash_of_read_key(new_key).is_some_and(|offered| ct_eq(&offered, &hash)) {
+                ReadKeyOutcome::Unchanged
+            } else {
+                ReadKeyOutcome::PinnedToAnother
+            }
+        }
+        ReadKey::Set(current) => {
+            if !presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), current.as_bytes())) {
+                ReadKeyOutcome::NeedsCurrentKey
+            } else if new_key.trim() == current {
+                ReadKeyOutcome::Unchanged
+            } else {
+                write_read_key(vaults_dir, vault, &ReadKeyForm::Legacy(new_key.to_string()))?;
+                ReadKeyOutcome::Set
+            }
+        }
+    })
+}
+
+/// The one writer of `read-key.json`.
+pub(crate) fn write_read_key(
+    vaults_dir: &Path,
+    vault: &str,
+    form: &ReadKeyForm,
+) -> Result<(), ToolError> {
+    write_read_key_with(vaults_dir, vault, form, write_synced)
+}
+
+/// The ONE place that decides a vault's read-key state, from the protocol in its registry entry.
+pub fn read_key_state(vaults_dir: &Path, reg: &VaultRegistration) -> ReadKey {
+    state_with_protocol(vaults_dir, &reg.vault_id, reg.cp)
+}
+
+pub(crate) fn state_with_protocol(vaults_dir: &Path, vault: &str, cp: Option<u32>) -> ReadKey {
+    let pinned_forms = holds_pinned_forms(cp);
+    let json = match std::fs::read_to_string(read_key_path(vaults_dir, vault)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return if pinned_forms && pin_path(vaults_dir, vault).is_file() {
+                // It was pinned and the key file is gone: not a vault waiting for its pin.
+                ReadKey::Unreadable
+            } else if pinned_forms {
+                ReadKey::Closed
+            } else {
+                ReadKey::Absent
+            };
+        }
+        Err(_) => return ReadKey::Unreadable,
+        Ok(json) => json,
+    };
+    // A form the vault cannot hold is refused, not read as the nearest one it can.
+    match (parse_read_key(&json), pinned_forms) {
+        (Some(ReadKeyForm::Legacy(key)), false) => ReadKey::Set(key),
+        (Some(ReadKeyForm::Closed), true) => ReadKey::Closed,
+        (Some(ReadKeyForm::Pinned(hash)), true) => ReadKey::Pinned(hash),
+        _ => ReadKey::Unreadable,
+    }
+}
+
+fn parse_read_key(json: &str) -> Option<ReadKeyForm> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    if let Some(key) = value.as_str() {
+        return (!key.trim().is_empty()).then(|| ReadKeyForm::Legacy(key.to_string()));
+    }
+    if value.get("v")?.as_u64()? != 1 {
+        return None;
+    }
+    match value.get("state")?.as_str()? {
+        "closed" => Some(ReadKeyForm::Closed),
+        "pinned" => {
+            let hex = value.get("read_key_sha256")?.as_str()?;
+            is_lower_hex_32(hex).map(ReadKeyForm::Pinned)
+        }
+        _ => None,
+    }
+}
+
+fn hash_of_read_key(key: &str) -> Option<[u8; 32]> {
+    let bytes: [u8; 32] = konclave_seal::hex::decode(key.trim())?.try_into().ok()?;
+    Some(konclave_seal::share_sig::read_key_hash(&bytes))
 }
 
 /// Register (or replace) the vault's read token. Called once at migration; from then on every read
 /// must present exactly this value. This is a shared access secret (members + helper), not spendable
 /// material - it gates WHO may ask the helper, and does not change that the helper is view-only.
+#[cfg(any(test, feature = "test-seed"))]
 pub fn set_read_key(vaults_dir: &Path, vault: &str, read_key: &str) -> Result<(), ToolError> {
     set_read_key_with(vaults_dir, vault, read_key, write_synced)
 }
 
+#[cfg(any(test, feature = "test-seed"))]
 fn set_read_key_with(
     vaults_dir: &Path,
     vault: &str,
     read_key: &str,
     write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
 ) -> Result<(), ToolError> {
+    write_read_key_with(
+        vaults_dir,
+        vault,
+        &ReadKeyForm::Legacy(read_key.to_string()),
+        write_tmp,
+    )
+}
+
+fn write_read_key_with(
+    vaults_dir: &Path,
+    vault: &str,
+    form: &ReadKeyForm,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
     let path = read_key_path(vaults_dir, vault);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
-    let json = serde_json::to_string(read_key.trim())
-        .map_err(|e| ToolError::parse("read-key", e.to_string()))?;
+    let value = match form {
+        ReadKeyForm::Legacy(key) => serde_json::json!(key.trim()),
+        ReadKeyForm::Closed => serde_json::json!({ "v": 1, "state": "closed" }),
+        ReadKeyForm::Pinned(hash) => {
+            let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+            serde_json::json!({ "v": 1, "state": "pinned", "read_key_sha256": hex })
+        }
+    };
+    let json =
+        serde_json::to_string(&value).map_err(|e| ToolError::parse("read-key", e.to_string()))?;
     // The temporary lives in the vault's directory and is renamed over the file: a write that is cut
     // leaves the old file whole.
     replace_file(&path, &vaults_dir.join(vault), json.as_bytes(), write_tmp).map_err(ToolError::Io)
 }
 
-/// Is this read authorized? A vault with no registered readKey is OPEN (pre-#388 compat). Once a
+/// Is this read authorized? A vault older than protocol 3 with no registered readKey is OPEN
+/// (pre-#388 compat); a protocol-3 one is closed. Once a
 /// readKey is set, the read must present exactly it, compared in constant time so a guess learns
 /// nothing from timing. A key file that is there and cannot be read refuses every read.
-pub fn read_authorized(vaults_dir: &Path, vault: &str, presented: Option<&str>) -> bool {
-    match read_key_state(vaults_dir, vault) {
+pub fn read_authorized(
+    vaults_dir: &Path,
+    reg: &VaultRegistration,
+    presented: Option<&str>,
+) -> bool {
+    match read_key_state(vaults_dir, reg) {
         ReadKey::Absent => true, // not migrated: the gate is open
         // A key file that cannot be read refuses, as an unreadable device registry does.
-        ReadKey::Unreadable => false,
+        ReadKey::Unreadable | ReadKey::Closed => false,
+        ReadKey::Pinned(hash) => presented
+            .and_then(hash_of_read_key)
+            .is_some_and(|offered| ct_eq(&offered, &hash)),
         ReadKey::Set(expected) => {
             presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), expected.as_bytes()))
         }
@@ -2012,6 +2697,15 @@ fn register_vault_with(
         return Err(RegisterError::CleanupFailed);
     }
     let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
+    // Protocol 3: refused here, before a wallet exists, so a mismatch leaves nothing behind. A vault
+    // whose address its own key does not derive is one every device would refuse.
+    let derived = match cp {
+        cp if holds_pinned_forms(cp) => Some(
+            protocol_3_receivers(group_key, &cfg.network, &address, &ufvk)
+                .map_err(RegisterError::AddressMismatch)?,
+        ),
+        _ => None,
+    };
     // From here on the engine writes a wallet. Whatever stops it part way (the volume filling up
     // under the SQLite file is the likely one) must not leave that directory where the next attempt's
     // `init-fvk` trips on it, so a failure sets it aside like a failed write does. It is safe to move:
@@ -2043,15 +2737,18 @@ fn register_vault_with(
     // about (a result requested and discarded), and an empty field with no explanation would leave
     // whoever debugs an unarmed gate with nothing to go on. The vault is named because the failure
     // is per-vault: one bad UFVK must not read as the whole helper being broken.
-    let change_receiver = match change_receiver(&ufvk, &cfg.network) {
-        Ok(addr) => addr,
-        Err(e) => {
-            log_vault(
-                group_key,
-                &format!("no change receiver derived ({e:?}); its money gate stays unarmed"),
-            );
-            String::new()
-        }
+    let change_receiver = match derived {
+        Some(receivers) => receivers.internal_ua,
+        None => match change_receiver(&ufvk, &cfg.network) {
+            Ok(addr) => addr,
+            Err(e) => {
+                log_vault(
+                    group_key,
+                    &format!("no change receiver derived ({e:?}); its money gate stays unarmed"),
+                );
+                String::new()
+            }
+        },
     };
     // Read back what `init-fvk` actually used, rather than assuming the default it computes. This
     // is the number a rebuilt wallet has to be given, and `registration.json` is the half of a
@@ -2130,6 +2827,8 @@ pub enum RegisterError {
     /// The identity was derived and the wallet built, but the registration could not be written.
     /// What the attempt created was set aside, so the same vault can be registered again.
     NotPersisted(ToolError),
+    /// The engine gave a protocol-3 vault an identity that does not hold together. Nothing exists.
+    AddressMismatch(ToolError),
     /// An operator has to act before another attempt can work: what a failed attempt left could not
     /// be set aside, three earlier attempts' leftovers are in place, or a wallet directory or an
     /// unreadable registration is there that is not this call's to touch.
@@ -2154,7 +2853,7 @@ pub const CLEANUP_FAILED_TEXT: &str =
 impl std::fmt::Display for RegisterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RegisterError::Engine(e) => write!(f, "{e}"),
+            RegisterError::Engine(e) | RegisterError::AddressMismatch(e) => write!(f, "{e}"),
             RegisterError::NotPersisted(_) => f.write_str(NOT_PERSISTED_TEXT),
             RegisterError::CleanupFailed => f.write_str(CLEANUP_FAILED_TEXT),
         }
@@ -2401,6 +3100,38 @@ pub fn derive_identity(
         None,
     )?;
     parse_generate(&out)
+}
+
+/// A protocol-3 vault's receivers, through the same function its devices use, and the address the
+/// engine gave checked against them. Older vaults keep [`change_receiver`]'s reading.
+fn protocol_3_receivers(
+    group_key: &str,
+    network: &str,
+    address: &str,
+    ufvk: &str,
+) -> Result<konclave_seal::receivers::VaultReceivers, ToolError> {
+    use zcash_protocol::consensus::NetworkType;
+    let refused = |why: String| ToolError::parse("protocol_3_receivers", why);
+    let network = match network {
+        "main" | "mainnet" => NetworkType::Main,
+        "test" | "testnet" => NetworkType::Test,
+        other => return Err(refused(format!("unknown network {other:?}"))),
+    };
+    // One spelling: the id names a directory, so another case would be a second vault.
+    if group_key.bytes().any(|b| b.is_ascii_uppercase()) {
+        return Err(refused("the group key is not lower case".to_string()));
+    }
+    let ak: [u8; 32] = konclave_seal::hex::decode(group_key)
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| refused("the group key is not 32 bytes".to_string()))?;
+    let receivers = konclave_seal::receivers::vault_receivers(ufvk, network, &ak)
+        .map_err(|e| refused(format!("the viewing key is refused: {e:?}")))?;
+    if receivers.external_ua != address {
+        return Err(refused(
+            "the address is not the one the viewing key derives".to_string(),
+        ));
+    }
+    Ok(receivers)
 }
 
 /// The vault's **internal** (change) Orchard receiver, derived from its UFVK.
@@ -2919,6 +3650,35 @@ mod tests {
             .collect()
     }
 
+    /// A registry already holding MAX_SEATS seated records takes no device without a seat, even
+    /// though no record without a seat is on file yet: every record adds a box to the request.
+    #[test]
+    fn a_full_registry_of_seats_takes_no_device_without_a_seat() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-dev-fullseats-{}", std::process::id()));
+        let v = "c".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        let full: Vec<DeviceRecord> = (1..=MAX_SEATS)
+            .map(|seat| DeviceRecord {
+                comms: comms_key(seat),
+                seat: Some(seat),
+                write: Some(write_key(seat)),
+            })
+            .collect();
+        std::fs::write(
+            dir.join(&v).join("device-keys.json"),
+            serde_json::to_string(&full).unwrap(),
+        )
+        .unwrap();
+        let r = register_device(&dir, &v, MAX_SEATS, &comms_key(MAX_SEATS + 1), None, None);
+        assert!(matches!(r, Err(DeviceError::Conflict(_))), "{r:?}");
+        assert_eq!(
+            load_device_records(&dir, &v).unwrap().len(),
+            MAX_SEATS as usize
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn records_without_a_seat_are_bounded_by_the_seats() {
         let dir =
@@ -2972,19 +3732,26 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// One number on both sides: the app offers no vault the coordinator would refuse, and the
-    /// coordinator sizes the signing request for no fewer devices than the app allows.
+    /// The app offers no vault the coordinator would refuse, and the coordinator sizes the signing
+    /// request for no fewer devices than the app allows.
     #[test]
     fn the_seat_cap_is_the_apps() {
         let ui = include_str!("../../ui/src/dkg-ceremony.ts");
         let n: u16 = ui
             .lines()
-            .find_map(|l| l.trim().strip_prefix("const MAX_SEATS = "))
+            .find_map(|l| {
+                let l = l.trim();
+                l.strip_prefix("export ")
+                    .unwrap_or(l)
+                    .strip_prefix("const MAX_SEATS = ")
+            })
             .expect("ui/src/dkg-ceremony.ts declares MAX_SEATS")
             .trim()
             .parse()
             .expect("a number");
-        assert_eq!(n, MAX_SEATS);
+        // The app offers the certificates' bound, and never a vault the coordinator would refuse.
+        assert_eq!(n, konclave_seal::share_sig::N_MAX);
+        assert!(n <= MAX_SEATS);
     }
 
     #[test]
@@ -3068,14 +3835,25 @@ mod tests {
         std::fs::create_dir_all(dir.join(&v)).unwrap();
         let path = dir.join(&v).join("device-keys.json");
 
-        assert_eq!(write_gate(&dir, &v), WriteGate::Open);
+        assert_eq!(
+            write_gate(&dir, &reg_for_read_key(&v, None)),
+            WriteGate::Open
+        );
         // Comms-only records are still an open vault.
         std::fs::write(&path, r#"["aa"]"#).unwrap();
-        assert_eq!(write_gate(&dir, &v), WriteGate::Open);
+        assert_eq!(
+            write_gate(&dir, &reg_for_read_key(&v, None)),
+            WriteGate::Open
+        );
         std::fs::write(&path, r#"[{"comms":"aa","seat":1,"write":"bb"}]"#).unwrap();
-        assert!(matches!(write_gate(&dir, &v), WriteGate::Keys(k) if k.len() == 1));
+        assert!(
+            matches!(write_gate(&dir, &reg_for_read_key(&v, None)), WriteGate::Keys(k) if k.len() == 1)
+        );
         std::fs::write(&path, b"").unwrap();
-        assert!(matches!(write_gate(&dir, &v), WriteGate::Unreadable(_)));
+        assert!(matches!(
+            write_gate(&dir, &reg_for_read_key(&v, None)),
+            WriteGate::Unreadable(_)
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -3157,6 +3935,16 @@ mod tests {
         // inside `register_device`, and the call inside `add_device_key`, which is `#[cfg(test)]` (so
         // it never exists in a production build) but sits above the test module this scan stops at.
         assert_eq!(found, vec![("helper.rs".to_string(), 5)], "{found:?}");
+
+        // And the one writer behind it has three doors: the unproven one and the two proven ones.
+        let helper = std::fs::read_to_string(root.join("orchestrator/src/helper.rs")).unwrap();
+        let prod = helper.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let writer = ["write_device", "_records("].concat();
+        assert_eq!(
+            prod.matches(writer.as_str()).count(),
+            4,
+            "the definition and three doors"
+        );
     }
 
     /// The production writer REPLACES the registry (new inode), it does not rewrite it in place: a hard
@@ -4486,9 +5274,12 @@ mod tests {
 
         // No key yet: the gate is OPEN, with or without a presented token.
         assert!(load_read_key(&dir, "v").is_none(), "starts with no readKey");
-        assert!(read_authorized(&dir, "v", None), "open when no key is set");
         assert!(
-            read_authorized(&dir, "v", Some("whatever")),
+            read_authorized(&dir, &reg_for_read_key("v", None), None),
+            "open when no key is set"
+        );
+        assert!(
+            read_authorized(&dir, &reg_for_read_key("v", None), Some("whatever")),
             "open ignores any token when no key"
         );
 
@@ -4496,21 +5287,21 @@ mod tests {
         set_read_key(&dir, "v", "deadbeef").unwrap();
         assert_eq!(load_read_key(&dir, "v").as_deref(), Some("deadbeef"));
         assert!(
-            read_authorized(&dir, "v", Some("deadbeef")),
+            read_authorized(&dir, &reg_for_read_key("v", None), Some("deadbeef")),
             "the right token passes"
         );
         assert!(
-            !read_authorized(&dir, "v", Some("wrong")),
+            !read_authorized(&dir, &reg_for_read_key("v", None), Some("wrong")),
             "a wrong token is refused"
         );
         assert!(
-            !read_authorized(&dir, "v", None),
+            !read_authorized(&dir, &reg_for_read_key("v", None), None),
             "a migrated vault refuses an untokened read"
         );
 
         // The gate is per-vault: another vault with no key is still open.
         assert!(
-            read_authorized(&dir, "other", None),
+            read_authorized(&dir, &reg_for_read_key("other", None), None),
             "a different vault has its own gate"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -4991,14 +5782,42 @@ mod tests {
         let (dir, v) = fresh_vault("tokenlen");
         let key = "ab".repeat(32);
         set_read_key(&dir, &v, &key).unwrap();
-        assert!(read_authorized(&dir, &v, Some(&key)));
-        assert!(read_authorized(&dir, &v, Some(&format!(" {key}\n"))));
-        assert!(!read_authorized(&dir, &v, None));
-        assert!(!read_authorized(&dir, &v, Some("")));
-        assert!(!read_authorized(&dir, &v, Some(&key[..63])));
-        assert!(!read_authorized(&dir, &v, Some(&key[..1])));
-        assert!(!read_authorized(&dir, &v, Some(&format!("{key}0"))));
-        assert!(!read_authorized(&dir, &v, Some(&"cd".repeat(32))));
+        assert!(read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&key)
+        ));
+        assert!(read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&format!(" {key}\n"))
+        ));
+        assert!(!read_authorized(&dir, &reg_for_read_key(&v, None), None));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some("")
+        ));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&key[..63])
+        ));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&key[..1])
+        ));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&format!("{key}0"))
+        ));
+        assert!(!read_authorized(
+            &dir,
+            &reg_for_read_key(&v, None),
+            Some(&"cd".repeat(32))
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -5160,6 +5979,49 @@ mod change_receiver_tests {
     // holds.
     const UFVK: &str = "uview1z2nst9y9367acqqykyws80hrc3df87ffnwvtvx3ggf3tvx342sncxxfztdgfk67a0xk4c0wptspqyc4k59ucqrtxgdka96ktjudm5gr65d8aaq6js0jpwrfryrafzu82axyezm9e6y5r96z7hk8a04zpvs5896xeze9pmpwwymh5h7xeae79wscp2c08j";
     const EXTERNAL: &str = "u1cl9hwu3v580lgfuz9z9u8wp9scpy4c2yzcre7kvghtfuyyvsan33g0fgmkyx246mtq6s5x2qzraetalqfhkmul2agejjxynqxvz5e3el";
+
+    /// The group key of the vector, read out of the key itself.
+    fn vector_group_key() -> String {
+        use zcash_address::unified::{Container, Encoding, Fvk, Ufvk, Uitem};
+        let (_, _, parsed) = Ufvk::decode(UFVK).unwrap();
+        let [Uitem::Data(Fvk::Orchard(bytes))] = parsed.items_as_parsed() else {
+            panic!("the vector is one Orchard key");
+        };
+        bytes[..32].iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Written by hand on purpose: what a device derives must be what older vaults were given.
+    #[test]
+    fn the_two_readings_of_the_change_receiver_give_the_same_bytes() {
+        let r = protocol_3_receivers(&vector_group_key(), "main", EXTERNAL, UFVK).unwrap();
+        assert_eq!(r.internal_ua, change_receiver(UFVK, "main").unwrap());
+        assert_eq!(r.external_ua, EXTERNAL);
+    }
+
+    #[test]
+    fn a_protocol_3_identity_that_does_not_hold_together_is_refused() {
+        let key = vector_group_key();
+        let change = change_receiver(UFVK, "main").unwrap();
+        assert!(
+            protocol_3_receivers(&key, "main", &change, UFVK).is_err(),
+            "another address"
+        );
+        let other = format!(
+            "{}{}",
+            &key[..63],
+            if key.ends_with('0') { "1" } else { "0" }
+        );
+        assert!(
+            protocol_3_receivers(&other, "main", EXTERNAL, UFVK).is_err(),
+            "another vault"
+        );
+        assert!(
+            protocol_3_receivers(&key, "test", EXTERNAL, UFVK).is_err(),
+            "another network"
+        );
+        assert!(protocol_3_receivers(&key, "main", EXTERNAL, "uview1x2w3").is_err());
+        assert!(protocol_3_receivers("abc", "main", EXTERNAL, UFVK).is_err());
+    }
 
     #[test]
     fn the_change_receiver_is_not_the_address_funds_are_received_at() {
@@ -5393,6 +6255,61 @@ mod change_receiver_tests {
             cp: None,
             created_at_unix: None,
         }
+    }
+
+    /// An honest protocol-3 registration, against the literal the vector's change receiver is.
+    #[cfg(unix)]
+    #[test]
+    fn an_honest_protocol_3_registration_records_what_the_key_derives() {
+        use std::os::unix::fs::PermissionsExt;
+        let (mut cfg, dir) = n1_fixture("cp3-honest");
+        let sign = dir.join("vector-sign");
+        let body = format!(
+            "#!/bin/sh\necho 'Orchard-only unified address: \"{EXTERNAL}\"'\necho 'Unified Full Viewing Key: \"{UFVK}\"'\n"
+        );
+        std::fs::write(&sign, body).unwrap();
+        std::fs::set_permissions(&sign, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // The file was just written: wait out "text file busy", as the fixture does.
+        for _ in 0..200 {
+            match std::process::Command::new(&sign).output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                _ => break,
+            }
+        }
+        cfg.zcash_sign = sign;
+        let key = vector_group_key();
+        let reg = register_vault(&cfg, &key, "v", 2, 3, Some(3)).unwrap();
+        assert_eq!(reg.address, EXTERNAL);
+        assert_eq!(reg.change_receiver, "u1d06pafex5wdk529qnu4lnsdkukajnzncx27gn2t4a6mq7hj4tdx78xe4vl65n97hcq7n7tpu6dqz3kn49yrggdwh25ernx0sag0pvgn2");
+        assert_eq!(reg.cp, Some(3));
+        assert!(Path::new(&reg.wallet_dir).exists());
+
+        let upper = key.to_uppercase();
+        assert!(
+            register_vault(&cfg, &upper, "v", 2, 3, Some(3)).is_err(),
+            "one spelling"
+        );
+    }
+
+    /// The fixture's engine answers with a key that is not this vault's: for protocol 3 that ends
+    /// the attempt before a wallet exists; for protocol 2 it is what it always was.
+    #[cfg(unix)]
+    #[test]
+    fn a_protocol_3_registration_the_key_does_not_derive_leaves_nothing_behind() {
+        let (cfg, _dir) = n1_fixture("cp3-mismatch");
+        let key = format!("{:064x}", 0x3333);
+        let err = register_vault(&cfg, &key, "v", 2, 3, Some(3)).expect_err("must not be Ok");
+        assert!(matches!(err, RegisterError::AddressMismatch(_)), "{err:?}");
+        assert!(load_registration(&cfg.vaults_dir, &key).is_none());
+        let left: Vec<_> = std::fs::read_dir(cfg.vaults_dir.join(&key))
+            .map(|d| d.flatten().map(|e| e.file_name()).collect())
+            .unwrap_or_default();
+        assert!(left.is_empty(), "{left:?}");
+
+        let other = format!("{:064x}", 0x4444);
+        assert!(register_vault(&cfg, &other, "v", 2, 3, Some(2)).is_ok());
     }
 
     /// THE HOLE. The registration used to be written with `let _ =`, so a write that failed (a full

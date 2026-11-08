@@ -15,7 +15,7 @@ describe('a stored address that is not text is read as none on every screen', ()
   })
 
   it('the vault list reads each record through it', () => {
-    expect(codeOf('./screens/Vaults.tsx')).toContain('orchard_address: addressText(s.address)')
+    expect(codeOf('./screens/Vaults.tsx')).toContain('orchard_address: verifiedAddress(s)')
   })
 
   it('the creation screen reads the registered address through it', () => {

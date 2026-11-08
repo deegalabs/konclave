@@ -133,9 +133,8 @@ pub fn write_message(
 /// its OWN HKDF label (#288 / ADR-0011 D1).
 ///
 /// One device identity, two sub-keys: X25519 for sealing (above), Ed25519 for signing. The FROST
-/// share itself stays reserved for the threshold signature and nothing else - the hygiene
-/// `frost-client` follows, where a participant's CommunicationKey authenticates coordination and
-/// the key_package signs transactions.
+/// share itself signs only the threshold signature, the room messages and the typed statements of
+/// `share_sig`; governance writes never touch it.
 ///
 /// The label differs from the comms one, so the two keys are cryptographically independent: an
 /// attacker who somehow obtained one learns nothing about the other, and neither reveals the share
@@ -288,8 +287,20 @@ pub const ALL_WRITE_ACTIONS: [WriteAction; 5] = [
     WriteAction::Send,
 ];
 
+/// Whether two names are one member's. The one comparison every name check makes: whitespace at the
+/// edges is ignored and nothing else is. Votes, rosters and the creation read this.
+pub fn same_member(a: &str, b: &str) -> bool {
+    a.trim() == b.trim()
+}
+
 #[cfg(feature = "pczt")]
 pub mod spends;
+
+#[cfg(feature = "receivers")]
+pub mod receivers;
+
+#[cfg(feature = "share-sig")]
+pub mod share_sig;
 
 #[cfg(test)]
 mod tests {

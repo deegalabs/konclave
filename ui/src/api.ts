@@ -37,7 +37,7 @@ import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
 import { addressText } from './approved-payment'
-import { protocolOfRecord } from './creation-protocol'
+import { mustCompareCode, protocolOfRecord, verifiedAddress } from './creation-protocol'
 
 export type Member = { name: string; pubkey: string }
 
@@ -67,6 +67,14 @@ export type Vault = {
   /** Hosted path: whether the coordinator's member list was read. `false` when the names come from
    *  this device's own roster or are placeholders (#315). Absent on the local-bridge path. */
   members_read?: boolean
+  /** Protocol 3: the coordinator's list of names is not this device's. */
+  roster_differs?: boolean
+  /** This device's own list, by seat, when it differs: a label says who a seat is by this one. */
+  own_members?: string[]
+  /** Protocol 3: why there is no address to show yet. */
+  address_gate?: 'waiting' | 'refused' | 'compare'
+  /** Protocol 3: the code to compare before the address is shown. */
+  viewing_code?: string
 }
 
 export type Proposal = {
@@ -218,12 +226,17 @@ export async function health(): Promise<boolean> {
  *  does not hold, for one whose creation has not finished, or when the coordinator holds it with
  *  another quorum than the members confirmed; otherwise the recorded address, or (once) the served
  *  one for a record that has none. */
+/** Whether two rosters name the same people on the same seats, by the rule votes are counted by. */
+export function sameRoster(own: string[], served: string[]): boolean {
+  return own.length === served.length && own.every((n, i) => n.trim() === (served[i] ?? '').trim())
+}
+
 export function depositAddress(
-  rec: { address?: string; pending?: boolean; threshold?: number; total?: number } | undefined,
+  rec: { address?: string; pending?: boolean; threshold?: number; total?: number; abandoned?: string; cp?: number } | undefined,
   served: string,
   quorum: { threshold?: number; total?: number },
 ): { address: string; adopt: boolean } {
-  if (!rec || !vaultIsFinished(rec)) return { address: '', adopt: false }
+  if (!rec || rec.abandoned || !vaultIsFinished(rec)) return { address: '', adopt: false }
   if (rec.threshold !== undefined && (quorum.threshold !== rec.threshold || quorum.total !== rec.total)) {
     return { address: '', adopt: false }
   }
@@ -251,11 +264,11 @@ export async function getVault(): Promise<Vault | null> {
     // The device's own record, read once and FIRST: it carries the vault's name, its roster, its
     // address, and the creation protocol the vault was made with, which the read below names (never
     // the app's own, so an old-flow vault opened in a new app is not handed an address).
-    let rec: { name?: string; roster?: string[]; address?: string; pending?: boolean; threshold?: number; total?: number; cp?: number } | undefined
+    let rec: { receiversState?: string; viewingFingerprint?: string; codeCompared?: boolean; name?: string; roster?: string[]; address?: string; pending?: boolean; threshold?: number; total?: number; cp?: number } | undefined
     try {
       rec = (await listVaults()).find((s) => s.id === id)
     } catch { /* local-bridge mode / no on-device record */ }
-    const v = await netGetVault(id, rec ? protocolOfRecord(rec) : undefined)
+    const v = await netGetVault(id)
     // An answer about any vault but the one asked for is no answer (#610 review). The signer keys its
     // share, its room, the gate's record and the send on this id, so a coordinator that named
     // another vault on this device could move the ceremony onto a vault whose quorum approved nothing.
@@ -274,6 +287,9 @@ export async function getVault(): Promise<Vault | null> {
     const read = await netListMembers(id)
     const names = read ?? []
     const local = rec?.roster ?? []
+    // Nobody can tell from here who is right, so it is said. The coordinator's list is the one votes
+    // are recorded under, so it stays the one a vote reads; this device's own list is what it is held to.
+    const rosterDiffers = (rec ? protocolOfRecord(rec) ?? 0 : 0) >= 3 && local.length > 0 && read !== null && read.length > 0 && !sameRoster(local, read)
     const member_list = Array.from({ length: total }, (_, i) => {
       const name =
         (names[i] && names[i].trim()) ||
@@ -295,7 +311,11 @@ export async function getVault(): Promise<Vault | null> {
     // the money gate uses too): neither is trusted to be a string.
     const served = addressText(v.address)
     const recorded = addressText(rec?.address)
-    const deposit = depositAddress(rec, served, { threshold: v.threshold, total: v.total })
+    const protocol3 = (rec ? protocolOfRecord(rec) ?? 0 : 0) >= 3
+    // Protocol 3: nothing served becomes this vault's address. It shows what this device verified.
+    const deposit = protocol3
+      ? { address: rec ? verifiedAddress(rec) : '', adopt: false }
+      : depositAddress(rec, served, { threshold: v.threshold, total: v.total })
     if (deposit.adopt) void backfillAddress(id, served)
     // Pin the vault's change receiver the first time any screen reads the vault (#281). Same shape
     // as the address backfill above and for the same reason: `saveVault` runs once at creation, so
@@ -309,7 +329,7 @@ export async function getVault(): Promise<Vault | null> {
     const change = addressText(v.change_receiver)
     // Not for a vault whose creation has not finished, or that the coordinator holds with another
     // quorum: the same condition that withholds its address (`depositAddress`).
-    if (change && deposit.address) void recordChangeReceiver(id, change)
+    if (change && deposit.address && !protocol3) void recordChangeReceiver(id, change)
     // The address every screen shows for deposits is the one this device recorded, the same one the
     // money gate treats as the vault's own (`ourReceiversFrom`). The screens used to show the
     // coordinator's answer on every load, so a coordinator taken over after creation could answer
@@ -328,8 +348,12 @@ export async function getVault(): Promise<Vault | null> {
       members: total,
       member_list,
       members_read: read !== null,
+      roster_differs: rosterDiffers,
+      own_members: rosterDiffers ? local : undefined,
       group_pubkey: id,
       orchard_address: deposit.address,
+      viewing_code: protocol3 && mustCompareCode(rec) ? rec?.viewingFingerprint : undefined,
+      address_gate: !protocol3 ? undefined : rec?.receiversState === 'refused' ? 'refused' : deposit.address ? undefined : mustCompareCode(rec) && vaultIsFinished(rec!) ? 'compare' : 'waiting',
       // Compared without case: an all-capitals encoding is the same address.
       served_address_differs: !!recorded && !!served && recorded.toLowerCase() !== served.toLowerCase(),
     }
@@ -687,6 +711,16 @@ export async function renameSelf(
   if ('members' in res) {
     const nm = next.trim()
     try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent - roster still renamed */ }
+    // A member's own rename is this device's own fact: its roster follows, by seat and never by name.
+    try {
+      const share = getUnlockedShare(id)
+      const rec = (await listVaults()).find((v) => v.id === id)
+      if (share && rec) {
+        const roster = [...rec.roster]
+        roster[decodeBundle(share).seat - 1] = nm
+        await updateVaultMeta(id, { roster })
+      }
+    } catch { /* locked or no record: the Members screen says the lists differ */ }
     // Keep the IN-SESSION share's name in sync too: the signing panel identifies "you" from the
     // unlocked share's myName, so a stale name there makes it fail to light your seat (and fall back
     // to guessing the first seat). Patch it in place so presence stays correct after a rename.

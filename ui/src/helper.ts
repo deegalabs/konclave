@@ -222,7 +222,7 @@ export function tooLargeOf(body: unknown): TooLarge | undefined {
   return { actions: b.actions, max: b.max_actions, plan: b.plan }
 }
 
-export interface HelperPostFailure { status: number; error?: string; updateRequired?: boolean; busy?: boolean; tooLarge?: TooLarge }
+export interface HelperPostFailure { status: number; error?: string; code?: string; updateRequired?: boolean; busy?: boolean; tooLarge?: TooLarge }
 
 /** The failure from the most recent `postJson`, or null. Cleared by the next call. */
 export function lastHelperPostFailure(): HelperPostFailure | null {
@@ -241,13 +241,13 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
       body: sent,
     }), WRITE_BUSY)
     if (!res.ok) {
-      const j = answer as { error?: string; update_required?: unknown } | null
+      const j = answer as { error?: string; code?: unknown; update_required?: unknown } | null
       // Still busy after the retries: `vault busy` is the code `humanError` words, so no caller
       // shows the coordinator's English sentence or reads it as "unreachable".
       const stillBusy = busyWrite(busyOf(res.status, answer))
       lastPostFailure = stillBusy
         ? { status: res.status, error: 'vault busy', busy: true }
-        : { status: res.status, error: j?.error, updateRequired: j?.update_required === true, tooLarge: tooLargeOf(answer) }
+        : { status: res.status, error: j?.error, code: typeof j?.code === 'string' ? j.code : undefined, updateRequired: j?.update_required === true, tooLarge: tooLargeOf(answer) }
       return null
     }
     return answer as T
@@ -284,6 +284,9 @@ export type HelperVault = {
   threshold?: number
   total?: number
   change_receiver?: string
+  /** `legacy`, `closed`, `pinned` or `unreadable`. */
+  state?: string
+  pkp_digest?: string | null
 }
 
 /** Helper liveness: the registered-vault count, or `null` if no/unreachable helper. */
@@ -323,12 +326,14 @@ export async function registerVault(
   threshold: number,
   total: number,
   cp: number,
+  /** Protocol 3: the package and the seats' certificates, as the creation built them. */
+  pinBundle?: string,
 ): Promise<HelperVault | null> {
   // `cp`: the creation protocol this vault was made with, REQUIRED and never defaulted to the
   // app's own number: a registration that stamped today's protocol on an older vault would be a
   // false statement. The coordinator refuses a registration without it, so an outdated app's vault
   // never gets an address. Its only caller reads it from the device's record (conclude-registration.ts).
-  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp })
+  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp, ...(pinBundle ? JSON.parse(pinBundle) : {}) })
 }
 
 /** A payment proposal on a browser-native vault, as the helper stores it. All public. */
@@ -391,6 +396,8 @@ export async function registerDeviceKey(
   groupKeyHex: string,
   devicePubHex: string,
   write?: { seat: number; pub: string },
+  /** A seat's certificate, as JSON, which a pinned vault asks of a seat it does not hold. */
+  proof?: string,
 ): Promise<boolean | null> {
   // The vault's readKey rides along: claiming a seat now requires it, because an unclaimed seat
   // used to be free to anyone holding the vault id. This device has `S` - registration runs on
@@ -403,6 +410,7 @@ export async function registerDeviceKey(
     // the vault's write gate ON - from then on every governance write must be signed - so this is
     // only ever sent by a device that can actually sign, i.e. one holding the share.
     ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
+    ...(proof ? { proof: JSON.parse(proof) } : {}),
   }, await readAuthFor(groupKeyHex))
   return r ? r.added : null
 }
@@ -567,23 +575,23 @@ export async function getUfvk(
     }
   }
 
+  return parseUfvkAnswer(body)
+}
+
+/** A viewing key and its scan floor. A height, so it is checked as one: a floor that is not a height
+ *  would be kept for good and lost on restore. */
+export function parseUfvkAnswer(body: unknown): { ufvk: string; birthday?: number } | null {
   const r = body as { ufvk?: unknown; birthday?: unknown }
   if (typeof r.ufvk !== 'string' || !r.ufvk) return null
   return {
     ufvk: r.ufvk,
-    birthday: typeof r.birthday === 'number' ? r.birthday : undefined,
+    birthday: typeof r.birthday === 'number' && Number.isInteger(r.birthday) && r.birthday >= 0 ? r.birthday : undefined,
   }
 }
 
 /** Fetch a registered vault's public view (address + id), or `null`. */
-export async function getVault(
-  groupKeyHex: string,
-  /** The creation protocol the VAULT was made with, from the device's record; never the app's. A
-   *  vault registered under the coordinator's gate shows its address only to a read that names it. */
-  cp?: number,
-): Promise<HelperVault | null> {
-  const withCp = cp !== undefined ? `&cp=${cp}` : ''
-  return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}${withCp}`))?.vault ?? null
+export async function getVault(groupKeyHex: string): Promise<HelperVault | null> {
+  return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
 }
 
 /** A vault's shielded balance (zatoshis) as the helper reports it from its view-only wallet.
