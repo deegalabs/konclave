@@ -99,6 +99,11 @@ describe("the coordinator's title refusals read as the screen's own (#296)", () 
   it('a control or direction character', () => {
     expect(humanError(t, 'payroll title contains a control character')).toBe('payroll.errTitleChars')
   })
+  it("the coordinator's own Display text, read from helper.rs, maps to the same words", () => {
+    const rust = readFileSync(new URL('../../orchestrator/src/helper.rs', import.meta.url), 'utf8')
+    const said = [...rust.matchAll(/"(payroll title [^"]+)"/g)].map((m) => m[1]!.replace('{PAYROLL_TITLE_MAX_CHARS}', String(PAYROLL_TITLE_MAX)))
+    expect(said.map((e) => humanError(t, e))).toEqual(['payroll.errTitleTooLong', 'payroll.errTitleChars'])
+  })
   it('both locales have the words', () => {
     for (const k of ['payroll.errTitleTooLong', 'payroll.errTitleChars']) {
       expect(en[k], k).toBeTruthy()
