@@ -2,10 +2,11 @@
 // Motion 2, the tarja is the one ornament), so these are matte and unanimated, and use text/silver
 // ink for the marks. The rule they follow is STYLE.md "Charts (treasury)": at most two series, never
 // told apart by hue (a second cue, not the tone, tells them apart); what is recorded solid and what
-// is projected dashed; the accent on the focused point only; a projection below zero in --warn,
+// is projected dashed; the accent on the hovered point only; a projection below zero in --warn,
 // never --danger; every chart with its figures as text and, where a screen gives one, a caption
 // saying where they came from.
 import { useId } from 'react'
+import { fundsGeometry } from './chart-geometry'
 import { fmtZecExact, zatToZec } from './format'
 
 export interface SpendPoint {
@@ -60,35 +61,6 @@ export function SpendBars({ data, unit = 'ZEC', height = 52, source }: { data: S
 export interface FundsPoint {
   label: string // the month it falls in, e.g. "dez"
   zat: number // free funds at that point, whole zatoshi; negative once a projection runs out
-}
-
-export interface FundsGeometry {
-  /** x and y of each point in the drawing's own units, in order. */
-  xy: { x: number; y: number }[]
-  /** y of the zero line; inside the drawing even when every value is above zero. */
-  zeroY: number
-  /** True when some point is at or below zero, which the screen must also say in words. */
-  crosses: boolean
-}
-
-/**
- * Where each point of a free-funds line sits. The scale always includes zero, so a line that falls
- * toward zero is drawn falling toward the zero line, not toward the bottom of whatever range the
- * values happen to span, which would make a slow decline look like a cliff. Pure, so the drawing
- * is tested without a browser.
- */
-export function fundsGeometry(values: readonly number[], width: number, height: number, pad = 8): FundsGeometry {
-  const hi = Math.max(0, ...values)
-  const lo = Math.min(0, ...values)
-  const span = hi - lo || 1
-  const n = values.length
-  const step = n > 1 ? (width - 2 * pad) / (n - 1) : 0
-  const y = (v: number) => pad + ((hi - v) / span) * (height - 2 * pad)
-  return {
-    xy: values.map((v, i) => ({ x: pad + i * step, y: y(v) })),
-    zeroY: y(0),
-    crosses: values.some((v) => v <= 0),
-  }
 }
 
 /**
@@ -148,7 +120,6 @@ export function FundsLine({
               key={i}
               className={'funds-pt' + (i === 0 ? ' rec' : '') + (pt.zat <= 0 ? ' below' : '')}
               style={{ left: pct(p.x, W), top: pct(p.y, height) }}
-              tabIndex={0}
               title={`${i === 0 ? nowLabel : projectedLabel} (${pt.label}): ${zatToZec(pt.zat)} ZEC`}
             />
           )

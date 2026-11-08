@@ -4,7 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { FundsLine, SpendBars, fundsGeometry } from './charts'
+import { fundsGeometry } from './chart-geometry'
+import { FundsLine, SpendBars } from './charts'
 import { codeOf } from './source-scan'
 
 const ZEC = 100_000_000
@@ -60,6 +61,14 @@ describe('FundsLine', () => {
     expect(html).toContain(`<figcaption class="chart-src">${base.source.replace("'", '&#x27;')}</figcaption>`)
   })
 
+  it('puts nothing in the tab order inside the image: a screen reader reads the figures from the table', () => {
+    const html = renderToStaticMarkup(
+      <FundsLine {...base} now={{ label: 'nov', zat: 3 * ZEC }} ahead={[{ label: 'dez', zat: 2 * ZEC }]} />,
+    )
+    expect(html).toContain('role="img"')
+    expect(html).not.toMatch(/tabindex/i)
+  })
+
   it('gives every figure as text, exact to the zatoshi, in a table', () => {
     const html = renderToStaticMarkup(
       <FundsLine {...base} now={{ label: 'nov', zat: 123_456_789 }} ahead={[{ label: 'dez', zat: -1 }]} />,
@@ -102,10 +111,10 @@ describe('the chart rule in the styles', () => {
     expect(chartCss).not.toMatch(/animation|transition|gradient|box-shadow:\s*0 \d+px \d+px/)
   })
 
-  it('dashes the projection and gives the accent to the focused point alone', () => {
+  it('dashes the projection and gives the accent to the hovered point alone', () => {
     expect(rules(/\.funds-proj/)).toContain('stroke-dasharray')
     const accent = css.split('\n').filter((l) => /\.(funds|chart|spend)/.test(l) && l.includes('--accent'))
-    expect(accent).toEqual(['.funds-pt:hover, .funds-pt:focus-visible{background:var(--accent); border-color:var(--accent)}'])
+    expect(accent).toEqual(['.funds-pt:hover{background:var(--accent); border-color:var(--accent)}'])
   })
 
   it('takes no colour literal in the chart component', () => {

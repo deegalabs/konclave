@@ -422,10 +422,10 @@
 .funds-zero{stroke:var(--line-soft, var(--line)); stroke-width:1; vector-effect:non-scaling-stroke}
 .funds-proj{fill:none; stroke:var(--silver); stroke-width:1.5; stroke-dasharray:5 4; vector-effect:non-scaling-stroke}
 .funds-proj.below{stroke:var(--warn)}
-.funds-pt{position:absolute; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:var(--surface-0); border:1.5px solid var(--silver); outline:none}
+.funds-pt{position:absolute; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:var(--surface-0); border:1.5px solid var(--silver)}
 .funds-pt.rec{background:var(--text); border-color:var(--text)}
 .funds-pt.below{border-color:var(--warn)}
-.funds-pt:hover, .funds-pt:focus-visible{background:var(--accent); border-color:var(--accent)}
+.funds-pt:hover{background:var(--accent); border-color:var(--accent)}
 .funds-axis{display:flex; justify-content:space-between; margin-top:6px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
 .funds-tags{position:relative; height:16px; margin-top:2px; font-size:10.5px; color:var(--text-muted)}
 .funds-tags span{position:absolute; white-space:nowrap}
