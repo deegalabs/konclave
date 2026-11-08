@@ -64,3 +64,19 @@ describe('the Members screen in a browser, with the coordinator offline then bac
     await waitFor(() => expect(document.activeElement).toBe(alert))
   })
 })
+
+describe('Members when the lists differ', () => {
+  afterEach(() => cleanup())
+  it('says so, and not otherwise', async () => {
+    health.mockResolvedValue(true)
+    getVault.mockResolvedValueOnce({ ...vault, roster_differs: true })
+    mount()
+    expect((await screen.findByRole('alert')).textContent).toContain(en('members.rosterDiffers'))
+    cleanup()
+    getVault.mockResolvedValueOnce(vault)
+    mount()
+    await waitFor(() => expect(screen.getByText('Alice')).toBeTruthy())
+    expect(screen.queryByText(en('members.rosterDiffers'))).toBeNull()
+  })
+})
+

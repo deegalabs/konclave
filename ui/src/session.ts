@@ -7,6 +7,7 @@
 // lock/remove; never written to disk (that is storage.ts's encrypted job).
 
 import type { VaultLoaded } from './storage'
+import { seatRefusalCode } from './seat-registration'
 
 const unlocked = new Map<string, VaultLoaded>()
 
@@ -70,4 +71,10 @@ export function readSecretFor(id: string): Uint8Array | undefined {
 /** Drop both, on lock or removal. */
 export function clearReadSecret(id: string): void {
   readSecrets.delete(id)
+}
+
+/** What the coordinator refused this device on, for this session (its code). Read from the one store
+ *  of refused seats (`seat-registration.ts`). */
+export function deviceRefusal(id: string | null | undefined): string | undefined {
+  return seatRefusalCode(id)
 }

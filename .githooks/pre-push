@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs the same rules CI runs (scripts/pr-rules.mjs), so a bad branch name is caught before the
+# first push - renaming a branch with an open PR closes the PR. `--no-verify` exists; CI is the rule.
+root="$(git rev-parse --show-toplevel)" || exit 0
+command -v node >/dev/null 2>&1 || { echo "pre-push: node not found, skipping checks" >&2; exit 0; }
+base=origin/staging
+git rev-parse --verify -q "$base" >/dev/null 2>&1 || base=
+if [ -n "$base" ]; then
+  exec node "$root/scripts/pr-rules.mjs" pre-push --base "$base"
+fi
+exec node "$root/scripts/pr-rules.mjs" pre-push

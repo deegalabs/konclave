@@ -170,6 +170,33 @@ export function fingerprintCode(digest: Uint8Array): string {
   return `${out.slice(0, 3)}-${out.slice(3, 6)}-${out.slice(6, 9)}`
 }
 
+/** The code of what a vault's viewing key derives: its group key and its two receivers, the things a
+ *  device pins and that land on chain. 125 bits, in groups of 5, since a coordinator can grind for a
+ *  shorter one: it says two devices agree, not that the key is the one the members meant. */
+export async function receiversFingerprint(groupKeyHex: string, externalHex: string, internalHex: string): Promise<string> {
+  const bytes = (hex: string) => {
+    if (hex.length % 2 || /[^0-9a-f]/i.test(hex)) throw new Error('not hex')
+    return Uint8Array.from(hex.match(/../g) ?? [], (b) => parseInt(b, 16))
+  }
+  const parts = [new TextEncoder().encode('konclave-vfp-v2\0'), bytes(groupKeyHex.toLowerCase()), bytes(externalHex), bytes(internalHex)]
+  const data = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let at = 0
+  for (const p of parts) { data.set(p, at); at += p.length }
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+  let bits = 0
+  let value = 0
+  let out = ''
+  for (const byte of digest) {
+    value = ((value << 8) | byte) & 0xffff
+    bits += 8
+    while (bits >= 5 && out.length < 25) {
+      bits -= 5
+      out += CROCKFORD[(value >>> bits) & 31]
+    }
+  }
+  return (out.match(/.{5}/g) ?? []).join('-')
+}
+
 /** A short, human-comparable fingerprint of a vault's PUBLIC group identity (its group verifying
  *  key hex). In FROST DKG the group key is a function of every participant's contribution, so every
  *  device that ran the SAME ceremony derives the SAME code, and a separate/impostor DKG derives a

@@ -61,9 +61,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'O Konclave divide a autoridade de gasto blindado de um cofre em **`t`-de-`n` shares FROST** entre os membros, por **Geração Distribuída de Chave (DKG)** real. A chave inteira **nunca é reconstituída**, nem na criação nem na assinatura, e cada share **nunca deixa o dispositivo do dono**. Sobre isso vem a camada humana: propor, aprovar até o quórum, assinar, transmitir e prestar contas, em linguagem simples e com confirmação explícita antes de qualquer movimento.',
+            'O Konclave divide a autoridade de gasto blindado de um cofre em **`t`-de-`n` shares FROST** entre os membros, por **Geração Distribuída de Chave (DKG)** real. A chave inteira **nunca é reconstituída**, nem na criação nem na assinatura, e cada share **fica selado no dispositivo do dono e só o deixa dentro do backup cifrado que o dono exporta**. Sobre isso vem a camada humana: propor, aprovar até o quórum, assinar, transmitir e prestar contas, em linguagem simples e com confirmação explícita antes de qualquer movimento.',
           en:
-            'Konclave splits a vault’s shielded spend authority into **`t`-of-`n` FROST shares** across the members by real **Distributed Key Generation (DKG)**. The whole key is **never reconstituted**, at creation or at signing, and each share **never leaves its owner’s device**. On top of that comes the human layer: propose, approve to a quorum, sign, broadcast, and account, in plain language with an explicit confirmation before anything moves.',
+            'Konclave splits a vault’s shielded spend authority into **`t`-of-`n` FROST shares** across the members by real **Distributed Key Generation (DKG)**. The whole key is **never reconstituted**, at creation or at signing, and each share **is kept sealed on its owner’s device and leaves it only inside the encrypted backup its owner exports**. On top of that comes the human layer: propose, approve to a quorum, sign, broadcast, and account, in plain language with an explicit confirmation before anything moves.',
         },
       },
       {
@@ -127,7 +127,7 @@ export const SECTIONS: Section[] = [
     nav: { 'pt-BR': 'Como funciona', en: 'How it works' },
     title: { 'pt-BR': 'Como funciona', en: 'How it works' },
     lead: {
-      'pt-BR': 'Da proposta ao razão contábil, sem que uma pessoa consiga mover os fundos sozinha.',
+      'pt-BR': 'Da proposta ao livro contábil, sem que uma pessoa consiga mover os fundos sozinha.',
       en: 'From proposal to ledger, with no single person ever able to move the funds alone.',
     },
     blocks: [
@@ -135,7 +135,7 @@ export const SECTIONS: Section[] = [
       {
         k: 'code',
         t:
-          'propose  ->  approve (quorum M-of-N, with expiry)  ->  sign (FROST,\nonly the shares of whoever approved)  ->  broadcast (shielded)  ->  ledger\n                       the key is never reassembled',
+          'propose  ->  approve (quorum M-of-N, with expiry)  ->  sign (FROST,\nthe shares of any t members)  ->  broadcast (shielded)  ->  ledger\n                       the key is never reassembled',
       },
       {
         k: 'ul',
@@ -149,7 +149,7 @@ export const SECTIONS: Section[] = [
             en: '**Private payroll:** type the beneficiaries in the table, or pick them from your saved list, into one shielded transaction with N outputs, approved **once** (importing a CSV works only in the local build for now). Each payslip rides in an **encrypted memo**: outsiders and the blockchain cannot read it; the recipient, the vault’s members and the coordinator that builds the payment can.',
           },
           {
-            'pt-BR': '**Contabilidade:** um razão interno completo (quem propôs, quem aprovou, estados, datas) mais uma **exportação CSV itemizada** (uma folha de N vira N lançamentos). Transparente por dentro, privado por fora.',
+            'pt-BR': '**Contabilidade:** um livro interno completo (quem propôs, quem aprovou, estados, datas) mais uma **exportação CSV itemizada** (uma folha de N vira N lançamentos). Transparente por dentro, privado por fora.',
             en: '**Accounting:** a full internal ledger (who proposed, who approved, states, dates) plus an **itemized CSV export** (a payroll of N becomes N line-items). Transparent inside, private outside.',
           },
         ],
@@ -201,15 +201,15 @@ export const SECTIONS: Section[] = [
             en: '**4. Approve to quorum** (`/proposals`). Each member reviews and approves or refuses. Nothing moves until the agreed number of approvals is in, and proposals expire.',
           },
           {
-            'pt-BR': '**5. Assine e envie.** No quórum, uma cerimônia FROST assina com **apenas as partes de quem aprovou** e transmite uma única transação blindada (o pool Ironwood, desde o NU6.3). Um preview e uma confirmação explícita protegem o envio: um clique nunca move dinheiro, e a chave nunca é remontada.',
-            en: '**5. Sign and send.** At quorum a FROST ceremony signs with **only the shares of whoever approved** and broadcasts one shielded transaction (the Ironwood pool, since NU6.3). A preview and an explicit confirmation guard the broadcast: one click never moves money, and the key is never reassembled.',
+            'pt-BR': '**5. Assine e envie.** No quórum, uma cerimônia FROST assina com as partes dos membros que apertam Assinar (quaisquer `t` deles, tenham aprovado ou não) e transmite uma única transação blindada (o pool Ironwood, desde o NU6.3). Um preview e uma confirmação explícita protegem o envio: um clique nunca move dinheiro, e a chave nunca é remontada.',
+            en: '**5. Sign and send.** At quorum, a FROST ceremony signs with the shares of the members who press Sign (any `t` of them, whether or not they approved) and broadcasts one shielded transaction (the Ironwood pool, since NU6.3). A preview and an explicit confirmation guard the broadcast: one click never moves money, and the key is never reassembled.',
           },
           {
             'pt-BR': '**6. Folha de pagamento, opcional** (Folha). Digite os beneficiários na tabela, ou escolha da sua lista salva, numa única transação blindada com N saídas, aprovada **uma vez**. Importar CSV por enquanto só funciona na versão local. Cada contracheque vai num memo cifrado, que o destinatário, os membros do cofre e o coordenador leem, e ninguém de fora lê.',
             en: '**6. Payroll, optional** (Payroll). Type the beneficiaries in the table, or pick them from your saved list, into one shielded transaction with N outputs, approved **once**. Importing a CSV works only in the local build for now. Each payslip goes in an encrypted memo that the recipient, the vault’s members and the coordinator can read, and no outsider can.',
           },
           {
-            'pt-BR': '**7. Contabilize** (`/ledger`). Cada ação entra no razão interno (quem propôs, quem aprovou, estados, datas), com exportação CSV itemizada para o contador.',
+            'pt-BR': '**7. Contabilize** (`/ledger`). Cada ação entra no livro interno (quem propôs, quem aprovou, estados, datas), com exportação CSV itemizada para o contador.',
             en: '**7. Account** (`/ledger`). Every action lands in the internal ledger (who proposed, who approved, states, dates), with an itemized CSV export for the accountant.',
           },
         ],
@@ -240,9 +240,9 @@ export const SECTIONS: Section[] = [
           { 'pt-BR': '**Receber** (`/receive`) - endereço blindado (u1…) + QR + link ZIP-321; receber não precisa de chave.', en: '**Receive** (`/receive`) - shielded address (u1…) + QR + a ZIP-321 link; receiving needs no key.' },
           { 'pt-BR': '**Propor pagamento** (`/pay`) - valor + destino; endereço e saldo validados antes de criar.', en: '**Propose a payment** (`/pay`) - amount + recipient; address and balance validated up front.' },
           { 'pt-BR': '**Aprovar/recusar** (`/proposals`) - quórum real; nada move sem as aprovações, e as propostas expiram. A aprovação ainda não fica presa ao conteúdo exato da proposta (#567).', en: '**Approve/refuse** (`/proposals`) - real quorum; nothing moves without the approvals, and proposals expire. An approval is not yet tied to the exact content of the proposal (#567).' },
-          { 'pt-BR': '**Assinar e enviar** - cerimônia FROST com as partes de quem aprovou; preview + confirmação; a chave nunca é remontada.', en: "**Sign & send** - a FROST ceremony with the approvers' shares; preview + confirm; the key is never reassembled." },
+          { 'pt-BR': '**Assinar e enviar** - cerimônia FROST com as partes de quaisquer `t` membros, depois que a proposta chegou ao quórum; preview + confirmação; a chave nunca é remontada.', en: "**Sign & send** - a FROST ceremony with the shares of any `t` members, once the proposal reached its quorum; preview + confirm; the key is never reassembled." },
           { 'pt-BR': '**Folha privada** (`/payroll`) - N beneficiários numa única transação blindada, aprovada uma vez, cada holerite num memo cifrado (CSV só na versão local).', en: '**Private payroll** (`/payroll`) - N beneficiaries in one shielded transaction, approved once, each payslip in an encrypted memo (CSV import in the local build only).' },
-          { 'pt-BR': '**Razão/contas** (`/ledger`) - livro interno completo + exportação CSV itemizada (folha de N vira N linhas).', en: '**Ledger/accounting** (`/ledger`) - a full internal book + itemized CSV export (payroll of N becomes N rows).' },
+          { 'pt-BR': '**Livro/contas** (`/ledger`) - livro interno completo + exportação CSV itemizada (folha de N vira N linhas).', en: '**Ledger/accounting** (`/ledger`) - a full internal book + itemized CSV export (payroll of N becomes N rows).' },
         ],
       },
       { k: 'h', t: { 'pt-BR': 'Além do básico', en: 'Beyond the basics' } },
@@ -328,9 +328,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'O único pedaço secreto do DKG (os pacotes da rodada 2) é **lacrado ponta a ponta** (X25519, HKDF-SHA256, XChaCha20-Poly1305), então o relay permanece cego. Em [Seus cofres](#/vaults), um aparelho cria o cofre e mostra um convite (link ou código), o outro entra com ele e com o PIN, todos conferem o mesmo código curto, e juntos rodam um DKG real e depois assinam como quórum.',
+            'O único pedaço secreto do DKG (os pacotes da rodada 2) é **lacrado ponta a ponta** (X25519, HKDF-SHA256, XChaCha20-Poly1305), então o relay não consegue lê-lo. Em [Seus cofres](#/vaults), um aparelho cria o cofre e mostra um convite (link ou código), o outro entra com ele e com o PIN, todos conferem o mesmo código curto, e juntos rodam um DKG real e depois assinam como quórum.',
           en:
-            'The one secret piece of the DKG (the round-2 packages) is **sealed end-to-end** (X25519, HKDF-SHA256, XChaCha20-Poly1305), so the relay stays blind. In [Your vaults](#/vaults), one device creates the vault and shows an invite (a link or a code), the other joins with it and the PIN, everyone checks the same short code, and together they run a real DKG and then sign as a quorum.',
+            'The one secret piece of the DKG (the round-2 packages) is **sealed end-to-end** (X25519, HKDF-SHA256, XChaCha20-Poly1305), so the relay cannot read it. In [Your vaults](#/vaults), one device creates the vault and shows an invite (a link or a code), the other joins with it and the PIN, everyone checks the same short code, and together they run a real DKG and then sign as a quorum.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Recuperação e herança: o que é provado, o que não está ligado', en: 'Recovery and inheritance: what is proven, what is not wired' } },
@@ -350,8 +350,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Dois caminhos, não confundir. O **`/net`** assina a PCZT real do **próprio cofre** (sob o alpha da transação) e **foi transmitido na mainnet** - txid `3022420a…`, naquela vez com **duas abas numa máquina só**. O broadcast entre **dispositivos separados** deixou de ser marco em aberto: aconteceu em 29/08 entre máquinas físicas diferentes, pela internet (`aec83baf…`, bloco 3.460.285). O **multi-nota ao vivo** continua só testado em unidade. O **`/signer`** é uma **demonstração**: assina o sighash real de uma tx de exemplo (`aab00f90…`) para mostrar a mecânica, mas essa PCZT é de outro cofre, então **não é transmitível**.',
-          en: 'Two paths, not to be conflated. **`/net`** signs the real PCZT of the **vault’s own** address (under the transaction’s alpha) and **was broadcast on mainnet** - txid `3022420a…`, that time with **two tabs on one machine**. A broadcast across **separate devices** is no longer the open milestone: it happened on 2026-08-29 between different physical machines over the internet (`aec83baf…`, block 3,460,285). **Live multi-note** is still only unit-tested. **`/signer`** is a **demo**: it signs the real sighash of a sample tx (`aab00f90…`) to show the mechanics, but that PCZT belongs to another vault, so it is **not broadcastable**.',
+          'pt-BR': 'Dois caminhos, não confundir. O **`/net`** assina a PCZT real do **próprio cofre** (sob o alpha da transação) e **foi transmitido na mainnet** - txid `3022420a…`, naquela vez com **duas abas numa máquina só**. O broadcast entre **dispositivos separados** deixou de ser marco em aberto: aconteceu em 25/08 entre máquinas físicas diferentes, pela internet (`aec83baf…`, bloco 3.460.285). O **multi-nota ao vivo** continua só testado em unidade. O **`/signer`** é uma **demonstração**: assina o sighash real de uma tx de exemplo (`aab00f90…`) para mostrar a mecânica, mas essa PCZT é de outro cofre, então **não é transmitível**.',
+          en: 'Two paths, not to be conflated. **`/net`** signs the real PCZT of the **vault’s own** address (under the transaction’s alpha) and **was broadcast on mainnet** - txid `3022420a…`, that time with **two tabs on one machine**. A broadcast across **separate devices** is no longer the open milestone: it happened on 2026-08-25 between different physical machines over the internet (`aec83baf…`, block 3,460,285). **Live multi-note** is still only unit-tested. **`/signer`** is a **demo**: it signs the real sighash of a sample tx (`aab00f90…`) to show the mechanics, but that PCZT belongs to another vault, so it is **not broadcastable**.',
         },
       },
       { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },
@@ -407,8 +407,8 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**Garantido pela criptografia:** a chave nunca é reconstituída; gastar exige a assinatura de um quórum; o seu pedaço da chave nunca sai do seu aparelho. **Garantido pela forma como os serviços são feitos (produto, não protocolo):** o relay carrega mensagens da cerimônia seladas ou públicas; depois que todos os membros destravam o cofre no próprio aparelho, o que registra uma chave pública desse aparelho, o relay não fica sabendo para quem vai um pagamento, embora veja os nomes dos membros e o quórum enquanto um cofre é criado; o coordenador nunca recebe o pedaço da chave de ninguém e não consegue mover fundos sozinho, mas guarda a chave de visualização do cofre, então vê o saldo, os pagamentos, os valores, os memos e os nomes dos membros.',
-            en: '**Guaranteed by the cryptography:** the key is never reconstituted; a quorum signature is required to spend; your part of the key never leaves your device. **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or public ceremony messages; once every member has unlocked the vault on their device, which registers a public key of that device, the relay does not learn who a payment pays, though it sees the members’ names and the quorum while a vault is created; the coordinator never receives anyone’s part of the key and cannot move funds on its own, but it holds the vault’s viewing key, so it sees the balance, the payments, the amounts, the memos and the members’ names.',
+            'pt-BR': '**Garantido pela criptografia:** gastar exige a assinatura de um quórum: menos de `t` partes não conseguem assinar nem reconstruir a chave, e criar um cofre por DKG nunca calcula a chave inteira em lugar nenhum. **Garantido pela forma como o app é feito (produto, não protocolo):** o seu pedaço da chave fica selado no seu aparelho e só sai dentro do backup cifrado que você exporta, enquanto o app que você carrega for o que publicamos; nada ainda deixa você conferir isso (#605). **Garantido pela forma como os serviços são feitos (produto, não protocolo):** o relay carrega mensagens da cerimônia seladas ou públicas; depois que todos os membros destravam o cofre no próprio aparelho, o que registra uma chave pública desse aparelho, o relay não fica sabendo para quem vai um pagamento, embora veja os nomes dos membros e o quórum enquanto um cofre é criado; o coordenador nunca recebe o pedaço da chave de ninguém e não consegue mover fundos sozinho, mas guarda a chave de visualização do cofre, então vê o saldo, os pagamentos, os valores, os memos e os nomes dos membros.',
+            en: '**Guaranteed by the cryptography:** a quorum signature is required to spend: fewer than `t` shares can neither sign nor rebuild the key, and creating a vault by DKG never computes the whole key anywhere. **Guaranteed by how the app is built (product, not protocol):** your part of the key stays sealed on your device and leaves only inside the encrypted backup you export, for as long as the app you load is the one we published; nothing yet lets you check that (#605). **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or public ceremony messages; once every member has unlocked the vault on their device, which registers a public key of that device, the relay does not learn who a payment pays, though it sees the members’ names and the quorum while a vault is created; the coordinator never receives anyone’s part of the key and cannot move funds on its own, but it holds the vault’s viewing key, so it sees the balance, the payments, the amounts, the memos and the members’ names.',
           },
           {
             'pt-BR': '**Ainda não garantido:** é o coordenador quem monta cada transação, e, até a #567 ser resolvida, um pagamento que o quórum assina só é tão seguro quanto o coordenador. A pergunta “O coordenador do Konclave consegue mudar um pagamento que aprovamos?”, nas [perguntas frequentes](#/docs/faq), explica o que isso quer dizer.',
@@ -423,12 +423,12 @@ export const SECTIONS: Section[] = [
             en: '**How your part of the key is kept:** in the browser and in the desktop app, which uses the same app code in a native window, it is stored encrypted under your passphrase and decrypted only in memory while you use the app. Keeping it in the system keychain on the desktop is planned, not done. In the local build, which creates vaults by DKG, it is sealed under a key derived from the vault passphrase, and that key is never stored. Before any send, each destination is checked to be a valid Zcash address. The technical details are in the repository’s security policy (SECURITY.md).',
           },
           {
-            'pt-BR': '**Acesso de leitura protegido, não só o gasto:** os dados on-chain de um cofre são blindados, mas o coordenador guarda a chave de visualização e antes respondia leituras a qualquer um com o link público do cofre. Agora cada membro guarda um segredo por cofre, gerado na criação e enviado aos outros membros selado (nunca em claro); o coordenador protege suas leituras - saldo, histórico, membros, razão - e a sala de assinatura atrás de um token derivado dele. Um link vazado não abre nem os livros nem a sala. A lista de cofres marca cada cofre como Privado ou Aberto. Todo voto, proposta, folha, renomeação e envio é assinado pelo aparelho do membro e conferido pelo coordenador, a partir do momento em que um membro daquele cofre o destrava. Limites honestos: a proteção é por cofre (cofres antigos ficam Abertos até serem recriados; atualizá-los no lugar está planejado, #406), e um link vazado ainda mostra o endereço do cofre, quantos membros ele tem e quantos precisam aprovar.',
+            'pt-BR': '**Acesso de leitura protegido, não só o gasto:** os dados on-chain de um cofre são blindados, mas o coordenador guarda a chave de visualização e antes respondia leituras a qualquer um com o link público do cofre. Agora cada membro guarda um segredo por cofre, gerado na criação e enviado aos outros membros selado (nunca em claro); o coordenador protege suas leituras - saldo, histórico, membros, livro - e a sala de assinatura atrás de um token derivado dele. Um link vazado não abre nem os livros nem a sala. A lista de cofres marca cada cofre como Privado ou Aberto. Todo voto, proposta, folha, renomeação e envio é assinado pelo aparelho do membro e conferido pelo coordenador, a partir do momento em que um membro daquele cofre o destrava. Limites honestos: a proteção é por cofre (cofres antigos ficam Abertos até serem recriados; atualizá-los no lugar está planejado, #406), e um link vazado ainda mostra o endereço do cofre, quantos membros ele tem e quantos precisam aprovar.',
             en: '**Read access is gated, not just spending:** a vault’s on-chain data is shielded, but the coordinator holds the viewing key and used to answer reads to anyone holding the public vault link. Now every member holds a per-vault secret, minted at creation and sent to the other members sealed (never in the clear); the coordinator gates its reads - balance, history, members, ledger - and the signing room behind a token derived from it. A leaked link opens neither the books nor the room. The vault list marks each vault Private or Open. Every vote, proposal, payroll, rename and send is signed by the member’s device and checked by the coordinator, from the moment a member of that vault unlocks it. Honest limits: the gate is per vault (older vaults stay Open until re-created; upgrading them in place is planned, #406), and a leaked link still shows the vault’s address, how many members it has and how many must approve.',
           },
           {
-            'pt-BR': '**Um backup vazado não revela nada:** a exportação de um cofre é um único blob opaco - metadados, o seu pedaço da chave, o segredo por cofre e os beneficiários, tudo cifrado sob a sua frase-senha, só um envelope não-sensível em claro - então um arquivo de backup roubado não revela nem o id do cofre. Num cofre Privado, uma exportação feita desde 6 de setembro de 2026, com o nosso coordenador no ar, carrega tudo que uma reconstrução precisa: o seu pedaço da chave, o endereço do cofre, a chave de visualização e a altura de onde varrer. Num cofre marcado Aberto a exportação não tem a chave de visualização, e um cofre Aberto ainda não vira Privado no lugar (#406): protegê-lo hoje significa criar um cofre novo e mover os fundos.',
-            en: '**A leaked backup reveals nothing:** a vault’s export is one opaque blob - metadata, your part of the key, the per-vault secret and the beneficiaries all encrypted under your passphrase, only a non-sensitive envelope in the clear - so a stolen backup file does not even disclose the vault id. On a Private vault, an export made since 6 September 2026 while our coordinator was reachable carries everything needed to rebuild: your part of the key, the vault’s address, its viewing key and the height to scan from. On a vault marked Open the export lacks the viewing key, and an Open vault cannot become Private in place yet (#406): protecting it today means creating a new vault and moving the funds.',
+            'pt-BR': '**Um backup vazado não abre o cofre sem a frase-senha:** a exportação de um cofre é um único blob opaco - metadados, o seu pedaço da chave, o segredo por cofre e os beneficiários, tudo cifrado sob a sua frase-senha, só um envelope não-sensível em claro - então um arquivo de backup roubado não revela o id do cofre. Num cofre Privado, uma exportação feita desde 6 de setembro de 2026, com o nosso coordenador no ar, carrega tudo que uma reconstrução precisa: o seu pedaço da chave, o endereço do cofre, a chave de visualização e a altura de onde varrer. Num cofre marcado Aberto a exportação não tem a chave de visualização, e um cofre Aberto ainda não vira Privado no lugar (#406): protegê-lo hoje significa criar um cofre novo e mover os fundos.',
+            en: '**A leaked backup does not open the vault without the passphrase:** a vault’s export is one opaque blob - metadata, your part of the key, the per-vault secret and the beneficiaries all encrypted under your passphrase, only a non-sensitive envelope in the clear - so a stolen backup file does not disclose the vault id. On a Private vault, an export made since 6 September 2026 while our coordinator was reachable carries everything needed to rebuild: your part of the key, the vault’s address, its viewing key and the height to scan from. On a vault marked Open the export lacks the viewing key, and an Open vault cannot become Private in place yet (#406): protecting it today means creating a new vault and moving the funds.',
           },
           {
             'pt-BR': '**Sem auditoria:** o Konclave não foi auditado de forma independente. A biblioteca FROST da Zcash Foundation passou por uma auditoria parcial, e ela exclui o FROST rerandomizado, a variante que a Zcash usa. Não guarde valores significativos nele ainda.',
@@ -449,8 +449,8 @@ export const SECTIONS: Section[] = [
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to temporary files, in tmpfs where the system has one).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com cada dispositivo mostrando o pagamento antes de assinar (lido da própria transação e conferido com o pagamento aprovado, #610), e então transmitido pelo **coordenador hospedado** (Arquitetura B), que nunca recebe um pedaço da chave. Provado na mainnet primeiro com duas abas numa máquina só (txid `3022420a…`) e depois entre máquinas físicas separadas, pela internet (txid `aec83baf…`), duas pessoas em dois lugares, cada navegador com só o seu share.',
-            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with each device showing the payment before it signs (read from the transaction itself and checked against the approved payment, #610), then broadcast by the **hosted coordinator** (Architecture B), which never receives a part of the key. Proven on mainnet first with two tabs on one machine (txid `3022420a…`), then across separate physical machines over the internet (txid `aec83baf…`), two people in two places, each browser holding only its own share.',
+            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), e então transmitido pelo **coordenador hospedado** (Arquitetura B), que nunca recebe um pedaço da chave. Cada dispositivo lê o pagamento da própria transação e o confere com o pagamento aprovado, como o coordenador o informa (#567), antes de a sua parte sair (#610). A leitura aparece enquanto a cerimônia está em andamento, sem pausa para lê-la antes, e a página antiga `/net` assina sem essa conferência. Provado na mainnet primeiro com duas abas numa máquina só (txid `3022420a…`) e depois entre máquinas físicas separadas, pela internet (txid `aec83baf…`), duas pessoas em dois lugares, cada navegador com só o seu share.',
+            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), then broadcast by the **hosted coordinator** (Architecture B), which never receives a part of the key. Each device reads the payment from the transaction itself and checks it against the approved payment, as the coordinator reports it (#567), before its share moves (#610). The reading is shown while the ceremony runs, with no pause to read it first, and the legacy `/net` page signs without this check. Proven on mainnet first with two tabs on one machine (txid `3022420a…`), then across separate physical machines over the internet (txid `aec83baf…`), two people in two places, each browser holding only its own share.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
@@ -469,7 +469,7 @@ export const SECTIONS: Section[] = [
           en: 'The diagram below shows the device, the relay and the chain. It leaves two things out: the coordinator, which holds the vault’s viewing key, the proposals and the members’ names, and never a part of the key; and a payment’s signing request, which crosses the relay unsealed until every member has unlocked the vault on their device.',
         },
       },
-      { k: 'img', src: 'diagrams/trust-boundary.svg', alt: { 'pt-BR': 'Fronteira de confiança: o que nunca sai do dispositivo, o que o relay vê, o que a rede vê', en: 'Trust boundary: what never leaves the device, what the relay sees, what the chain sees' } },
+      { k: 'img', src: 'diagrams/trust-boundary.svg', alt: { 'pt-BR': 'Fronteira de confiança: o que fica no dispositivo, o que o relay vê, o que a rede vê', en: 'Trust boundary: what stays on the device, what the relay sees, what the chain sees' } },
     ],
   },
   {
@@ -512,8 +512,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'Tudo isso fica dentro de um único bloco cifrado. Um arquivo vazado não revela nem de qual cofre ele é.',
-          en: 'All of it sits inside a single encrypted blob. A leaked file does not reveal even which vault it belongs to.',
+          'pt-BR': 'Tudo isso fica dentro de um único bloco cifrado. Um arquivo vazado não diz de qual cofre ele é.',
+          en: 'All of it sits inside a single encrypted blob. A leaked file does not say which vault it belongs to.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Confira agora, não depois', en: 'Check it now, not later' } },
@@ -624,7 +624,7 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'A frase-senha. O arquivo inteiro é cifrado com ela: sem ela, ele não diz nem de qual cofre é, e uma frase errada é recusada, nunca vira lixo decifrado. Com ela, o arquivo é o seu assento. Por isso os dois ficam em lugares diferentes.',
+          'pt-BR': 'A frase-senha. O arquivo inteiro é cifrado com ela: sem ela, o arquivo não diz nem de qual cofre é, e uma frase errada é recusada, nunca vira lixo decifrado. Com ela, o arquivo é o seu assento. Por isso os dois ficam em lugares diferentes.',
           en: 'The passphrase. The whole file is encrypted with it: without it the file does not even say which vault it belongs to, and a wrong passphrase is refused, it never decrypts to garbage. With it, the file is your seat. That is why the two live in different places.',
         },
       },
@@ -730,8 +730,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'Um cofre é um fundo compartilhado na rede Zcash que um grupo cuida junto. Cada membro tem um assento: o seu pedaço da chave do cofre, guardado só no seu aparelho e trancado com a sua frase-senha. O quórum é quantos membros precisam aprovar e assinar antes de o dinheiro sair, por exemplo 2 de 3. Nenhum membro move o dinheiro sozinho.',
-          en: 'A vault is a shared fund on the Zcash network that a group looks after together. Each member holds a seat: their own part of the vault’s key, kept only on their device and locked with their passphrase. The quorum is how many members must approve and sign before money leaves, for example 2 of 3. No member can move the funds alone.',
+          'pt-BR': 'Um cofre é um fundo compartilhado na rede Zcash que um grupo cuida junto. Cada membro tem um assento: o seu pedaço da chave do cofre, guardado selado no seu aparelho (e no backup cifrado que você exporta) e trancado com a sua frase-senha. O quórum é quantos membros precisam aprovar e assinar antes de o dinheiro sair, por exemplo 2 de 3. Nenhum membro move o dinheiro sozinho.',
+          en: 'A vault is a shared fund on the Zcash network that a group looks after together. Each member holds a seat: their own part of the vault’s key, kept sealed on their device (and in the encrypted backup they export) and locked with their passphrase. The quorum is how many members must approve and sign before money leaves, for example 2 of 3. No member can move the funds alone.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Por que 2 de 3 é o padrão?', en: 'Why is 2 of 3 the default?' } },
@@ -834,8 +834,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'O único custo é a taxa da rede Zcash, uma fração pequena de um ZEC: a tela de pagamento mostra a estimativa antes de você propor (0,00015 ZEC para um pagamento simples), e uma folha custa um pouco mais por linha. O Konclave não cobra taxa própria. Depois que o quórum aprova e assina, o pagamento costuma entrar num bloco em poucos minutos. Uma proposta que não alcança o quórum expira em 72 horas.',
-          en: 'The only cost is the Zcash network fee, a small fraction of a ZEC: the payment screen shows the estimate before you propose (0.00015 ZEC for a single payment), and a payroll costs a little more per line. Konclave adds no fee of its own. Once the quorum approves and signs, the payment usually lands in a block within minutes. A proposal that does not reach its quorum expires after 72 hours.',
+          'pt-BR': 'O único custo é a taxa da rede Zcash, uma fração pequena de um ZEC: a tela de pagamento mostra a estimativa antes de você propor (hoje, 0,00015 ZEC para um pagamento simples; um padrão proposto para carteiras Zcash, a ZIP 2009, deve reduzi-la), e uma folha custa um pouco mais por linha. O Konclave não cobra taxa própria. Depois que o quórum aprova e assina, o pagamento costuma entrar num bloco em poucos minutos. Uma proposta que não alcança o quórum expira em 72 horas.',
+          en: 'The only cost is the Zcash network fee, a small fraction of a ZEC: the payment screen shows the estimate before you propose (0.00015 ZEC for a single payment today; a proposed Zcash wallet standard, ZIP 2009, would lower it), and a payroll costs a little more per line. Konclave adds no fee of its own. Once the quorum approves and signs, the payment usually lands in a block within minutes. A proposal that does not reach its quorum expires after 72 hours.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Como confiro um pagamento na blockchain, e por que não vejo o valor?', en: 'How do I check a payment on the blockchain, and why can’t I see the amount?' } },
@@ -976,7 +976,7 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'Ele imprime o fluxo inteiro: o cofre, a segurança autoritativa de endereço, propor e aprovar até o quórum, uma recusa, uma folha privada (N beneficiários) e o razão/CSV itemizado.',
+          'pt-BR': 'Ele imprime o fluxo inteiro: o cofre, a segurança autoritativa de endereço, propor e aprovar até o quórum, uma recusa, uma folha privada (N beneficiários) e o livro/CSV itemizado.',
           en: 'It prints the whole flow: the vault, authoritative address safety, propose and approve to quorum, a refusal, a private payroll (N beneficiaries), and the itemized ledger/CSV.',
         },
       },
@@ -1007,9 +1007,9 @@ export const SECTIONS: Section[] = [
     title: { 'pt-BR': 'SDK: @konclave/frost', en: 'SDK: @konclave/frost' },
     lead: {
       'pt-BR':
-        'A mesma engine WASM que roda no `/net` do Konclave, empacotada como uma primitiva reutilizável de navegador para FROST na Zcash Orchard, com o share secreto **nunca saindo do dispositivo**.',
+        'A mesma engine WASM que roda no `/net` do Konclave, empacotada como uma primitiva reutilizável de navegador para FROST na Zcash Orchard, com o share secreto **guardado selado no dispositivo**, de onde só sai num backup cifrado que o próprio membro exporta.',
       en:
-        'The same WASM engine that powers Konclave’s `/net`, packaged as a reusable browser primitive for FROST on Zcash Orchard, with the secret share **never leaving the device**.',
+        'The same WASM engine that powers Konclave’s `/net`, packaged as a reusable browser primitive for FROST on Zcash Orchard, with the secret share **kept sealed on the device**, leaving it only inside an encrypted backup the member exports.',
     },
     blocks: [
       { k: 'h', t: { 'pt-BR': 'O que é', en: 'What it is' } },
@@ -1063,7 +1063,7 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'A pasta `mcp-server/` expõe o cofre a um assistente de IA (Claude e outros clientes MCP) pela API do bridge local. A escolha de design é o ponto todo: as ferramentas de **leitura** (cofres, saldo, transações, propostas, razão) e de **proposta** (pagamento e folha) existem; as ferramentas de **assinar** e **transmitir** foram deixadas de fora **de propósito**. Funciona só com a versão local (`konclave serve`); cofres do app web não são alcançados por ele.',
+            'A pasta `mcp-server/` expõe o cofre a um assistente de IA (Claude e outros clientes MCP) pela API do bridge local. A escolha de design é o ponto todo: as ferramentas de **leitura** (cofres, saldo, transações, propostas, livro) e de **proposta** (pagamento e folha) existem; as ferramentas de **assinar** e **transmitir** foram deixadas de fora **de propósito**. Funciona só com a versão local (`konclave serve`); cofres do app web não são alcançados por ele.',
           en:
             'The `mcp-server/` folder exposes the vault to an AI assistant (Claude and other MCP clients) via the local bridge API. The design choice is the whole point: **read** tools (vaults, balance, transactions, proposals, ledger) and **propose** tools (payment and payroll) exist; the **sign** and **broadcast** tools were deliberately left out. It works with the local build (`konclave serve`) only; vaults in the web app are not reachable from it.',
         },

@@ -66,6 +66,26 @@
 .act-tab.on{color:var(--text); border-bottom-color:var(--accent)}
 .act-tab:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
 .act-body{margin-top:10px}
+.since{margin-top:8px}
+.since-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap}
+.since-h{margin:0; font-size:15px; font-weight:600}
+.since-h:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px}
+.since-at{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
+.since-list{list-style:none; margin:10px 0 0; padding:0; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1)}
+.since-row{border-bottom:1px solid var(--line); display:flex; align-items:flex-start; gap:12px; padding:12px 16px}
+.since-row:last-child{border-bottom:0}
+/* The title is the row's button; the amount under its bar sits beside it, never inside it. */
+.since-btn{appearance:none; border:0; background:transparent; color:inherit; font:inherit; text-align:left; padding:2px 0; min-height:24px; cursor:pointer; align-self:flex-start; border-radius:4px}
+.since-btn:hover .since-title{text-decoration:underline}
+.since-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.since-main{flex:1; min-width:0; display:flex; flex-direction:column}
+.since-kind{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted)}
+.since-row.kind-arrived .since-kind, .since-row.kind-ready .since-kind{color:var(--accent-ink)}
+.since-row.kind-refused .since-kind, .since-row.kind-expired .since-kind{color:var(--warn-strong, var(--warn))}
+.since-title{font-weight:600; font-size:14.5px; margin-top:2px}
+.since-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-top:3px; overflow-wrap:anywhere}
+.since-go{color:var(--accent); font-weight:700}
+.since-actions{margin-top:12px}
 .lg-actions{display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px; flex-wrap:wrap}
 
 /* Loading affordance: a centered spinning ring + label (replaces the old text-only line). */
@@ -905,6 +925,21 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 
 /* ---- Ledger ---- */
 .filters{display:flex; gap:14px; margin:14px 0; align-items:center; flex-wrap:wrap}
+/* The book by beneficiary (#778): a titled section under the table, opened on demand. */
+.pivot{margin-top:28px}
+.pivot-h{margin:0}
+/* The heading is the disclosure: the caret the payroll rows already use, on a plain button. */
+.pivot-toggle{appearance:none; border:0; background:transparent; color:inherit; font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; padding:6px 0; min-height:24px; border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:6px}
+.pivot-toggle:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.pivot .tblwrap{overflow-x:auto}
+.pivot-tbl th.num, .pivot-tbl td.num{text-align:right; font-family:var(--font-num); font-variant-numeric:tabular-nums}
+.pivot-tbl tbody th{font-weight:500; text-align:left}
+.pivot-tbl tfoot th{border-top:1px solid var(--line); padding-top:10px}
+.pivot-sub{font-size:11px; color:var(--text-muted)}
+/* 2.5.8: in this table the veils sit row under row, so each small bar keeps a 24px target. Scoped
+   here: the small bar elsewhere in the app keeps its size. */
+.pivot-tbl .secret.sm .bar{inset:-3px -4px; min-height:24px}
+.pivot-check.warn{color:var(--warn-strong, var(--warn))}
 .chip-group{display:inline-flex; flex-wrap:wrap; gap:6px}
 .chip{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); border:1px solid var(--line); background:var(--surface-2); padding:7px 12px; border-radius:var(--radius-pill); cursor:pointer; transition:all var(--dur-fast) var(--ease-out)}
 .chip:hover{color:var(--text); border-color:var(--text-muted)}
@@ -1574,3 +1609,60 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .read-state h2{margin:0 0 6px; font-size:15px}
 .read-state.compact{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:0 0 10px; font-size:13px}
 .read-state.compact .btn{margin-top:0}
+
+/* ---- The trust panel in Settings: who sees what, who can do what, for this vault. ---- */
+.trust-intro{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.trust-badge{font-weight:600}
+.trust-badge.open{color:var(--warn-strong, var(--warn)); border-color:var(--warn-strong, var(--warn))}
+.trust-wrap{overflow-x:auto; margin-top:10px; border-radius:var(--radius-sm)}
+.trust-wrap:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.trust-grid{min-width:560px}
+.trust-grid th{font-size:11px}
+.trust-grid tbody th[scope="row"]{font-family:var(--font-sans); font-size:12.5px; letter-spacing:0; text-transform:none; color:var(--text); text-align:left; font-weight:500; background:transparent}
+.trust-grid td.trust-cell{font-size:12.5px; vertical-align:top}
+.trust-grid td.no{color:var(--text-muted)}
+.trust-grid td.yes, .trust-grid td.quorum{color:var(--text)}
+.trust-grid td.metadata, .trust-grid td.keeps, .trust-grid td.builds, .trust-grid td.sealedWhenRegistered, .trust-grid td.untilUnlock{color:var(--warn-strong, var(--warn))}
+.trust-limits{margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.55; color:var(--text-muted); display:grid; gap:6px; max-width:62ch}
+/* A button that reads as a link, for an action inside a sentence. */
+.link-btn{appearance:none; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer}
+.link-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+/* ---- The Ledger's visual pass: less uppercase mono eyebrow, hierarchy by the size of the number,
+   colour only for the state (the guide's four groups), breathing room. Scoped to the book. ---- */
+/* Screen only: the book's print rules (the document at every width) keep the page. */
+@media screen{
+  .ledger-doc .klab{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.02em; text-transform:none; color:var(--text-muted)}
+  .ledger-doc .doc-band{padding:22px 26px; gap:24px 36px; margin-top:18px}
+  .ledger-doc .db-meta{gap:40px}
+  .ledger-doc .db-meta b{font-size:14px; font-weight:600}
+  /* The period keeps `mono` for print; on screen it reads in sans like its neighbours. */
+  .ledger-doc .db-meta b.mono{font-family:var(--font-sans)}
+  .ledger-doc .db-t b{font-size:24px; font-weight:600; letter-spacing:-.01em}
+  .ledger-doc .db-totals{gap:34px; flex-wrap:wrap}
+  .ledger-doc .cap{font-family:var(--font-sans); font-size:12.5px; margin:10px 0 18px}
+  .ledger-doc .filters{margin:18px 0}
+  .ledger-doc .chip-glabel{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.02em; text-transform:none}
+  .ledger-doc .chip{font-family:var(--font-sans); font-size:12.5px; padding:6px 12px}
+  .ledger-doc .chip-label, .ledger-doc .chip-note{font-family:var(--font-sans); font-size:12.5px}
+  .ledger-doc .tbl th{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.01em; text-transform:none; font-weight:600; padding:12px 12px}
+  .ledger-doc .tbl th.num{text-align:right}
+  /* The row's second line: names, counts and the state word are not mono material; only an address is. */
+  .ledger-doc .tbl .by{font-family:var(--font-sans); font-size:12px}
+  .ledger-doc .tbl .by .mono, .ledger-doc .tbl td.mono{font-family:var(--font-mono)}
+  .ledger-doc .tbl .num.out{color:var(--text)}
+  .ledger-doc .tbl .num.dim{color:var(--text-muted)}
+  /* The state's word in its group's colour; the word is always there, the colour never goes alone.
+     Text-tier tokens: the fill tokens fall under 4.5:1 on a hovered row and on the second surface. */
+  .ledger-doc .st-need{color:var(--accent-text)}
+  .ledger-doc .st-way{color:var(--silver)}
+  .ledger-doc .st-ok{color:var(--success-text)}
+  .ledger-doc .st-closed{color:var(--text-muted)}
+  .ledger-doc .st-ok .link{color:var(--success-text); border-bottom-color:currentColor}
+  .ledger-doc .closed-tag{font-family:var(--font-sans); font-size:11px; letter-spacing:0; text-transform:none; padding:1px 7px}
+  .ledger-doc .pivot{margin-top:34px}
+  .ledger-doc .pivot-h{font-size:14px; font-weight:600; color:var(--text)}
+}
+/* Room on a laptop; the phone card keeps its own grid (the 640px rules in lacre.css set the cells to 0). */
+@media screen and (min-width:641px){ .ledger-doc .tbl td{padding:14px 12px} }
+@media screen and (max-width:560px){ .ledger-doc .doc-band{padding:18px 20px} .ledger-doc .db-t b{font-size:20px} .ledger-doc .db-totals{gap:22px} }

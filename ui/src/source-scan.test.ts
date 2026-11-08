@@ -91,11 +91,14 @@ describe('stripComments', () => {
     // listed here with what it reads instead.
     const NOT_TS_SOURCE: Record<string, string> = {
       'contrast.test.ts': 'stylesheets',
+      'creation-crossing.test.ts': 'the crossing fixture and the wasm',
       'layering.test.ts': 'stylesheets',
       'layout-width.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
       'changelog-gate.test.ts': 'CHANGELOG files',
       'changelog-shape.test.ts': 'CHANGELOG files',
+      'changelog-sections.test.ts': 'CHANGELOG files',
+      'changelog-fragments.test.ts': 'CHANGELOG files',
       'net-room.test.ts': 'raw bytes, for control characters',
       'wasm-pkg-freshness.test.ts': 'Rust source and generated declarations',
       'wasm-write-actions.test.ts': 'the WASM binary and Rust source',

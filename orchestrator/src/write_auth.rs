@@ -201,7 +201,7 @@ pub fn members_counted(entries: &[String], roster: &[String]) -> usize {
 /// Two seats whose names differ only at the edges therefore replace each other's votes, as two seats
 /// with the identical name already did. [`seat_acts_as`] treats them as one name too.
 pub fn same_member(a: &str, b: &str) -> bool {
-    member_key(a) == member_key(b)
+    konclave_seal::same_member(a, b)
 }
 
 /// The one comparison every name check here makes: whitespace at the edges is ignored and nothing

@@ -8,7 +8,7 @@
 
 **Create and operate a shielded, threshold-signed fund vault on Zcash mainnet (quorum-approved payments and private payroll) without a command line, and without any single member ever able to move the funds or reconstruct the key.**
 
-[![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
+[![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU7)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
 [![Built on FROST](https://img.shields.io/badge/built%20on-FROST-6f42c1)](#why-we-built-this)
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
 [![Tests: Rust + UI, gated in CI](https://img.shields.io/badge/tests-Rust%20%2B%20UI%2C%20gated%20in%20CI-2ea44f.svg)](#status)
@@ -70,11 +70,11 @@ only a cryptographer can currently use them.
 
 Konclave splits a vault's shielded spend authority into **`t`-of-`n` FROST shares** across the
 members by real **Distributed Key Generation**. The whole key is **never reconstituted**, at
-creation or at signing, and each share **never leaves its owner's device**. On top of that it
+creation or at signing, and each share is kept sealed on its owner's device and leaves it only inside the encrypted backup its owner exports. On top of that it
 builds the human layer: propose, approve to a quorum, sign, broadcast, and account, in plain
 language, with a preview and an explicit confirmation before anything moves. Receives in a
-**shielded** pool, built against **NU6.3 (Ironwood)** and proven across the Orchard → Ironwood
-upgrade on mainnet.
+**shielded** pool (Ironwood), built against **NU7** (active on mainnet since block 3,543,405), and
+proven on mainnet across the Orchard → Ironwood upgrade and after NU7.
 
 **The design rule: hide the cryptography, expose the trust.** You never see "FROST", "DKG", or
 "SIGHASH"; you see *vault, members, approval, payment*.
@@ -129,9 +129,13 @@ The whole flow, in the app's own words (hide the cryptography, expose the trust)
    an address). Konclave validates the address and checks the balance *before* anything is created.
 4. **Approve to quorum** (`/proposals` → a proposal). Each member reviews and approves or refuses.
    Nothing moves until the agreed number of approvals is in, and proposals expire.
-5. **Sign & send.** At quorum a FROST ceremony signs with **only the shares of whoever approved** and
-   broadcasts one shielded transaction. A preview and an explicit confirmation guard the
-   broadcast: one click never moves money, and the key is never reassembled.
+5. **Sign & send.** Once a proposal reaches its quorum, members open the payment and press
+   **Sign with my share**; one shielded transaction goes out when `t` of them have signed. Any
+   member of the vault can sign an approved payment, including one who did not vote for it: the
+   coordinator starts the signing only for a proposal that reached its quorum, and nothing checks
+   that the members who sign are the ones who approved it. A preview and an
+   explicit confirmation guard the broadcast: one click never moves money, and the key is never
+   reassembled.
 6. **Payroll, optional** (`/payroll`). Enter the beneficiaries (or import a CSV, in the local build)
    → one shielded transaction with N outputs, approved **once**, each payslip in an encrypted memo
    that outsiders and the chain cannot read (the recipient, the members and the coordinator can).
@@ -149,7 +153,7 @@ or run it locally (see [**Try it**](#try-it)). The same walkthrough is available
 
 ```
   propose ─▶ approve (real M-of-N quorum, with expiry) ─▶ sign (FROST ceremony,
-  only the shares of whoever approved) ─▶ broadcast (shielded) ─▶ ledger
+  the shares of any t members) ─▶ broadcast (shielded) ─▶ ledger
                               the key is never reassembled
 ```
 
@@ -177,7 +181,7 @@ FROST group signature together**, each keeping only its own share, routed throug
 relay** ([`relay-server/`](relay-server/), on Railway) that holds no key and carries public or
 encrypted messages, with one exception: a payment's signing request crosses it unsealed until every
 member's device has registered its public device key (see the trust model below). The one secret piece of the DKG (the round-2 packages) is **sealed
-end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays blind. Try it by
+end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay cannot read them. Try it by
 creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app) and joining it from
 a second device.
 
@@ -203,8 +207,8 @@ product yet:
 We distinguish **what the cryptography guarantees** from **what the product enforces**, and we do
 not promise what we do not deliver.
 
-- **Guaranteed by the cryptography:** the key is never reconstituted; a quorum signature is
-  required to spend; your share never leaves your device.
+- **Guaranteed by the cryptography:** a quorum signature is required to spend: fewer than `t` shares can neither sign nor rebuild the key, and creating a vault by DKG never computes the whole key anywhere.
+- **Guaranteed by how the app is built (product, not protocol):** your share stays sealed on your device and leaves only inside the encrypted backup you export, for as long as the app you load is the one we published; nothing yet lets you check that (#605).
 - **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or
   public ceremony messages and, once every member's device has registered its public device key, never who a
   payment pays, though it sees member names and the quorum while a vault is created; the
@@ -257,9 +261,9 @@ not promise what we do not deliver.
   unlocks. Stay honest about the limits: the read gate is per vault (legacy vaults stay open until
   re-created; an in-place upgrade is #406), and a leaked id still shows the vault's address and its
   quorum shape.
-- **A leaked backup reveals nothing (#214, live):** the vault export is a single opaque blob -
+- **A leaked backup does not open the vault without the passphrase (#214, live):** the vault export is a single opaque blob -
   metadata, share, S and beneficiaries all encrypted under a passphrase, only a non-sensitive envelope
-  in the clear - so a stolen backup file does not even disclose the vault id. Restoring it brings back
+  in the clear - so a stolen backup file does not disclose the vault id. Restoring it brings back
   the signing seat, and on a Private vault the export also carries the viewing key and the scan
   height a rebuild needs (#447, #480), if our coordinator answered when it was made. The export of a
   vault marked Open lacks the viewing key.
@@ -302,14 +306,14 @@ not promise what we do not deliver.
   lost seat, or changing the members or the quorum of an existing vault (#154). *(Now shipped, no
   longer roadmap: the browser broadcast; on-device share persistence with sign-after-restore; and
   the installable desktop binary - Tauri, first released as **v0.2.0** on 2026-08-03, now
-  **v0.13.2**, a pre-release that is not code-signed or notarized and not yet validated on real
+  **v0.17.0**, a pre-release that is not code-signed or notarized and not yet validated on real
   per-platform hardware, so the website does not offer the download yet; see
   [ADR-0004](docs/adr/0004-local-http-bridge.md).)*
 
 On the June 2026 Orchard episode: the earlier soundness bug (fixed by the **NU6.2** hard-fork that
 re-enabled Orchard with a corrected circuit) was a *forgery* risk, **not** a privacy loss, with
-**no evidence of exploitation**. Konclave now targets current mainnet consensus - **NU6.3
-(Ironwood)** - and is a trust-restoring tool built right after that confidence shock; we state this
+**no evidence of exploitation**. Konclave now targets current mainnet consensus, **NU7**
+(active since block 3,543,405), and is a trust-restoring tool built right after that confidence shock; we state this
 without overstatement.
 
 ## How it compares
@@ -382,8 +386,8 @@ konclave/
 
 A working, mainnet-proven prototype. The core runs through the UI for **payment and payroll**:
 propose → validate (continuous) → approve/refuse (real quorum, with expiry) → **sign (FROST with the
-shares of whoever approved, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
-ships, on **Tauri**, since v0.2.0 (now v0.13.2, a pre-release; Windows, Linux and Apple Silicon
+shares of `t` members, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
+ships, on **Tauri**, since v0.2.0 (now v0.17.0, a pre-release; Windows, Linux and Apple Silicon
 macOS installers, none of them code-signed or notarized; open: embedding the orchestrator and the OS
 keychain (#212), live per-platform hardware validation and signed installers (#606), so the website
 does not offer the download yet). CI gates the whole repo on every push
@@ -398,6 +402,13 @@ Konclave does **not** reimplement cryptography. It stands on
 [zcash-devtool](https://github.com/zcash/zcash-devtool), and
 [librustzcash](https://github.com/zcash/librustzcash), adding the usability, orchestration, and
 accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash community.
+
+## Built with AI assistance
+
+Konclave is built with AI assistance (Claude Code). A person answers for every line, and AI-assisted
+commits carry a `Co-Authored-By:` trailer going forward; earlier history is unchanged. Contributions
+made with an AI assistant are welcome on the same terms:
+[CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
 
 ## Documentation
 

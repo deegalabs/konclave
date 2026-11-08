@@ -2194,10 +2194,15 @@ dependencies = [
  "ed25519-dalek",
  "konclave-http",
  "konclave-seal",
+ "orchard",
  "orchestrator",
+ "rand 0.8.7",
+ "reddsa 0.5.2",
  "serde",
  "serde_json",
  "tiny_http",
+ "zcash_address",
+ "zcash_protocol",
 ]
 
 [[package]]
@@ -2788,12 +2793,18 @@ name = "konclave-seal"
 version = "0.1.0"
 dependencies = [
  "chacha20poly1305 0.10.1",
+ "ed25519-dalek",
  "ff 0.14.0",
  "hkdf",
  "orchard",
+ "pasta_curves 0.5.2",
  "rand 0.8.7",
+ "reddsa 0.5.2",
+ "serde",
  "sha2 0.10.9",
  "x25519-dalek",
+ "zcash_address",
+ "zcash_protocol",
 ]
 
 [[package]]
@@ -2846,6 +2857,7 @@ dependencies = [
  "pczt",
  "rand 0.8.7",
  "reddsa 0.5.2",
+ "serde_json",
  "wasm-bindgen",
  "zcash_address",
  "zcash_note_encryption",
@@ -3495,6 +3507,8 @@ dependencies = [
  "konclave-seal",
  "orchard",
  "pczt",
+ "rand 0.8.7",
+ "reddsa 0.5.2",
  "rusqlite",
  "serde",
  "serde_json",

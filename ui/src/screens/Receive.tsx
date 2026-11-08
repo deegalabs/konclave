@@ -1,3 +1,6 @@
+import { CodeFirst } from './CodeFirst'
+import { updateVaultMeta } from '../storage'
+import { storageErrorKey } from '../storage-errors'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { SkeletonDetail, SkeletonQr, SkeletonRows } from '../skeleton'
@@ -26,9 +29,12 @@ import { copyText } from '../clipboard'
  *  member is told before copying anything, and the coordinator's address is never shown: showing it
  *  would offer it to copy. With no record there is no address to show, and the screen says why.
  *  Exported for its test: the screen loads the vault in an effect, which server rendering never runs. */
-export function AddressNotice({ differs, missing, id }: { differs: boolean; missing: boolean; id: string }) {
+export function AddressNotice({ differs, missing, gate, id }: { differs: boolean; missing: boolean; gate?: 'waiting' | 'refused' | 'compare'; id: string }) {
   const t = useT()
   const tr = useTr()
+  if (gate === 'refused') return <BannerWarn id={id} className="rcv-warn">{tr('receive.addressRefused')}</BannerWarn>
+  if (gate === 'compare') return null
+  if (gate === 'waiting') return <p id={id} className="rcv-note">{t('receive.addressWaiting')}</p>
   if (missing) {
     return (
       <div id={id}>
@@ -77,6 +83,8 @@ export default function Receive() {
   // A vault that could not be read is said as such, never as "no vault on this device" (#320).
   const [attempt, setAttempt] = useState(0)
   const [retrying, setRetrying] = useState(false)
+  // A compare that could not be recorded keeps the address hidden, and says why.
+  const [compareErr, setCompareErr] = useState<string | null>(null)
   // Set from the read's answer, never read off the module during render: a failure left behind by
   // an earlier vault must not outlive a device that now holds none.
   const [unread, setUnread] = useState<ReturnType<typeof lastReadFailure>>(null)
@@ -202,7 +210,17 @@ export default function Receive() {
       {/* Without an address, the lead's "send ZEC to the vault's address" has nothing to point at. */}
       <PageHeader title={t('receive.title')} subtitle={address ? t('receive.lead') : undefined} />
 
-      <AddressNotice differs={!!vault.served_address_differs} missing={!address} id={noticeId} />
+      <AddressNotice differs={!!vault.served_address_differs} missing={!address} gate={vault.address_gate} id={noticeId} />
+
+      {vault.address_gate === 'compare' && (
+        <CodeFirst code={vault.viewing_code} compared={false}
+          onCompared={() => { setCompareErr(null); void updateVaultMeta(vault.id, { codeCompared: true }).then(() => getVault()).then(setVault).catch((e) => setCompareErr(t(storageErrorKey(e, 'export.errGeneric')))) }}>
+          {null}
+        </CodeFirst>
+      )}
+      {compareErr && (
+        <p className="unlock-err" role="alert">{compareErr}</p>
+      )}
 
       {address && (
       <div className="rcv-grid">

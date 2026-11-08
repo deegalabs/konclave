@@ -1,7 +1,8 @@
 # Security Policy
 
 Konclave is a self-custody tool for collective Zcash vaults using FROST threshold
-signatures. Key shares never leave a member's device. The relay carries sealed or public
+signatures. Key shares stay sealed on a member's device and leave it only inside the
+encrypted backup the member exports. The relay carries sealed or public
 ceremony material: it never sees a share, and once every member's device has registered its
 public device key it does not see who a payment pays, but it does see member names and the quorum while a
 vault is being created; the hosted coordinator never receives a share and cannot move funds
@@ -59,7 +60,9 @@ the variant Zcash uses.
 
 The weakest points today are the services we host for every vault: the web host that serves the
 app, and the hosted coordinator, which builds every transaction, holds each vault's viewing key,
-and while it is down no payment can be made. What is fixed and what is open, by kind of attack:
+and while it is down no payment can be made. A fix on the device side reaches a device only when it runs the fixed version: when the app says "New version available", press Update. Desktop pre-releases do not update themselves (#606).
+
+What is fixed and what is open, by kind of attack:
 
 - **Changing the app itself.** Open: every member using the web app loads it from our web host, so a
   compromised host could serve all of them a modified app at once, and the threshold would not
@@ -100,7 +103,7 @@ and while it is down no payment can be made. What is fixed and what is open, by 
   learn who a payment pays or how much (#63); the coordinator's private reads (balance, history,
   proposals, ledger, members) and the signing room are gated by a per-vault secret, so a leaked
   vault id opens neither, though it still shows the vault's address and its quorum (#402, #403);
-  and the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
+  and, once a vault has a registered device, the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
   viewing key and reads its books (#516); a vault where some member has not yet unlocked it on a
   current version still sends its signing requests unsealed; vaults created before the per-vault secret stay
   readable by id until they are re-created, or upgraded in place if #406 lands; a device that restored a vault before the fix keeps its viewing key unencrypted in local storage until that vault's passphrase is next typed, and a copy already taken stays valid for the life of the vault (#599); the coordinator stores proposals

@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto'
+import { CREATION_PROTOCOL } from './creation-protocol'
 import { describe, it, expect, vi } from 'vitest'
 // #669: this file derives keys (PBKDF2 at 600k rounds, AES-GCM) in most of its tests. Measured on
 // an idle machine the slowest took 5.0 s, so under load they cross the 5 s default and read as a
@@ -8,7 +9,7 @@ vi.setConfig({ testTimeout: 30_000 })
 import {
   saveVault, loadVault, listVaults, deleteVault, forgetVault, storageAvailable,
   exportVault, importVault, parseVaultExport, changePassphrase, recordChangeReceiver, updateVaultMeta, type VaultData,
-  warnsAboutEviction, storagePersistence,
+  warnsAboutEviction, storagePersistence, replaceRefusedReceivers, recordReceiversRefused, recordVerifiedReceivers,
 } from './storage'
 
 // Covers the on-device share persistence (Marco 5): the encrypted IndexedDB round-trip that
@@ -50,7 +51,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'allSaved', 'changeReceiver', 'coordinator', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'plainViewingKey', 'roster', 'secured', 'threshold', 'total'])
+    expect(Object.keys(v!).sort()).toEqual(['abandoned', 'address', 'allSaved', 'changeReceiver', 'codeCompared', 'coordinator', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'pinBundle', 'plainViewingKey', 'receiversState', 'roster', 'secured', 'servedFingerprint', 'threshold', 'total', 'viewingFingerprint'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -130,6 +131,30 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     // A vault saved without one has none, never the app's.
     await saveVault(GK7, data, pass)
     expect((await listVaults()).find((v) => v.id === GK7)!.cp).toBeUndefined()
+  })
+
+  it('a backup of a vault made by a newer creation protocol is refused: update the app', async () => {
+    // Read as an older protocol, a newer vault would skip the checks its own protocol requires.
+    await saveVault(GK7, { ...data, cp: CREATION_PROTOCOL + 1 }, pass)
+    const bundle = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
+    await expect(importVault(bundle, pass)).rejects.toMatchObject({ code: 'unsupported-version' })
+    expect((await listVaults()).find((v) => v.id === GK7)).toBeUndefined()
+    // This app's own protocol still comes back as it was.
+    await saveVault(GK7, { ...data, cp: CREATION_PROTOCOL }, pass)
+    const own = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
+    await importVault(own, pass)
+    expect((await listVaults()).find((v) => v.id === GK7)!.cp).toBe(CREATION_PROTOCOL)
+  })
+
+  it('a backup whose creation protocol is not a whole number in range is refused as corrupt, never read as older', async () => {
+    for (const bad of [3.5, '4', 0, -1] as unknown[]) {
+      await saveVault(GK7, { ...data, cp: bad as never }, pass)
+      const bundle = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+      await deleteVault(GK7)
+      await expect(importVault(bundle, pass), String(bad)).rejects.toMatchObject({ code: 'corrupt' })
+    }
   })
 
   it('a backup of a vault whose creation had not finished comes back unfinished, with its quorum', async () => {
@@ -775,6 +800,13 @@ describe('the export carries the scan floor (#480)', () => {
 // anyone who could read the browser profile read the vault's whole history without the passphrase.
 // These read the record straight out of IndexedDB: going through `loadVault` would pass either way.
 describe('the viewing key is sealed at rest (#599)', () => {
+  it('a repair leaves no key of the old vault, sealed or in the clear', async () => {
+    await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'pass')
+    await putRaw({ ...(await rawRecord()), ufvk: UFVK })
+    await recordReceiversRefused(id, 'SERVED')
+    await replaceRefusedReceivers(id, 'a', 'c', 'NEW')
+    expect((await rawRecord()).ufvk).toBeUndefined()
+  })
   const UFVK = 'uview1testviewingkey'
   const id = GK7
 
@@ -1055,3 +1087,75 @@ describe('the viewing key is sealed at rest (#599)', () => {
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
   })
 })
+
+describe('replacing a refused pin', () => {
+  it('only while refused, and the old sealed key goes with the old address', async () => {
+    await saveVault(GK7, data, 'pw')
+    await importVault(await exportVault(GK7, 'pw', 'old-key', 1), 'pw', { overwrite: true })
+    expect((await loadVault(GK7, 'pw')).ufvk).toBe('old-key')
+    expect(await replaceRefusedReceivers(GK7, 'new', 'newc', 'CODE')).toBe(false)
+    await recordReceiversRefused(GK7, 'SERVED')
+    expect(await replaceRefusedReceivers(GK7, 'new', 'newc', 'CODE')).toBe(true)
+    const rec = (await listVaults()).find((v) => v.id === GK7)
+    expect(rec).toMatchObject({ address: 'new', changeReceiver: 'newc', viewingFingerprint: 'CODE', receiversState: 'verified' })
+    expect((await loadVault(GK7, 'pw')).ufvk).toBeUndefined()
+  })
+})
+
+describe('the writers of a protocol-3 record', () => {
+  const ID = '09'.repeat(32)
+  const rec = async () => (await listVaults()).find((v) => v.id === ID)!
+  const fresh = async () => { await saveVault(ID, { ...data, groupKey: new Uint8Array(32).fill(9), address: '', cp: 3 }, 'pw') }
+  it('a meta patch or a change-receiver record does not write the receivers', async () => {
+    await fresh()
+    await updateVaultMeta(ID, { address: 'served' })
+    await recordChangeReceiver(ID, 'served-change')
+    expect((await rec()).address).toBeFalsy()
+    expect((await rec()).changeReceiver).toBeFalsy()
+  })
+  it('a refusal keeps the code it verified, and the replace clears the served one', async () => {
+    await fresh()
+    expect(await recordVerifiedReceivers(ID, 'a', 'c', 'HELD')).toBe(true)
+    await recordReceiversRefused(ID, 'SERVED')
+    expect(await rec()).toMatchObject({ viewingFingerprint: 'HELD', servedFingerprint: 'SERVED', receiversState: 'refused' })
+    await updateVaultMeta(ID, { codeCompared: true })
+    await replaceRefusedReceivers(ID, 'a2', 'c2', 'NEW')
+    expect((await rec()).servedFingerprint).toBeUndefined()
+    expect((await rec()).codeCompared).toBeUndefined() // a new code is compared again
+  })
+  it('a verified write made from a stale read loses, and the scan floor is kept once', async () => {
+    await fresh()
+    await recordVerifiedReceivers(ID, 'a', 'c', 'HELD', undefined, 5)
+    expect(await recordVerifiedReceivers(ID, 'x', 'y', 'OLD', { address: 'stale', change: 'c' }, 900)).toBe(false)
+    expect(await rec()).toMatchObject({ address: 'a', viewingFingerprint: 'HELD' })
+    await recordVerifiedReceivers(ID, 'a', 'c', 'HELD', { address: 'a', change: 'c' }, 900)
+    expect((await loadVault(ID, 'pw')).birthday).toBe(5)
+  })
+  it('the stop travels with the loaded record', async () => {
+    await fresh()
+    await updateVaultMeta(ID, { abandoned: 'secret' })
+    expect((await loadVault(ID, 'pw')).abandoned).toBe('secret')
+  })
+  it('an export can leave out the key the record holds', async () => {
+    await saveVault(GK7, data, 'pw')
+    await importVault(await exportVault(GK7, 'pw', 'old-key', 1), 'pw', { overwrite: true })
+    const back = await parseVaultExport(JSON.stringify(await exportVault(GK7, 'pw', undefined, undefined, { storedKey: false })))
+    await importVault(back as never, 'pw', { overwrite: true })
+    expect((await loadVault(GK7, 'pw')).ufvk).toBeUndefined()
+  })
+})
+
+describe('what a backup keeps of a stopped creation and its scan floor', () => {
+  it('a stopped creation stays stopped when restored', async () => {
+    await saveVault(GK7, data, 'pw')
+    await updateVaultMeta(GK7, { abandoned: 'secretSplit' })
+    await importVault(await exportVault(GK7, 'pw'), 'pw', { overwrite: true })
+    expect((await loadVault(GK7, 'pw')).abandoned).toBe('secretSplit')
+  })
+  it('a scan floor that is not a height does not come in', async () => {
+    await saveVault(GK7, data, 'pw')
+    await importVault(await exportVault(GK7, 'pw', 'k', 1.5), 'pw', { overwrite: true })
+    expect((await loadVault(GK7, 'pw')).birthday).toBeUndefined()
+  })
+})
+
