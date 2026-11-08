@@ -246,8 +246,9 @@ Facts (verified 2026-06-30):
 1. Shielded-first (Orchard). A transparent destination is an explicit, warned exception.
 2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
 3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
-4. The relay is **blind** (sealed or public material only; until every seat of a vault has registered
-   its device key, that vault's signing request crosses it unsealed, #63). The hosted coordinator is
+4. The relay is **blind** (sealed or public material only; for a vault created before v0.18.0, until
+   every seat has registered its device key, its signing request crosses it unsealed, #63; a
+   protocol-3 vault never sends one unsealed, ADR-0012 D6). The hosted coordinator is
    **share-blind**: it never receives, derives or stores a share and cannot move funds on its own,
    but it builds the transactions the quorum signs (until #567 is fixed, a payment the
    quorum signs is only as safe as the coordinator), and it holds each vault's viewing key and
@@ -575,6 +576,18 @@ to the relay). From `S`:
   a locked protected vault answer `null`, skip the unlock decision entirely, and land the member on
   the blank screen #439 exists to prevent. The route being open is load-bearing, not an oversight.
   Live on mainnet: leaked id -> `401` on the listed reads, `200` on the metadata.
+- **The first read key itself was taken on nobody's word, until 2026-11-08
+  ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
+  "Open until then" above meant that a vault with no read key took its FIRST key from any caller that
+  knew the id. Whoever set it before a member's device did could read that vault's books through the
+  coordinator, fetch its viewing key and claim its unregistered seats, and the members' own reads
+  answered `401`; it never allowed spending. Closed in v0.18.0 (the coordinator since 2026-11-08
+  00:06 UTC): a new vault is created under creation protocol 3 and stays closed until `t` seats'
+  certificates, each signed by its share, agree on one package and one read-key hash (the pin,
+  [ADR-0012](docs/adr/0012-seat-certificates.md)), and no vault takes a first read key any more.
+  Vaults created before keep their rules; one that never got a read key stays open for reads to
+  whoever has its id and can no longer get one (none among the vaults checked at the fix). Found by
+  an internal review on 2026-10-15, not a report.
 - **The signing room is from `S`, not the group key (PR #403):** `SHA-256("konclave-sign-s " + S)[:16]`,
   so an id-only outsider can neither compute nor observe it. Proven by a real mainnet 2-of-2 S-vault
   sweep, SignRequest sealed (#63), nothing in cleartext (`34e2a51c…`); a CORS fix (allow
@@ -677,12 +690,16 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   check, because two implementations of one rule, with only one of them fixed, is what produced the
   gap in the first place.
 - **Read access is now gated by `S`** (#388/#402, was #267): the helper's private reads require the
-  `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
-  #388 stay readable through the helper until re-created - there is no automatic migration.
+  `readKey`, so a leaked id gets `401`. **Residual:** a vault created before #388 that never got a
+  read key stays readable through the helper by whoever has its id, and since 2026-11-08 cannot get
+  one (GHSA-42h7); the census at the fix found none among the vaults checked (the outside user's
+  vault was not opened). There is no automatic migration.
   **#406 was re-scoped on 2026-09-28** from a guided "re-create and sweep" to an in-place upgrade,
   because three pieces of work ask an existing vault for the same thing: the write keys (which
   already register themselves on unlock), `S` with the read key, and the viewing key leaving the
-  coordinator (#516). Adding `S` in place is believed feasible and is NOT verified.
+  coordinator (#516). Adding `S` in place is believed feasible and is NOT verified. Since 2026-11-08
+  the route no longer sets a first read key on any vault (ADR-0012 D9), so an in-place upgrade needs a
+  proof like the seat certificates, not that route.
 - **Staging is BUILT, both halves** (#370), and this entry said otherwise for two days. Verified
   2026-09-07: `konclave-relay-staging.up.railway.app/health` and
   `konclave-helper-staging.up.railway.app/api/health` both answer `200`, in their own Railway project
