@@ -52,6 +52,11 @@ export function fmtZecExact(zec: number): string {
   return s
 }
 
+/** A whole number of zatoshi as fmtZecExact writes it: at least four decimals, every zatoshi kept. */
+export function fmtZatExact(zat: number): string {
+  return fmtZecExact(Number(zatToZec(zat)))
+}
+
 /** Parse a ZEC decimal string into integer zatoshis, mirroring money.rs::from_zec_str,
  *  without floating point. Accepts `12`, `1.5`, `.5`, `5.` (typing-friendly); rejects empty,
  *  a lone dot, non-numeric, negative, or > 8 fractional digits. Returns null when invalid. */

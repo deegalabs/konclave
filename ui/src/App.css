@@ -408,7 +408,8 @@
 .spendwrap{margin:2px 0 20px}
 .spendwrap .klab{margin-bottom:14px}
 .spend-bars{display:flex; align-items:flex-end; gap:10px; justify-content:flex-start}
-.spend-col{flex:0 0 auto; width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
+@media (max-width:480px){.spend-bars{gap:4px}}
+.spend-col{flex:1 1 0; min-width:0; max-width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
 .spend-bar{width:100%; max-width:34px; background:var(--silver); border-radius:4px 4px 0 0;
   box-shadow:0 0 0 2px var(--surface-0)}
 .spend-bar.peak{background:var(--text)}
@@ -427,10 +428,16 @@
 .funds-pt.rec{background:var(--text); border-color:var(--text)}
 .funds-pt.below{border-color:var(--warn)}
 .funds-pt:hover{background:var(--accent); border-color:var(--accent)}
-.funds-axis{display:flex; justify-content:space-between; margin-top:6px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
-.funds-tags{position:relative; height:16px; margin-top:2px; font-size:10.5px; color:var(--text-muted)}
-.funds-tags span{position:absolute; white-space:nowrap}
-.funds-tags span.end{transform:translateX(-100%)}
+.funds-axis{position:relative; height:14px; margin-top:6px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
+.funds-axis span{position:absolute; transform:translateX(-50%); white-space:nowrap}
+.funds-tags{display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 12px; margin-top:2px; font-size:10.5px; color:var(--text-muted)}
+.funds-tags span:last-child{margin-left:auto}
+.chart-figs-btn{align-self:flex-start; margin-top:8px}
+.chart-figs{margin-top:8px; overflow-x:auto}
+.chart-figs table{border-collapse:collapse; font-size:12.5px}
+.chart-figs caption{text-align:left; font-size:12px; color:var(--text-muted); padding-bottom:4px}
+.chart-figs th,.chart-figs td{padding:3px 14px 3px 0; text-align:left; font-weight:400; border-bottom:1px solid var(--line-2)}
+.chart-figs td{font-family:var(--font-mono); text-align:right; white-space:nowrap}
 
 .visually-hidden{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
   clip:rect(0 0 0 0); white-space:nowrap; border:0}
@@ -519,7 +526,7 @@
 /* auto-fit, not `1fr 1fr`: the outflow chart hides below two months of history (a single bar is
    not a trend), and a fixed two-column grid then left the surviving panel at half width with a
    hole beside it. With auto-fit a lone panel simply fills the row. */
-.dash-charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px;
+.dash-charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:16px;
   margin-top:16px; align-items:start}
 .dash-charts .panel{padding:20px 22px; border-radius:var(--radius-lg);
   background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
