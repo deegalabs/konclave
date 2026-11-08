@@ -94,6 +94,7 @@ describe('stripComments', () => {
       'creation-crossing.test.ts': 'the crossing fixture and the wasm',
       'layering.test.ts': 'stylesheets',
       'layout-width.test.ts': 'stylesheets',
+      'viewing-code-wrap.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
       'changelog-gate.test.ts': 'CHANGELOG files',
       'changelog-shape.test.ts': 'CHANGELOG files',

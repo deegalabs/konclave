@@ -921,6 +921,9 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .fp-head{display:flex; align-items:center; justify-content:space-between; gap:12px}
 .fp-code{font-size:26px; letter-spacing:.16em; color:var(--text); margin:8px 0 6px;
   font-variant-numeric:tabular-nums; word-break:break-all}
+/* The viewing code (groups of five): a group never splits, a line breaks only between groups. */
+.fp-code.grouped{word-break:normal; overflow-wrap:normal}
+.fp-code .fp-grp{white-space:nowrap}
 .fp-help{font-size:12.5px; line-height:1.5}
 .fp-help b{color:var(--silver); font-weight:600}
 .who-name{font-weight:600; font-size:14.5px}
