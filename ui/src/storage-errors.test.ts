@@ -15,7 +15,7 @@ const data: VaultData = {
   groupKey: new Uint8Array(32).fill(7), address: 'u1examplevaultaddress', roster: ['Alice', 'Bob', 'Carol'],
   sealedShare: new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1)),
 }
-const pass = 'correct horse'
+const pass = 'correct horse battery staple'
 
 const keyOf = async (p: Promise<unknown>) => {
   try { await p } catch (e) { return storageErrorKey(e, 'import.errGeneric') }
@@ -50,7 +50,7 @@ describe('storage refusals reach the member in their language (#586)', () => {
 
   it('every code has a key in both dictionaries, and an error without a code falls back', () => {
     const codes = ['no-storage', 'no-vault', 'no-id', 'passphrase-required', 'new-passphrase-required', 'wrong-passphrase', 'wrong-passphrase-saved',
-      'not-an-export', 'corrupt', 'unsupported-version', 'already-exists', 'same-passphrase', 'sealed-field-unreadable'] as const
+      'not-an-export', 'corrupt', 'unsupported-version', 'already-exists', 'same-passphrase', 'sealed-field-unreadable', 'weak-passphrase'] as const
     for (const c of codes) {
       const k = storageErrorKey(new StorageError(c, 'x'), 'fallback')
       expect(k, c).toMatch(/^storage\.err\./)

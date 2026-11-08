@@ -22,10 +22,10 @@ const bundle = (i = 0) => new TextEncoder().encode(JSON.stringify({ kp: dump.sea
 const data = (over: Partial<VaultData> = {}): VaultData => ({ name: 'V', governance: 'quorum', myName: 'Ana', creatorName: 'Ana', groupKey: hexb(GK), address: '', roster: ['Ana', 'Bia', 'Caio'], sealedShare: bundle(), threshold: 2, total: 3, cp: 3, ...over } as VaultData)
 const rec = async () => (await listVaults()).find((v) => v.id === GK)!
 const gate = async () => ourReceiversFrom(await rec(), uaReceiver)
-const reset = async (over: Partial<VaultData> = {}) => { await saveVault(GK, data(over), 'pw') ; return loadVault(GK, 'pw') }
+const reset = async (over: Partial<VaultData> = {}) => { await saveVault(GK, data(over), 'river stone maple lantern') ; return loadVault(GK, 'river stone maple lantern') }
 const openBackup = async (b: { json: string }) => {
   const e = JSON.parse(b.json); const salt = hexb(e.salt), iv = hexb(e.iv), c = hexb(e.cipher)
-  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pw'), 'PBKDF2', false, ['deriveKey'])
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('river stone maple lantern'), 'PBKDF2', false, ['deriveKey'])
   const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: e.kdfIters, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, c)))
 }
@@ -47,7 +47,7 @@ describe('real wasm, real storage, stub only the answer', () => {
     const r = await rec(); expect(r.receiversState).toBe('refused'); expect(r.address).toBe(before.address); expect(r.viewingFingerprint).toBe(before.viewingFingerprint); expect(r.servedFingerprint).not.toBe(before.viewingFingerprint)
     expect(await gate()).toBeNull(); expect(mayContribute(r, undefined)).toBe(false)
     // backup under the refused key
-    const b = await buildVaultBackup(GK, 'pw', 'V')
+    const b = await buildVaultBackup(GK, 'river stone maple lantern', 'V')
     expect(b.complete).toBe(false); expect((await openBackup(b)).ufvk).toBeUndefined()
     // an honest answer clears it
     h.answer = { ufvk: U.K }; await adoptVaultReceivers(GK, s); expect((await rec()).receiversState).toBe('verified'); expect((await rec()).servedFingerprint).toBeDefined()
@@ -71,24 +71,24 @@ describe('real wasm, real storage, stub only the answer', () => {
     h.answer = { ufvk: U.K2, birthday: 1 }; await adoptVaultReceivers(GK, s)
     const r = await rec()
     await repairVaultReceivers(GK, 'nope', r.servedFingerprint!)
-    await repairVaultReceivers(GK, 'pw', r.viewingFingerprint!)
+    await repairVaultReceivers(GK, 'river stone maple lantern', r.viewingFingerprint!)
     expect((await rec()).receiversState).toBe('refused')
-    const v = await repairVaultReceivers(GK, 'pw', r.servedFingerprint!.replace(/-/g, ' ').toLowerCase())
+    const v = await repairVaultReceivers(GK, 'river stone maple lantern', r.servedFingerprint!.replace(/-/g, ' ').toLowerCase())
     expect(v.state).toBe('verified'); const after = await rec(); expect(after.address).not.toBe(r.address); expect(after.viewingFingerprint).toBe(r.servedFingerprint); expect(after.servedFingerprint).toBeUndefined()
     expect((await gate())?.length).toBe(2)
     h.answer = { ufvk: U.K }; await adoptVaultReceivers(GK, s); expect((await rec()).receiversState).toBe('refused'); expect((await rec()).address).toBe(after.address)
   })
   it('S6 restored backup with a foreign sealed key: what a withheld answer exports', async () => {
     const s = await reset({ address: '' }); h.answer = { ufvk: U.K, birthday: 5 }; await adoptVaultReceivers(GK, s)
-    const exp = await exportVault(GK, 'pw', U.K2, 5)  // a file whose key does not derive the address, written by an earlier hostile answer
-    await importVault(exp, 'pw', { overwrite: true })
+    const exp = await exportVault(GK, 'river stone maple lantern', U.K2, 5)  // a file whose key does not derive the address, written by an earlier hostile answer
+    await importVault(exp, 'river stone maple lantern', { overwrite: true })
     expect(await gate()).toBeNull()
     h.answer = null
-    const b = await buildVaultBackup(GK, 'pw', 'V'); const p = await openBackup(b)
+    const b = await buildVaultBackup(GK, 'river stone maple lantern', 'V'); const p = await openBackup(b)
     expect(p.ufvk).not.toBe(U.K2)
     expect(b.complete).toBe(false)
     h.answer = { ufvk: U.K2 }
-    const c = await buildVaultBackup(GK, 'pw', 'V'); const q = await openBackup(c)
+    const c = await buildVaultBackup(GK, 'river stone maple lantern', 'V'); const q = await openBackup(c)
     expect(q.ufvk).not.toBe(U.K2)
     expect(c.complete).toBe(false)
   })
@@ -97,17 +97,17 @@ describe('real wasm, real storage, stub only the answer', () => {
     await expect(adoptVaultReceivers(GK, s)).rejects.toThrow()
     expect(await checkedViewingKey(GK, s)).toBe(null)
     await updateVaultMeta(GK, { cp: undefined } as never)
-    await saveVault(GK, data({ cp: undefined, sealedShare: new Uint8Array([1, 2, 3]) } as never), 'pw')
-    expect((await buildVaultBackup(GK, 'pw', 'V')).complete).toBe(false) // an incomplete export beats none
+    await saveVault(GK, data({ cp: undefined, sealedShare: new Uint8Array([1, 2, 3]) } as never), 'river stone maple lantern')
+    expect((await buildVaultBackup(GK, 'river stone maple lantern', 'V')).complete).toBe(false) // an incomplete export beats none
   })
   it('S8 other writers: meta, change, passphrase change, import', async () => {
     const s = await reset(); h.answer = { ufvk: U.K }; await adoptVaultReceivers(GK, s); const v = await rec()
     await updateVaultMeta(GK, { address: U.saplingUa }); await recordChangeReceiver(GK, U.saplingUa)
     const a = await rec(); expect(a.address).toBe(v.address); expect(a.changeReceiver).toBe(v.changeReceiver)
-    await changePassphrase(GK, 'pw', 'pw2'); expect((await rec()).receiversState).toBe('verified')
-    await changePassphrase(GK, 'pw2', 'pw')
+    await changePassphrase(GK, 'river stone maple lantern', 'river stone maple lantern two'); expect((await rec()).receiversState).toBe('verified')
+    await changePassphrase(GK, 'river stone maple lantern two', 'river stone maple lantern')
     // a verified state does not survive an overwrite by import, and a file cannot claim it
-    const exp = await exportVault(GK, 'pw', U.K, 1); await importVault(exp, 'pw', { overwrite: true })
+    const exp = await exportVault(GK, 'river stone maple lantern', U.K, 1); await importVault(exp, 'river stone maple lantern', { overwrite: true })
     expect((await rec()).receiversState).not.toBe('verified')
   })
   it('S9 code does not depend on spelling and fits the alphabet', async () => {

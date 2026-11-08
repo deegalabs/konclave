@@ -30,7 +30,6 @@ describe('one signer per vault', () => {
     const panel = codeOf('./screens/SigningPanel.tsx')
     expect(panel).not.toMatch(/getBalance\(\)|getProposalDetail\(active\.id\)/)
     expect(panel).toMatch(/getBalance\(vault\.id\)/)
-    expect(panel).toMatch(/getProposalDetail\(active\.id, vault\.id\)/)
   })
 
   it('the rail follows a switch, so it names the vault the signer is on', () => {

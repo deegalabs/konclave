@@ -15,12 +15,13 @@ import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useI18n, useT, type TFn } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZecExact, parseZecToZat } from '../format'
+import { fmtZecExact, zatToZec } from '../format'
 import { useVaultSigner } from '../VaultSigner'
-import { unlockOnDevice } from '../unlock'
+import { openFailKey, unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
 import { alreadySent, applyPlan, panelStep, resolvedStep, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
-import { errorCode, getBalance, getProposalDetail, writeProof } from '../api'
+import { errorCode, getBalance, writeProof } from '../api'
+import type { ApprovedPlan } from '../approved-payment'
 import { relayBase } from '../net'
 import { OutcomeBook, peerFailureMayShow, readReply, resolveOutcome, sentTxidOf, RESOLVE_ATTEMPTS, type PanelResult } from '../send-outcome'
 import { endSend, fireSend, newSendAttempt } from '../send-attempt'
@@ -80,7 +81,30 @@ function fmtWhen(unix: number, locale: 'pt-BR' | 'en'): string {
  *  nothing when unknown or past), and its CTA stays off until the owner says
  *  they checked the book. It opens on the dialog itself, described by that text, so the warning is
  *  heard before the acknowledgement can be pressed. */
-export function SignConfirm({ again, firstUntil, byEpoch = false, untilHeight = null, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+/** Every line of a payroll in full, with what the device compares; the amount above is their sum. */
+function PlanLines({ lines: rows }: { lines: ApprovedPlan['lines'] }) {
+  const t = useT()
+  const count = t('signing.linesLabel', { n: rows.length })
+  return (
+    <>
+      <p className="dim small mt-sm">{count}</p>
+      <ul className="sign-lines" role="list" tabIndex={0} aria-label={count}>
+        {rows.map((l, i) => (
+          <li key={i}>
+            <span className="sign-line-head">
+              <span>{l.label || '-'}{l.isPublic ? ` · ${t('proposal.linePublic')}` : ''}</span>
+              <span className="num">{fmtZecExact(l.amountZat / 1e8)} ZEC</span>
+            </span>
+            <code className="sign-dest">{l.address}</code>
+            {l.memo && <span className="dim small">{l.memo}</span>}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, from `approvalDecision`); 0 when unknown. */
   firstUntil: number
@@ -94,6 +118,9 @@ export function SignConfirm({ again, firstUntil, byEpoch = false, untilHeight = 
   usd?: string | null
   dest: string
   isPayroll: boolean
+  /** A payroll's lines, from what the gate compares. */
+  payrollLines?: ApprovedPlan['lines']
+  destPublic?: boolean
   iWouldBeLast: boolean
   t: TFn
   onCancel: () => void
@@ -132,9 +159,10 @@ export function SignConfirm({ again, firstUntil, byEpoch = false, untilHeight = 
       <div id="sign-confirm-what" className="send-confirm-what">
         <strong className="scw-amt num">{amt} ZEC</strong>
         {usd && <span className="scw-usd dim small"> {usd}</span>}
-        {isPayroll ? <span className="scw-kind"> · {t('kind.payroll')}</span> : <> <span className="visually-hidden">{t('signing.to')}</span><span className="sign-arrow" aria-hidden="true">→</span> <code className="sign-dest">{dest}</code></>}
+        {isPayroll ? <span className="scw-kind"> · {t('kind.payroll')}</span> : <> <span className="visually-hidden">{t('signing.to')}</span><span className="sign-arrow" aria-hidden="true">→</span> <code className="sign-dest">{dest}</code>{destPublic && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
         {fee && total && <div className="dim small mt-sm">{t('signing.confirmCost', { fee, total })}</div>}
       </div>
+      {isPayroll && payrollLines && <PlanLines lines={payrollLines} />}
       {again ? (
         <>
           <p id="sign-again-body" className="modal-p">
@@ -161,10 +189,14 @@ export function SignConfirm({ again, firstUntil, byEpoch = false, untilHeight = 
 export default function SigningPanel() {
   const t = useT()
   const toast = useToast()
-  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil, unarmActive, isOurReceiver, signedBefore } = useVaultSigner()
+  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil, unarmActive, isOurReceiver, signedBefore, plan, planFailed } = useVaultSigner()
   const { locale } = useI18n()
   // Which confirm is open: the usual one, or the one for a second signature on this payment.
   const [confirming, setConfirming] = useState<null | 'sign' | 'again'>(null)
+  // Whether the confirm said "Send" (this signature closes the quorum) when it opened, and the
+  // line announced when it closes because that stopped being true.
+  const lastAtOpen = useRef(false)
+  const [confirmChanged, setConfirmChanged] = useState(false)
   const [sending, setSending] = useState(false)
   const feeEstimate = useFeeEstimate()
   // The coordinator answered busy and the send is waiting to try again (busy contract v1).
@@ -200,7 +232,6 @@ export default function SigningPanel() {
   // this is the act that spends, and letting it run cost two people and a full ceremony to learn
   // what one balance read would have said in a second.
   const [spendableZat, setSpendableZat] = useState<number | null>(null)
-  const [payrollLines, setPayrollLines] = useState<number | null>(null)
 
   // A DIFFERENT payment starts from nothing (#354). The panel deliberately keeps its result when it
   // CLOSES, so a stray click on the scrim cannot erase a failure nobody read - but that same
@@ -243,11 +274,6 @@ export default function SigningPanel() {
     let on = true
     // The signer's own vault, never the shared selection another tab can switch (#610 review).
     void getBalance(vault.id).then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
-    // Another payroll's line count is not this one's.
-    setPayrollLines(null)
-    if (active.kind === 'payroll') {
-      void getProposalDetail(active.id, vault.id).then((d) => { if (on && d) setPayrollLines(Math.max(1, d.lines.length)) })
-    }
     return () => { on = false }
   }, [active, vault])
 
@@ -318,6 +344,60 @@ export default function SigningPanel() {
   // the state it belonged to. Focus goes to the message, never to a button: Enter on "Sign again"
   // would open a money confirm by reflex. Stable, so React calls it once per mount, not per render.
   const focusOnMount = useCallback((el: HTMLElement | null) => { el?.focus() }, [])
+
+  // The sheet says it is modal, so it behaves like one: focus moves in on open, Tab stays inside,
+  // Escape closes it, and focus goes back to what opened it. The scrim and the sheet are not a
+  // `Dialog` because the sheet keeps its own layout, so these rules are a copy of `Dialog`'s, kept here for now.
+  const sheetRef = useRef<HTMLElement | null>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
+  const isOpen = !!active
+  // Read during render, as `Dialog` does: an autofocused field takes focus at commit.
+  if (isOpen && openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement as HTMLElement | null
+  // What Escape must know, kept current without re-binding the listener.
+  const keyState = useRef({ running: false, confirming: false, close: () => {} })
+  // That line belongs to this payment and this moment: signing or moving on ends it.
+  useEffect(() => { setConfirmChanged(false) }, [active?.id, started, armed])
+  // Waiting after signing counts: closing stops the signer, and the screen asks to stay open.
+  keyState.current.running = started || armed || arming || unlocking || bg.iSend
+  keyState.current.confirming = confirming !== null
+  useEffect(() => {
+    if (!isOpen) return
+    const node = sheetRef.current
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    if (node && !node.contains(document.activeElement)) node.focus()
+    function onKey(e: KeyboardEvent) {
+      const k = keyState.current
+      // A confirm over the sheet is a `Dialog` with its own trap and Escape.
+      if (k.confirming || !node) return
+      if (e.key === 'Escape') {
+        // Closing stops the signer, so a run in progress is not closed by a keystroke.
+        if (!k.running) { e.preventDefault(); k.close() }
+        return
+      }
+      if (e.key !== 'Tab') return
+      const f = Array.from(node.querySelectorAll<HTMLElement>(sel))
+      const first = f[0], last = f[f.length - 1]
+      if (!first || !last) { e.preventDefault(); node.focus(); return }
+      const cur = document.activeElement
+      if (!node.contains(cur)) { e.preventDefault(); first.focus(); return }
+      // Focus can sit on a message that takes no Tab stop, after the last control.
+      const after = cur && cur !== node && !f.includes(cur as HTMLElement)
+        ? f.some((el) => cur.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)
+        : true
+      const before = cur && cur !== node && !f.includes(cur as HTMLElement)
+        ? f.some((el) => cur.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+        : true
+      if (e.shiftKey && (cur === first || cur === node || !before)) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && (cur === last || !after)) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      const opener = openerRef.current
+      openerRef.current = null
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [isOpen])
 
   // Every hook above this line: the panel returns null while no proposal is open, and React
   // requires the same hooks on every render.
@@ -412,47 +492,62 @@ export default function SigningPanel() {
   // then the roster comes back with its real present/absent flags once THIS device is seated.
   const connecting = panelConnecting({ started, result: !!result, unlocking, hasShare, ready: bg.ready })
 
+  const stageNote = connecting ? (unlocking ? t('signing.loadingUnlock') : t('signing.connecting'))
+    : started || !!result || armed || !hasShare || !plan || errMsg ? ''
+    : !bg.ready ? t('signing.opening')
+    : !quorumHere ? t('signing.waiting')
+    : t('signing.readyToSend')
+
   // In full, here and in the confirm: the last thing read before a share moves is the whole address.
-  const dest = active.to_address ?? '-'
-  const amtNum = active.value_zec
-  const amt = fmtZecExact(Number(active.value_zec))
-  const isPayroll = active.kind === 'payroll'
+  const dest = plan?.kind === 'payment' ? plan.lines[0]?.address ?? '-' : '-'
+  const amtNum = plan ? zatToZec(plan.totalZat) : '0'
+  const amt = plan ? fmtZecExact(Number(amtNum)) : '-'
+  const isPayroll = plan?.kind === 'payroll'
+  const destPublic = plan?.kind === 'payment' && !!plan.lines[0]?.isPublic
 
   // The one estimate (`fee-estimate.ts`, read from the device's rule), the figure the proposal page
-  // shows. A payroll whose lines have not landed yet is costed as one destination, which
-  // under-states rather than over-states, so the block never fires on a guess.
+  // shows, over the lines of this device's own reading. Shown only once the reading and the rule have
+  // answered; unknown never blocks signing: what the device signs is judged by the device.
   const feeEstimator = estimatorOf(feeEstimate)
-  const feeEst = feeEstimator ? feeEstimator(isPayroll ? payrollLines ?? 1 : 1) : null
+  const feeEst = feeEstimator && plan ? feeEstimator(Math.max(1, plan.lines.length)) : null
   const feeZat = feeEst ?? 0
-  // Shown only once it is known: a payroll's fee depends on its lines, and the estimate on the rule
-  // having answered. Unknown never blocks signing: what the device signs is judged by the device.
-  const feeKnown = feeEst !== null && (!isPayroll || payrollLines !== null)
-  const amountZat = parseZecToZat(active.value_zec ?? '')
+  const feeKnown = !!plan && feeEst !== null
+  const amountZat = plan ? plan.totalZat : null
   const shortZat = spendableZat === null || amountZat === null || feeEst === null
     ? 0
     : Math.max(0, amountZat + feeZat - spendableZat)
 
   // What this device can do now is SIGN - and not at all when the vault cannot pay. Approval is
   // consent and stays open; this is the act that spends.
-  const canSign = bg.ready && quorumHere && !started && !result && !armed && !arming && shortZat === 0
+  const canSign = !!plan && bg.ready && quorumHere && !started && !result && !armed && !arming && shortZat === 0
   // The one refusal a new signature answers: this device's signature already covered another
   // transaction for this payment, and is spent.
   const signAgain = !armed && refusal.startsWith('net.err.signedAnother')
+  // No confirm stays open over a refused reading.
+  if (confirming && plan === null) setConfirming(null)
   // Whether it may, now, or what is in the way (sign-again.ts). Not `canSign`: on the device the room
   // named sender this refusal also failed the send, and that failure must not block its own answer.
   const againState = againFromPanel({
-    refusedAsSigned: signAgain, armed, ready: bg.ready, quorumHere, phase: bg.phase, sending, arming, shortZat,
+    refusedAsSigned: signAgain, armed, ready: bg.ready && !!plan, quorumHere, phase: bg.phase, sending, arming, shortZat,
     sent: !!sent, unresolved: !!unresolved, checking,
   })
   // A confirm opened for signing again closes the moment it no longer applies: the payment turned
   // out to have gone out, or the device signed meanwhile. Set during render, as React allows for
   // state derived from the previous render.
   if (confirming === 'again' && againState !== 'offer') setConfirming(null)
+  // The wording of a confirm is a promise: "Sign" must not turn into "Send" under the person reading
+  // it, and a screen reader user heard the first one. When it would change, the confirm closes and says so.
+  if (confirming && iWouldBeLast !== lastAtOpen.current) { setConfirming(null); setConfirmChanged(true) }
+  function openConfirm(kind: 'sign' | 'again') {
+    lastAtOpen.current = iWouldBeLast
+    setConfirmChanged(false)
+    setConfirming(kind)
+  }
 
   // Priced only if the owner opted in, and never presented as fact: the source and the age of the
   // quote ride along, so nobody reads an estimate as the amount being spent.
   const rateAgeMin = rate ? Math.floor((Date.now() - rate.at) / 60000) : 0
-  const usdAmt = usdEnabled() ? zecToUsd(amtNum, rate) : null
+  const usdAmt = plan && usdEnabled() ? zecToUsd(amtNum, rate) : null
   const usd = usdAmt
     ? t('signing.usdNote', {
         usd: usdAmt,
@@ -608,7 +703,7 @@ export default function SigningPanel() {
       // loadVault -> setUnlockedShare -> markVaultUnlocked; #467 folded the first two together and
       // missed this one, which is how one rule ends up with three implementations.
       const r = await unlockOnDevice(vault.id, 'net', pass)
-      if (!r.ok) { setUnlockErr(t('vaults.unlockWrong')); return }
+      if (!r.ok) { setUnlockErr(t(openFailKey(r.wrong))); return }
       setPass('')
       reseat() // the signer re-runs now that the share is in session
     } finally {
@@ -624,24 +719,28 @@ export default function SigningPanel() {
     setConfirming(null)
     close()
   }
+  keyState.current.close = onClose
 
   return (
     <>
       <div className="sign-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="sign-sheet" role="dialog" aria-modal="true" aria-labelledby="sign-title" aria-describedby="sign-amount">
+      <aside ref={sheetRef} tabIndex={-1} className="sign-sheet" role="dialog" aria-modal="true" aria-labelledby="sign-title" aria-describedby={plan ? 'sign-amount' : 'sign-plan-status'}>
         <div className="sign-head">
-          <span className="klab">{isPayroll ? t('kind.payroll') : t('kind.payment')}</span>
+          <span className="klab">{plan && t(isPayroll ? 'kind.payroll' : 'kind.payment')}</span>
           <button className="sign-x" onClick={onClose} aria-label={t('signing.close')}>×</button>
         </div>
         <h2 id="sign-title" className="sign-title">{t('signing.title')}</h2>
         {vault?.roster_differs && <p className="unlock-err" role="alert">{t('members.rosterDiffers')}</p>}
 
-        <div className="sign-what">
+        {plan === null && <p className="set-err" role="alert">{t('signing.planRefused')}</p>}
+        {/* Always mounted, so the line is announced when it changes. */}
+        <p id="sign-plan-status" className="dim" role="status">{plan === undefined ? t(planFailed ? 'signing.planUnread' : 'signing.planReading') : ''}</p>
+        {plan && <div className="sign-what">
           <span id="sign-amount" className="sign-amt num">{amt} <span className="dim small">ZEC</span></span>
           {usd && <span className="sign-usd dim small">{usd}</span>}
           {/* The whole address, not a shortened one: what the member compares with the proposal
               before signing has to be all of it (a shortened address matches a look-alike). */}
-          <span className="sign-to sign-dest mono">{isPayroll ? t('kind.payroll') : <><span className="visually-hidden">{t('signing.to')}</span><span className="sign-arrow" aria-hidden="true">→</span> {dest}</>}</span>
+          <span className="sign-to sign-dest mono">{isPayroll ? t('kind.payroll') : <><span className="visually-hidden">{t('signing.to')}</span><span className="sign-arrow" aria-hidden="true">→</span> {dest}{destPublic && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}</span>
           {/* What the network takes on top, from the same estimate the proposal page shows; the
               device checks the real fee against the transaction itself before its share moves. */}
           {/* An estimate, and labelled one: the exact fee depends on the notes the vault spends, and
@@ -659,7 +758,8 @@ export default function SigningPanel() {
               <span className="p-cost-note dim small">{t('signing.costNote')}</span>
             </div>
           )}
-        </div>
+          {plan.kind === 'payroll' && <PlanLines lines={plan.lines} />}
+        </div>}
 
         {/* Presence: how many devices are on the vault's signing room now. */}
         <div className="sign-presence">
@@ -708,10 +808,10 @@ export default function SigningPanel() {
               )}
             </div>
           ) : checking > 0 ? (
-            <div key="checking" className="sign-run">
+            <div key="checking" className="sign-run" tabIndex={-1} ref={focusOnMount}>
               <div className="sign-run-head">
                 <span className="loader-ring sm" aria-hidden="true" />
-                <span>{t('signing.checking')}</span>
+                <span role="status">{t('signing.checking')}</span>
               </div>
               <div className="note">{t('signing.checkingNote', { n: checking })}</div>
             </div>
@@ -754,7 +854,7 @@ export default function SigningPanel() {
                         attempt rather than the send that was open. */}
                     <Link className="btn ghost sm-btn" to="/ledger" onClick={close}>{t('signing.openLedger')}</Link>
                     {againState === 'offer' && (
-                      <button className="btn ghost sm-btn" aria-describedby="sign-err-text" onClick={() => { refreshRate(); setConfirming('again') }}>{t('signing.signAgain')}</button>
+                      <button className="btn ghost sm-btn" aria-describedby="sign-err-text" onClick={() => { refreshRate(); openConfirm('again') }}>{t('signing.signAgain')}</button>
                     )}
                   </div>
                   {againState === 'short' && <div className="hint">{t('signing.blockedShort', { short: fmtZecExact(shortZat / 1e8) })}</div>}
@@ -791,7 +891,7 @@ export default function SigningPanel() {
               {/* Below the clock, so a long payroll does not push the progress off a phone screen. */}
               {bg.what && <DeviceReading what={bg.what} t={t} isOurs={isOurReceiver} />}
             </div>
-          ) : !hasShare ? (
+          ) : !plan && !armed ? null : !hasShare ? (
             <div className="sign-unlock">
               <div className="hint">{t('signing.needUnlock')}</div>
               <input
@@ -849,7 +949,7 @@ export default function SigningPanel() {
                 disabled={!canSign}
                 onClick={() => {
                   refreshRate()
-                  setConfirming('sign')
+                  openConfirm('sign')
                 }}
               >
                 {arming ? t('signing.arming') : iWouldBeLast ? t('signing.signAndSend') : t('signing.signAct')}
@@ -857,6 +957,13 @@ export default function SigningPanel() {
             </>
           )}
           {notice && !started && !errMsg && !sent && <div className="hint warn mt-sm" role="status">{notice}</div>}
+        </div>
+
+        {/* Always mounted, so a change is announced (a region that appears with its text is often
+            missed): the stage moving from waiting to ready, and a confirm closed by a change. */}
+        {confirmChanged && <div className="hint warn mt-sm">{t('signing.confirmChanged')}</div>}
+        <div className="visually-hidden" role="status">
+          {confirmChanged ? t('signing.confirmChanged') : stageNote}
         </div>
 
         <div className="sign-reassure dim">{t('signing.reassure')}</div>
@@ -875,6 +982,8 @@ export default function SigningPanel() {
           usd={usd}
           dest={dest}
           isPayroll={isPayroll}
+          payrollLines={plan?.lines}
+          destPublic={destPublic}
           iWouldBeLast={iWouldBeLast}
           t={t}
           onCancel={() => setConfirming(null)}

@@ -60,7 +60,7 @@ export default function BackgroundSignerLab() {
       // 16/10: the signer now asks `unlockedHere` (the share in this session), so marking is no longer
       // what starts it. Kept on `unlockOnDevice` because it is the one unlock path, not as a workaround.
       const r = await unlockOnDevice(selected, 'net', pass)
-      if (!r.ok) { setMsg('Could not unlock: wrong passphrase'); return }
+      if (!r.ok) { setMsg(r.wrong ? 'Could not unlock: wrong passphrase' : 'Could not unlock: this vault did not open'); return }
       setUnlocked({ id: selected })
       setPass('')
     } catch (e) {

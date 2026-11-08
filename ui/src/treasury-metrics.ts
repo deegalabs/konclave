@@ -22,7 +22,7 @@ import type { Proposal } from './api'
 import { freeZatOf } from './balance-parts'
 import { sumZat } from './format'
 import { SETTLED } from './ledger-state'
-import { periodWindow } from './period'
+import { createdAt, periodWindow } from './period'
 
 /** Complete months a pace is averaged over, and the least history that may speak of one. */
 export const BURN_MONTHS = 3
@@ -32,10 +32,6 @@ type Bal = Parameters<typeof freeZatOf>[0]
 /** The calendar month `offset` months from the one holding `now`, as the ledger's period picker
  *  draws it (one rule for what a month is). */
 const month = (now: Date, offset: number) => periodWindow('month', offset, now)!
-
-/** The proposal's creation date, or null when it has none: the local bridge sends `null` for older
- *  proposals, the helper may leave it out. Both mean the same thing here. */
-const createdAt = (p: Proposal): number | null => (typeof p.created_at === 'number' ? p.created_at : null)
 
 export type MonthOut = { from: number; to: number; outZat: number }
 

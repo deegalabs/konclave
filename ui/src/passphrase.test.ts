@@ -19,7 +19,7 @@ describe('scorePassphrase', () => {
   })
   it('a long mixed passphrase is good or strong', () => {
     expect(scorePassphrase('tavu-keby-3-lomi-daxo').score).toBeGreaterThanOrEqual(3)
-    expect(scorePassphrase('Tr0ub4dour-&-3xtra-Long!').score).toBeGreaterThanOrEqual(3)
+    expect(scorePassphrase('xK9!mQ2$vB7zTq4#Wn8&').score).toBeGreaterThanOrEqual(3)
   })
 })
 
