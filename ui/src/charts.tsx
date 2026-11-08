@@ -9,6 +9,9 @@ import { useId } from 'react'
 import { fundsGeometry } from './chart-geometry'
 import { fmtZecExact, zatToZec } from './format'
 
+/** A figure as the rest of the screen writes it: at least four decimals, every zatoshi kept. */
+const zec = (zat: number) => `${fmtZecExact(Number(zatToZec(zat)))} ZEC`
+
 export interface SpendPoint {
   label: string // period label, e.g. "abr" / "Apr" or "04/26"
   zec: number // settled outflow in that period
@@ -44,15 +47,18 @@ export function SpendBars({ data, unit = 'ZEC', height = 52, source }: { data: S
           )
         })}
       </div>
-      {/* Offscreen table fallback - identity/value never color-alone. */}
-      <table className="visually-hidden">
-        <caption>Spend by period</caption>
-        <tbody>
-          {data.map((d, i) => (
-            <tr key={i}><th scope="row">{d.label}</th><td>{fmt(d.zec)} {unit}</td></tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Offscreen table fallback - identity/value never color-alone. Hidden in a block: a table
+          ignores the 1px width and would widen the page on a phone. */}
+      <div className="visually-hidden">
+        <table>
+          <caption>Spend by period</caption>
+          <tbody>
+            {data.map((d, i) => (
+              <tr key={i}><th scope="row">{d.label}</th><td>{fmt(d.zec)} {unit}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {source && <p className="chart-src">{source}</p>}
     </div>
   )
@@ -102,7 +108,7 @@ export function FundsLine({
   const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(2)}%`
 
   return (
-    <figure className="chart">
+    <figure className="chart" aria-labelledby={`${id}-t`}>
       <div className="funds-plot" style={{ height }} role="img" aria-label={title}>
         <svg className="funds-svg" viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" aria-hidden="true">
           <defs>
@@ -113,6 +119,7 @@ export function FundsLine({
           <path className="funds-proj" d={line} clipPath={`url(#${id}-up)`} />
           {g.crosses && <path className="funds-proj below" d={line} clipPath={`url(#${id}-dn)`} />}
         </svg>
+        <span className="funds-zero-lab mono" aria-hidden="true" style={{ top: pct(g.zeroY, height) }}>0</span>
         {g.xy.map((p, i) => {
           const pt = all[i]!
           return (
@@ -120,7 +127,7 @@ export function FundsLine({
               key={i}
               className={'funds-pt' + (i === 0 ? ' rec' : '') + (pt.zat <= 0 ? ' below' : '')}
               style={{ left: pct(p.x, W), top: pct(p.y, height) }}
-              title={`${i === 0 ? nowLabel : projectedLabel} (${pt.label}): ${zatToZec(pt.zat)} ZEC`}
+              title={`${i === 0 ? nowLabel : projectedLabel} (${pt.label}): ${zec(pt.zat)}`}
             />
           )
         })}
@@ -129,19 +136,21 @@ export function FundsLine({
         {all.map((p, i) => <span key={i}>{p.label}</span>)}
       </div>
       <div className="funds-tags mono" aria-hidden="true">
-        <span style={{ left: `${(first.x / W) * 100}%` }}>{nowLabel}</span>
-        <span className="end" style={{ left: `${(last.x / W) * 100}%` }}>{projectedLabel}</span>
+        <span style={{ left: `${(first.x / W) * 100}%` }}>{nowLabel} {zec(now.zat)}</span>
+        <span className="end" style={{ left: `${(last.x / W) * 100}%` }}>{projectedLabel} {zec(all[all.length - 1]!.zat)}</span>
       </div>
       {runsOut && g.crosses && <p className="chart-warn">{runsOut}</p>}
-      <table className="visually-hidden">
-        <caption>{title}</caption>
-        <tbody>
-          <tr><th scope="row">{nowLabel} ({now.label})</th><td>{zatToZec(now.zat)} ZEC</td></tr>
-          {ahead.map((p, i) => (
-            <tr key={i}><th scope="row">{projectedLabel} ({p.label})</th><td>{zatToZec(p.zat)} ZEC</td></tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="visually-hidden">
+        <table>
+          <caption id={`${id}-t`}>{title}</caption>
+          <tbody>
+            <tr><th scope="row">{nowLabel} ({now.label})</th><td>{zec(now.zat)}</td></tr>
+            {ahead.map((p, i) => (
+              <tr key={i}><th scope="row">{projectedLabel} ({p.label})</th><td>{zec(p.zat)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <figcaption className="chart-src">{source}</figcaption>
     </figure>
   )

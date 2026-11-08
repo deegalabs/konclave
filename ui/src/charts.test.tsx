@@ -56,8 +56,8 @@ describe('FundsLine', () => {
     expect((html.match(/class="funds-pt rec"/g) ?? []).length).toBe(1)
     expect((html.match(/class="funds-proj"/g) ?? []).length).toBe(1)
     expect(html).not.toContain('funds-proj below')
-    expect(html).toContain('>Now<')
-    expect(html).toContain('>Projected<')
+    expect(html).toContain('>Now 3.0000 ZEC<')
+    expect(html).toContain('>Projected 1.0000 ZEC<')
     expect(html).toContain(`<figcaption class="chart-src">${base.source.replace("'", '&#x27;')}</figcaption>`)
   })
 
@@ -73,9 +73,42 @@ describe('FundsLine', () => {
     const html = renderToStaticMarkup(
       <FundsLine {...base} now={{ label: 'nov', zat: 123_456_789 }} ahead={[{ label: 'dez', zat: -1 }]} />,
     )
-    expect(html).toMatch(/<table class="visually-hidden">/)
     expect(html).toContain('<th scope="row">Now (nov)</th><td>1.23456789 ZEC</td>')
     expect(html).toContain('<th scope="row">Projected (dez)</th><td>-0.00000001 ZEC</td>')
+  })
+
+  it('trims the figures as the rest of the screen does, and keeps every zatoshi', () => {
+    const html = renderToStaticMarkup(<FundsLine {...base} now={{ label: 'nov', zat: 3 * ZEC }} ahead={[{ label: 'dez', zat: 2 * ZEC }]} />)
+    expect(html).toContain('<td>3.0000 ZEC</td>')
+    expect(html).not.toContain('3.00000000')
+  })
+
+  it('shows the amount where the line starts and where it ends, not only in a tooltip', () => {
+    const html = renderToStaticMarkup(
+      <FundsLine {...base} now={{ label: 'nov', zat: 3 * ZEC }} ahead={[{ label: 'dez', zat: 2 * ZEC }, { label: 'jan', zat: ZEC / 2 }]} />,
+    )
+    expect(html).toMatch(/<div class="funds-tags mono" aria-hidden="true"><span[^>]*>Now 3\.0000 ZEC<\/span><span[^>]*>Projected 0\.5000 ZEC<\/span>/)
+  })
+
+  it('labels the zero line, the only scale the chart has', () => {
+    const html = renderToStaticMarkup(<FundsLine {...base} now={{ label: 'nov', zat: ZEC }} ahead={[{ label: 'dez', zat: -ZEC }]} />)
+    expect(html).toMatch(/<span class="funds-zero-lab mono" aria-hidden="true" style="top:[\d.]+%">0<\/span>/)
+  })
+
+  it('names the figure by its title, and keeps the source as its caption', () => {
+    const html = renderToStaticMarkup(<FundsLine {...base} now={{ label: 'nov', zat: ZEC }} ahead={[{ label: 'dez', zat: ZEC }]} />)
+    const id = html.match(/<figure class="chart" aria-labelledby="([^"]+)">/)?.[1]
+    expect(id).toBeTruthy()
+    expect(html).toContain(`<caption id="${id}">${base.title}</caption>`)
+  })
+
+  it('hides the table in a block, so it cannot widen the page on a phone', () => {
+    const html = renderToStaticMarkup(<FundsLine {...base} now={{ label: 'nov', zat: ZEC }} ahead={[{ label: 'dez', zat: ZEC }]} />)
+    expect(html).toContain('<div class="visually-hidden"><table>')
+    expect(html).not.toContain('<table class="visually-hidden">')
+    const bars = renderToStaticMarkup(<SpendBars data={[{ label: 'set', zec: 1 }, { label: 'out', zec: 2 }]} />)
+    expect(bars).toContain('<div class="visually-hidden"><table>')
+    expect(bars).not.toContain('<table class="visually-hidden">')
   })
 
   it('names running out in words only when the line actually reaches zero', () => {
@@ -104,6 +137,10 @@ describe('the chart rule in the styles', () => {
   const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
   const rules = (sel: RegExp) => (css.match(new RegExp(`${sel.source}[^{]*\\{[^}]*\\}`, 'g')) ?? []).join('\n')
   const chartCss = rules(/\.(funds|chart|spend)[\w-]*/)
+
+  it('draws the zero line at 3:1 against the background (the strong line), not the soft one', () => {
+    expect(rules(/\.funds-zero(?!-)/)).toContain('stroke:var(--line-strong)')
+  })
 
   it('never puts success or danger in a chart, and keeps them still', () => {
     expect(chartCss).not.toBe('')
