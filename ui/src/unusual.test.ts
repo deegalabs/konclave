@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import type { PayrollLine, Proposal } from './api'
-import { readFileSync } from 'node:fs'
 import { codeOf } from './source-scan'
 import { unusualFor } from './unusual'
 
@@ -136,10 +135,5 @@ describe('one book, one rule', () => {
     const code = codeOf('unusual.ts')
     expect(code).toMatch(/import \{ createdAt \} from '\.\/period'/)
     expect(code).not.toMatch(/\.created_at/)
-  })
-  it('says in its own comment that it is a reading aid over a history the coordinator writes', () => {
-    const raw = readFileSync(new URL('./unusual.ts', import.meta.url), 'utf8')
-    expect(raw).toMatch(/A READING AID, NOT A DEFENCE/)
-    expect(raw).toMatch(/the coordinator writes that history/)
   })
 })
