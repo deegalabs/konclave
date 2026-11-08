@@ -1215,6 +1215,7 @@ export const en: Record<string, string> = {
   'analyses.runsOut': 'At this pace the free funds are gone by {month}.',
   'analyses.hiddenChart': 'Amounts are hidden. Reveal them to see the projection.',
   'analyses.na': 'Not available',
+  'analyses.exported': 'The file is ready.',
   'analyses.source': "From the vault's book. Month by proposal date. Network fee not included. Incoming money not shown.",
   'analyses.secBalance': 'Balance',
   'analyses.secMonths': 'What left the vault, by month',

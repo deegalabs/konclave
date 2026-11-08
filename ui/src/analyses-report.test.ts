@@ -90,8 +90,10 @@ describe('the two files say the same thing', () => {
     for (const row of rowsOf(r)) {
       const hit = cells.find((c) => c[0] === row.label && c[3] === row.source)
       expect(hit, row.label).toBeTruthy()
-      expect(hit![1]).toBe(row.unit === 'ZEC' ? Number(row.value) : row.value)
+      expect(hit![1]).toBe(/^-?\d+(\.\d+)?$/.test(row.value) ? Number(row.value) : row.value)
     }
+    // the runway too is a number, so the spreadsheet writes it the way the reader's locale does
+    expect(cells.find((c) => c[0] === 'Runway')![1]).toBe(3.7)
   })
 })
 

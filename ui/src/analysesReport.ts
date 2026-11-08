@@ -136,7 +136,9 @@ export async function analysesWorkbook(r: AnalysesReport, locale: Locale): Promi
     if (s.rows.length) {
       ws.addRow([L.figure, L.value, L.unit, L.source]).font = { bold: true }
       for (const x of s.rows) {
-        const row = ws.addRow([x.label, x.unit === 'ZEC' ? Number(x.value) : x.value, x.unit, x.source])
+        // A plain decimal (an amount, the runway) is stored as a number, so the spreadsheet writes it
+        // in the reader's locale; anything else (a dash) stays text.
+        const row = ws.addRow([x.label, /^-?\d+(\.\d+)?$/.test(x.value) ? Number(x.value) : x.value, x.unit, x.source])
         if (x.unit === 'ZEC') row.getCell(2).numFmt = '0.00000000'
         row.getCell(2).alignment = { horizontal: 'right' }
       }

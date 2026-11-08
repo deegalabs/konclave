@@ -1211,6 +1211,7 @@ export const ptBR: Record<string, string> = {
   'analyses.runsOut': 'Neste ritmo, o disponível acaba até {month}.',
   'analyses.hiddenChart': 'Os valores estão ocultos. Revele-os para ver a projeção.',
   'analyses.na': 'Indisponível',
+  'analyses.exported': 'O arquivo está pronto.',
   'analyses.source': 'Do livro do cofre. Mês pela data da proposta. Taxa da rede não incluída. Entradas não aparecem.',
   'analyses.secBalance': 'Saldo',
   'analyses.secMonths': 'O que saiu do cofre, por mês',

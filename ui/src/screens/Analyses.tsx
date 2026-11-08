@@ -138,6 +138,7 @@ export default function Analyses() {
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'html'>(null)
   const [exportFailed, setExportFailed] = useState(false)
+  const [exported, setExported] = useState(false)
 
   useEffect(() => {
     // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
@@ -171,19 +172,30 @@ export default function Analyses() {
     if (exporting || rows === null) return
     setExporting(kind)
     setExportFailed(false)
+    setExported(false)
     try {
       const report = analysesReport({ bal, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale })
-      if (!(await exportAnalyses(report, kind, locale))) setExportFailed(true)
+      if (await exportAnalyses(report, kind, locale)) setExported(true)
+      else setExportFailed(true)
     } catch {
       setExportFailed(true)
     } finally {
       setExporting(null)
     }
   }
+  // While a file is being made the buttons are aria-disabled, not disabled: a disabled button
+  // drops keyboard focus to the top of the page. They are disabled only while there is no book.
+  const why = rows === null ? 'an-export-why' : undefined
+  const exportButton = (kind: 'xlsx' | 'html', label: string) => (
+    <button className="btn ghost sm-btn" disabled={rows === null} aria-disabled={exporting !== null} aria-describedby={why} onClick={() => void exportAs(kind)}>
+      {exporting === kind ? t('analyses.exporting') : label}
+    </button>
+  )
   const actions = (
     <>
-      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('analyses.exportHint')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('analyses.exporting') : t('analyses.exportXlsx')}</button>
-      <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('analyses.exportHint')} onClick={() => void exportAs('html')}>{exporting === 'html' ? t('analyses.exporting') : t('analyses.exportHtml')}</button>
+      {exportButton('xlsx', t('analyses.exportXlsx'))}
+      {exportButton('html', t('analyses.exportHtml'))}
+      {why && <span id={why} className="visually-hidden">{t('analyses.unknown')}</span>}
     </>
   )
 
@@ -192,6 +204,7 @@ export default function Analyses() {
       <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} actions={actions} />
       <p className="cap">{t('analyses.exportHint')}</p>
       {exportFailed && <p className="hint warn" role="alert">{t('analyses.exportFailed')}</p>}
+      <p className="visually-hidden" role="status">{exporting ? t('analyses.exporting') : exported ? t('analyses.exported') : ''}</p>
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
