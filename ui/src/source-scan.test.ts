@@ -84,6 +84,25 @@ describe('stripComments', () => {
     expect(offenders).toEqual([])
   })
 
+  it('finds its files with fileURLToPath, never with the pathname of a URL', () => {
+    // `new URL(..., import.meta.url).pathname` is `/C:/...` on Windows, which no file API opens:
+    // 34 test files failed there before reaching an assertion (#887, #889). `fileURLToPath` is the
+    // same path on Linux and the right one on Windows.
+    const offenders: string[] = []
+    const walk = (dir: URL, sub: string) => {
+      for (const e of readdirSync(new URL(sub, dir), { withFileTypes: true })) {
+        if (e.isDirectory()) { if (e.name !== 'wasm-pkg') walk(dir, `${sub}${e.name}/`) }
+        else if (/\.(test|spec)\.tsx?$/.test(e.name) && e.name !== 'source-scan.test.ts') {
+          const src = readFileSync(new URL(`${sub}${e.name}`, dir), 'utf8')
+          if (/import\.meta\.url\s*\)\s*\.pathname/.test(src)) offenders.push(`${sub}${e.name}`)
+        }
+      }
+    }
+    walk(new URL('./', import.meta.url), '')
+    walk(new URL('../', import.meta.url), 'e2e/')
+    expect(offenders).toEqual([])
+  })
+
   it('reads TypeScript source only through it', () => {
     // A guard that looks for the spelling of a stripper misses a test with none at all: twelve
     // read TS source raw, among them pins on the money path that a comment naming the old call
