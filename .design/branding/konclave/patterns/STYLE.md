@@ -135,10 +135,13 @@ dashboard tile. Everything below is a rule, not a suggestion.
 - **When.** Only with at least two periods to compare, and only where the shape is the point.
   Below the history a number needs, say so in a line of text ("not enough history yet"); never
   draw an empty or one-bar chart.
-- **At most two series, told apart by tone, never by hue.** The primary series is `--silver`
-  (marks) with `--text` figures. The second series is `--text-muted` **and** carries a second cue:
-  a dash, an outline instead of a fill, or a direct label at the end of the line. Colour never
-  goes alone. No legend box of swatches; label the series where they are drawn.
+- **At most two series, never told apart by hue.** The primary series is `--silver` (marks) with
+  `--text` figures. The second series is `--text-muted` **and must** carry a second cue: a dash, an
+  outline instead of a fill, or a direct label at the end of the line. The cue, not the tone, is
+  what tells them apart: the two tones are close (about 1.3:1 to each other in light, 1.6:1 in
+  dark), so the tone only supports. Every series mark keeps at least 3:1 against the background
+  (WCAG 1.4.11), including when a tone is changed later. No legend box of swatches; label the
+  series where they are drawn.
 - **Recorded and projected look different.** What the book records is solid; what is computed
   forward (a projection, an expected payment) is dashed and labelled as such. A projection is
   arithmetic over the book, and the chart must not let it pass for a record.
