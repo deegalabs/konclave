@@ -95,6 +95,7 @@ describe('stripComments', () => {
       'layering.test.ts': 'stylesheets',
       'layout-width.test.ts': 'stylesheets',
       'viewing-code-wrap.test.ts': 'stylesheets',
+  'settings-no-index-css.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
       'changelog-gate.test.ts': 'CHANGELOG files',
       'changelog-shape.test.ts': 'CHANGELOG files',

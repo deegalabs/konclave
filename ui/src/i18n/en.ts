@@ -435,6 +435,8 @@ export const en: Record<string, string> = {
   'set.secApp': 'This app',
   'set.secTrust': 'Who sees what, who can do what',
   'trust.intro': 'For this vault, from what this device knows. Each word is what the product does today, not a promise; the clauses are below the table.',
+  'trust.disclosure': 'Who sees what, and the known limits',
+  'trust.summary': 'Who reads the vault’s books and who can move its money, as this device knows it.',
   'trust.what': 'What',
   'trust.party.members': 'You and the members',
   'trust.party.server': 'The vault’s server',
