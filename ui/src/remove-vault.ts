@@ -7,6 +7,8 @@
 // what "What changed" last showed, what the vault list last showed for it, and the selection when
 // it points at this vault. Every place the app writes to this browser's storage is listed, with
 // what happens to it here, in `remove-vault.dom.test.ts`.
+// Vaults removed before this existed are swept at startup by `sweep-removed.ts`, through
+// `clearVaultTraces` below, so the two cannot clear different things.
 // Kept on purpose: the signed record (`signed-record.ts`), the device's memory of what it already
 // signed. It holds hashes and expiries only, and it is what refuses a second transaction for a
 // payment this device signed, should the vault come back from a backup.
