@@ -13,21 +13,29 @@
 // It is arithmetic over the book, not a forecast and not a guarantee.
 //
 // It STOPS rather than guess: below three complete months of history there is no pace, no runway
-// and no projection, only "not enough history". Rounding leans the safe way: the pace rounds UP
+// and no projection, only "not enough history"; with no book read there is no pace at all, only
+// "unknown". A creation date the bridge sends as null (older proposals) is no date: such an outflow
+// is counted as undated and opens no history. Rounding leans the safe way: the pace rounds UP
 // and the runway rounds DOWN, so the vault never looks like it lasts longer than its book supports.
 // Whole zatoshi throughout (#303).
 import type { Proposal } from './api'
 import { freeZatOf } from './balance-parts'
 import { sumZat } from './format'
 import { SETTLED } from './ledger-state'
+import { periodWindow } from './period'
 
 /** Complete months a pace is averaged over, and the least history that may speak of one. */
 export const BURN_MONTHS = 3
 
 type Bal = Parameters<typeof freeZatOf>[0]
 
-const unix = (d: Date) => Math.floor(d.getTime() / 1000)
-const monthStart = (now: Date, offset: number) => new Date(now.getFullYear(), now.getMonth() + offset, 1)
+/** The calendar month `offset` months from the one holding `now`, as the ledger's period picker
+ *  draws it (one rule for what a month is). */
+const month = (now: Date, offset: number) => periodWindow('month', offset, now)!
+
+/** The proposal's creation date, or null when it has none: the local bridge sends `null` for older
+ *  proposals, the helper may leave it out. Both mean the same thing here. */
+const createdAt = (p: Proposal): number | null => (typeof p.created_at === 'number' ? p.created_at : null)
 
 export type MonthOut = { from: number; to: number; outZat: number }
 
@@ -35,37 +43,38 @@ export type MonthOut = { from: number; to: number; outZat: number }
  *  in each. Outflows with no creation date cannot be placed and are counted in `undated`. */
 export function monthlyOutflows(proposals: readonly Proposal[], now: Date, count: number): { months: MonthOut[]; undated: number } {
   const out = proposals.filter((p) => SETTLED(p.state))
-  const undated = out.filter((p) => p.created_at === undefined).length
+  const undated = out.filter((p) => createdAt(p) === null).length
   const months: MonthOut[] = []
   for (let k = count; k >= 1; k--) {
-    const from = unix(monthStart(now, -k))
-    const to = unix(monthStart(now, -k + 1))
-    months.push({ from, to, outZat: sumZat(out.filter((p) => p.created_at !== undefined && p.created_at >= from && p.created_at < to)) })
+    const { from, to } = month(now, -k)
+    months.push({ from, to, outZat: sumZat(out.filter((p) => { const t = createdAt(p); return t !== null && t >= from && t < to })) })
   }
   return { months, undated }
 }
 
 export type Burn =
+  /** The proposals have not been read: nothing can be said, not even that the history is short. */
+  | { kind: 'unknown' }
   /** Fewer than `BURN_MONTHS` complete months since the vault was first used. */
   | { kind: 'not-enough-history' }
   /** The average spent per month over the last `BURN_MONTHS` complete months, rounded up. */
   | { kind: 'rate'; zatPerMonth: number; undated: number }
 
-/** The pace of spending, once the vault has `BURN_MONTHS` complete months since its first proposal
- *  of any kind. A quiet month inside that span counts as zero. */
-export function burnRate(proposals: readonly Proposal[], now: Date = new Date()): Burn {
-  const dated = proposals.map((p) => p.created_at).filter((t): t is number => t !== undefined)
+/** The pace of spending, once the vault's first proposal of any kind is at or before the start of
+ *  the `BURN_MONTHS` complete months it averages, so every one of them is a whole month of the
+ *  vault's life. A quiet month inside that span counts as zero. */
+export function burnRate(proposals: readonly Proposal[] | null, now: Date = new Date()): Burn {
+  if (proposals === null) return { kind: 'unknown' }
+  const dated = proposals.map(createdAt).filter((t): t is number => t !== null)
   if (dated.length === 0) return { kind: 'not-enough-history' }
-  const first = new Date(Math.min(...dated) * 1000)
-  const complete = (now.getFullYear() - first.getFullYear()) * 12 + now.getMonth() - first.getMonth()
-  if (complete < BURN_MONTHS) return { kind: 'not-enough-history' }
+  if (Math.min(...dated) > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
   const r = monthlyOutflows(proposals, now, BURN_MONTHS)
   const total = r.months.reduce((acc, m) => acc + m.outZat, 0)
   return { kind: 'rate', zatPerMonth: Math.ceil(total / BURN_MONTHS), undated: r.undated }
 }
 
 export type Runway =
-  /** No pace yet (not enough history), or the balance or the proposals have not been read. */
+  /** No pace (not enough history, or no book read), or the balance or the proposals have not been read. */
   | { kind: 'unknown' }
   | { kind: 'no-spend' }
   /** Months the free funds last at the pace, in tenths, rounded down (33 = 3.3 months). */
@@ -99,7 +108,7 @@ export function projection(
   const free = freeZatOf(bal, proposals)
   if (burn.kind !== 'rate' || free === null) return null
   const points: ProjectionPoint[] = []
-  for (let k = 1; k <= horizon; k++) points.push({ from: unix(monthStart(now, k)), balanceZat: free - k * burn.zatPerMonth })
+  for (let k = 1; k <= horizon; k++) points.push({ from: month(now, k).from, balanceZat: free - k * burn.zatPerMonth })
   const i = burn.zatPerMonth > 0 ? points.findIndex((x) => x.balanceZat <= 0) : -1
   return { points, runsOutIndex: i === -1 ? null : i }
 }

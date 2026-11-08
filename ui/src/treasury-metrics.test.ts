@@ -52,7 +52,7 @@ describe('the pace of spending', () => {
     expect(b).toEqual({ kind: 'rate', zatPerMonth: 101, undated: 0 })
   })
   it('a quiet month inside the window counts as a month of no spending', () => {
-    expect(burnRate([p('rejected', 1, at(2026, 7)), p('sent', 90, at(2026, 9))], NOW)).toEqual({ kind: 'rate', zatPerMonth: 30, undated: 0 })
+    expect(burnRate([p('rejected', 1, at(2026, 7, 1)), p('sent', 90, at(2026, 9))], NOW)).toEqual({ kind: 'rate', zatPerMonth: 30, undated: 0 })
   })
   it('stops with fewer than three complete months since the first activity, rather than averaging fewer', () => {
     expect(BURN_MONTHS).toBe(3)
@@ -61,8 +61,31 @@ describe('the pace of spending', () => {
     expect(burnRate([], NOW)).toEqual({ kind: 'not-enough-history' })
     expect(burnRate([p('sent', 10, undefined)], NOW)).toEqual({ kind: 'not-enough-history' })
   })
+  it('starts only when the first activity is at or before the start of the window, to the second', () => {
+    // The window behind 10 November is August, September and October, from 1 August 00:00.
+    const aug1 = at(2026, 7, 1)
+    expect(burnRate([p('sent', 30, aug1)], NOW)).toEqual({ kind: 'rate', zatPerMonth: 10, undated: 0 })
+    expect(burnRate([p('rejected', 1, at(2026, 6, 31)), p('sent', 30, at(2026, 9))], NOW)).toEqual({ kind: 'rate', zatPerMonth: 10, undated: 0 })
+    // the last day of the window's first month: three calendar months back, but August is not whole
+    const aug31Late = Math.floor(new Date(2026, 7, 31, 23, 59, 59).getTime() / 1000)
+    expect(burnRate([p('sent', 30, aug31Late)], NOW)).toEqual({ kind: 'not-enough-history' })
+    expect(burnRate([p('sent', 30, aug1 + 1)], NOW)).toEqual({ kind: 'not-enough-history' })
+  })
+  it('takes a null creation date (the local bridge sends it for older proposals) for no date', () => {
+    const nullDated = p('sent', 500, null as unknown as undefined)
+    const dated = p('sent', 30, at(2026, 9))
+    expect(burnRate([nullDated, dated], NOW)).toEqual({ kind: 'not-enough-history' })
+    const r = monthlyOutflows([nullDated, dated], NOW, 3)
+    expect(r.undated).toBe(1)
+    expect(r.months.map((m) => m.outZat)).toEqual([0, 0, 30])
+  })
+  it('says nothing about the history of a book it has not read', () => {
+    expect(burnRate(null, NOW)).toEqual({ kind: 'unknown' })
+    expect(runway(bal(1000), null, burnRate(null, NOW))).toEqual({ kind: 'unknown' })
+    expect(projection(bal(1000), [], { kind: 'unknown' }, NOW)).toBeNull()
+  })
   it('carries the count of undated outflows so the screen can say what it left out', () => {
-    const b = burnRate([p('rejected', 1, at(2026, 7)), p('sent', 30, at(2026, 9)), p('sent', 7, undefined)], NOW)
+    const b = burnRate([p('rejected', 1, at(2026, 7, 1)), p('sent', 30, at(2026, 9)), p('sent', 7, undefined)], NOW)
     expect(b).toEqual({ kind: 'rate', zatPerMonth: 10, undated: 1 })
   })
 })
@@ -116,9 +139,17 @@ describe('one rule, not a third', () => {
     expect(code).toMatch(/import \{ freeZatOf \} from '\.\/balance-parts'/)
     expect(code).not.toMatch(/'sent'|'confirmed'/)
   })
+  it("draws a month with the period picker's window, not a calendar of its own", () => {
+    const code = codeOf('treasury-metrics.ts')
+    expect(code).toMatch(/import \{ periodWindow \} from '\.\/period'/)
+    expect(code).not.toMatch(/getMonth\(\)|getFullYear\(\)/)
+  })
   it('settlement reads the same SETTLED, with no list of its own', () => {
     const code = codeOf('settlement.ts')
     expect(code).toMatch(/SETTLED\(p\.state\)/)
-    expect(code).not.toMatch(/new Set\(\['sent'/)
+    // no state spelled as a state: not in a Set, not in an array, not in a comparison
+    expect(code).not.toMatch(/'sent'/)
+    expect(code).not.toMatch(/\[[^\]]*'confirmed'[^\]]*\]/)
+    expect(code).not.toMatch(/state\s*[!=]==?\s*'confirmed'/)
   })
 })
