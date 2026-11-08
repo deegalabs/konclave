@@ -1609,3 +1609,60 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .read-state h2{margin:0 0 6px; font-size:15px}
 .read-state.compact{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:0 0 10px; font-size:13px}
 .read-state.compact .btn{margin-top:0}
+
+/* ---- The trust panel in Settings: who sees what, who can do what, for this vault. ---- */
+.trust-intro{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.trust-badge{font-weight:600}
+.trust-badge.open{color:var(--warn-strong, var(--warn)); border-color:var(--warn-strong, var(--warn))}
+.trust-wrap{overflow-x:auto; margin-top:10px; border-radius:var(--radius-sm)}
+.trust-wrap:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.trust-grid{min-width:560px}
+.trust-grid th{font-size:11px}
+.trust-grid tbody th[scope="row"]{font-family:var(--font-sans); font-size:12.5px; letter-spacing:0; text-transform:none; color:var(--text); text-align:left; font-weight:500; background:transparent}
+.trust-grid td.trust-cell{font-size:12.5px; vertical-align:top}
+.trust-grid td.no{color:var(--text-muted)}
+.trust-grid td.yes, .trust-grid td.quorum{color:var(--text)}
+.trust-grid td.metadata, .trust-grid td.keeps, .trust-grid td.builds, .trust-grid td.sealedWhenRegistered, .trust-grid td.untilUnlock{color:var(--warn-strong, var(--warn))}
+.trust-limits{margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.55; color:var(--text-muted); display:grid; gap:6px; max-width:62ch}
+/* A button that reads as a link, for an action inside a sentence. */
+.link-btn{appearance:none; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer}
+.link-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+/* ---- The Ledger's visual pass: less uppercase mono eyebrow, hierarchy by the size of the number,
+   colour only for the state (the guide's four groups), breathing room. Scoped to the book. ---- */
+/* Screen only: the book's print rules (the document at every width) keep the page. */
+@media screen{
+  .ledger-doc .klab{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.02em; text-transform:none; color:var(--text-muted)}
+  .ledger-doc .doc-band{padding:22px 26px; gap:24px 36px; margin-top:18px}
+  .ledger-doc .db-meta{gap:40px}
+  .ledger-doc .db-meta b{font-size:14px; font-weight:600}
+  /* The period keeps `mono` for print; on screen it reads in sans like its neighbours. */
+  .ledger-doc .db-meta b.mono{font-family:var(--font-sans)}
+  .ledger-doc .db-t b{font-size:24px; font-weight:600; letter-spacing:-.01em}
+  .ledger-doc .db-totals{gap:34px; flex-wrap:wrap}
+  .ledger-doc .cap{font-family:var(--font-sans); font-size:12.5px; margin:10px 0 18px}
+  .ledger-doc .filters{margin:18px 0}
+  .ledger-doc .chip-glabel{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.02em; text-transform:none}
+  .ledger-doc .chip{font-family:var(--font-sans); font-size:12.5px; padding:6px 12px}
+  .ledger-doc .chip-label, .ledger-doc .chip-note{font-family:var(--font-sans); font-size:12.5px}
+  .ledger-doc .tbl th{font-family:var(--font-sans); font-size:11.5px; letter-spacing:.01em; text-transform:none; font-weight:600; padding:12px 12px}
+  .ledger-doc .tbl th.num{text-align:right}
+  /* The row's second line: names, counts and the state word are not mono material; only an address is. */
+  .ledger-doc .tbl .by{font-family:var(--font-sans); font-size:12px}
+  .ledger-doc .tbl .by .mono, .ledger-doc .tbl td.mono{font-family:var(--font-mono)}
+  .ledger-doc .tbl .num.out{color:var(--text)}
+  .ledger-doc .tbl .num.dim{color:var(--text-muted)}
+  /* The state's word in its group's colour; the word is always there, the colour never goes alone.
+     Text-tier tokens: the fill tokens fall under 4.5:1 on a hovered row and on the second surface. */
+  .ledger-doc .st-need{color:var(--accent-text)}
+  .ledger-doc .st-way{color:var(--silver)}
+  .ledger-doc .st-ok{color:var(--success-text)}
+  .ledger-doc .st-closed{color:var(--text-muted)}
+  .ledger-doc .st-ok .link{color:var(--success-text); border-bottom-color:currentColor}
+  .ledger-doc .closed-tag{font-family:var(--font-sans); font-size:11px; letter-spacing:0; text-transform:none; padding:1px 7px}
+  .ledger-doc .pivot{margin-top:34px}
+  .ledger-doc .pivot-h{font-size:14px; font-weight:600; color:var(--text)}
+}
+/* Room on a laptop; the phone card keeps its own grid (the 640px rules in lacre.css set the cells to 0). */
+@media screen and (min-width:641px){ .ledger-doc .tbl td{padding:14px 12px} }
+@media screen and (max-width:560px){ .ledger-doc .doc-band{padding:18px 20px} .ledger-doc .db-t b{font-size:20px} .ledger-doc .db-totals{gap:22px} }

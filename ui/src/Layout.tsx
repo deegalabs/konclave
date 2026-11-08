@@ -3,6 +3,8 @@ import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-do
 import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
+import { useSeatRefusalCode } from './seat-registration'
+import { coordinatorCode, refusalKey } from './conclude-registration'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
@@ -38,6 +40,10 @@ const MOBILE_PRIMARY = new Set(['/dashboard', '/pay', '/payroll', '/activity', '
  *  onboarding screens (vault picker, intro, ceremony) render standalone. */
 export default function Layout() {
   const t = useT()
+  // The refused seat of the selected vault, read live: a registration that runs after an unlock and
+  // is refused shows here at once. A code this app does not know still says the seat was refused.
+  const refusedCode = useSeatRefusalCode(getSelectedVault())
+  const knownCode = coordinatorCode(refusedCode)
   const { locale } = useI18n()
   const nav = useNavigate()
   const loc = useLocation()
@@ -323,6 +329,9 @@ export default function Layout() {
         {/* The screens read `locked` so they do not fetch behind the overlay - every read would
             401 - and `unlockNonce` so they refetch the moment it opens. Outlet context rather than
             a new provider: this is one value going one level down. */}
+        {refusedCode && (
+          <p className="unlock-err" role="alert">{t(knownCode ? refusalKey({ refused: 'coded', code: knownCode }) : 'registration.seatRefused')}</p>
+        )}
         <Outlet context={{ locked: !!locked, unlockNonce, live } satisfies VaultLockContext} />
       </div>
     </div>

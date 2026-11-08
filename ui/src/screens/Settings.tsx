@@ -13,13 +13,15 @@ import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
-import { readSecretFor, getUnlockedShare } from '../session'
+import { readSecretFor } from '../session'
 import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, type Governance } from '../storage'
+import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
+import { trustRows, type Cell } from '../trust-facts'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
+import { ReceiversRepair } from './ReceiversRepair'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
@@ -42,6 +44,8 @@ export default function Settings() {
   const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
+  // Private (the vault holds S) or open; undefined until the record was read, never asserted.
+  const [secured, setSecured] = useState<boolean | undefined>(undefined)
   const [live, setLive] = useState<boolean | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmName, setConfirmName] = useState('')
@@ -50,6 +54,7 @@ export default function Settings() {
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
+  const [localRec, setLocalRec] = useState<VaultPublic | null>(null)
   // #469: everything below the vault card is gated on an async chain (health -> getVault ->
   // listVaults -> fingerprint), and until it lands the sections are simply ABSENT - they pop in one
   // by one. Worse, the danger zone renders `removeNoLocal` meanwhile, which asserts this device
@@ -59,6 +64,9 @@ export default function Settings() {
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
+  // The quorum as this device recorded it when the vault was made: shown first, the server's answer
+  // only when there is no record (or the record predates the field).
+  const [localQuorum, setLocalQuorum] = useState<{ threshold: number; total: number } | null>(null)
   const [xpOpen, setXpOpen] = useState(false)
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
@@ -83,7 +91,10 @@ export default function Settings() {
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
-            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found) }
+            if (on) {
+              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setLocalRec(found ?? null); setSecured(found?.secured)
+              if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
+            }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
@@ -105,6 +116,10 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
+  // Decided by the maintainer on 2026-11-06: the passkey just created may sync (BE read from its authenticator data). Shown once, after
+  // enrolment, and never blocking it: the shortcut is per device by design, so a synced passkey is
+  // the case it does not rely on, and the member is owed that sentence before they do.
+  const [pkSynced, setPkSynced] = useState(false)
   useEffect(() => { setHasPasskey(!!(vaultId && loadPrfWrap(vaultId))) }, [vaultId])
   // Offered only when this device can actually do it: a vault selected, `S` in the session, and a
   // browser with WebAuthn. Advertising a control that cannot work is worse than not offering it.
@@ -114,7 +129,7 @@ export default function Settings() {
     if (!vaultId) return
     const s = readSecretFor(vaultId)
     if (!s) { setPkErr(t('settings.passkeyNeedUnlock')); return }
-    setPkBusy(true); setPkErr(null)
+    setPkBusy(true); setPkErr(null); setPkSynced(false)
     try {
       const label = vault?.name || t('settings.vault')
       const r = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
@@ -125,6 +140,9 @@ export default function Settings() {
       if (typeof r === 'string') { setPkErr(t(DENIAL_COPY[r])); return }
       savePrfWrap(vaultId, r)
       setHasPasskey(true)
+      // Only a BE we read as SET earns the notice. Null (nothing readable) is unknown, not a reason
+      // to alarm anyone, and the always-shown access note below already says the rule.
+      setPkSynced(r.backupEligible === true)
     } finally {
       setPkBusy(false)
     }
@@ -136,6 +154,7 @@ export default function Settings() {
     clearPrfWrap(vaultId)
     setHasPasskey(false)
     setPkErr(null)
+    setPkSynced(false)
   }
 
   // #470: rotating the passphrase that seals this device's share. Local and per DEVICE - the
@@ -180,7 +199,7 @@ export default function Settings() {
       // The viewing key and the scan floor ride in the export so it can REBUILD the vault, not just
       // restore the seat (#214/#434/#480); the share in session opens the coordinator's sealed
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
-      const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
+      const b = await buildVaultBackup(id, xpPass, vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
       if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
       return { json: b.json, name: b.name, complete: b.complete }
@@ -218,8 +237,8 @@ export default function Settings() {
     }
   }
 
-  const thr = vault?.threshold ?? 2
-  const n = vault?.total ?? 3
+  const thr = localQuorum?.threshold ?? vault?.threshold ?? 2
+  const n = localQuorum?.total ?? vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
@@ -300,11 +319,12 @@ export default function Settings() {
         <a href="#s-vault">{t('set.secVault')}</a>
         <a href="#s-access">{t('set.secAccess')}</a>
         {gov && <a href="#s-gov">{t('set.secGov')}</a>}
+        {hasLocal && secured !== undefined && <a href="#s-trust">{t('set.secTrust')}</a>}
         {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
         <a href="#s-remove">{t('set.secRemove')}</a>
       </nav>
       <div className="set-body">
-      <h2 className="set-sec">{t('set.secVault')}</h2>
+      <h2 className="set-sec" id="s-vault">{t('set.secVault')}</h2>
       <div className="set-list">
         {network && (
           <div className="set-row">
@@ -317,6 +337,13 @@ export default function Settings() {
           {/* Figures are mono. The contract has no exception for small ones. */}
           <span className="set-v mono">{thr} / {n}</span>
         </div>
+        {localRec?.viewingFingerprint && (
+          <div className="set-row">
+            <span className="set-k">{t('set.viewingCode')}</span>
+            <span className="set-v mono">{localRec.viewingFingerprint}</span>
+            <span className="set-hint">{t('set.viewingCodeHintFull')}</span>
+          </div>
+        )}
         <div className="set-row">
           <span className="set-k">{t('settings.members')}</span>
           {/* `?? n` reported the CONFIGURED total as the seated count when the list was missing -
@@ -354,7 +381,7 @@ export default function Settings() {
       </div>
       <p className="set-hint">{tr('members.fpHelp')}</p>
 
-      <h2 className="set-sec">{t('set.secAccess')}</h2>
+      <h2 className="set-sec" id="s-access">{t('set.secAccess')}</h2>
       <div className="set-list">
         {/* #468: this row used to render a FIXED string - "passphrase on this device" - regardless
             of what the device actually held, so it was a label pretending to be state. It is also
@@ -390,13 +417,14 @@ export default function Settings() {
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
+      {hasPasskey && pkSynced && <p className="set-hint" role="status">{t('settings.passkeySynced')}</p>}
       {/* Unconditional. It used to render only when this device could use a passkey, so a device
           that cannot never learned the rule it is subject to. */}
       <p className="set-hint">{t('set.accessNote')}</p>
 
       {gov && (
         <>
-          <h2 className="set-sec">{t('set.secGov')}</h2>
+          <h2 className="set-sec" id="s-gov">{t('set.secGov')}</h2>
           <div className="set-list">
             <div className="set-row">
               <span className="set-k">{t('settings.governance')}<Hint>{t('settings.govNote')}</Hint></span>
@@ -409,7 +437,57 @@ export default function Settings() {
         </>
       )}
 
-      <h2 className="set-sec">{t('set.secKeys')}</h2>
+      {hasLocal && secured !== undefined && (
+        <>
+          {/* The trust panel: who sees what and who can do what, for THIS vault, from the one fact
+              the device holds (private or open). What it cannot see (the write gate, every seat's
+              registration) is said as such. The cells are short words; the clauses are the limits. */}
+          <h2 className="set-sec" id="s-trust">{t('set.secTrust')}</h2>
+          <p className="set-hint trust-intro">
+            {secured
+              ? <span className="set-badge trust-badge" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>
+              : <span className="set-badge trust-badge open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
+            {' '}{t('trust.intro')}
+          </p>
+          {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
+          <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
+            <table className="tbl trust-grid" aria-labelledby="s-trust">
+              <thead>
+                <tr>
+                  <th scope="col">{t('trust.what')}</th>
+                  {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {trustRows({ secured, threshold: thr, total: n }).map((r) => (
+                  <tr key={r.what}>
+                    <th scope="row">{t('trust.row.' + r.what)}</th>
+                    {(['members', 'server', 'relay', 'link'] as const).map((p) => {
+                      const c: Cell = r.cells[p]
+                      return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="set-hint">{t('trust.limits')}</p>
+          <ul className="trust-limits">
+            <li>{t('trust.limit.builds')}</li>
+            <li>{t('trust.limit.viewingKey')}</li>
+            <li>{t('trust.limit.relay')}</li>
+            <li>{t('trust.limit.gate')}</li>
+            <li>{t('trust.limit.metadata')}</li>
+            {secured && <li>{t('trust.limit.private')}</li>}
+            <li>{t('trust.limit.product')}</li>
+            <li>{t('trust.limit.audit')}</li>
+          </ul>
+          <p className="set-hint">{t('trust.limitsNotAll')}</p>
+          <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
+        </>
+      )}
+
+      <h2 className="set-sec" id="s-keys">{t('set.secKeys')}</h2>
       {!settled ? (
         <div className="set-list">
           <div className="set-row"><Skeleton width={130} height={12} /><Skeleton width={96} height={34} radius={10} /></div>
@@ -440,11 +518,13 @@ export default function Settings() {
         </div>
       ) : null}
 
-      <h2 className="set-sec">{t('set.secRemove')}</h2>
+      {localRec && <ReceiversRepair rec={localRec} onDone={() => { void listVaults().then((all) => setLocalRec(all.find((v) => v.id === localRec.id) ?? null)) }} />}
+
+      <h2 className="set-sec" id="s-remove">{t('set.secRemove')}</h2>
       <section className="set-danger">
         {/* The old note said what is NOT lost ("nothing is deleted from the network"), which is
             true and hides the part that matters. This says the cost. */}
-        <p className="set-danger-note">{t('set.removeCost')}</p>
+        <p className="set-danger-note">{t('set.removeCost')} <Link to="/docs/recovery">{t('set.loseDevice')}</Link></p>
         {!settled ? (
           /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
              vault" is a guess, and it is the alarming one - so the row waits instead. */
@@ -463,6 +543,17 @@ export default function Settings() {
             {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
             <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
+            {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
+            {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
+                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
+                sections above. */}
+            {hasLocal && (
+              <p className="hint mt-xs">
+                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
+                  {t('set.removeExportFirst')}
+                </button>
+              </p>
+            )}
             <label className="field">
               {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
                   to force an act of recall printed the answer inside the box - a transcription

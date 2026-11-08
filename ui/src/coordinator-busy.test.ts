@@ -144,4 +144,13 @@ describe('the endings of a busy that never cleared', () => {
     expect(helper).toMatch(/export function busyOf\(/)
     expect(helper.match(/\.busy ===/g) ?? [], 'a second reader of the busy field').toHaveLength(0)
   })
+
+  it('a refusal keeps the code the coordinator named, and only a string', async () => {
+    const { registerReadKey, lastHelperPostFailure } = await import('./helper')
+    for (const [code, kept] of [['seat_bound', 'seat_bound'], [7, undefined]] as const) {
+      vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'no', code }), { status: 409 }))
+      await registerReadKey('a'.repeat(64), 'b'.repeat(64))
+      expect(lastHelperPostFailure()?.code).toBe(kept)
+    }
+  })
 })

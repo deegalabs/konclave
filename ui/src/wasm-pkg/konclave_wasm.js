@@ -181,6 +181,39 @@ export class CreationSession {
         wasm.__wbg_creationsession_free(ptr, 0);
     }
     /**
+     * `counted`, `secretDiffers` or `invalid`.
+     * @param {number} from
+     * @param {Uint8Array} sealed
+     * @param {Uint8Array} proof_key
+     * @param {Uint8Array} read_key
+     * @param {number} cp
+     * @returns {string}
+     */
+    addCertificate(from, sealed, proof_key, read_key, cp) {
+        let deferred5_0;
+        let deferred5_1;
+        try {
+            const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray8ToWasm0(proof_key, wasm.__wbindgen_malloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passArray8ToWasm0(read_key, wasm.__wbindgen_malloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ret = wasm.creationsession_addCertificate(this.__wbg_ptr, from, ptr0, len0, ptr1, len1, ptr2, len2, cp);
+            var ptr4 = ret[0];
+            var len4 = ret[1];
+            if (ret[3]) {
+                ptr4 = 0; len4 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred5_0 = ptr4;
+            deferred5_1 = len4;
+            return getStringFromWasm0(ptr4, len4);
+        } finally {
+            wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+        }
+    }
+    /**
      * @param {number} seat
      * @param {Uint8Array} enc_pub
      * @param {string} name
@@ -232,6 +265,13 @@ export class CreationSession {
      */
     allCommitted() {
         const ret = wasm.creationsession_allCommitted(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    certificatesComplete() {
+        const ret = wasm.creationsession_certificatesComplete(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -391,6 +431,39 @@ export class CreationSession {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @returns {string}
+     */
+    pinBundleJson() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.creationsession_pinBundleJson(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    pkpDigest() {
+        const ret = wasm.creationsession_pkpDigest(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * @returns {Uint8Array}
      */
     pubkeys() {
@@ -414,6 +487,26 @@ export class CreationSession {
         var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v2;
+    }
+    /**
+     * This seat's certificate, sealed under the proof key, for its `done`.
+     * @param {Uint8Array} read_key
+     * @param {Uint8Array} proof_key
+     * @param {number} cp
+     * @returns {Uint8Array}
+     */
+    sealedCertificate(read_key, proof_key, cp) {
+        const ptr0 = passArray8ToWasm0(read_key, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(proof_key, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_sealedCertificate(this.__wbg_ptr, ptr0, len0, ptr1, len1, cp);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v3;
     }
 }
 if (Symbol.dispose) CreationSession.prototype[Symbol.dispose] = CreationSession.prototype.free;
@@ -1065,6 +1158,15 @@ export function injectSigs(pczt, sighash, sigs) {
 }
 
 /**
+ * The most seats a vault may have, from the one place it is defined.
+ * @returns {number}
+ */
+export function maxSeats() {
+    const ret = wasm.maxSeats();
+    return ret;
+}
+
+/**
  * Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
  * its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
  * @param {Uint8Array} key
@@ -1184,6 +1286,34 @@ export function pcztSighash(pczt) {
 }
 
 /**
+ * The digest of a saved package, as the coordinator's pin reports it.
+ * @param {Uint8Array} pubkeys
+ * @param {number} t
+ * @param {number} n
+ * @returns {string}
+ */
+export function pkpDigestHex(pubkeys, t, n) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pkpDigestHex(ptr0, len0, t, n);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
  * "txid": hex, "expiry": number, "branch": number}`. `readPayment`'s reading plus the header checked against the
  * network this build signs for, with the DEVICE's own clock read here (never passed in by a
@@ -1246,6 +1376,21 @@ export function readPayment(pczt) {
 }
 
 /**
+ * Whether two names are one member's, by the rule votes are counted by.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export function sameMember(a, b) {
+    const ptr0 = passStringToWasm0(a, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(b, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.sameMember(ptr0, len0, ptr1, len1);
+    return ret !== 0;
+}
+
+/**
  * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
  * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
  * @param {Uint8Array} key
@@ -1288,6 +1433,42 @@ export function sealTo(recipient_pub, plaintext, aad) {
     var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v4;
+}
+
+/**
+ * A seat's certificate again from what the device saved, for registering after an unlock.
+ * @param {Uint8Array} key_package
+ * @param {Uint8Array} pubkeys
+ * @param {number} seat
+ * @param {number} t
+ * @param {number} n
+ * @param {number} cp
+ * @param {Uint8Array} read_key
+ * @returns {string}
+ */
+export function seatCertificateFromBundle(key_package, pubkeys, seat, t, n, cp, read_key) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passArray8ToWasm0(key_package, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(read_key, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.seatCertificateFromBundle(ptr0, len0, ptr1, len1, seat, t, n, cp, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
 }
 
 /**
@@ -1382,6 +1563,21 @@ export function signWrite(key_package, vault_id, action, target, seat, ts, nonce
 }
 
 /**
+ * Whether this address is exactly this one receiver.
+ * @param {string} ua
+ * @param {string} receiver_hex
+ * @returns {boolean}
+ */
+export function uaIsExactly(ua, receiver_hex) {
+    const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(receiver_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.uaIsExactly(ptr0, len0, ptr1, len1);
+    return ret !== 0;
+}
+
+/**
  * The raw Orchard receiver of a unified address, hex - the approved destination in the same
  * space as an output's `recipient`, so the money gate can compare them (#281).
  *
@@ -1421,6 +1617,36 @@ export function uaReceiver(ua) {
 export function upgradeHeight() {
     const ret = wasm.upgradeHeight();
     return ret >>> 0;
+}
+
+/**
+ * What a vault's viewing key derives, checked against this device's own package. It takes the
+ * package and not a string, so the key it is checked against is never the caller's to name.
+ * @param {string} ufvk
+ * @param {Uint8Array} pubkeys
+ * @returns {string}
+ */
+export function vaultReceivers(ufvk, pubkeys) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(ufvk, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.vaultReceivers(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
 }
 
 /**

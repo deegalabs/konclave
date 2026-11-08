@@ -75,17 +75,6 @@ pub fn frost_selftest() -> Result<String, String> {
 // so it never collides with a 32-byte tx sighash; the reddsa nonce is fresh per signature.
 pub mod room_auth {
     use crate::frost;
-    use rand::rngs::OsRng;
-    use reddsa::orchard::SpendAuth;
-
-    const DOMAIN: &[u8] = b"konclave-room-v1\x00";
-
-    fn domain_msg(msg: &[u8]) -> Vec<u8> {
-        let mut m = Vec::with_capacity(DOMAIN.len() + msg.len());
-        m.extend_from_slice(DOMAIN);
-        m.extend_from_slice(msg);
-        m
-    }
 
     /// Sign a room message with this device's FROST signing share. 64-byte RedPallas signature.
     pub fn sign_with_share(signing_share: &frost::keys::SigningShare, msg: &[u8]) -> [u8; 64] {
@@ -93,31 +82,23 @@ pub mod room_auth {
             .serialize()
             .try_into()
             .expect("a redpallas signing share is 32 bytes");
-        let sk = reddsa::SigningKey::<SpendAuth>::try_from(bytes).expect("valid share scalar");
-        let sig = sk.sign(OsRng, &domain_msg(msg));
-        <[u8; 64]>::from(sig)
+        konclave_seal::share_sig::sign_room(&bytes, msg).expect("valid share scalar")
     }
 
-    /// True iff `sig` is `verifying_share`'s signature over the domain-separated `msg`.
+    /// True iff `sig` is `verifying_share`'s signature over this room message.
     pub fn verify_against_share(
         verifying_share: &frost::keys::VerifyingShare,
         msg: &[u8],
         sig: &[u8; 64],
     ) -> bool {
-        let vk_bytes: [u8; 32] = match verifying_share
+        match verifying_share
             .serialize()
             .ok()
-            .and_then(|v| v.try_into().ok())
+            .and_then(|v| <[u8; 32]>::try_from(v).ok())
         {
-            Some(b) => b,
-            None => return false,
-        };
-        let vk = match reddsa::VerificationKey::<SpendAuth>::try_from(vk_bytes) {
-            Ok(v) => v,
-            Err(_) => return false,
-        };
-        vk.verify(&domain_msg(msg), &reddsa::Signature::from(*sig))
-            .is_ok()
+            Some(key) => konclave_seal::share_sig::verify_room(&key, msg, sig),
+            None => false,
+        }
     }
 
     #[cfg(test)]
@@ -125,6 +106,30 @@ pub mod room_auth {
         use super::*;
         use crate::frost::keys::{generate_with_dealer, IdentifierList, KeyPackage};
         use rand::rngs::OsRng;
+
+        /// Only `konclave-seal` names the room's domain. Built up so this file does not name it.
+        #[test]
+        fn the_rooms_domain_lives_in_one_crate() {
+            let src = include_str!("lib.rs");
+            let needle = ["konclave", "-room-v1"].concat();
+            assert!(!src.contains(needle.as_str()));
+        }
+
+        /// A signature a device made before the move still verifies: see the seal crate's fixture.
+        #[test]
+        fn a_room_signature_crosses_both_ways_with_the_seal_crate() {
+            let (shares, pubkeys) =
+                generate_with_dealer(2, 2, IdentifierList::Default, OsRng).unwrap();
+            let (id, secret) = shares.into_iter().next().unwrap();
+            let kp = KeyPackage::try_from(secret).unwrap();
+            let vshare = *pubkeys.verifying_shares().get(&id).unwrap();
+            let raw: [u8; 32] = vshare.serialize().unwrap().try_into().unwrap();
+            let sig = sign_with_share(kp.signing_share(), b"m");
+            assert!(konclave_seal::share_sig::verify_room(&raw, b"m", &sig));
+            let share: [u8; 32] = kp.signing_share().serialize().try_into().unwrap();
+            let other = konclave_seal::share_sig::sign_room(&share, b"m").unwrap();
+            assert!(verify_against_share(&vshare, b"m", &other));
+        }
 
         #[test]
         fn a_room_message_binds_to_the_seat_that_signed_it() {
@@ -1175,6 +1180,7 @@ pub mod creation {
     use super::*;
     use frost::keys::dkg::{part1, part2, part3, round1, round2};
     use frost::Identifier;
+    use seal::share_sig;
 
     type E = String;
     fn e<T: core::fmt::Display>(x: T) -> E {
@@ -1270,6 +1276,114 @@ pub mod creation {
         key_package: Vec<u8>,
         pubkeys: Vec<u8>,
         group_vk: Vec<u8>,
+        /// One certificate per seat, set once, and the bundle is built only from this.
+        certificates: BTreeMap<u16, share_sig::SeatProof>,
+    }
+
+    /// What a seat's certificate came to.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CertOutcome {
+        Counted,
+        /// This seat is already in: whatever it says now changes nothing and stops nothing.
+        Repeated,
+        /// A true certificate over another read key: this creation cannot be finished.
+        SecretDiffers,
+        /// The box does not open under this device's key. The caller knows if that seat sent it.
+        DoesNotOpen,
+        Invalid,
+    }
+
+    /// The canonical package of a saved `pubkeys`, seats exactly 1..=n.
+    pub fn pkp_of(pubkeys: &[u8], t: u16, n: u16) -> Result<share_sig::PkpCanonical, E> {
+        let package = frost::keys::PublicKeyPackage::deserialize(pubkeys).map_err(e)?;
+        let group_key: [u8; 32] = package
+            .verifying_key()
+            .serialize()
+            .map_err(e)?
+            .try_into()
+            .map_err(|_| "a group key is 32 bytes")?;
+        let mut shares = Vec::with_capacity(n as usize);
+        for seat in 1..=n {
+            let share = package
+                .verifying_shares()
+                .get(&id(seat)?)
+                .ok_or("the package does not hold every seat")?;
+            shares.push(
+                <[u8; 32]>::try_from(share.serialize().map_err(e)?)
+                    .map_err(|_| "a verifying share is 32 bytes")?,
+            );
+        }
+        if package.verifying_shares().len() != n as usize {
+            return Err("the package holds other seats".into());
+        }
+        Ok(share_sig::PkpCanonical {
+            group_key,
+            t,
+            shares,
+        })
+    }
+
+    /// A seat's certificate, with the keys its share derives, the ones every later unlock presents.
+    pub fn own_certificate(
+        key_package: &[u8],
+        pubkeys: &[u8],
+        seat: u16,
+        t: u16,
+        n: u16,
+        cp: u32,
+        read_key: &[u8; 32],
+    ) -> Result<share_sig::SeatProof, E> {
+        if cp < 3 {
+            return Err("a certificate belongs to a vault of protocol 3".into());
+        }
+        let package = frost::keys::KeyPackage::deserialize(key_package).map_err(e)?;
+        if *package.identifier() != id(seat)? || *package.min_signers() != t {
+            return Err("this share is not this seat's".into());
+        }
+        let pkp = pkp_of(pubkeys, t, n)?;
+        if !share_sig::quorum_is_possible(t, n) {
+            return Err("invalid quorum".into());
+        }
+        // The package is the one this share belongs to, or its certificate says nothing.
+        let own_share: [u8; 32] = package
+            .verifying_share()
+            .serialize()
+            .map_err(e)?
+            .try_into()
+            .map_err(|_| "a verifying share is 32 bytes")?;
+        if pkp.shares.get(seat as usize - 1) != Some(&own_share) {
+            return Err("this package does not hold this share".into());
+        }
+        let comms_pub = seal::device_key_from_share(key_package).public_bytes();
+        let seed = seal::write_key_seed_from_share(key_package);
+        let write_pub = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        let read_key_hash = share_sig::read_key_hash(read_key);
+        let statement = share_sig::SeatStatement {
+            vault_id: pkp.group_key,
+            cp,
+            t,
+            n,
+            seat,
+            pkp_digest: pkp.digest(),
+            read_key_hash,
+            comms_pub,
+            write_pub,
+        };
+        let share: [u8; 32] = package
+            .signing_share()
+            .serialize()
+            .try_into()
+            .map_err(|_| "a signing share is 32 bytes")?;
+        let sig = share_sig::sign_seat(&share, &statement).ok_or("the share is not a scalar")?;
+        Ok(share_sig::SeatProof {
+            seat,
+            comms_pub,
+            write_pub,
+            read_key_hash,
+            sig,
+        })
     }
 
     impl Creation {
@@ -1282,7 +1396,7 @@ pub mod creation {
             t: u16,
             my_name: &str,
         ) -> Result<Self, E> {
-            if !(2..=32).contains(&n) || t < 1 || t > n || my_seat < 1 || my_seat > n {
+            if !seal::share_sig::quorum_is_possible(t, n) || my_seat < 1 || my_seat > n {
                 return Err("invalid seat or quorum".into());
             }
             let (secret, pkg) = part1(id(my_seat)?, n, t, OsRng).map_err(e)?;
@@ -1298,6 +1412,7 @@ pub mod creation {
                 r1: pkg.serialize().map_err(e)?,
                 nonce,
                 members: BTreeMap::new(),
+                certificates: BTreeMap::new(),
                 code: None,
                 confirmed: false,
                 r2_secret: None,
@@ -1561,11 +1676,351 @@ pub mod creation {
         pub fn names(&self) -> Vec<String> {
             self.members.values().map(|m| m.name.clone()).collect()
         }
+
+        /// The vault's package in its canonical form, from this device's own round 3.
+        pub fn pkp_canonical(&self) -> Result<share_sig::PkpCanonical, E> {
+            if !self.done() {
+                return Err("the package exists after round 3".into());
+            }
+            pkp_of(&self.pubkeys, self.t, self.n)
+        }
+
+        /// This seat's certificate, kept and returned sealed under the proof key.
+        pub fn sealed_certificate(
+            &mut self,
+            read_key: &[u8; 32],
+            proof_key: &[u8; 32],
+            cp: u32,
+        ) -> Result<Vec<u8>, E> {
+            if !self.done() {
+                return Err("a certificate exists after round 3".into());
+            }
+            if let Some(kept) = self.certificates.get(&self.my_seat) {
+                if kept.read_key_hash != share_sig::read_key_hash(read_key) {
+                    return Err("this seat has already certified another read key".into());
+                }
+            }
+            let proof = own_certificate(
+                &self.key_package,
+                &self.pubkeys,
+                self.my_seat,
+                self.t,
+                self.n,
+                cp,
+                read_key,
+            )?;
+            let json = serde_json::to_vec(&share_sig::ProofJson::from(&proof)).map_err(e)?;
+            self.certificates.entry(self.my_seat).or_insert(proof);
+            Ok(seal::seal_body(proof_key, &json))
+        }
+
+        /// Another seat's sealed certificate, checked against this device's own package.
+        pub fn add_certificate(
+            &mut self,
+            from_seat: u16,
+            sealed: &[u8],
+            proof_key: &[u8; 32],
+            read_key: &[u8; 32],
+            cp: u32,
+        ) -> CertOutcome {
+            if cp < 3 {
+                return CertOutcome::Invalid;
+            }
+            if self.certificates.contains_key(&from_seat) {
+                return CertOutcome::Repeated;
+            }
+            let Ok(pkp) = self.pkp_canonical() else {
+                return CertOutcome::Invalid;
+            };
+            let Ok(opened) = seal::open_body(proof_key, sealed) else {
+                return CertOutcome::DoesNotOpen;
+            };
+            let Some(proof) = serde_json::from_slice::<share_sig::ProofJson>(&opened)
+                .ok()
+                .and_then(|json| json.parse())
+            else {
+                return CertOutcome::Invalid;
+            };
+            if proof.seat != from_seat
+                || from_seat == self.my_seat
+                || !(1..=self.n).contains(&from_seat)
+                || !proof.keys_are_usable()
+            {
+                return CertOutcome::Invalid;
+            }
+            let statement = share_sig::SeatStatement {
+                vault_id: pkp.group_key,
+                cp,
+                t: self.t,
+                n: self.n,
+                seat: from_seat,
+                pkp_digest: pkp.digest(),
+                read_key_hash: proof.read_key_hash,
+                comms_pub: proof.comms_pub,
+                write_pub: proof.write_pub,
+            };
+            if !share_sig::verify_seat(&pkp.shares[from_seat as usize - 1], &statement, &proof.sig)
+            {
+                return CertOutcome::Invalid;
+            }
+            if proof.read_key_hash != share_sig::read_key_hash(read_key) {
+                return CertOutcome::SecretDiffers;
+            }
+            self.certificates.insert(from_seat, proof);
+            CertOutcome::Counted
+        }
+
+        /// Every seat's certificate, all over one read key.
+        pub fn certificates_complete(&self) -> bool {
+            self.certificates.len() == self.n as usize
+                && self
+                    .certificates
+                    .values()
+                    .all(|c| c.read_key_hash == self.certificates[&self.my_seat].read_key_hash)
+        }
+
+        /// What the coordinator is asked to pin.
+        pub fn pin_bundle_json(&self) -> Result<String, E> {
+            if !self.certificates_complete() {
+                return Err("the bundle is built from every seat's certificate".into());
+            }
+            let proofs: Vec<share_sig::ProofJson> = self
+                .certificates
+                .values()
+                .map(share_sig::ProofJson::from)
+                .collect();
+            serde_json::to_string(&serde_json::json!({
+                "pkp": hex::encode(self.pkp_canonical()?.encode()),
+                "proofs": proofs,
+            }))
+            .map_err(e)
+        }
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        mod certificates {
+            use super::*;
+
+            const CP: u32 = 3;
+            const READ: [u8; 32] = [0x42; 32];
+            const PROOF: [u8; 32] = [0x24; 32];
+
+            fn finished(n: u16, t: u16) -> Vec<Dev> {
+                let mut ds = devices(n, t);
+                let codes = exchange(&mut ds);
+                for d in ds.iter_mut() {
+                    d.c.confirm(&codes[0].to_lowercase().replace('-', " "))
+                        .unwrap();
+                }
+                finish(&mut ds);
+                ds
+            }
+
+            /// Everyone's own sealed certificate, by seat.
+            fn sealed(ds: &mut [Dev], read: &[u8; 32], proof: &[u8; 32]) -> Vec<Vec<u8>> {
+                ds.iter_mut()
+                    .map(|d| d.c.sealed_certificate(read, proof, CP).unwrap())
+                    .collect()
+            }
+
+            #[test]
+            fn every_seats_certificate_verifies_against_every_devices_own_package() {
+                for (n, t) in [(2u16, 2u16), (3, 2), (4, 3)] {
+                    let mut ds = finished(n, t);
+                    let boxes = sealed(&mut ds, &READ, &PROOF);
+                    for (i, d) in ds.iter_mut().enumerate() {
+                        assert!(!d.c.certificates_complete(), "n={n}: not before the others");
+                        for (j, b) in boxes.iter().enumerate() {
+                            if i != j {
+                                let seat = j as u16 + 1;
+                                assert_eq!(
+                                    d.c.add_certificate(seat, b, &PROOF, &READ, CP),
+                                    CertOutcome::Counted
+                                );
+                            }
+                        }
+                        assert!(d.c.certificates_complete(), "n={n}");
+                    }
+                }
+            }
+
+            #[test]
+            fn the_bundle_is_what_the_coordinators_count_accepts() {
+                let mut ds = finished(3, 2);
+                let boxes = sealed(&mut ds, &READ, &PROOF);
+                ds[0].c.add_certificate(2, &boxes[1], &PROOF, &READ, CP);
+                ds[0].c.add_certificate(3, &boxes[2], &PROOF, &READ, CP);
+                let bundle: serde_json::Value =
+                    serde_json::from_str(&ds[0].c.pin_bundle_json().unwrap()).unwrap();
+                let pkp = ds[0].c.pkp_canonical().unwrap();
+                assert_eq!(bundle["pkp"], hex::encode(pkp.encode()));
+                assert_eq!(bundle["proofs"].as_array().unwrap().len(), 3);
+                let vk: [u8; 32] = ds[0].c.group_vk().try_into().unwrap();
+                seal::share_sig::verify_package(&pkp, &vk).unwrap();
+                assert_eq!(pkp.t, 2);
+            }
+
+            #[test]
+            fn a_bundle_is_not_built_before_every_seat_is_in() {
+                let mut ds = finished(2, 2);
+                let _ = sealed(&mut ds, &READ, &PROOF);
+                assert!(ds[0].c.pin_bundle_json().is_err());
+            }
+
+            #[test]
+            fn a_certificate_carrying_another_read_key_is_secret_differs() {
+                let mut ds = finished(2, 2);
+                ds[0].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let other = ds[1].c.sealed_certificate(&[9; 32], &PROOF, CP).unwrap();
+                assert_eq!(
+                    ds[0].c.add_certificate(2, &other, &PROOF, &READ, CP),
+                    CertOutcome::SecretDiffers
+                );
+                assert!(!ds[0].c.certificates_complete());
+            }
+
+            #[test]
+            fn a_certificate_replayed_under_another_seats_tag_is_invalid() {
+                let mut ds = finished(3, 2);
+                let boxes = sealed(&mut ds, &READ, &PROOF);
+                assert_eq!(
+                    ds[0].c.add_certificate(3, &boxes[1], &PROOF, &READ, CP),
+                    CertOutcome::Invalid
+                );
+            }
+
+            #[test]
+            fn a_certificate_sealed_under_another_key_does_not_open_and_is_not_counted() {
+                let mut ds = finished(2, 2);
+                ds[0].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let other = ds[1].c.sealed_certificate(&READ, &[1; 32], CP).unwrap();
+                assert_eq!(
+                    ds[0].c.add_certificate(2, &other, &PROOF, &READ, CP),
+                    CertOutcome::DoesNotOpen
+                );
+                assert!(!ds[0].c.certificates_complete());
+            }
+
+            #[test]
+            fn a_seats_second_certificate_changes_nothing() {
+                let mut ds = finished(2, 2);
+                ds[0].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let first = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let second = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                assert_eq!(
+                    ds[0].c.add_certificate(2, &first, &PROOF, &READ, CP),
+                    CertOutcome::Counted
+                );
+                let before = ds[0].c.pin_bundle_json().unwrap();
+                assert_eq!(
+                    ds[0].c.add_certificate(2, &second, &PROOF, &READ, CP),
+                    CertOutcome::Repeated
+                );
+                assert_eq!(ds[0].c.pin_bundle_json().unwrap(), before, "set once");
+            }
+
+            /// The keys are those the coordinator will see on every later unlock: from the share,
+            /// never from the key this device announced for the ceremony.
+            #[test]
+            fn the_certificate_carries_the_share_derived_keys() {
+                let mut ds = finished(2, 2);
+                let kp = ds[1].c.key_package();
+                let bx = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let opened = seal::open_body(&PROOF, &bx).unwrap();
+                let json: share_sig::ProofJson = serde_json::from_slice(&opened).unwrap();
+                assert_eq!(
+                    json.comms_pub,
+                    hex::encode(seal::device_key_from_share(&kp).public_bytes())
+                );
+                let seed = seal::write_key_seed_from_share(&kp);
+                let write = ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key();
+                assert_eq!(json.write_pub, hex::encode(write.as_bytes()));
+            }
+
+            /// A member cannot stop a device that already holds its certificate by changing its mind.
+            #[test]
+            fn a_seat_already_in_is_not_a_secret_that_differs_later() {
+                let mut ds = finished(2, 2);
+                ds[0].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                let first = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                ds[0].c.add_certificate(2, &first, &PROOF, &READ, CP);
+                let other = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                assert_eq!(
+                    ds[0].c.add_certificate(2, &other, &PROOF, &[9; 32], CP),
+                    CertOutcome::Repeated
+                );
+                assert!(ds[0].c.certificates_complete());
+            }
+
+            #[test]
+            fn a_seat_does_not_certify_two_read_keys_or_another_protocol() {
+                let mut ds = finished(2, 2);
+                ds[0].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                assert!(ds[0].c.sealed_certificate(&[9; 32], &PROOF, CP).is_err());
+                assert!(ds[1].c.sealed_certificate(&READ, &PROOF, 0).is_err());
+                let (kp, pk) = (ds[1].c.key_package(), ds[1].c.pubkeys());
+                assert!(
+                    own_certificate(&kp, &pk, 1, 2, 2, CP, &READ).is_err(),
+                    "another seat"
+                );
+                assert!(
+                    own_certificate(&kp, &pk, 2, 3, 3, CP, &READ).is_err(),
+                    "another quorum"
+                );
+            }
+
+            #[test]
+            fn a_certificate_is_only_this_share_on_this_package_at_this_quorum() {
+                let mut ds = finished(3, 2);
+                let (kp, pk) = (ds[1].c.key_package(), ds[1].c.pubkeys());
+                assert!(own_certificate(&kp, &pk, 2, 2, 3, CP, &READ).is_ok());
+                assert!(
+                    own_certificate(&kp, &pk, 2, 3, 3, CP, &READ).is_err(),
+                    "another quorum"
+                );
+                assert!(
+                    own_certificate(&kp, &pk, 2, 2, 3, 2, &READ).is_err(),
+                    "protocol 2"
+                );
+                let foreign = finished(3, 2)[0].c.pubkeys();
+                assert!(
+                    own_certificate(&kp, &foreign, 2, 2, 3, CP, &READ).is_err(),
+                    "another package"
+                );
+                let own = ds[1].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                assert_eq!(
+                    ds[1].c.add_certificate(2, &own, &PROOF, &READ, CP),
+                    CertOutcome::Repeated
+                );
+                let other = ds[2].c.sealed_certificate(&READ, &PROOF, CP).unwrap();
+                assert_eq!(
+                    ds[1].c.add_certificate(3, &other, &PROOF, &READ, 2),
+                    CertOutcome::Invalid
+                );
+                assert_eq!(
+                    ds[0].c.add_certificate(1, &other, &PROOF, &READ, CP),
+                    CertOutcome::Invalid,
+                    "its own seat"
+                );
+            }
+
+            #[test]
+            fn a_seat_cannot_certify_before_round_3() {
+                let mut ds = devices(2, 2);
+                assert!(ds[0].c.sealed_certificate(&READ, &PROOF, CP).is_err());
+            }
+
+            #[test]
+            fn creation_refuses_a_quorum_or_a_size_outside_the_rule() {
+                let secret = seal::DeviceKey::generate().secret_bytes();
+                assert!(Creation::new(&secret, 1, 17, 2, "m").is_err());
+                assert!(Creation::new(&secret, 1, 3, 1, "m").is_err());
+                assert!(Creation::new(&secret, 1, 16, 2, "m").is_ok());
+            }
+        }
 
         struct Dev {
             secret: [u8; 32],
@@ -6015,6 +6470,139 @@ mod js_dkg {
         pub fn group_vk(&self) -> Vec<u8> {
             self.inner.group_vk()
         }
+        /// This seat's certificate, sealed under the proof key, for its `done`.
+        #[wasm_bindgen(js_name = sealedCertificate)]
+        pub fn sealed_certificate(
+            &mut self,
+            read_key: &[u8],
+            proof_key: &[u8],
+            cp: u32,
+        ) -> Result<Vec<u8>, JsValue> {
+            self.inner
+                .sealed_certificate(&key32(read_key)?, &key32(proof_key)?, cp)
+                .map_err(je)
+        }
+        /// `counted`, `secretDiffers` or `invalid`.
+        #[wasm_bindgen(js_name = addCertificate)]
+        pub fn add_certificate(
+            &mut self,
+            from: u16,
+            sealed: &[u8],
+            proof_key: &[u8],
+            read_key: &[u8],
+            cp: u32,
+        ) -> Result<String, JsValue> {
+            use super::creation::CertOutcome as C;
+            let outcome =
+                self.inner
+                    .add_certificate(from, sealed, &key32(proof_key)?, &key32(read_key)?, cp);
+            Ok(match outcome {
+                C::Counted => "counted",
+                C::Repeated => "repeated",
+                C::DoesNotOpen => "doesNotOpen",
+                C::SecretDiffers => "secretDiffers",
+                C::Invalid => "invalid",
+            }
+            .to_string())
+        }
+        #[wasm_bindgen(js_name = certificatesComplete)]
+        pub fn certificates_complete(&self) -> bool {
+            self.inner.certificates_complete()
+        }
+        #[wasm_bindgen(js_name = pinBundleJson)]
+        pub fn pin_bundle_json(&self) -> Result<String, JsValue> {
+            self.inner.pin_bundle_json().map_err(je)
+        }
+        #[wasm_bindgen(js_name = pkpDigest)]
+        pub fn pkp_digest(&self) -> Result<Vec<u8>, JsValue> {
+            Ok(self.inner.pkp_canonical().map_err(je)?.digest().to_vec())
+        }
+    }
+
+    fn key32(bytes: &[u8]) -> Result<[u8; 32], JsValue> {
+        bytes.try_into().map_err(|_| je("a key is 32 bytes"))
+    }
+
+    /// The digest of a saved package, as the coordinator's pin reports it.
+    #[wasm_bindgen(js_name = pkpDigestHex)]
+    pub fn pkp_digest_hex(pubkeys: &[u8], t: u16, n: u16) -> Result<String, JsValue> {
+        Ok(hex::encode(
+            super::creation::pkp_of(pubkeys, t, n).map_err(je)?.digest(),
+        ))
+    }
+
+    /// Whether two names are one member's, by the rule votes are counted by.
+    #[wasm_bindgen(js_name = sameMember)]
+    pub fn same_member(a: &str, b: &str) -> bool {
+        seal::same_member(a, b)
+    }
+
+    /// The most seats a vault may have, from the one place it is defined.
+    #[wasm_bindgen(js_name = maxSeats)]
+    pub fn max_seats() -> u16 {
+        seal::share_sig::N_MAX
+    }
+
+    /// What a vault's viewing key derives, checked against this device's own package. It takes the
+    /// package and not a string, so the key it is checked against is never the caller's to name.
+    #[wasm_bindgen(js_name = vaultReceivers)]
+    pub fn vault_receivers(ufvk: &str, pubkeys: &[u8]) -> Result<String, JsValue> {
+        let package = frost::keys::PublicKeyPackage::deserialize(pubkeys).map_err(je)?;
+        let ak: [u8; 32] = package
+            .verifying_key()
+            .serialize()
+            .map_err(je)?
+            .try_into()
+            .map_err(|_| je("a group key is 32 bytes"))?;
+        let r = seal::receivers::vault_receivers(
+            ufvk,
+            zcash_protocol::consensus::NetworkType::Main,
+            &ak,
+        )
+        .map_err(|e| je(format!("{e:?}")))?;
+        serde_json::to_string(&serde_json::json!({
+            "external": hex::encode(r.external),
+            "internal": hex::encode(r.internal),
+            "externalUa": r.external_ua,
+            "internalUa": r.internal_ua,
+        }))
+        .map_err(je)
+    }
+
+    /// Whether this address is exactly this one receiver.
+    #[wasm_bindgen(js_name = uaIsExactly)]
+    pub fn ua_is_exactly(ua: &str, receiver_hex: &str) -> bool {
+        let Ok(bytes) = hex::decode(receiver_hex) else {
+            return false;
+        };
+        let Ok(raw) = <[u8; 43]>::try_from(bytes) else {
+            return false;
+        };
+        seal::receivers::ua_is_exactly(ua, zcash_protocol::consensus::NetworkType::Main, &raw)
+    }
+
+    /// A seat's certificate again from what the device saved, for registering after an unlock.
+    #[wasm_bindgen(js_name = seatCertificateFromBundle)]
+    pub fn seat_certificate_from_bundle(
+        key_package: &[u8],
+        pubkeys: &[u8],
+        seat: u16,
+        t: u16,
+        n: u16,
+        cp: u32,
+        read_key: &[u8],
+    ) -> Result<String, JsValue> {
+        let proof = super::creation::own_certificate(
+            key_package,
+            pubkeys,
+            seat,
+            t,
+            n,
+            cp,
+            &key32(read_key)?,
+        )
+        .map_err(je)?;
+        serde_json::to_string(&seal::share_sig::ProofJson::from(&proof)).map_err(je)
     }
 
     /// A device's long-term encryption keypair for the confidential channel (round-2 sealing).

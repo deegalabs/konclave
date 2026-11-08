@@ -24,11 +24,11 @@ import { deriveRoom, newInviteCode, parseInvite, inviteLink, joinParam, INVITE_L
 
 describe('deriveRoom', () => {
   it.each([
-    // Version 2 (konclave-room-v2): a device on the previous version derives another room.
-    ['ABCD1234', '1234', '154251e12f579d8b11e2f9b44f997bf5'],
-    ['ROOM-X', 'hunter2', '2c6d69e75748f417de9e6984163df6fa'],
-    ['a', '  spaced  ', '0360e41e46d51f498078adc45e56f187'],
-  ])('code %s + pin %s derives its version-2 room', async (code, pin, want) => {
+    // Version 3 (konclave-room-v3): a device on the previous version derives another room.
+    ['ABCD1234', '1234', 'ebd79390ce4368a4a92d79fc530ad564'],
+    ['ROOM-X', 'hunter2', 'f07bddafb5b250a0dd11cdc62474e79e'],
+    ['a', '  spaced  ', 'ef79eeba60f4af9e6173034adec36fb3'],
+  ])('code %s + pin %s derives its version-3 room', async (code, pin, want) => {
     expect(await deriveRoom(code, pin)).toBe(want)
   })
 

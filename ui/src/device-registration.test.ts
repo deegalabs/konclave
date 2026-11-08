@@ -59,6 +59,14 @@ describe('a seat registers on unlock, not on an open proposal', () => {
       .toBe(false)
   })
 
+  it('a protocol 3 seat registers with its own certificate, and a refusal is carried up', () => {
+    const src = codeOf(join(SRC, 'device-registration.ts'))
+    expect(src).toMatch(/seatCertificateFromBundle\(b\.keyPackage, b\.pubkeys, b\.seat, b\.t, b\.n, share\.cp,/)
+    expect(src).toMatch(/\}, proof\)/)
+    expect(src.match(/return \{ refused: code \}/g)).toHaveLength(2)
+    expect(codeOf(join(SRC, 'VaultSigner.tsx'))).toMatch(/&& !deviceRefusal\(vaultIdRef\.current\)/)
+  })
+
   it('and the unlock path does register', () => {
     // The other half of the rule. Uniqueness alone would be satisfied by nobody calling it at all,
     // which is the state that produced the bug.

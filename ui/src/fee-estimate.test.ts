@@ -100,7 +100,8 @@ describe('no fee arithmetic outside the rule', () => {
   const PATTERNS = [
     /\b5_?000\s*\*|\*\s*5_?000\b/,
     /\bfee\w*\s*[=:]\s*\d[\d_]{3,}/i,
-    /(fee|marginal)[^\n]*(?<![\w.])\d{1,3}_?\d{3}(?![\w.])/i,
+    // (a ZIP number is a name, not an amount: "ZIP 2009")
+    /(fee|marginal)[^\n]*(?<![\w.])(?<!ZIP )\d{1,3}_?\d{3}(?![\w.])/i,
     /SINGLE_PAYMENT_FEE_ZAT|GRACE_ACTIONS|MARGINAL_FEE/,
   ]
 
@@ -119,6 +120,10 @@ describe('no fee arithmetic outside the rule', () => {
         })
     }
     expect(hits, 'a fee rule is written here; it lives in konclave_seal (read it through fee-estimate.ts)').toEqual([])
+  })
+
+  it('and does not take a ZIP number for a fee', () => {
+    expect(PATTERNS.some((p) => p.test('the fee drops under ZIP 2009 at a later height'))).toBe(false)
   })
 
   it('and would find one', () => {

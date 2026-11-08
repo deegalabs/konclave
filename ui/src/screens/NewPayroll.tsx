@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePoll } from '../usePoll'
 import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
 import { isOpen } from '../desk'
@@ -26,8 +26,18 @@ import { useVaultBalance } from '../useVaultBalance'
 /** Two marks, kept apart (#332). `copied` says the line came from a previous payroll, and stays:
  *  it is what lets the sheet compare the line with the registry for as long as the line exists.
  *  `check` says its address has not been looked at yet, and goes when it is. */
-export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean; vouched?: boolean }
+export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean; vouched?: boolean; k?: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
+/** A line on screen carries `k`, its identity for React, never its index: a field keeps text of its
+ *  own (the recipient search), so with an index key the line after a deleted one showed the deleted
+ *  line's text over its own address. `keyed` is the one place a line gets it, run on every write to
+ *  the sheet, so a line from any source (typed, restored, imported, copied, from the registry) has
+ *  one, and a line that already has one keeps it. The draft is saved without it. */
+type KeyedRow = Row & { k: string }
+let rowSeq = 0
+function keyed(rows: readonly Row[]): KeyedRow[] {
+  return rows.map((r) => (typeof r.k === 'string' ? (r as KeyedRow) : { ...r, k: `r${++rowSeq}` }))
+}
 const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
 const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
@@ -135,7 +145,9 @@ export default function NewPayroll() {
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
   const [description, setDescription] = useState('')
-  const [rows, setRows] = useState<Row[]>([emptyRow()])
+  const [rows, setKeyedRows] = useState<KeyedRow[]>(() => keyed([emptyRow()]))
+  const setRows = useCallback((next: Row[] | ((prev: KeyedRow[]) => Row[])) =>
+    setKeyedRows((prev) => keyed(typeof next === 'function' ? next(prev) : next)), [])
   const [showImport, setShowImport] = useState(false)
   const [showRegistry, setShowRegistry] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
@@ -224,7 +236,7 @@ export default function NewPayroll() {
   useEffect(() => {
     if (!locked) return
     setRows([emptyRow()]); setCompetencia(''); setDescription(''); setCopiedFrom(null); setPendingFrom(null)
-  }, [locked])
+  }, [locked, setRows])
   // Restore the local draft.
   useEffect(() => {
     if (locked) return
@@ -234,16 +246,16 @@ export default function NewPayroll() {
         const d = JSON.parse(raw)
         setCompetencia(d.competencia ?? '')
         setDescription(d.description ?? '')
-        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows)
+        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows.map(({ k: _k, ...r }: Row) => r)) // a stored identity is never trusted
         if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
-  }, [draftAt, locked])
+  }, [draftAt, locked, setRows])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
     if (!draftAt || locked) return
-    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows, copiedFrom }))
+    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows: rows.map(({ k: _k, ...r }) => r), copiedFrom }))
     setSaved(true)
   }, [competencia, description, rows, copiedFrom, draftAt, locked])
 
@@ -288,11 +300,14 @@ export default function NewPayroll() {
   function enableUsd() { setUsdEnabled(true); setUsdOn(true); void refreshRate() }
   useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
 
-  function updateRow(i: number, patch: Partial<Row>) {
-    setRows((prev) => patchRow(prev, i, patch))
+  // A line is addressed by its identity, found in the sheet as it is when the write lands: a write
+  // that arrives late (the recipient field saves after an await) must not land on whichever line
+  // took the old position after a delete.
+  function updateRow(k: string, patch: Partial<Row>) {
+    setRows((prev) => { const i = prev.findIndex((r) => r.k === k); return i < 0 ? prev : patchRow(prev, i, patch) })
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
-  const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+  const removeRow = (k: string) => setRows((prev) => { const rest = prev.filter((r) => r.k !== k); return rest.length ? rest : [emptyRow()] })
   // Funds are released when someone else's proposal is sent or refused, and a payroll blocked by a
   // reservation must see it lift without a reload: the same cadence as the balance and as Pay.
   usePoll(() => {
@@ -510,10 +525,10 @@ export default function NewPayroll() {
               const issue = rowTouched(r) ? rowIssue(r) : null
               const note = said ? t(said.key, said.vars) : null
               return (
-                <div key={i} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
+                <div key={r.k} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
                   <span className="plr-n mono">{i + 1}</span>
                   {/* Leaving the address field after looking at it retires the "check" mark (blur bubbles). */}
-                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(i, {}) }}>
+                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(r.k, {}) }}>
                     <RecipientCombobox
                       compact
                       invalid={!!issue}
@@ -523,20 +538,20 @@ export default function NewPayroll() {
                       name={r.label || null}
                       placeholder={t('payroll.recipientPlaceholder')}
                       onReloadBenefs={reloadBenefs}
-                      onChange={(rc) => updateRow(i, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
+                      onChange={(rc) => updateRow(r.k, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
                     />
                   </div>
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(r.k, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
-                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
-                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
+                  <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(r.k, { memo: e.target.value })} disabled={k === 'transparent'} />
+                  <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(r.k)}>×</button>
                   {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
                   {note && <div className={'cell-warn plr-issue' + (issue ? ' err' : ' warn')} id={`plr-issue-${i}`} role={issue ? 'status' : undefined}>{note}</div>}
-                  {needsVouch(r, benefs) && <button className="btn ghost sm-btn" aria-describedby={`plr-issue-${i}`} onClick={() => updateRow(i, { vouched: true })}>{t('payroll.vouchBtn', { n: i + 1 })}</button>}
+                  {needsVouch(r, benefs) && <button className="btn ghost sm-btn" aria-describedby={`plr-issue-${i}`} onClick={() => updateRow(r.k, { vouched: true })}>{t('payroll.vouchBtn', { n: i + 1 })}</button>}
                 </div>
               )
             })}

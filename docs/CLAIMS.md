@@ -83,7 +83,8 @@ existed on one machine at creation. The README said it that way until 2026-09-29
 `7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`, `b232f20c…` and `3d60747c…` do not name the key origin in `docs/PROOF.md`. They are attributed to
 DKG because each was made through the web app and a hosted coordinator (production's, or staging's for `3d60747c…`), and the only screen that
 registers a vault with the coordinator is the one that creates it by DKG (`registerVault` has one
-caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, not about the chain.
+caller, `concludeRegistration` in `ui/src/conclude-registration.ts`, which runs only for a vault the
+device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same registration). That is a statement about the product, not about the chain.
 
 ## Honest limits to keep stated (never hide)
 - **Signing-path transaction-swap defense (H1) - SHIPPED on the primary path (#62 closed, live since
@@ -91,7 +92,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
     ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
     it is asked to sign - in **both** rounds - and it reads the payment from the transaction, checks it against
-    the approved one and shows it before contributing a share (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
+    the approved one and shows it while the ceremony runs, with no pause to read it first, before
+    contributing a share (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
     overwriting the local sighash with the wire value, but it compared the `msg` field and then signed
     the `sp` field, and the share is computed over the message inside `sp`. Since 2026-09-29 the
     function that signs takes the locally derived sighash and refuses a package over any other
@@ -117,7 +119,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   registers it; once every seat has registered one, the helper **hybrid-seals** the SignRequest to the seated devices; and the
   ceremony no longer re-broadcasts the PCZT ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3).
   The relay is blind to the payment once every seat has registered its device key; until then the
-  request goes out unsealed (`helper-server/src/main.rs:1076-1085`). Proof `047fe6ca…` (block 3,464,505), attested by the captured
+  request goes out unsealed (`request_recipients` in `orchestrator/src/helper.rs`, which the helper's
+  send calls). Proof `047fe6ca…` (block 3,464,505), attested by the captured
   room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
   signing room has since landed (#392, closed in #401):** an id-only outsider can no longer take a seat a
   member holds or fake that member's ready-to-sign message, because both are signed. The ceremony's
@@ -146,8 +149,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
     neither read the books nor find, join or observe the room.
   - **This is a product access-control lock, not a new cryptographic guarantee about the chain**
     (§6.14). It controls **who may ask the helper** and **who can find the room**; it does not change
-    what the chain reveals (nothing) or the spend rule (a quorum). "Private outside, transparent
-    inside" now holds for the helper's view too, not only for the chain.
+    what the chain reveals (nothing) or the spend rule (a quorum). "Private outside, transparent inside" now also holds
+    for someone who asks the helper with only a vault id. It does not hold for the helper itself, which reads the books (#516).
   - **Still open, do not claim closed:** the gate is **per-vault and opt-in on registration** - a
     vault with no registered `readKey` stays **open** so the pre-#388 live vaults keep working, and
     migrating the remaining legacy vaults is #406. (The signing-room seat-hijack #392 was closed in
@@ -157,9 +160,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   in the clear (id/group key, address, member names, beneficiaries) even though the share was
   encrypted, so a leaked backup doxxed the vault. v2 encrypts the **entire** payload - metadata, share,
   the #388 secret S, and the beneficiaries - under the passphrase; only a non-sensitive envelope
-  (format, version, salt, IV) is cleartext, so a leaked v2 backup reveals nothing, not even the vault
-  id. Import reads both v1 (legacy) and v2. Since #447/#480 the export of a Private vault carries
-  the viewing key, the address and the scan height, so it rebuilds the vault too. The limit that
+  (format, version, KDF iterations, salt, IV and the time it was made) is cleartext, so the contents of a leaked v2 backup, the vault id included, stay unreadable. Import reads both v1 (legacy) and v2. Since #447/#480 the export of a Private vault carries
+  the viewing key, the address and the scan height a rebuild needs. No tool yet rebuilds a vault the group can spend from, neither on our coordinator (#214) nor without our servers (#613). The limit that
   remains: an Open vault's export lacks the viewing key, and there is no path yet to hand an existing
   vault to a different coordinator (see [`RECOVERY.md`](RECOVERY.md), #214).
 - **There is no quorum-by-value.** The quorum is the `t` fixed at creation; no rule changes it with

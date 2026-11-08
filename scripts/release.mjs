@@ -14,8 +14,9 @@
 // the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
+import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments, replaceUnreleasedHeading } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -33,22 +34,17 @@ const SOURCES = [
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading.
+// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading. The
+// parsing lives in changelog-sections.mjs, the one reader of this format.
 function sectionOf(file, version) {
   let md
   // A source that does not exist yet contributes nothing rather than failing the release. Cutting a
   // release is the worst moment to discover a missing file.
   try { md = readFileSync(file, 'utf8') } catch { return '' }
-  const lines = md.split('\n')
-  const head = (s) => s.startsWith('## ')
-  let start = lines.findIndex((l) => head(l) && l.includes(`[${version}]`))
-  if (start === -1) start = lines.findIndex((l) => head(l) && l.includes('[Unreleased]'))
-  if (start === -1) return ''
-  let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) if (head(lines[i])) { end = i; break }
-  // Trim the `---` that separates versions in the file: it belongs to the CHANGELOG's layout,
-  // not to this release, and it rendered as a stray rule at the foot of the GitHub release body.
-  return lines.slice(start + 1, end).join('\n').trim().replace(/\n*-{3,}$/, '').trimEnd()
+  // A section that exists and is EMPTY is the version's own (the cut renames even when [Unreleased] is
+  // empty): falling back to [Unreleased] would print the NEXT release's notes under this one. Before the
+  // cut, the fragments are part of [Unreleased], so --notes shows them.
+  return hasSection(md, version) ? sectionBody(md, version) : unreleasedOf(md, file)
 }
 
 /** The versions this repo actually released, newest first. A section with no tag was cut and then
@@ -70,10 +66,10 @@ function taggedVersions() {
 }
 
 /** The version headings in a changelog, in file order (newest first). */
-function versionsIn(file) {
+function versionsFrom(file) {
   let md
   try { md = readFileSync(file, 'utf8') } catch { return [] }
-  return [...md.matchAll(/^## \[(\d+\.\d+\.\d+[^\]]*)\]/gm)].map((m) => m[1])
+  return versionsIn(md)
 }
 
 /**
@@ -103,7 +99,7 @@ export function versionsToReport(version, tagged = taggedVersions()) {
   // exists. A release candidate, a tag that is not a version at all, or a newer release when an old
   // tag is rebuilt are all "another tag", and none of them is a place for the walk to stop.
   if (!tagged) return [version]
-  const all = versionsIn(CHANGELOG)
+  const all = versionsFrom(CHANGELOG)
   const start = all.indexOf(version)
   if (start === -1) return [version]
   const beneath = all.slice(start + 1)
@@ -123,7 +119,7 @@ export function versionsToReport(version, tagged = taggedVersions()) {
 export function commitRange(version, tagged = taggedVersions()) {
   if (!tagged) return null
   const reported = versionsToReport(version, tagged)
-  const all = versionsIn(CHANGELOG)
+  const all = versionsFrom(CHANGELOG)
   const last = all.indexOf(reported[reported.length - 1])
   const previous = last === -1
     ? [...tagged].filter((v) => v !== version && semverLess(v, version)).sort(semverCompare).pop()
@@ -268,7 +264,7 @@ export function buildsNote(builds, day) {
 
 // Only when RUN, never when imported. A test that imports this to check one pure function must
 // not trip the argument parsing and call `process.exit` on the way in.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [arg, arg2] = process.argv.slice(2)
 
   if (arg === '--notes') {
@@ -292,13 +288,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     let md
     try { md = readFileSync(file, 'utf8') } catch { return false }
     // Already cut: re-running must be a no-op, not a second empty section.
-    if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(md)) return false
+    if (hasSection(md, version)) return false
     // A source with nothing unreleased is skipped, not fatal. The shell can be untouched for a
     // release that is all app, and the reverse happens too.
-    if (!/^## \[Unreleased\]/m.test(md)) return false
+    if (!hasSection(md, 'Unreleased')) return false
+    // Fold the per-PR fragments into the file first, under the right headings, and delete them.
+    compileFragments(file, fragmentDirOf(file))
+    md = readFileSync(file, 'utf8')
     const day = new Date().toISOString().slice(0, 10)
     const head = `## [Unreleased]\n\n## [${version}] ${day}` + (note ? `\n\n${note}` : '')
-    writeFileSync(file, md.replace(/^## \[Unreleased\]/m, head))
+    writeFileSync(file, replaceUnreleasedHeading(md, head))
     return true
   }
 

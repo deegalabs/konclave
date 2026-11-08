@@ -56,25 +56,29 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.18.0] 2026-11-08
+
+> **Services deployed when this was cut (2026-11-08):** coordinator `a2818df5`, relay `ba546740f3d136f5`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The shared crates carry the checks of the new vault creation.** `konclave-seal` holds them
+  once, and the app (through `konclave-wasm`) and the coordinator (through the orchestrator) both
+  read that one definition. Nothing changes for how a vault that already exists is used.
+
 ### Changed
 
-- **The network fee rule has one home, and follows ZIP 2009 by the block height the device's clock allows (#847).** The fee per
-  action (5,000 zatoshis, and 1,000 from mainnet block 3,590,000 under ZIP 2009, Proposed) lives in
-  one table in the shared crate, beside the network-upgrade rows; the device's signing check and the
-  app's fee estimate both read it. Source scans fail the build when the Rust crates or the app write
-  the fee constants, a marginal fee or the switch height in the forms they know (the coordinator's
-  two files are excused until it reads the table).
-  The desktop app carries the same device check as the web app: see the app's changelog. The
-  coordinator still builds at 5,000.
-
-### Known limits
-
-- **Until the coordinator switches, vault payments pay 5,000 zatoshis per action after block
-  3,590,000 and can be told apart on the chain** from wallets that follow ZIP 2009. The plan is for
-  the coordinator to build at 1,000 only for a vault whose every device accepts that rate; that is not
-  built yet.
-- **The desktop app has no updater (#606)**, so a desktop install that is not updated by hand keeps
-  refusing 1,000-zatoshi payments, and under that plan its vault keeps paying 5,000.
+- Konclave now says it is built with AI assistance (Claude Code). From this change on, a commit made
+  with an AI assistant carries a generic `Co-Authored-By: Claude <noreply@anthropic.com>` trailer
+  and never a session link; earlier history is not rewritten. Contributions made with an AI
+  assistant are welcome, and the person who sends them answers for every line (CONTRIBUTING.md).
+- **A new vault has at most 16 seats, in the app's creation and in the local bridge.** The 0.17.0
+  entry below says the app and the coordinator share 32. A new vault now has at most 16 (the create
+  screen still offers up to 5); the coordinator keeps room for up to 32 devices only so that a vault
+  an older app created keeps its devices.
 
 ## [0.17.0] 2026-11-06
 

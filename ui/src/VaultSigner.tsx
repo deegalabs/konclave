@@ -18,7 +18,9 @@ import { ARM_TTL_MS, makeSigningGate } from './signing-gate'
 import { OwnerSigning } from './owner-signing'
 import { browserRecordStore } from './signed-record'
 import type { FailureCode } from './background-session'
-import { unlockedHere } from './session'
+import { deviceRefusal, unlockedHere } from './session'
+import { mayContribute } from './approved-payment'
+import { translateStatic } from './i18n'
 
 interface VaultSignerCtx {
   bg: BackgroundSignerState
@@ -190,7 +192,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       // The owner's own signature, within the owner's own window. Which transaction it covers is the
       // machine's claim, after its own checks: the wire's sighash is not checked yet here, and a
       // transaction refused there must be said, not left waiting.
-      isArmed: () => owner.current.allows(activeIdRef.current),
+      isArmed: () => owner.current.allows(activeIdRef.current) && !deviceRefusal(vaultIdRef.current),
     }),
     [],
   )
@@ -277,6 +279,12 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     signedBefore: signedBefore && active && signedBefore.proposal === active.id ? signedBefore : null,
     armActive: async (opts?: { again?: boolean }) => {
       if (!active) return
+      // A device the coordinator refused, or whose vault's receivers it has not verified, cannot sign
+      // what it would be counted for, so it does not say it will.
+      if (!mayContribute((await listVaults()).find((v) => v.id === vaultIdRef.current), deviceRefusal(vaultIdRef.current))) {
+        bg.sayError(translateStatic('signing.notRegistered'))
+        return
+      }
       // Arm BEFORE announcing, so a request that lands the instant the room hears us is already
       // allowed through the gate. Then re-drive the signer in case the request arrived first.
       const now = Date.now()
