@@ -915,6 +915,8 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .fp-code{font-size:26px; letter-spacing:.16em; color:var(--text); margin:8px 0 6px;
   font-variant-numeric:tabular-nums; word-break:break-all}
 .fp-help{font-size:12.5px; line-height:1.5}
+/* The "compared" button's label is long (Portuguese above all): it wraps inside the card on a phone. */
+.fp-card .btn{white-space:normal; text-align:center}
 .fp-help b{color:var(--silver); font-weight:600}
 .who-name{font-weight:600; font-size:14.5px}
 .who-st{margin-left:auto; font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
