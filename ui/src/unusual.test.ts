@@ -46,6 +46,16 @@ describe('first payment to an address', () => {
     const undatedBefore = pay('u1y', 10, 1, 'confirmed', { created_at: null as unknown as undefined })
     expect(unusualFor(pay('u1y', 10, 9, 'awaiting'), null, [undatedBefore], {}).findings).toEqual([])
   })
+  it('counts an earlier payment created in the same second as the proposal as earlier', () => {
+    const r = unusualFor(pay('u1x', 10, 9, 'awaiting'), null, [pay('u1x', 10, 9)], {})
+    expect(r.findings).toEqual([])
+  })
+  it('says the reading is incomplete when the payment has no address to compare', () => {
+    for (const to of [undefined, '', '   ']) {
+      const r = unusualFor(pay('', 10, 9, 'awaiting', { to_address: to }), null, [pay('u1x', 10, 1)], {})
+      expect(r).toEqual({ findings: [], incomplete: true, comparedTo: null })
+    }
+  })
   it('says the reading is incomplete when an earlier payroll could not be read', () => {
     const r = unusualFor(pay('u1x', 10, 9, 'awaiting'), null, [roll(30, 1)], {})
     expect(r.incomplete).toBe(true)
@@ -66,6 +76,12 @@ describe('an amount above what the address usually receives', () => {
     const four = [...earlier, pay('u1x', 101, 4)] // middle two 100 and 101: twice the median is 201
     expect(unusualFor(pay('u1x', 201, 9, 'awaiting'), null, four, {}).findings).toEqual([])
     expect(unusualFor(pay('u1x', 202, 9, 'awaiting'), null, four, {}).findings).toEqual([{ kind: 'above-usual', address: 'u1x', valueZat: 202, medianZat: 100 }])
+  })
+  it('a payroll that repeats one paying an address in three lines is not above usual', () => {
+    const three = [line('u1ana', 10), line('u1ana', 10), line('u1ana', 10)]
+    const history = [roll(30, 1, 'confirmed', 'a'), roll(30, 2, 'confirmed', 'b'), roll(30, 3, 'confirmed', 'c')]
+    const r = unusualFor(roll(30, 9, 'awaiting'), three, history, { a: three, b: three, c: three })
+    expect(r.findings).toEqual([])
   })
   it('needs at least three earlier payments before it speaks of a usual amount', () => {
     expect(unusualFor(pay('u1x', 999, 9, 'awaiting'), null, earlier.slice(0, 2), {}).findings).toEqual([])
@@ -117,6 +133,11 @@ describe('a payroll that changed from the previous one', () => {
     const { history, lines } = hist()
     const r = unusualFor(roll(60, 9, 'awaiting'), null, history, lines)
     expect(r).toEqual({ findings: [], incomplete: true, comparedTo: null })
+  })
+  it('says the reading is incomplete when a payroll line has no address, and still reads the others', () => {
+    const r = unusualFor(roll(60, 9, 'awaiting'), [line('u1n', 30), line('  ', 30)], [], {})
+    expect(r.incomplete).toBe(true)
+    expect(r.findings).toEqual([{ kind: 'first-payment', address: 'u1n' }])
   })
   it('flags each address of the payroll only once as a first payment', () => {
     const r = unusualFor(roll(60, 9, 'awaiting'), [line('u1n', 30), line('u1n', 30)], [], {})

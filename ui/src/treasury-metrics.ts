@@ -33,7 +33,6 @@ type Bal = Parameters<typeof freeZatOf>[0]
  *  draws it (one rule for what a month is). */
 const month = (now: Date, offset: number) => periodWindow('month', offset, now)!
 
-
 export type MonthOut = { from: number; to: number; outZat: number }
 
 /** The `count` complete months before the one holding `now`, oldest first, with what left the vault

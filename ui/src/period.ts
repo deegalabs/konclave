@@ -8,8 +8,8 @@ export type PeriodKind = 'all' | 'month' | 'quarter' | 'year'
 export type PeriodWindow = { from: number; to: number }
 
 /** An entry's creation date, or null when it has none: the local bridge sends `null` for older
- *  proposals and the helper may leave it out, and both mean the same thing. Every reader of a
- *  creation date takes it from here, so a null is never read as a number. */
+ *  proposals and the helper may leave it out, and both mean the same thing. The rules that need
+ *  "no date" told apart from a number take it from here, so a null is never read as a number. */
 export const createdAt = (e: { created_at?: number | null }): number | null =>
   (typeof e.created_at === 'number' ? e.created_at : null)
 

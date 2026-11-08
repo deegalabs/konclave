@@ -15,7 +15,9 @@
 //   payroll-*       against the latest earlier settled payroll: who was added, who was removed,
 //                   whose amount changed (lines to one address added up first)
 //
-// "Earlier" means created before the proposal under review; an undated one counts as earlier. When the book cannot be read whole (an
+// "Earlier" means created no later than the proposal under review (the proposal itself is left
+// out by id); an undated one counts as earlier. A payment or a payroll line with no address is not
+// compared with anything, and the answer says `incomplete`. When the book cannot be read whole (an
 // earlier payroll whose lines were not read, or the payroll under review with no lines), the answer
 // says `incomplete` rather than presenting a partial comparison as the whole one.
 import type { PayrollLine, Proposal } from './api'
@@ -69,15 +71,17 @@ export function unusualFor(
   const earlier = history.filter((p) => {
     if (p.id === target.id || !SETTLED(p.state)) return false
     const t = createdAt(p)
-    return t === null || at === null || t < at
+    return t === null || at === null || t <= at
   })
-  const book = pivotEntries(earlier, linesById, SETTLED, NEVER_OPEN)
-  let incomplete = book.missing.length > 0
+  let incomplete = pivotEntries(earlier, linesById, SETTLED, NEVER_OPEN).missing.length > 0
 
+  // One amount per earlier proposal and address, the same unit as `pays` below: a payroll that
+  // pays one address in several lines is one payment to it, before and now.
   const paid = new Map<string, number[]>()
-  for (const e of book.entries) {
-    const a = e.address.trim()
-    if (a) paid.set(a, [...(paid.get(a) ?? []), e.value_zat])
+  for (const p of earlier) {
+    for (const [a, zat] of byAddress(pivotEntries([p], linesById, SETTLED, NEVER_OPEN).entries)) {
+      paid.set(a, [...(paid.get(a) ?? []), zat])
+    }
   }
 
   // What the proposal under review pays, per address.
@@ -85,8 +89,11 @@ export function unusualFor(
   if (target.kind === 'payroll') {
     if (!targetLines || targetLines.length === 0) return { findings: [], incomplete: true, comparedTo: null }
     pays = byAddress(targetLines)
+    // A line with no address was not compared with anything, so the reading is not whole.
+    if (targetLines.some((l) => !l.address.trim())) incomplete = true
   } else {
     pays = byAddress([{ address: target.to_address ?? '', value_zat: target.value_zat }])
+    if (pays.size === 0) incomplete = true
   }
 
   const first: Unusual[] = []
