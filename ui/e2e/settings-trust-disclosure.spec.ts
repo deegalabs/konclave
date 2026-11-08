@@ -21,7 +21,7 @@ async function seed(page: Page) {
       const tx = req.result.transaction('vaults', 'readwrite')
       tx.objectStore('vaults').put({
         id: 'demo', name: 'Tesouraria Comum', governance: 'quorum', myName: 'Ana', roster: ['Ana', 'Bia'],
-        groupKey: 'ab'.repeat(32), address: 'u1demo', createdAt: Date.now(), threshold: 2, total: 2, secured: true,
+        groupKey: 'ab'.repeat(32), address: 'u1demo', createdAt: Date.now(), threshold: 2, total: 2,
       })
     }
   })
@@ -56,4 +56,31 @@ test.describe('the trust disclosure on a phone', () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     })
   }
+})
+
+// On a desktop keyboard: the disclosure opens without a pointer, and the table's frame, which
+// scrolls on a narrow screen, is a named region the keyboard can reach and scroll.
+test.describe('the trust disclosure from the keyboard', () => {
+  test('Enter on the summary opens it, and the frame is a named, focusable region', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await seed(page)
+    await page.goto('/#/settings')
+    const summary = page.locator('details.trust-details > summary')
+    await expect(summary).toBeVisible()
+    await summary.focus()
+    await expect(summary).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('details.trust-details')).toHaveJSProperty('open', true)
+    const region = page.getByRole('region', { name: ptBR['set.secTrust'] })
+    await expect(region).toBeVisible()
+    await expect(region).toHaveAttribute('aria-labelledby', 's-trust')
+    await expect(region).toHaveAttribute('tabindex', '0')
+    await expect(region.locator('table.trust-grid')).toBeVisible()
+    await page.keyboard.press('Tab')
+    await expect(region).toBeFocused()
+    // Space closes it again: the native control, both keys.
+    await summary.focus()
+    await page.keyboard.press('Space')
+    await expect(page.locator('details.trust-details')).toHaveJSProperty('open', false)
+  })
 })
