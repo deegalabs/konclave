@@ -72,7 +72,10 @@ describe('a ready proposal says it is ready to sign, not the old one-step story'
     expect(en['proposal.readyPayroll']).toBe('**Approved by enough members.** The payroll is **ready to sign**, its N outputs in a single transaction.')
     expect(ptBR['proposal.readyPayment']).toBe('**Aprovações suficientes.** A proposta está **pronta para assinar**.')
     expect(ptBR['proposal.readyPayroll']).toBe('**Aprovações suficientes.** A folha está **pronta para assinar**, com as N saídas numa transação só.')
-    for (const k of ['proposal.readyPayment', 'proposal.readyPayroll']) {
+    // The vote block says it the same way: one sentence for "enough approved" on the screen.
+    expect(en['proposal.quorumReachedShort']).toBe('Enough approvals.')
+    expect(ptBR['proposal.quorumReachedShort']).toBe('Aprovações suficientes.')
+    for (const k of ['proposal.readyPayment', 'proposal.readyPayroll', 'proposal.quorumReachedShort']) {
       expect(en[k], k).not.toMatch(/quorum reached/i)
       expect(ptBR[k], k).not.toMatch(/quórum atingido/i)
     }

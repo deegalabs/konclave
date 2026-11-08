@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { branchProblem, sizeReport, remoteBranchesToCheck } from '../../scripts/pr-rules.mjs'
 
@@ -59,9 +60,12 @@ describe('pre-push hook input', () => {
     ].join('\n'))
     expect(out).toEqual(['fix/y', 'local/x'])
   })
-  it('the hook refuses a bad remote name and lets a good one through', () => {
+  // The repository root as a path: a URL's `pathname` is `/C:/...` on Windows, which no process can
+  // start in. And a machine with no `sh` at all cannot run the hook, so the test says so by skipping.
+  const hasSh = spawnSync('sh', ['-c', 'exit 0']).status === 0
+  it.skipIf(!hasSh)('the hook refuses a bad remote name and lets a good one through', () => {
     const run = (stdin: string) => spawnSync('sh', ['.githooks/pre-push', 'origin', 'x'], {
-      cwd: new URL('../../', import.meta.url).pathname, input: stdin, encoding: 'utf8',
+      cwd: fileURLToPath(new URL('../../', import.meta.url)), input: stdin, encoding: 'utf8',
       env: { ...process.env, KONCLAVE_PRE_PUSH_SKIP_DIFF: '1' },
     })
     expect(run(line('fix/y', 'local/x') + '\n').status).not.toBe(0)

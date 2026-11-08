@@ -87,7 +87,12 @@ describe('Settings shows it, in both languages', () => {
     expect(src).not.toMatch(/\{gov && <a href="#s-trust">/)
   })
   it('the quorum comes from this device’s own record first, the server’s answer only without one', () => {
-    expect(src).toMatch(/const thr = localQuorum\?\.threshold \?\? vault\?\.threshold \?\? 2/)
-    expect(src).toMatch(/const n = localQuorum\?\.total \?\? vault\?\.total \?\? 3/)
+    // One rule, in one place: `getVault` prefers the record, and Settings reads only `getVault`.
+    const api = codeOf('api.ts')
+    expect(api).toMatch(/const total = rec\?\.total \?\? v\.total \?\? 0/)
+    expect(api).toMatch(/threshold: rec\?\.threshold \?\? v\.threshold \?\? 0,/)
+    expect(src).toMatch(/const thr = vault\?\.threshold \?\? 2/)
+    expect(src).toMatch(/const n = vault\?\.total \?\? 3/)
+    expect(src).not.toMatch(/localQuorum/)
   })
 })
