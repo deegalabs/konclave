@@ -1,1 +1,1 @@
-- On a proposal, the vote block says "Enough approvals." ("Aprovações suficientes.") where it said "Quorum reached." ("Quórum atingido."): the same words the ready line uses since 0.18.0 (#309).
+- On a proposal, the vote block says "Enough approvals." ("Aprovações suficientes.") where it said "Quorum reached." ("Quórum atingido."), in plain words rather than the term (#309).
