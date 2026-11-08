@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -149,7 +150,7 @@ describe('every screen that asks the gate also tells it about the pools (#427)',
   //
   // Test files are excluded deliberately: most of them exercise the non-pool branches on purpose,
   // and counting them would rebuild the blind spot this is meant to close.
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
 
   function sources(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(dir)) {
@@ -194,7 +195,7 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
   // The number now comes from the one estimate (fee-estimate.ts, the rule in konclave_seal) in both places. This asserts the copy cannot
   // hardcode it again, which is how it drifted in the first place: a fee in prose is a fee nobody
   // updates when the constant moves.
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
 
   it('the fee copy is a placeholder, never a number', () => {
     for (const locale of ['i18n/en.ts', 'i18n/pt-BR.ts']) {

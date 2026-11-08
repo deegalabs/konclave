@@ -1,8 +1,9 @@
 // The fee a screen shows and reserves comes from ONE rule, in konclave_seal, read through the wasm
 // with the device's clock (#847, #692). These tests run the real wasm, so the figures are the rule's
 // and not a copy of it; and a source scan fails if a screen does fee arithmetic of its own again.
+import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import init, { estimatedFeeZat } from './wasm-pkg/konclave_wasm.js'
 import { readFeeEstimator } from './fee-estimate'
@@ -82,14 +83,14 @@ describe('every screen that shows or gates a fee reads the one estimate', () => 
 // Production code only: tests keep their own oracle numbers so they do not check the rule against
 // itself, and the generated wasm package is the rule.
 describe('no fee arithmetic outside the rule', () => {
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
   const files: string[] = []
   const walk = (d: string) => {
     for (const n of readdirSync(d)) {
       const p = join(d, n)
       if (statSync(p).isDirectory()) {
         if (n !== 'wasm-pkg') walk(p)
-      } else if (/\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) && n !== 'source-scan.ts') files.push(p)
+      } else if (/\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) && n !== 'source-scan.ts') files.push(p.split(sep).join('/'))
     }
   }
   walk(SRC)

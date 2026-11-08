@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import 'fake-indexeddb/auto'
 import { describe, it, expect, vi } from 'vitest'
 // #669: this file derives keys (PBKDF2 at 600k rounds, AES-GCM) in most of its tests. Measured on
@@ -131,7 +132,7 @@ describe('the export carries the pin', () => {
 })
 
 describe('nothing else may write the change receiver', () => {
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
 
   function sources(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

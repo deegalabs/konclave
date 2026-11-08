@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -43,7 +44,7 @@ describe('the name a proposal is shown under (#296)', () => {
 // The rule existed eight times, once per screen, which is how the web payroll ended up nameless on
 // all of them at once. A screen that names a proposal from its memo on its own is a second copy.
 describe('no screen names a proposal from its memo on its own', () => {
-  const dir = join(new URL('.', import.meta.url).pathname, 'screens')
+  const dir = join(fileURLToPath(new URL('.', import.meta.url)), 'screens')
   const own = /\.memo(\?\.trim\(\))?\s*\|\|\s*(\(|t\()/
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.tsx') && !n.includes('.test.'))) {
     it(f, () => {
@@ -57,7 +58,7 @@ describe('no screen names a proposal from its memo on its own', () => {
 // coordinator's 400 arrive as a generic refusal.
 describe('the payroll screen checks the bound before it sends (#296)', () => {
   it('titleProblem runs on the name before createPayroll', () => {
-    const code = codeAt(join(new URL('.', import.meta.url).pathname, 'screens', 'NewPayroll.tsx'))
+    const code = codeAt(join(fileURLToPath(new URL('.', import.meta.url)), 'screens', 'NewPayroll.tsx'))
     const check = code.indexOf('titleProblem(desc)')
     const send = code.indexOf('await createPayroll(')
     expect(check, 'no titleProblem(desc) in NewPayroll').toBeGreaterThan(-1)
@@ -117,7 +118,7 @@ describe("the coordinator's title refusals read as the screen's own (#296)", () 
 // must not call what it shows a memo.
 describe("the desk does not call a proposal's name its memo (#296)", () => {
   it('the lead line uses neutral words, in both locales', () => {
-    const code = codeAt(join(new URL('.', import.meta.url).pathname, 'screens', 'Dashboard.tsx'))
+    const code = codeAt(join(fileURLToPath(new URL('.', import.meta.url)), 'screens', 'Dashboard.tsx'))
     const m = /tr\('([\w.]+)', \{ \w+: whatOf\(lead\.p, t\)/.exec(code)
     expect(m, 'the lead line was not found').not.toBeNull()
     const key = m![1]!

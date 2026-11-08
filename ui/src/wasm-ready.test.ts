@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -11,7 +12,7 @@ import { codeAt } from './source-scan'
 //
 // The fix is `ensureWasm()`, idempotent and shared. These pin the two things that make it work.
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 
 function sources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

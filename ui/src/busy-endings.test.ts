@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codeAt } from './source-scan'
 
@@ -140,7 +141,7 @@ describe('what each send ending does to the signatures (one rule for the panel)'
   })
 
   it('the panel does what applyPlan says, and decides nothing itself', () => {
-    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./screens/SigningPanel.tsx', import.meta.url)))
     const apply = code.slice(code.indexOf('function apply('), code.indexOf('function fail('))
     expect(apply).toMatch(/const plan = applyPlan\(step, refusingRef\.current\)/)
     expect(apply, 'apply branches on the step itself again').not.toMatch(/step\.do/)
@@ -190,7 +191,7 @@ describe('the busy waits, exactly', () => {
 
 describe('the panel while a send waits on a busy vault', () => {
   it('tells the member it is trying again, and drops the busy ending when the go-ahead lapses', () => {
-    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./screens/SigningPanel.tsx', import.meta.url)))
     expect(code).toMatch(/onBusy: \(\) => setBusyWaiting\(true\)/)
     expect(code).toMatch(/\{busyWaiting && <div className="hint warn mt-sm" role="status">\{t\('signing\.busyWaiting'\)\}<\/div>\}/)
     expect(code).toMatch(/if \(result && 'busy' in result && !armed\) setResult\(null\)/)
@@ -210,13 +211,13 @@ describe('who may fire the send (one rule for the effect and the button)', () =>
   })
 
   it('the room\'s decision and "Try sending again" both ask it', () => {
-    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./screens/SigningPanel.tsx', import.meta.url)))
     expect(code.match(/fireSend\(attempt\.current, active\.id, \{ named: bg\.iSend, armed \}\)/g)?.length).toBe(2)
     expect(code, 'a second rule for firing the send').not.toMatch(/takeSend\(/)
   })
 
   it('the busy ending is shown only while the signatures still stand', () => {
-    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./screens/SigningPanel.tsx', import.meta.url)))
     expect(code).toMatch(/busySend && armed \?/)
   })
 })

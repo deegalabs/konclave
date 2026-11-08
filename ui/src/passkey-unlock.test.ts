@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,7 +9,7 @@ import { codeAt } from './source-scan'
 // duplicated: `LockOverlay.withPasskey` and `Vaults.unlockWithPasskey` were the same twelve lines
 // in two files. Two implementations of one rule, with only one of them fixed, is what this repo
 // keeps paying for - so the handler is one function and this holds it there.
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 const HOME = 'passkey-unlock.ts'
 const DEFINES = 'prf-wrap.ts'
 

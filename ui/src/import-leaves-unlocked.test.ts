@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -21,7 +22,7 @@ import { codeAt } from './source-scan'
 //
 // So the pairing is now STRUCTURAL - one `importAndUnlock` does both - and what is asserted here is
 // uniqueness, which a scan can actually establish.
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 const HOME = 'unlock.ts' // the one file allowed to call importVault
 const DEFINES = 'storage.ts' // where it is declared
 
