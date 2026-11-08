@@ -51,6 +51,12 @@ test.describe('the trust disclosure on a phone', () => {
       // Wider than its frame is not enough: the frame must scroll, or the far columns are cut off by
       // whatever clips further up, out of the member's reach.
       expect(await wrap.evaluate((w) => { w.scrollLeft = 80; return w.scrollLeft > 0 })).toBe(true)
+      // And from the keyboard: focused, the frame scrolls with the arrow keys.
+      await wrap.evaluate((w) => { w.scrollLeft = 0 })
+      await wrap.focus()
+      await page.keyboard.press('ArrowRight')
+      await page.keyboard.press('ArrowRight')
+      await expect.poll(() => wrap.evaluate((w) => w.scrollLeft)).toBeGreaterThan(0)
       const frame = await wrap.boundingBox()
       expect(frame!.x + frame!.width).toBeLessThanOrEqual(width + 0.5)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -59,7 +65,7 @@ test.describe('the trust disclosure on a phone', () => {
 })
 
 // On a desktop keyboard: the disclosure opens without a pointer, and the table's frame, which
-// scrolls on a narrow screen, is a named region the keyboard can reach and scroll.
+// scrolls on a narrow screen, is a named region the keyboard can reach (the phone test scrolls it).
 test.describe('the trust disclosure from the keyboard', () => {
   test('Enter on the summary opens it, and the frame is a named, focusable region', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
@@ -69,6 +75,9 @@ test.describe('the trust disclosure from the keyboard', () => {
     await expect(summary).toBeVisible()
     await summary.focus()
     await expect(summary).toBeFocused()
+    // focus() reaches even an element out of the tab order: check it is in it, and closed before Enter.
+    await expect(summary).toHaveJSProperty('tabIndex', 0)
+    await expect(page.locator('details.trust-details')).toHaveJSProperty('open', false)
     await page.keyboard.press('Enter')
     await expect(page.locator('details.trust-details')).toHaveJSProperty('open', true)
     const region = page.getByRole('region', { name: ptBR['set.secTrust'] })
