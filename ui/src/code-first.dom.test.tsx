@@ -64,3 +64,19 @@ describe('the seats a device names', () => {
     expect(mySeatName(['Own1'], 5, null)).toBe(null)
   })
 })
+
+describe('the viewing code never splits a group', () => {
+  const code = 'ABCDE-FGHJK-MNPQR-STVWX-YZ012'
+  it('each group of five is one unbreakable piece, and the code reads the same', () => {
+    const { container } = render(<I18nProvider><CodeFirst code={code} compared={false} onCompared={() => {}}><span /></CodeFirst></I18nProvider>)
+    const box = container.querySelector('.fp-code')!
+    expect(box.classList.contains('grouped')).toBe(true)
+    const shown = box.querySelector('[aria-hidden="true"]')!
+    expect([...shown.querySelectorAll('.fp-grp')].map((g) => g.textContent)).toEqual(['ABCDE-', 'FGHJK-', 'MNPQR-', 'STVWX-', 'YZ012'])
+    // A line may break between groups, and only there.
+    expect(shown.querySelectorAll('wbr').length).toBe(4)
+    expect(shown.textContent).toBe(code)
+    // A screen reader gets the code whole, as before, not five fragments.
+    expect(box.querySelector('.visually-hidden')!.textContent).toBe(code)
+  })
+})
