@@ -201,8 +201,10 @@ describe('entering, and what does not enter', () => {
     fireEvent.click(within(card).getByRole('button', { name: en('vaults.resumeButton') }))
     await act(async () => { fireEvent.click(within(card).getByRole('button', { name: en('vaults.resumeGo') })) })
     const done = await within(card).findByText(en('vaults.resumeDone'))
+    bubbled.mockClear() // the resume buttons' clicks bubbled too
     fireEvent.click(done)
     fireEvent.click(within(card).getByText(en('vaults.resumeBackupAsk')))
+    expect(bubbled).toHaveBeenCalledTimes(2)
     expect(h.select).not.toHaveBeenCalled()
   })
 })
