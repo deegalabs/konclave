@@ -86,6 +86,8 @@ export const en: Record<string, string> = {
 
   // shared
   'common.hide': 'Hide',
+  'chart.showFigures': 'Show figures',
+  'chart.hideFigures': 'Hide figures',
   'pass.weak': 'weak',
   'pass.fair': 'fair',
   'pass.good': 'good',
