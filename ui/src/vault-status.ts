@@ -107,13 +107,20 @@ export function vaultStatus(vault: string): VaultStatus | null {
   }
 }
 
-/** The free figure is grey once it is more than a day old: by its own time, not the newest read's. */
-export function statusIsStale(st: VaultStatus, nowSec: number = now()): boolean {
-  return st.freeAt !== null && st.freeAt < nowSec - 86_400
+/** The one time the card carries: the amount's when the amount is shown (the older of its two reads),
+ *  the proposals read otherwise. The read line, the grey and every badge follow it, so a card with no
+ *  amount on it (a private vault not unlocked here) ages by the read it does show. */
+export function readAt(st: VaultStatus, amountShown: boolean): number | null {
+  return amountShown ? st.freeAt : st.proposalsAt
 }
 
-export function openCountKey(n: number): string {
-  return n === 0 ? 'vaults.stateNoOpen' : n === 1 ? 'vaults.stateOpenOne' : 'vaults.stateOpen'
+/** Past a day, by that one time. */
+export function readIsStale(at: number, nowSec: number = now()): boolean {
+  return at < nowSec - 86_400
+}
+
+export function openBadgeKey(n: number): string {
+  return n === 0 ? 'vaults.badgeNoOpen' : n === 1 ? 'vaults.badgeOpenOne' : 'vaults.badgeOpen'
 }
 
 /** Called by `clearVaultTraces` when the vault is removed from this device. */

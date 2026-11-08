@@ -106,12 +106,46 @@
 .rd-avatars .idc { border-radius: var(--radius-sm); box-shadow: 0 0 0 2px var(--surface-1); margin-left: -6px; }
 .rd-avatars .idc:first-child { margin-left: 0; }
 .rd-avatars .names { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); margin-left: 12px; }
-/* The vault's situation as this device last saw it, under the members. */
-.rd-state { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line-soft, var(--line-2)); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
-.rd-state-fig { color: var(--text); font-weight: 600; }
-.rd-state.stale .rd-state-fig { color: var(--text-muted); font-weight: 500; }
-.rd-state.none { border-top: 0; padding-top: 0; }
-.rd-state-at { color: var(--text-muted); }
+/* The vault's situation as this device last read it, under the members: badges in a fixed order,
+   then the one time they carry. Facts the device read, so no accent and no success colour; zero is
+   quiet, a count that needs someone is not. The border is real so High Contrast draws the chip. */
+.rd-status { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft, var(--line-2)); }
+.rd-badges { display: flex; flex-wrap: wrap; gap: 16px 8px; }
+.rd-badge {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 8px;
+  font: 500 12px/1.3 var(--font-mono); color: var(--text-muted); text-align: left;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+}
+button.rd-badge { cursor: help; }
+/* The finger's target grows up and down only, into the row gap, never sideways into the next badge. */
+button.rd-badge::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; bottom: -8px; }
+.rd-badge.zero { color: var(--text-muted); font-weight: 500; }
+.rd-badge.some { color: var(--text); font-weight: 600; }
+.rd-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rd-badge .secret.sm .bar { min-height: 24px; top: 50%; bottom: auto; transform: translateY(-50%); }
+.rd-status.stale .rd-badge, .rd-status.stale .rd-read { color: var(--text-muted); font-weight: 500; }
+.rd-read { margin: 8px 0 0; font: 12px/1.4 var(--font-mono); color: var(--text-muted); }
+
+/* The tip beside a badge or a tag (card-tip.tsx): no animation, it is there the moment it is asked for. */
+.tipwrap { position: relative; display: inline-flex; vertical-align: middle; }
+.tip {
+  position: absolute; z-index: 20; left: 0; top: calc(100% + 6px);
+  width: max-content; max-width: min(280px, calc(100vw - 48px)); padding: 8px 10px;
+  font: 400 12.5px/1.45 var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--text); white-space: normal; text-align: left;
+  background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+  cursor: default;
+}
+.tip[hidden] { display: none; }
+button.rd-sectag { cursor: help; font-family: inherit; }
+button.rd-sectag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* On a phone the tip opens under the row of badges, the width of the card, instead of floating off its edge. */
+@media (max-width: 640px) {
+  .rd-badges { position: relative; }
+  .rd-badges .tipwrap { position: static; }
+  .rd-badges .tip { left: 0; right: 0; top: calc(100% + 8px); width: auto; max-width: none; }
+  .rd-card > .tipwrap { position: static; }
+  .rd-card > .tipwrap .tip { left: 16px; right: 16px; top: 52px; width: auto; max-width: none; }
+}
 
 .rd-recv { margin-top: 13px; font-family: var(--font-mono); font-size: 11px; }
 .rd-recv .lab { color: var(--text-muted); }
