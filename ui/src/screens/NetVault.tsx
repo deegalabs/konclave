@@ -1,3 +1,5 @@
+import { stopCreation } from '../stop-creation'
+import { CodeFirst } from './CodeFirst'
 import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { proposalsReadable, type HostedState, type NetPhase } from '../net-proposals'
@@ -19,7 +21,7 @@ import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
 import { signRejoin, rejoinIsProven } from '../room-auth'
 import { parseSignRequest, unsealSignRequest } from '../net-sign'
-import { generateVaultSecret } from '../vault-secret'
+import { deriveReadKey, deriveSeatProofKey, generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
@@ -36,6 +38,7 @@ import {
   type VaultPublic,
   type VaultLoaded,
   type Governance,
+  recordPinBundle,
 } from '../storage'
 import { downloadText } from '../download'
 import { removeVaultFromDevice } from '../remove-vault'
@@ -55,7 +58,8 @@ import { readingRows } from '../device-reading'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
-import { CREATION_PROTOCOL, creationAllowed } from '../creation-protocol'
+import { CREATION_PROTOCOL, creationVerdict } from '../creation-protocol'
+import { CREATE_DEVICE_CAP, noMarginWarning } from '../create-rule'
 import { WALLET_BUSY } from '../helper'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
@@ -73,9 +77,17 @@ const ABORT_MESSAGE: Record<DkgAbort, string> = {
   failed: 'net.err.creationFailed',
   mismatch: 'net.err.codeMismatch',
   secret: 'net.err.secretConflict',
+  secretSplit: 'creation.secretSplit',
+  names: 'creation.namesRepeat',
 }
 
 type Phase = NetPhase
+
+/** The keys a seat's certificate needs, from the vault secret, handed to the ceremony. */
+async function armVaultKeys(ceremony: DkgCeremony | null, secret: Uint8Array): Promise<void> {
+  const [readKey, proofKey] = await Promise.all([deriveReadKey(secret), deriveSeatProofKey(secret)])
+  ceremony?.useVaultKeys(readKey, proofKey)
+}
 
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
@@ -205,6 +217,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // human-comparable code of the group verifying key). Shown on the create-done step - the moment
   // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
   const [fp, setFp] = useState<string | null>(null)
+  const [viewingCode, setViewingCode] = useState<string | null>(null)
+  const [codeCompared, setCodeCompared] = useState(false)
   const [error, setError] = useState('')
   // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
   // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
@@ -291,6 +305,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // #388: this device is the vault creator (mints S), and the per-vault access secret S once it has
   // been minted (creator) or received sealed from the creator (joiner). null until then.
   const accessSecretRef = useRef<Uint8Array | null>(null)
+  const vaultKeysRef = useRef<Promise<void>>(Promise.resolve())
   const myTagRef = useRef('')
   const configRef = useRef<DkgConfig | null>(null)
   // Governance policy the creator picks; propagated to every device in the `config` broadcast so
@@ -346,6 +361,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     if (ceremonyRef.current?.isCreator && !accessSecretRef.current) {
       const s = generateVaultSecret()
       accessSecretRef.current = s
+      vaultKeysRef.current = armVaultKeys(ceremonyRef.current, s)
       setHasSecret(true)
       void (async () => {
         for (const { to, box, sig } of ceremonyRef.current?.sealSecretToOthers(s) ?? []) {
@@ -374,7 +390,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     // recorded BEFORE any network call: whatever the coordinator does next, a later open of this
     // vault may finish the registration without asking the member again.
     if (saved && helperConfigured()) {
-      await updateVaultMeta(saved.vaultId, { allSaved: true, coordinator: helperBase() }).catch(() => {})
+      const bundle = ceremonyRef.current?.pinBundle()
+      await (bundle
+        ? recordPinBundle(saved.vaultId, bundle, helperBase())
+        : updateVaultMeta(saved.vaultId, { allSaved: true, coordinator: helperBase() })).catch(() => {})
     }
     let addr = ''
     if (helperConfigured()) {
@@ -385,6 +404,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if ('address' in r) {
         setHostedAddress(r.address)
         addr = r.address
+        // The code of the viewing key this device just took, to compare with the others before anyone funds.
+        const held = saved ? (await listVaults()).find((v) => v.id === saved.vaultId) : undefined
+        setViewingCode(held?.viewingFingerprint ?? null)
         setHostedState('registered')
       } else {
         setHostedState('failed')
@@ -404,7 +426,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     savePassRef.current = ''
     if (saved && pass && finished) {
       try {
-        const b = await buildVaultBackup(saved.vaultId, pass, getUnlockedShare(saved.vaultId) ?? saved.meta, saved.meta.name)
+        const b = await buildVaultBackup(saved.vaultId, pass, saved.meta.name)
         setBackup({ json: b.json, name: b.name, complete: Boolean(addr) && b.complete })
       } catch { /* backup is optional; the vault is already saved on this device */ }
     }
@@ -527,7 +549,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         if (!cer) return true
         // Only the creator's signed box counts; until one opens, this member cannot save (doSave).
         const r = cer.takeSecret(msg.from, parsed.to, parsed.box, parsed.sig)
-        if (r.secret) { accessSecretRef.current = r.secret; setHasSecret(true) }
+        if (r.secret) {
+          accessSecretRef.current = r.secret
+          vaultKeysRef.current = armVaultKeys(cer, r.secret).then(() => {
+            if (cer.complete && !part3DoneRef.current) void finishVault()
+          })
+          setHasSecret(true)
+        }
         return r.applied
       }
 
@@ -682,10 +710,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       }
       startGuardRef.current = true
       try {
-        // An app the coordinator calls outdated says so before any member waits on it, creating or
-        // joining alike. No answer, or no minimum stated: go on (the registration still refuses).
-        if (!creationAllowed(CREATION_PROTOCOL, await coordinatorCreationMin())) {
-          setError(tt('net.err.updateRequired'))
+        // Said before any member waits on it, creating or joining alike. A coordinator that does not
+        // announce at least this app's protocol, or did not answer, pauses creation: never a silent fall back.
+        const verdict = creationVerdict(CREATION_PROTOCOL, await coordinatorCreationMin())
+        if (verdict !== 'ok') {
+          setError(tt(verdict === 'update' ? 'net.err.updateRequired' : 'creation.blocked'))
           startGuardRef.current = false
           return
         }
@@ -702,6 +731,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           setPhase('error')
           savePassRef.current = '' // the passphrase is held only for a backup that will not be built
           sessionRef.current?.stop() // a stopped ceremony leaves the room: it signs nothing there
+          const saved = savedRef.current
+          if (saved) {
+            void stopCreation(saved.vaultId, why)
+          }
         }
         cer.onLog = (what, seat) => addLog(tt(`net.log.${what}`, { seat }))
         cer.onCode = (c, names) => {
@@ -899,12 +932,20 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined, pending: true, threshold: cfg?.t, total: cfg?.n, cp: CREATION_PROTOCOL }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
+      setUnlockedShare(vaultId, { cp: CREATION_PROTOCOL, name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
       savedRef.current = { vaultId, meta: { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined } }
       // Kept only until the backup is built, once every member saved and the address exists.
       savePassRef.current = savePass
       // Saved: only now does this device tell the others it finished.
       const cer = ceremonyRef.current!
+      // A stop that came while the passphrase was being stretched: the record it found nothing to mark.
+      if (cer.aborted) {
+        await stopCreation(vaultId, cer.aborted)
+        savedRef.current = null
+        setSaveState('idle')
+        return
+      }
+      await vaultKeysRef.current
       for (const m of cer.markSaved()) await send(m)
       if (cer.complete && !part3DoneRef.current) void finishVault()
       else setWaiting(cer.waitingFor())
@@ -1227,7 +1268,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos aparelhos', 'fewer devices')}
                     onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
                   <span className="cv-num">{n}</span>
-                  <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais aparelhos', 'more devices')}
+                  <button type="button" className="cv-step" disabled={n >= CREATE_DEVICE_CAP} aria-label={pe('mais aparelhos', 'more devices')}
                     onClick={() => setN(n + 1)}>+</button>
                 </div>
               </div>
@@ -1250,10 +1291,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             {n === t && (
               <div className="cv-warn" role="note">
                 <span className="cv-warn-tag">{pe('Sem margem de recuperação', 'No recovery margin')}</span>
-                {pe(
-                  `Se um aparelho for perdido, os fundos ficam presos, sem como recuperar. Recomendamos ${t} de ${t + 1}.`,
-                  `If one device is lost, the funds are locked, with no way to recover. We recommend ${t} of ${t + 1}.`,
-                )}
+                {noMarginWarning(t, pe)}
               </div>
             )}
 
@@ -1783,13 +1821,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 </p>
               )}
               {hostedState === 'registered' && (
+                <CodeFirst code={viewingCode ?? undefined} compared={codeCompared}
+                  onCompared={() => {
+                    setCodeCompared(true)
+                    if (savedRef.current) void updateVaultMeta(savedRef.current.vaultId, { codeCompared: true }).catch(() => {})
+                  }}>
                 <>
-                  <p>
-                    {pe(
-                      'O coordenador derivou o endereço Orchard deste cofre a partir da chave do grupo (só material público, nenhuma parte saiu do dispositivo). Receba fundos aqui:',
-                      'The coordinator derived this vault’s Orchard address from the group key (public material only, no share left the device). Receive funds here:',
-                    )}
-                  </p>
+                  <p>{tt('net.addressDerived')}</p>
                   <div
                     className="net-qr"
                     role="img"
@@ -1831,6 +1869,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                     )}
                   </div>
                 </>
+                </CodeFirst>
               )}
               {hostedState === 'failed' && !error && (
                 <p className="net-tip">

@@ -42,6 +42,7 @@
 // `enabled: false`, so the presence of output is the only portable signal.
 
 import { bytesToHex, hexToBytes } from './bytes'
+import { authenticatorDataOf, readBackupFlags } from './webauthn-flags'
 
 /** What this device stored for a vault. Local only: never exported, never synced, never a backup. */
 export interface PrfWrap {
@@ -53,6 +54,20 @@ export interface PrfWrap {
   iv: string
   /** `S`, encrypted under the PRF-derived key. Hex. */
   cipher: string
+}
+
+/**
+ * What a successful enrolment hands back: the wrap to store, plus what the credential said about
+ * itself.
+ *
+ * `backupEligible` is the BE flag read from the authenticator data's bytes: true means a passkey
+ * that may sync to other devices, which is the case the per-device rule refuses to rely on, so the
+ * screen tells the member. Null means the browser gave nothing readable, and is treated as unknown,
+ * never as "stays on this device". It is NOT part of the stored wrap: `savePrfWrap` writes only the
+ * four wrap fields.
+ */
+export interface PrfEnrolment extends PrfWrap {
+  backupEligible: boolean | null
 }
 
 /**
@@ -163,7 +178,7 @@ export async function enrolPrf(
   rpId: string,
   userLabel: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<PrfWrap | PrfDenial> {
+): Promise<PrfEnrolment | PrfDenial> {
   try {
     const salt = crypto.getRandomValues(new Uint8Array(32))
     const created = await answered(auth.create({
@@ -221,11 +236,16 @@ export async function enrolPrf(
     const cipher = new Uint8Array(
       await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv.slice().buffer }, await keyFrom(out), secret.slice().buffer),
     )
+    // BE from the bytes. The creation response first, the assertion's as a fallback; BE is
+    // fixed for the life of the credential, so either says the same thing. Never blocks enrolment.
+    const flags = readBackupFlags(authenticatorDataOf(cred))
+      ?? (asserted !== cred ? readBackupFlags(authenticatorDataOf(asserted)) : null)
     return {
       credentialId: b64url(new Uint8Array(cred.rawId)),
       salt: bytesToHex(salt),
       iv: bytesToHex(iv),
       cipher: bytesToHex(cipher),
+      backupEligible: flags ? flags.eligible : null,
     }
   } catch (e) {
     if (e instanceof Unanswered) return 'unanswered'

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { OWNERS } from '../../scripts/changelog-gate.mjs'
+// @ts-expect-error - a plain .mjs script
+import { parseSections } from '../../scripts/changelog-sections.mjs'
 
 // One heading per category, per section.
 //
@@ -20,24 +22,9 @@ import { OWNERS } from '../../scripts/changelog-gate.mjs'
 // break by accident needs a check, not a cleanup.
 const ROOT = join(new URL('.', import.meta.url).pathname, '..', '..')
 
-/** Every `## ...` section of a changelog, as (title, its `###` headings). */
+/** Every version section, as (title, its `###` headings), from the one shared parser. */
 function sections(md: string): Array<[string, string[]]> {
-  const out: Array<[string, string[]]> = []
-  let title: string | null = null
-  let heads: string[] = []
-  for (const line of md.split('\n')) {
-    if (line.startsWith('## ')) {
-      if (title) out.push([title, heads])
-      title = line.slice(3).trim()
-      heads = []
-    } else if (line.startsWith('### ') && title) {
-      heads.push(line.slice(4).trim())
-    }
-  }
-  if (title) out.push([title, heads])
-  // Only the version sections. A changelog's prose headings ("The categories decide what gets
-  // announced") are not release bodies and may repeat whatever they like.
-  return out.filter(([t]) => /^\[/.test(t))
+  return parseSections(md).map((s: { title: string; heads: string[] }) => [s.title, s.heads])
 }
 
 describe('a changelog section names each category once', () => {

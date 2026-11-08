@@ -157,3 +157,12 @@ describe('humanError - the helper 422 and the raw engine error say the same thin
       .toBe('have 0.0002 need 0.00024')
   })
 })
+
+describe('sameRoster', () => {
+  it('compares names seat by seat, spaces at the edges aside', async () => {
+    const { sameRoster } = await import('./api')
+    expect(sameRoster(['a', 'b'], [' a', 'b '])).toBe(true)
+    expect(sameRoster(['a', 'b'], ['b', 'a'])).toBe(false)
+    expect(sameRoster(['a', 'b'], ['a'])).toBe(false)
+  })
+})

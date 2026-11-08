@@ -99,6 +99,24 @@ describe('unlockOnDevice', () => {
     await unlockWith(d, ID, 'local', 'anything')
     expect(d.calls.some((c) => c.startsWith('registerThisDevice'))).toBe(false)
   })
+
+  it('a protocol 3 device checks its receivers only on a vault that finished', async () => {
+    for (const [loaded, adopts] of [
+      [{ cp: 3 }, true],
+      [{ cp: 3, pending: true }, false],
+      [{ cp: 3, abandoned: 'secretSplit' }, false],
+      [{ cp: 2 }, false],
+    ] as const) {
+      let adopted = 0
+      const d = deps({
+        loadVault: (async () => ({ ...loaded })) as never,
+        adoptVaultReceivers: (async () => { adopted++; return { state: 'unavailable' } }) as never,
+      })
+      await unlockWith(d, ID, 'net', 'right')
+      await new Promise((r) => setTimeout(r, 0))
+      expect(adopted, JSON.stringify(loaded)).toBe(adopts ? 1 : 0)
+    }
+  })
 })
 
 describe('the sentence for a vault that did not open', () => {
@@ -132,3 +150,16 @@ describe('the unlock logs', () => {
     expect(logged).not.toContain(id)
   })
 })
+
+describe('what an unlock records about this device', () => {
+  it('a refusal is recorded, and a later success clears it', async () => {
+    const { deviceRefusal } = await import('./session')
+    const id = 'ab'.repeat(32)
+    const base = { loadVault: vi.fn(async () => ({})), setUnlockedShare: vi.fn(), markVaultUnlocked: vi.fn(), unlockVault: vi.fn(), adoptVaultReceivers: vi.fn() }
+    await unlockWith({ ...base, registerThisDevice: vi.fn(async () => ({ refused: 'seat_bound' })) } as never, id, 'net', 'p')
+    await vi.waitFor(() => expect(deviceRefusal(id)).toBe('seat_bound'))
+    await unlockWith({ ...base, registerThisDevice: vi.fn(async () => true) } as never, id, 'net', 'p')
+    await vi.waitFor(() => expect(deviceRefusal(id)).toBeFalsy())
+  })
+})
+

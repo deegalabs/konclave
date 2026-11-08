@@ -7,6 +7,8 @@
 // Who "last" is comes from the signing room's ordered log, identically on every device, so two
 // people clicking at the same instant still produce exactly one send.
 
+import { seatRoster, mySeatName } from '../seat-labels'
+import { decodeBundle } from '../signing'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Dialog } from '../components'
@@ -409,7 +411,10 @@ export default function SigningPanel() {
   // Identify "you" from the on-device record first (it reflects a rename immediately); fall back to
   // the session share's name. A stale name here made the panel fail to find your seat and light the
   // first member instead.
-  const me = myName ?? loaded?.myName ?? null
+  // Where this device keeps its own list, its seat there, by number: a name moves with a rename.
+  let mySeat: number | undefined
+  try { mySeat = loaded ? decodeBundle(loaded).seat : undefined } catch { /* no seat to read: by name */ }
+  const me = mySeatName(vault?.own_members, mySeat, myName ?? loaded?.myName ?? null)
   const present = bg.seatCount
   const quorumHere = present >= threshold && threshold > 0
 
@@ -419,7 +424,8 @@ export default function SigningPanel() {
   // (e.g. right after a rename, before the session name syncs, or before the share resolves) we would
   // light the WRONG seat (the first in the list) instead of leaving presence to the "N / threshold"
   // count. Never guess a specific seat we cannot attribute.
-  const roster = vault?.member_list ?? []
+  // Seat labels read this device's own list where it differs: a seat is who this device saw create it.
+  const roster = seatRoster(vault)
   let othersLeft = me ? Math.max(0, present - (bg.ready ? 1 : 0)) : 0
   const presentFlags = roster.map((m) => {
     if (me && m.name === me) return bg.ready
@@ -723,6 +729,7 @@ export default function SigningPanel() {
           <button className="sign-x" onClick={onClose} aria-label={t('signing.close')}>×</button>
         </div>
         <h2 id="sign-title" className="sign-title">{t('signing.title')}</h2>
+        {vault?.roster_differs && <p className="unlock-err" role="alert">{t('members.rosterDiffers')}</p>}
 
         {plan === null && <p className="set-err" role="alert">{t('signing.planRefused')}</p>}
         {/* Always mounted, so the line is announced when it changes. */}

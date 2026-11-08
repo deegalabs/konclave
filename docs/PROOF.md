@@ -124,10 +124,11 @@ the way each vault's key was made:
   `b232f20c…`, `3d60747c…`) do not name the key origin in the
   table: they were made through the web app, which creates a vault by DKG and in no other
   way;
-- the signature was assembled by a FROST ceremony among the members who approved
-  the proposal (the first seven through `frostd` on one machine, the rest over the
-  blind relay, which since #63 carries the signing request sealed once every seat has registered
-  its device key);
+- the signature was assembled by a FROST ceremony among members of the vault (the first seven
+  through `frostd` on one machine, the rest over the blind relay, which since #63 carries the
+  signing request sealed once every seat has registered its device key). Through the web app a
+  payment is signed only once its proposal reached its quorum, and the signers need not be the
+  members who approved it;
 - the build and ceremony paths are covered by the repository's test suite.
 
 One honest note on the evidence, stated plainly. The first **seven** mainnet sends were

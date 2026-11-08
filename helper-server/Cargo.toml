@@ -10,13 +10,20 @@ name = "helper-server"
 path = "src/main.rs"
 
 [dev-dependencies]
+orchestrator = { path = "../orchestrator", features = ["test-seed"] }
 # The vote-signing test reproduces the DEVICE side exactly.
-konclave-seal = { path = "../konclave-seal" }
 ed25519-dalek = "2"
+# A real dealer's package and a viewing key on its group key, for the protocol-3 routes.
+reddsa = { version = "0.5.2", features = ["frost"] }
+orchard = { version = "0.16.0", default-features = false }
+zcash_address = "0.14.0"
+zcash_protocol = "0.11.0"
+rand = "0.8"
 
 [dependencies]
 konclave-http = { path = "../konclave-http" }
 orchestrator = { path = "../orchestrator" }
+konclave-seal = { path = "../konclave-seal", features = ["share-sig"] }
 tiny_http = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

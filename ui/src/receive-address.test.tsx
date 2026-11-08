@@ -60,7 +60,7 @@ describe('the screens take the address from getVault and say what they know befo
 
   it('Add funds puts the notice right under the header, and no QR, copy or note without an address', () => {
     expect(receive).toMatch(
-      /<PageHeader title=\{t\('receive\.title'\)\} subtitle=\{address \? t\('receive\.lead'\) : undefined\} \/>\s*<AddressNotice differs=\{!!vault\.served_address_differs\} missing=\{!address\} id=\{noticeId\} \/>\s*\{address && \(\s*<div className="rcv-grid">/,
+      /<PageHeader title=\{t\('receive\.title'\)\} subtitle=\{address \? t\('receive\.lead'\) : undefined\} \/>\s*<AddressNotice differs=\{!!vault\.served_address_differs\} missing=\{!address\} gate=\{vault\.address_gate\} id=\{noticeId\} \/>\s*\{vault\.address_gate === 'compare' && \([\s\S]{0,360}?\)\}\s*\{compareErr && \(\s*<p className="unlock-err" role="alert">\{compareErr\}<\/p>\s*\)\}\s*\{address && \(\s*<div className="rcv-grid">/,
     )
     expect(receive).toMatch(/\{address && <p className="rcv-note">\{t\('receive\.note'\)\}<\/p>\}/)
   })
@@ -152,5 +152,47 @@ describe('a history read that fails is not an answer', () => {
     expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
     // A retry in flight shows the placeholder rows again, not the failure text: a skeleton, not a spinner.
     expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <SkeletonRows n=\{3\} compact \/>/)
+  })
+})
+
+describe('what Add funds says before an address is verified', () => {
+  const gated = (gate: 'waiting' | 'refused') =>
+    renderToStaticMarkup(<I18nProvider><AddressNotice differs={false} missing={true} gate={gate} id="n1" /></I18nProvider>)
+
+  it('shows no address, no code and no copy button while waiting, and says so', () => {
+    const html = gated('waiting')
+    expect(html).toContain('is being checked on this device')
+    expect(html).not.toMatch(/u1[a-z0-9]{10}|rcv-qr|cv-copy/)
+  })
+
+  it('the gate wins over a stored address and over the notice about one', () => {
+    for (const gate of ['waiting', 'refused'] as const) {
+      const html = renderToStaticMarkup(<I18nProvider><AddressNotice differs={true} missing={false} gate={gate} id="n1" /></I18nProvider>)
+      expect(html).not.toContain('Use only the address below')
+    }
+  })
+
+  it('says it in Portuguese too', () => {
+    expect(ptBR['receive.addressRefused']).toContain('Não envie fundos')
+    expect(ptBR['receive.addressWaiting']).toContain('conferido')
+  })
+
+  it('tells the member not to fund a vault whose address was refused, as a warning', () => {
+    const html = gated('refused')
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Do not send funds')
+    expect(html).not.toMatch(/u1[a-z0-9]{10}|rcv-qr|cv-copy/)
+  })
+})
+
+describe('the address gate (protocol 3)', () => {
+  it('while the code is to be compared, the notice says nothing: the code itself is what the screen shows', () => {
+    const html = renderToStaticMarkup(<I18nProvider><AddressNotice differs={false} missing gate="compare" id="n" /></I18nProvider>)
+    expect(html).toBe('')
+    const missing = renderToStaticMarkup(<I18nProvider><AddressNotice differs={false} missing id="n" /></I18nProvider>)
+    expect(missing).not.toBe('')
+  })
+  it('asks for the code only of a vault whose creation finished; an unfinished one waits', () => {
+    expect(codeOf('api.ts')).toMatch(/mustCompareCode\(rec\) && vaultIsFinished\(rec!\) \? 'compare' : 'waiting'/)
   })
 })

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 # Cancel superseded runs on the same ref.
@@ -68,6 +68,59 @@ jobs:
           # say which of them a given entry has actually reached.
           printf '%s\n' "$changed" | node scripts/changelog-gate.mjs
 
+      # Released sections are locked: an entry that lands inside an already-cut `## [x.y.z]` is the
+      # classic merge accident (the branch left before the cut). HEAD^1 is the base and HEAD the
+      # merge result, because pull_request checks out the merge ref. This asks WHERE, never WHAT.
+      # A deliberate amendment carries the `changelog-amend` label (read live, like no-changelog).
+      - name: Released changelog sections are untouched
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' | grep -qx 'changelog-amend'; then
+            echo "Labelled changelog-amend - skipping, deliberately."
+            exit 0
+          fi
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && { [ "$HEAD_REF" = staging ] || [ "$HEAD_REF" = main ]; }; then
+            echo "Head is $HEAD_REF of this repository - already passed the lock on the way."
+            exit 0
+          fi
+          node scripts/changelog-sections.mjs lock --branch "$HEAD_REF" CHANGELOG.md ui/CHANGELOG.md helper-server/CHANGELOG.md relay-server/CHANGELOG.md
+
+  # Branch name (blocking) and PR size (warning only). The rules live in scripts/pr-rules.mjs and the
+  # pre-push hook calls the same file. Values from the PR enter through env, never inside `run:`.
+  # The job name is short and fixed on purpose (see the `rust` job): it may become a required check.
+  pr-rules:
+    name: PR rules
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Branch name and size
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' | grep -qx 'keep-branch-name'; then
+            echo "Labelled keep-branch-name - skipping, deliberately."
+            exit 0
+          fi
+          same=true
+          [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] || same=false
+          node scripts/pr-rules.mjs check --branch "$HEAD_REF" --same-repo "$same" --base "$BASE_SHA" --head HEAD
+
   rust:
     # The job NAME is short and fixed on purpose. GitHub truncates a check-run name at 95 characters,
     # and branch protection matches the stored (truncated) string - so naming the crates here meant
@@ -108,7 +161,7 @@ jobs:
           cargo clippy --manifest-path relay-server/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path helper-server/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path konclave-http/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path konclave-seal/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path konclave-seal/Cargo.toml --all-targets --all-features -- -D warnings
       - name: Test
         run: |
           cargo test --manifest-path orchestrator/Cargo.toml
@@ -117,7 +170,11 @@ jobs:
           cargo test --manifest-path relay-server/Cargo.toml
           cargo test --manifest-path helper-server/Cargo.toml
           cargo test --manifest-path konclave-http/Cargo.toml
-          cargo test --manifest-path konclave-seal/Cargo.toml
+          cargo test --manifest-path konclave-seal/Cargo.toml --all-features
+          cargo check --manifest-path konclave-seal/Cargo.toml
+          cargo check --manifest-path konclave-seal/Cargo.toml --features pczt
+          cargo check --manifest-path konclave-seal/Cargo.toml --features share-sig
+          cargo check --manifest-path konclave-seal/Cargo.toml --features receivers
 
   wasm:
     name: WASM (konclave-wasm → browser build)

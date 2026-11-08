@@ -65,9 +65,12 @@ fn make_tmpfs_dir() -> Result<std::path::PathBuf, ToolError> {
 
 /// A quorum the signing library accepts: frost-core refuses `min_signers < 2` (#589). The UI's
 /// `quorumIsPossible` (`ui/src/dkg-ceremony.ts`) states the same floor; this is the bridge's copy,
-/// read by both this function and `server::create_vault_dkg_handler`.
+/// read by both this function and `server::create_vault_dkg_handler`. The largest vault is the app's
+/// (`konclave_seal::share_sig::N_MAX`, the seat certificates' bound), never above the coordinator's.
 pub fn quorum_is_possible(threshold: u16, members: usize) -> bool {
-    threshold >= 2 && (threshold as usize) <= members && (2..=32).contains(&members)
+    threshold >= 2
+        && (threshold as usize) <= members
+        && (2..=konclave_seal::share_sig::N_MAX as usize).contains(&members)
 }
 
 /// Create a `threshold`-of-`members.len()` vault by DKG.
@@ -378,7 +381,9 @@ mod tests {
         assert!(!quorum_is_possible(1, 5));
         assert!(!quorum_is_possible(0, 3));
         // From 2 up to the member count, every quorum is accepted.
-        for n in 2..=32usize {
+        let max = konclave_seal::share_sig::N_MAX as usize;
+        assert_eq!(max, 16, "the certificates' bound, the app's number");
+        for n in 2..=max {
             for t in 2..=n as u16 {
                 assert!(quorum_is_possible(t, n), "{t}-of-{n} must be accepted");
             }
@@ -387,9 +392,9 @@ mod tests {
                 "a quorum above the roster is refused"
             );
         }
-        // More than 32 members is refused, whatever the quorum.
-        assert!(!quorum_is_possible(2, 33));
-        assert!(!quorum_is_possible(33, 33));
+        // More than N_MAX members is refused, whatever the quorum.
+        assert!(!quorum_is_possible(2, max + 1));
+        assert!(!quorum_is_possible(max as u16 + 1, max + 1));
     }
 
     #[test]

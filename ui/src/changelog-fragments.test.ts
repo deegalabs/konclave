@@ -1,0 +1,192 @@
+import { describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+// @ts-expect-error - plain .mjs scripts
+import { mergeFragments, readFragments, fragmentProblem, compileFragments } from '../../scripts/changelog-sections.mjs'
+// @ts-expect-error - plain .mjs scripts
+import { missingChangelogs } from '../../scripts/changelog-gate.mjs'
+
+const md = `# Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- old fix
+
+## [0.1.0] 2026-01-01
+
+### Added
+
+- first
+`
+
+describe('merging fragments into Unreleased', () => {
+  it('appends to an existing category and creates a missing one in canonical order', () => {
+    const out = mergeFragments(md, [
+      { category: 'fixed', name: 'a', body: '- new fix' },
+      { category: 'security', name: 'b', body: '- closes a hole' },
+    ])
+    const un = out.slice(0, out.indexOf('## [0.1.0]'))
+    expect(un.indexOf('### Security')).toBeGreaterThan(-1)
+    expect(un.indexOf('### Security')).toBeLessThan(un.indexOf('### Fixed'))
+    expect(un).toContain('- old fix\n- new fix')
+    expect((out.match(/### Fixed/g) ?? []).length).toBe(1)
+    expect(out).toContain('## [0.1.0] 2026-01-01\n\n### Added\n\n- first')
+  })
+  it('puts a category that exists only in fragments in its canonical place', () => {
+    const out = mergeFragments(md, [{ category: 'known-limits', name: 'k', body: '- limit' }])
+    expect(out.indexOf('### Fixed')).toBeLessThan(out.indexOf('### Known limits'))
+  })
+  it('orders by file name, deterministically', () => {
+    const a = mergeFragments(md, [{ category: 'fixed', name: 'b', body: '- B' }, { category: 'fixed', name: 'a', body: '- A' }])
+    expect(a).toContain('- old fix\n- A\n- B')
+  })
+  it('with no fragments changes nothing', () => expect(mergeFragments(md, [])).toBe(md))
+})
+
+describe('what a fragment must be', () => {
+  it('accepts a bullet in a known category', () => {
+    expect(fragmentProblem('changelog.d/fixed/x.md', '- text')).toBeNull()
+    expect(fragmentProblem('ui/changelog.d/known-limits/x.md', '- text\n  more')).toBeNull()
+  })
+  it.each([
+    ['changelog.d/oops/x.md', '- t'], ['changelog.d/fixed/x.md', ''], ['changelog.d/fixed/x.md', 'no bullet'],
+  ])('refuses %s', (p, b) => expect(typeof fragmentProblem(p, b)).toBe('string'))
+})
+
+describe('the gate', () => {
+  it('a fragment added beside the file satisfies it', () => {
+    expect(missingChangelogs(['ui/src/api.ts', 'ui/changelog.d/fixed/x.md'])).toEqual([])
+    expect(missingChangelogs(['ui/src/api.ts', 'changelog.d/fixed/x.md'])).toEqual(['ui/CHANGELOG.md'])
+  })
+  it('a deleted fragment does not', () => {
+    expect(missingChangelogs(['ui/src/api.ts', 'D\tui/changelog.d/fixed/x.md'])).toEqual(['ui/CHANGELOG.md'])
+    expect(missingChangelogs(['M\tui/src/api.ts', 'A\tui/changelog.d/fixed/x.md'])).toEqual([])
+  })
+  it('an invalid category directory does not', () => {
+    expect(missingChangelogs(['ui/src/api.ts', 'ui/changelog.d/oops/x.md'])).toEqual(['ui/CHANGELOG.md'])
+  })
+})
+
+describe('with real git', () => {
+  const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' })
+  it('two branches adding fragments to the same category merge without conflict', () => {
+    const d = mkdtempSync(join(tmpdir(), 'frag-'))
+    git(d, 'init', '-q', '-b', 'main')
+    writeFileSync(join(d, 'CHANGELOG.md'), md)
+    git(d, 'add', '.'); git(d, 'commit', '-qm', 'base')
+    for (const b of ['one', 'two']) {
+      git(d, 'checkout', '-q', '-b', b, 'main')
+      mkdirSync(join(d, 'changelog.d/fixed'), { recursive: true })
+      writeFileSync(join(d, `changelog.d/fixed/${b}.md`), `- ${b}\n`)
+      git(d, 'add', '.'); git(d, 'commit', '-qm', b)
+    }
+    git(d, 'checkout', '-q', 'one')
+    git(d, 'merge', '-q', '--no-edit', 'two')
+    expect(readFragments(join(d, 'changelog.d')).map((f: { name: string }) => f.name)).toEqual(['one', 'two'])
+  })
+  it('the cut compiles into the file, deletes the fragments, and a repeat changes nothing', () => {
+    const d = mkdtempSync(join(tmpdir(), 'cut-'))
+    mkdirSync(join(d, 'changelog.d/fixed'), { recursive: true })
+    writeFileSync(join(d, 'changelog.d/fixed/x.md'), '- from fragment\n')
+    writeFileSync(join(d, 'CHANGELOG.md'), md)
+    const once = compileFragments(join(d, 'CHANGELOG.md'), join(d, 'changelog.d'))
+    expect(once).toBe(1)
+    expect(readFileSync(join(d, 'CHANGELOG.md'), 'utf8')).toContain('- old fix\n- from fragment')
+    expect(existsSync(join(d, 'changelog.d/fixed/x.md'))).toBe(false)
+    const text = readFileSync(join(d, 'CHANGELOG.md'), 'utf8')
+    expect(compileFragments(join(d, 'CHANGELOG.md'), join(d, 'changelog.d'))).toBe(0)
+    expect(readFileSync(join(d, 'CHANGELOG.md'), 'utf8')).toBe(text)
+    expect(readdirSync(join(d, 'changelog.d/fixed'))).toEqual([])
+  })
+})
+
+describe('fragments: only the changelogs the cut compiles may be satisfied by one', () => {
+  it('a fragment beside the helper or the relay file does not satisfy the gate, because the release never publishes it', () => {
+    const m = (...lines: string[]) => missingChangelogs(lines)
+    expect(m('M\thelper-server/src/main.rs', 'A\thelper-server/changelog.d/fixed/x.md')).toEqual(['helper-server/CHANGELOG.md'])
+    expect(m('M\trelay-server/src/main.rs', 'A\trelay-server/changelog.d/fixed/x.md')).toEqual(['relay-server/CHANGELOG.md'])
+    // The two the cut compiles still work.
+    expect(m('M\tui/src/App.tsx', 'A\tui/changelog.d/fixed/x.md')).toEqual([])
+    expect(m('M\torchestrator/src/send.rs', 'A\tchangelog.d/fixed/x.md')).toEqual([])
+  })
+})
+
+describe('every fragment in the repository is a valid fragment (the gate reads paths, this reads the body)', () => {
+  const repo = join(__dirname, '..', '..')
+  const dirs = [join(repo, 'ui', 'changelog.d'), join(repo, 'changelog.d')]
+  const walk = (d: string): string[] =>
+    !existsSync(d)
+      ? []
+      : readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]))
+
+  it('has a body that starts with "- " and a path of the form <changelog.d>/<category>/<slug>.md', () => {
+    for (const d of dirs) {
+      for (const f of walk(d)) {
+        const rel = f.slice(repo.length + 1)
+        expect(fragmentProblem(rel, readFileSync(f, 'utf8')), rel).toBeNull()
+      }
+    }
+  })
+
+  it('the check itself can fail: an empty body, a body without a bullet and a stray path are problems', () => {
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', '')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', 'no bullet')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/sub/x.md', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.txt', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/nonsense/x.md', '- ok')).not.toBeNull()
+    expect(fragmentProblem('ui/changelog.d/fixed/x.md', '- ok')).toBeNull()
+  })
+})
+
+// "What is unreleased" has one reader, unreleasedOf, used by the release notes and the weekly material.
+// Before it, release.mjs folded the fragments in and weekly-update.mjs did not, so a fragment vanished
+// from the weekly material.
+describe('the one reader of Unreleased', () => {
+  it('folds the fragments beside a changelog into its Unreleased section', async () => {
+    // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+    const { unreleasedOf } = await import('../../scripts/changelog-sections.mjs')
+    const dir = mkdtempSync(join(tmpdir(), 'kc-unrel-'))
+    const file = join(dir, 'CHANGELOG.md')
+    const md = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- in the file\n\n## [0.1.0] 2026-01-01\n\n- old\n'
+    writeFileSync(file, md)
+    mkdirSync(join(dir, 'changelog.d', 'added'), { recursive: true })
+    writeFileSync(join(dir, 'changelog.d', 'added', 'x.md'), '- from a fragment\n')
+    const body = unreleasedOf(md, file)
+    expect(body).toContain('- in the file')
+    expect(body).toContain('- from a fragment')
+    expect(body).not.toContain('- old')
+  })
+
+  it('no other script parses the Unreleased heading itself', () => {
+    const scripts = new URL('../../scripts/', import.meta.url).pathname
+    const offenders = readdirSync(scripts)
+      .filter((f) => f.endsWith('.mjs') && f !== 'changelog-sections.mjs')
+      .filter((f) => {
+        const src = readFileSync(join(scripts, f), 'utf8')
+        // An escaped heading in a regex, a string search for the heading, or a section read by name.
+        return /\\\[Unreleased\\\]/.test(src) ||
+          /(startsWith|includes|indexOf)\([^\n]*\[Unreleased\]/.test(src) ||
+          /sectionBody\(.*['"]Unreleased['"]/.test(src)
+      })
+    expect(offenders).toEqual([])
+  })
+})
+
+// The lock step in ci.yml names the changelogs it guards; the changelog gate's OWNERS names the
+// changelogs a change must touch. A new product changelog added to one and not the other would go
+// unguarded without a word.
+describe('the lock guards every changelog the gate knows', () => {
+  it('ci.yml lists exactly the OWNERS changelogs', async () => {
+    // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+    const { OWNERS } = await import('../../scripts/changelog-gate.mjs')
+    const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    const line = ci.split('\n').find((l) => l.includes('changelog-sections.mjs lock'))!
+    const listed = line.split(/\s+/).filter((w) => w.endsWith('CHANGELOG.md')).sort()
+    const owned = [...new Set((OWNERS as [string, string][]).map(([, c]) => c))].sort()
+    expect(listed).toEqual(owned)
+  })
+})

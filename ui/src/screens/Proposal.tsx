@@ -43,6 +43,7 @@ export default function Proposal() {
   const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
+  const [rosterDiffers, setRosterDiffers] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
   // vault record. A device may only ever cast its OWN vote (never another member's).
@@ -68,6 +69,7 @@ export default function Proposal() {
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
+        setRosterDiffers(!!v.roster_differs)
         try {
           const saved = await listVaults()
           const rec = saved.find((s) => s.id === v.id)
@@ -258,6 +260,7 @@ export default function Proposal() {
   return (
     <>
       <main className="page narrow">
+        {rosterDiffers && <p className="unlock-err" role="alert">{t('members.rosterDiffers')}</p>}
         <PageHeader
           back={{ to: '/proposals', label: t('proposals.title') }}
           eyebrow={eyebrow}
@@ -382,10 +385,15 @@ export default function Proposal() {
               {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
             {iAmPending ? (
-              <div className="btns mt">
-                <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approve')}</button>
-                <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
-              </div>
+              <>
+                {/* Approving is not paying: the sentence sits where the button is, and the button is
+                    described by it, so the two moments that move money are two sentences (#309). */}
+                <p className="hint mt" id="vote-means">{t('proposal.approveMeans')}</p>
+                <div className="btns mt-sm">
+                  <button className="btn ok" onClick={() => vote(true)} disabled={busy} aria-describedby="vote-means">{busy ? '…' : t('proposal.approve')}</button>
+                  <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
+                </div>
+              </>
             ) : (
               <div className="hint mt">{iAlreadyVoted ? t('proposal.alreadyVoted') : t('proposal.waitingMembers')}</div>
             )}
@@ -401,16 +409,17 @@ export default function Proposal() {
             {IS_NET ? (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => openSigning(p)}>
+                  <button className="btn ok" onClick={() => openSigning(p)} aria-describedby="sign-means">
                     {t('signing.title')}
                   </button>
                 </div>
+                <p className="hint mt-sm" id="sign-means">{t('proposal.signMeans')}</p>
                 <div className="hint mt-sm">{t('proposal.ceremonyNote')}</div>
               </>
             ) : (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
+                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null} aria-describedby="sign-means">
                     {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
                   </button>
                   <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
@@ -418,6 +427,8 @@ export default function Proposal() {
                   </button>
                 </div>
                 {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}{t('proposal.dryOkPost')}</div>}
+                {/* One operator's confirm runs the whole ceremony here: no "last signature" to see. */}
+                <p className="hint mt-sm" id="sign-means">{t('proposal.signBridgeMeans')}</p>
               </>
             )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>

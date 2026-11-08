@@ -91,13 +91,24 @@ export function addressText(x: unknown): string {
  *
  *  @param decode a UA to its raw receiver hex (`uaReceiver` in the WASM; injected so this is pure). */
 export function ourReceiversFrom(
-  rec: { address?: unknown; changeReceiver?: unknown } | undefined,
+  rec: { address?: unknown; changeReceiver?: unknown; cp?: number; receiversState?: string; pending?: boolean; abandoned?: string } | undefined,
   decode: (ua: string) => string,
 ): string[] | null {
+  // Protocol 3: only what this device derived from the vault's own key is the vault's own.
+  if ((rec?.cp ?? 0) >= 3 && (rec?.receiversState !== 'verified' || rec.pending || rec.abandoned)) return null
   const address = addressText(rec?.address)
   const change = addressText(rec?.changeReceiver)
   if (!address || !change) return null
   return [decode(address), decode(change)]
+}
+
+/** Whether this device says it will sign for this vault. The one predicate: an older vault always may. */
+export function mayContribute(
+  rec: { cp?: number; receiversState?: string; pending?: boolean; abandoned?: string } | undefined,
+  refusal: string | undefined,
+): boolean {
+  if (refusal || !rec) return false
+  return (rec.cp ?? 0) < 3 || (rec.receiversState === 'verified' && !rec.pending && !rec.abandoned)
 }
 
 /** Does this receiver belong to the vault itself (change, or a payment to its own address)? The one
