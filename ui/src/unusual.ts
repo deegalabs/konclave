@@ -15,12 +15,13 @@
 //   payroll-*       against the latest earlier settled payroll: who was added, who was removed,
 //                   whose amount changed (lines to one address added up first)
 //
-// "Earlier" means created before the proposal under review. When the book cannot be read whole (an
+// "Earlier" means created before the proposal under review; an undated one counts as earlier. When the book cannot be read whole (an
 // earlier payroll whose lines were not read, or the payroll under review with no lines), the answer
 // says `incomplete` rather than presenting a partial comparison as the whole one.
 import type { PayrollLine, Proposal } from './api'
 import { SETTLED } from './ledger-state'
 import { pivotEntries } from './ledgerPivot'
+import { createdAt } from './period'
 
 export type Unusual =
   | { kind: 'first-payment'; address: string }
@@ -63,9 +64,13 @@ export function unusualFor(
   history: readonly Proposal[],
   linesById: Readonly<Record<string, PayrollLine[]>>,
 ): UnusualReading {
-  const earlier = history.filter((p) =>
-    p.id !== target.id && SETTLED(p.state)
-    && (p.created_at === undefined || target.created_at === undefined || p.created_at < target.created_at))
+  // An undated proposal (on either side) is compared with everything, rather than with nothing.
+  const at = createdAt(target)
+  const earlier = history.filter((p) => {
+    if (p.id === target.id || !SETTLED(p.state)) return false
+    const t = createdAt(p)
+    return t === null || at === null || t < at
+  })
   const book = pivotEntries(earlier, linesById, SETTLED, NEVER_OPEN)
   let incomplete = book.missing.length > 0
 
@@ -99,7 +104,7 @@ export function unusualFor(
   if (target.kind === 'payroll') {
     const prev = earlier
       .filter((p) => p.kind === 'payroll')
-      .sort((a, b) => (b.created_at ?? -Infinity) - (a.created_at ?? -Infinity))[0]
+      .sort((a, b) => (createdAt(b) ?? -Infinity) - (createdAt(a) ?? -Infinity))[0]
     if (prev) {
       const was = pivotEntries([prev], linesById, SETTLED, NEVER_OPEN)
       if (was.missing.length > 0) {

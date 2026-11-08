@@ -41,6 +41,12 @@ describe('first payment to an address', () => {
     const r = unusualFor(pay('u1x', 10, 5, 'confirmed'), null, [pay('u1x', 10, 8)], {})
     expect(r.findings).toEqual([{ kind: 'first-payment', address: 'u1x' }])
   })
+  it('takes a null creation date (the local bridge sends it for older proposals) for no date', () => {
+    const undatedNow = pay('u1x', 10, 9, 'awaiting', { created_at: null as unknown as undefined })
+    expect(unusualFor(undatedNow, null, [pay('u1x', 10, 1)], {}).findings).toEqual([])
+    const undatedBefore = pay('u1y', 10, 1, 'confirmed', { created_at: null as unknown as undefined })
+    expect(unusualFor(pay('u1y', 10, 9, 'awaiting'), null, [undatedBefore], {}).findings).toEqual([])
+  })
   it('says the reading is incomplete when an earlier payroll could not be read', () => {
     const r = unusualFor(pay('u1x', 10, 9, 'awaiting'), null, [roll(30, 1)], {})
     expect(r.incomplete).toBe(true)
@@ -125,6 +131,11 @@ describe('one book, one rule', () => {
     expect(code).toMatch(/import \{ SETTLED \} from '\.\/ledger-state'/)
     expect(code).toMatch(/import \{ pivotEntries \} from '\.\/ledgerPivot'/)
     expect(code).not.toMatch(/'sent'|'confirmed'|itemizeBook/)
+  })
+  it('reads a creation date through the one reader that takes null for no date', () => {
+    const code = codeOf('unusual.ts')
+    expect(code).toMatch(/import \{ createdAt \} from '\.\/period'/)
+    expect(code).not.toMatch(/\.created_at/)
   })
   it('says in its own comment that it is a reading aid over a history the coordinator writes', () => {
     const raw = readFileSync(new URL('./unusual.ts', import.meta.url), 'utf8')

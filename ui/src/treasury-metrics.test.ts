@@ -141,7 +141,8 @@ describe('one rule, not a third', () => {
   })
   it("draws a month with the period picker's window, not a calendar of its own", () => {
     const code = codeOf('treasury-metrics.ts')
-    expect(code).toMatch(/import \{ periodWindow \} from '\.\/period'/)
+    expect(code).toMatch(/import \{ createdAt, periodWindow \} from '\.\/period'/)
+    expect(code).not.toMatch(/\.created_at/)
     expect(code).not.toMatch(/getMonth\(\)|getFullYear\(\)/)
   })
   it('settlement reads the same SETTLED, with no list of its own', () => {
