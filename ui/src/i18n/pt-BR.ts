@@ -1185,7 +1185,7 @@ export const ptBR: Record<string, string> = {
   'ledger.foot': 'transparência interna · a blockchain pública nada revela',
   'ledger.toAnalyses': 'Ritmo e fôlego',
   'analyses.title': 'Análises',
-  'analyses.sub': 'Contas sobre o livro do cofre. Lê o que está registrado; não é previsão.',
+  'analyses.sub': 'Contas sobre o livro do cofre: o que ele registra e aonde o mesmo ritmo levaria. Uma projeção, não uma promessa.',
   'analyses.foot': 'calculado neste aparelho a partir do livro · nada aqui move dinheiro',
   'analyses.inVault': 'No cofre',
   'analyses.free': 'Disponível',
@@ -1207,7 +1207,8 @@ export const ptBR: Record<string, string> = {
   'analyses.now': 'agora',
   'analyses.projected': 'projetado',
   'analyses.runsOut': 'Neste ritmo, o disponível acaba até {month}.',
-  'analyses.hiddenChart': 'Os valores estão ocultos. Mostre-os para ver a projeção.',
+  'analyses.hiddenChart': 'Os valores estão ocultos. Revele-os para ver a projeção.',
+  'analyses.na': 'Indisponível',
   'analyses.source': 'Do livro do cofre. Mês pela data da proposta. Taxa da rede não incluída. Entradas não aparecem.',
 
   // Members

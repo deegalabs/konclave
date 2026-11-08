@@ -433,6 +433,8 @@
 .funds-tags span.end{transform:translateX(-100%)}
 /* Analyses screen */
 .an-band .db-totals{flex-wrap:wrap; gap:18px 30px}
+.an-cells{display:flex; flex-wrap:wrap; gap:18px 30px; margin:0}
+.an-cells dd{margin:0}
 .an-sec{max-width:760px}
 .an-sec h2.klab{margin:0 0 16px; padding-bottom:8px; border-bottom:1px solid var(--line-soft, var(--line))}
 .an-figs{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:18px 30px; margin:0 0 18px}

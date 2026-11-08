@@ -46,7 +46,7 @@ describe('RunwayPanel', () => {
     const html = wrap(<RunwayPanel bal={bal(3 * ZEC)} rows={[...book, p('awaiting', ZEC, at(2026, 10, 5))]} now={NOW} revealed t={t} locale="en" />)
     expect(html).toContain('2.0 months')
     // and the chart starts from the same free funds, not from the whole balance
-    expect(html).toContain('<th scope="row">now (Nov)</th><td>2.00000000 ZEC</td>')
+    expect(html).toContain('<th scope="row">now (Nov)</th><td>2.0000 ZEC</td>')
   })
 
   it('says the book was not read, rather than that there is not enough history, when it was not', () => {
@@ -69,6 +69,15 @@ describe('RunwayPanel', () => {
     const html = wrap(<RunwayPanel bal={bal(ZEC)} rows={quiet} now={NOW} revealed t={t} locale="en" />)
     expect(html).toContain('Nothing left the vault in the last three complete months')
     expect(html).not.toContain('<svg')
+    // the missing runway is said, not left as a bare dash for a screen reader
+    expect(html).toContain('<span aria-hidden="true">-</span><span class="visually-hidden">Not available</span>')
+  })
+
+  it('writes months without a trailing period, and says the year where the axis crosses into one', () => {
+    const tp: TFn = (k, v) => translateStatic(k, v, 'pt-BR')
+    const html = wrap(<RunwayPanel bal={bal(10 * ZEC)} rows={book} now={NOW} revealed t={tp} locale="pt-BR" />)
+    expect(html).toContain('<span>nov</span><span>dez</span><span>jan 27</span>')
+    expect(html).not.toMatch(/<span>[a-z]+\.<\/span>/)
   })
 
   it('draws no projection while amounts are hidden, but still warns and states the limits', () => {
@@ -97,7 +106,17 @@ describe('BalanceBand', () => {
 
   it('draws no figure from a balance or a book that was not read', () => {
     expect(wrap(<BalanceBand bal={null} rows={[]} t={t} />)).toContain('The balance could not be read')
-    expect(wrap(<BalanceBand bal={bal(ZEC)} rows={null} t={t} />)).toContain('The balance could not be read')
+  })
+
+  it('does not blame the balance when it was the book that could not be read', () => {
+    // the page's ReadState names the book; the band stays quiet rather than naming the wrong one
+    expect(wrap(<BalanceBand bal={bal(ZEC)} rows={null} t={t} />)).toBe('')
+  })
+
+  it('ties each label to its amount, as a list of terms and values', () => {
+    const html = wrap(<BalanceBand bal={bal(5 * ZEC, 4 * ZEC)} rows={[]} t={t} />)
+    expect(html).toContain('<dl class="an-cells">')
+    expect(html).toMatch(/<div class="db-t"><dt class="klab">In the vault<\/dt><dd>/)
   })
 })
 
@@ -107,6 +126,10 @@ describe('the screen', () => {
     expect(src).toMatch(/from '\.\.\/treasury-metrics'/)
     expect(src).toMatch(/from '\.\.\/balance-parts'/)
     expect(src).not.toMatch(/'sent'|'confirmed'/)
+  })
+  it('says nothing about the balance or the book until the first read has answered', () => {
+    expect(src).toMatch(/\{loaded && <BalanceBand /)
+    expect(src).toMatch(/\{loaded && <RunwayPanel /)
   })
   it('is reached from the Ledger, not from the menu', () => {
     expect(codeOf('screens/Ledger.tsx')).toContain('to="/analyses"')

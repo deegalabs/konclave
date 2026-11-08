@@ -23,24 +23,34 @@ import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => fmtZecExact(Number(zatToZec(zat)))
-const month = (unix: number, locale: Locale, long = false) =>
-  new Date(unix * 1000).toLocaleDateString(locale, long ? { month: 'long', year: 'numeric' } : { month: 'short' })
+/** A month as the axis and the warning write it. Short months lose the period some locales add
+ *  ("nov."), and January carries its two-digit year, so an axis that crosses a year says so. */
+const month = (unix: number, locale: Locale, long = false) => {
+  const d = new Date(unix * 1000)
+  if (long) return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
+  return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
+}
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read. */
 export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: readonly Proposal[] | null; t: TFn }) {
+  if (!bal || bal.total_zat == null) return <p className="hint">{t('analyses.balanceUnread')}</p>
+  // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
-  if (!bal || bal.total_zat == null || reserved === null) return <p className="hint">{t('analyses.balanceUnread')}</p>
+  if (reserved === null) return null
   const parts = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
   const cell = (label: string, zat: number) => (
-    <div className="db-t"><span className="klab">{label}</span><Secret sm label={label}><b className="mono">{zec(zat)}</b></Secret></div>
+    <div className="db-t"><dt className="klab">{label}</dt><dd><Secret sm label={label}><b className="mono">{zec(zat)}</b></Secret></dd></div>
   )
   return (
     <div className="doc-band an-band">
       <div className="db-totals">
-        {cell(t('analyses.inVault'), parts.totalZat)}
-        {cell(t('analyses.free'), parts.freeZat)}
-        {cell(t('analyses.reserved'), parts.reservedZat)}
-        {cell(t('analyses.confirming'), parts.confirmingZat)}
+        <dl className="an-cells">
+          {cell(t('analyses.inVault'), parts.totalZat)}
+          {cell(t('analyses.free'), parts.freeZat)}
+          {cell(t('analyses.reserved'), parts.reservedZat)}
+          {cell(t('analyses.confirming'), parts.confirmingZat)}
+        </dl>
         <span className="db-reveal"><RevealButton /></span>
       </div>
     </div>
@@ -78,7 +88,7 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             <b className="mono">
               {run.kind === 'months'
                 ? t('analyses.runwayMonths', { n: (run.tenths / 10).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
-                : '-'}
+                : <><span aria-hidden="true">-</span><span className="visually-hidden">{t('analyses.na')}</span></>}
             </b>
           </dd>
           <dd className="by">
@@ -120,6 +130,9 @@ export default function Analyses() {
   const [bal, setBal] = useState<Balance | null>(null)
   const [unread, setUnread] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  // Nothing is said about the balance or the book until the first read answers: before it, both
+  // are null, and "could not be read" would report a failure that has not happened.
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
@@ -137,7 +150,7 @@ export default function Analyses() {
         if (b) setBal(b)
       } finally {
         inFlight = false
-        if (first) end()
+        if (first) { end(); if (on) setLoaded(true) }
       }
     }
     void load(true)
@@ -152,10 +165,10 @@ export default function Analyses() {
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
-      <BalanceBand bal={bal} rows={rows} t={t} />
+      {loaded && <BalanceBand bal={bal} rows={rows} t={t} />}
       <section className="an-sec mt" aria-labelledby="an-runway">
         <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
-        <RunwayPanel bal={bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />
+        {loaded && <RunwayPanel bal={bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />}
       </section>
       <PageFooter>
         <span className="dim pushr">{t('analyses.foot')}</span>

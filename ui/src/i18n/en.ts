@@ -1189,7 +1189,7 @@ export const en: Record<string, string> = {
   'ledger.foot': 'internal transparency · the public blockchain reveals nothing',
   'ledger.toAnalyses': 'Pace and runway',
   'analyses.title': 'Analyses',
-  'analyses.sub': "Arithmetic over the vault's book. It reads what is recorded; it is not a forecast.",
+  'analyses.sub': "Arithmetic over the vault's book: what it records, and where the same pace would lead. A projection, not a promise.",
   'analyses.foot': 'computed on this device from the book · nothing here moves money',
   'analyses.inVault': 'In the vault',
   'analyses.free': 'Free',
@@ -1211,7 +1211,8 @@ export const en: Record<string, string> = {
   'analyses.now': 'now',
   'analyses.projected': 'projected',
   'analyses.runsOut': 'At this pace the free funds are gone by {month}.',
-  'analyses.hiddenChart': 'Amounts are hidden. Show them to see the projection.',
+  'analyses.hiddenChart': 'Amounts are hidden. Reveal them to see the projection.',
+  'analyses.na': 'Not available',
   'analyses.source': "From the vault's book. Month by proposal date. Network fee not included. Incoming money not shown.",
 
   // Members
