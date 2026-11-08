@@ -1,6 +1,7 @@
 // Restrained in-app charts. The brand is an "instrument, not a dashboard" (STYLE.md: Variance 2,
 // Motion 2, the tarja is the one ornament), so these are matte, single-series, unanimated, and use
 // text/silver ink for the marks - the blue accent stays reserved for interactive + quorum.
+import { fmtZecExact } from './format'
 
 export interface SpendPoint {
   label: string // period label, e.g. "abr" / "Apr" or "04/26"
@@ -20,7 +21,8 @@ export function SpendBars({ data, unit = 'ZEC', height = 52 }: { data: SpendPoin
   // data has >= 2 items here (guarded above), so reduce with no initial is safe and stays typed
   // as SpendPoint (never undefined) - unlike passing data[0] under noUncheckedIndexedAccess.
   const peak = data.reduce((a, b) => (b.zec > a.zec ? b : a))
-  const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+  // Exact, as every other figure on the Dashboard: a month that paid 0.00015 says 0.00015.
+  const fmt = fmtZecExact
 
   return (
     <div className="spend" role="group" aria-label={`Spend by period (${unit})`}>

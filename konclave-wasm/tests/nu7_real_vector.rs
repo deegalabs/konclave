@@ -33,6 +33,7 @@ fn expiry_of_vector() -> u32 {
 fn testnet_rules(expiry: u32) -> NetworkRules {
     NetworkRules {
         epochs: &TESTNET_NU7_ROWS,
+        fees: konclave_seal::epochs::MAINNET.fees,
         anchor: Anchor {
             height: expiry - 130,
             unix: ANCHOR_UNIX,

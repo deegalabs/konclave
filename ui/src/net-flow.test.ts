@@ -6,7 +6,7 @@
 // broadcast needs. Closes the automated-test gap for the live /net ceremony (only the relay
 // transport + React rendering are not exercised here; the cryptography is end-to-end).
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import init, {
   DkgSession,
   Coordinator,
@@ -25,6 +25,16 @@ const hexToBytes = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => pars
 
 // The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) - a valid Orchard randomizer.
 const DKG_ALPHA = hexToBytes('b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624')
+
+// A fixed clock: readPayment and describeOutputs judge the fee by the device's clock (ZIP 2009 eras),
+// so a test that reads the real time changes its verdict the day the window moves, with no code change.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T00:00:00Z'))
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))

@@ -3,10 +3,10 @@ import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 import { UPGRADE_NOTICE_AFTER, UPGRADE_NOTICE_BEFORE, upgradeNotice } from './upgrade-notice'
 
-// The dashboard says, before a member tries to pay, that the network is about to upgrade and that
-// payments pause around it. It is driven by what the app already reads (the chain tip in the balance
-// answer) and by the upgrade height WASM carries from the epoch table, so there is no height typed
-// here: the same number the device and the coordinator use.
+// The rule for when a notice of a network upgrade applies, driven by what the app already reads (the
+// chain tip in the balance answer) and by the upgrade height WASM carries from the epoch table, so
+// there is no height typed here: the same number the device and the coordinator use. No screen shows
+// it since NU7 (2026-11-07); the rule stays for the next upgrade.
 const A = 3_543_405
 
 describe('the upgrade notice', () => {
@@ -32,13 +32,11 @@ describe('the upgrade notice', () => {
   })
 })
 
-describe('the texts a member reads around the upgrade', () => {
+describe('the errors a member reads around the upgrade', () => {
   it('say the same in both languages, and neither promises a send the coordinator may not deliver', () => {
     for (const d of [en, ptBR]) {
       expect(d['error.upgradeHold']).toBeTruthy()
       expect(d['error.coordinatorNotUpdated']).toBeTruthy()
-      expect(d['dashboard.upgradeBefore']).toBeTruthy()
-      expect(d['dashboard.upgradeAfter']).toBeTruthy()
     }
     // H2: the pause, the approval that stands, no promise of a time.
     expect(en['error.upgradeHold']).toMatch(/paused around the upgrade block/)
@@ -47,15 +45,5 @@ describe('the texts a member reads around the upgrade', () => {
     // N2: the approvals last as long as the proposal does.
     expect(en['error.coordinatorNotUpdated']).toMatch(/72 hours/)
     expect(ptBR['error.coordinatorNotUpdated']).toMatch(/72 horas/)
-  })
-
-  it('name the block before the upgrade by a parameter, never by a number typed here, and say nothing is lost', () => {
-    // The height comes from WASM (the epoch table); a literal in the copy would be a second home of it.
-    for (const d of [en, ptBR]) {
-      expect(d['dashboard.upgradeBefore']).toContain('{height}')
-      expect(d['dashboard.upgradeBefore']).not.toMatch(/3[.,]?543[.,]?405/)
-      expect(d['dashboard.upgradeAfter']).not.toMatch(/3[.,]?543[.,]?405/)
-    }
-    for (const d of [en, ptBR]) expect(d['dashboard.upgradeAfter']).toMatch(/lost|perde/)
   })
 })

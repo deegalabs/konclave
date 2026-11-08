@@ -9,7 +9,7 @@ import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
 import { proposalName, titleProblem, PAYROLL_TITLE_MAX } from '../proposal-name'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
-import { estimatedFeeZat } from '../fee-estimate'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -181,6 +181,7 @@ export default function NewPayroll() {
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const feeEstimate = useFeeEstimate()
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
@@ -341,36 +342,29 @@ export default function NewPayroll() {
   const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
   const count = validRows.length
   const totalZat = validRows.reduce((acc, r) => acc + (typedAmountZat(r.value) ?? 0), 0)
-  // ZIP-317: 5000 zat per logical action, minimum 2. `max(spends, outputs)` - one spend, N lines
-  // plus change - which is what EVERY successful send has actually been charged:
-  //
-  //   payment, 1 destination   1 spend + 2 outputs   fee 10000   max(1,2)=2
-  //   payroll, 2 lines         1 spend + 3 outputs   fee 15000   max(1,3)=3
-  //
-  // I briefly changed this to spends+outputs on the strength of one refusal - a 2-line payroll of
-  // 4000 zat against a 20000 balance came back `InsufficientFunds { available: 20000, required:
-  // 24000 }`, implying four actions. The very same payroll then went through against a larger
-  // balance at 15000, three actions. Same outputs, different answer: the refusal is not explained
-  // by the action count, and one data point was not enough to move the formula. It is back to what
-  // matches every send that worked, and the outlier is recorded in #206.
+  // The one estimate (`fee-estimate.ts`, read from the device's rule in konclave_seal): one spend, N
+  // lines and change, never fewer than three actions. The outlier that once suggested spends+outputs
+  // (a 2-line payroll refused at 24000, then sent at 15000) is recorded in #206.
   //
   // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
-  // can actually be right is the helper's, using build_unproven before anyone signs (#293).
-  const feeZat = count > 0 ? estimatedFeeZat(count) : 0
+  // can actually be right is the helper's, using build_unproven before anyone signs (#293). `null`
+  // while the estimate is unknown: the gate blocks with `fee-unknown`.
+  const feeEstimator = estimatorOf(feeEstimate)
+  const feeZat = count === 0 ? 0 : feeEstimator ? feeEstimator(count) : null
   // What batching is worth, in the vault's own money. Paying these N people one at a time is N
-  // transactions of two actions each; one payroll is a single spend, N outputs and change. The
-  // saving grows toward half as N grows, and it is the whole reason this screen exists - so it is
-  // stated rather than left for the reader to work out from a fee they cannot see the shape of.
-  const soloFeeZat = count > 0 ? count * 5000 * 2 : 0
-  const savedZat = Math.max(0, soloFeeZat - feeZat)
+  // single payments, each estimated by the same rule; one payroll is a single spend, N outputs and
+  // change. It is the whole reason this screen exists - so it is stated rather than left for the
+  // reader to work out from a fee they cannot see the shape of.
+  const soloFeeZat = count > 0 && feeEstimator ? count * (feeEstimator(1) ?? 0) : 0
+  const savedZat = feeZat == null ? 0 : Math.max(0, soloFeeZat - feeZat)
 
-  const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
+  const afterZat = balanceZat === null || feeZat == null ? null : balanceZat - totalZat - feeZat
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.
   const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools, reservedZat })
   // When the whole shortfall is confirmations, say that, not "exceeds the balance" (#352).
-  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat ?? 0, totalZat, feeZat)
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && feeZat != null && shortfallIsConfirming(bal, reservedZat ?? 0, totalZat, feeZat)
   const overBalance = block === 'over-balance' && !onlyConfirming
   // The "after" figure subtracts from FREE funds; while a reservation or confirmations are the
   // block, a negative figure beside "the vault has the funds" would contradict it: a dash.
@@ -387,6 +381,8 @@ export default function NewPayroll() {
     if (unvouched > 0) return t('payroll.blockUnvouched', { n: unvouched })
     if (count === 0 || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
+    // Still loading is not "could not be worked out" (see NewPayment).
+    if (feeEstimate.state === 'loading' && block === 'fee-unknown') return null
     if (onlyConfirming) return [(reservedZat ?? 0) > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
     if (block === 'over-balance') return t('payroll.warnExceeds')
     const k = blockMessageKey(block)
@@ -596,7 +592,9 @@ export default function NewPayroll() {
 
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvFeeK')}</span>
-              <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>
+              {feeZat == null
+                ? <span className="plf-v num dim"><span aria-hidden="true">-</span><span className="visually-hidden">{t('money.feeNotKnown')}</span></span>
+                : <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>}
               {savedZat > 0 && (
                 <span className="plf-saved">{t('payroll.feeSaved', { n: count, saved: fmtZecExact(savedZat / 1e8) })}</span>
               )}

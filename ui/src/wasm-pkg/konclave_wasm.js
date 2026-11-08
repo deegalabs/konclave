@@ -1087,6 +1087,18 @@ export function deviceWritePubHex(key_package) {
 }
 
 /**
+ * The fee a screen shows and reserves for a payment to `destinations`, in zatoshis, read from the
+ * one rule (`konclave_seal::epochs`, ZIP 2009) with this device's clock. `0` when the clock
+ * confirms no window: the caller treats that as unknown and blocks, never as a default.
+ * @param {number} destinations
+ * @returns {number}
+ */
+export function estimatedFeeZat(destinations) {
+    const ret = wasm.estimatedFeeZat(destinations);
+    return ret;
+}
+
+/**
  * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
  * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
  * @param {Uint8Array} pczt
