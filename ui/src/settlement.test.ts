@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { settlementOf, isConfirmed, movementOf } from './settlement'
 import { join } from 'node:path'
@@ -61,7 +62,7 @@ describe('confirmed means a block, or it is not said', () => {
 })
 
 describe('the screens cannot go back to asking the proposal', () => {
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
   const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
   it('a sent proposal stops polling, because nothing will change it', () => {

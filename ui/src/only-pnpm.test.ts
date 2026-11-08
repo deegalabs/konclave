@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,7 +23,7 @@ import { join } from 'node:path'
 //
 // What does work is `engines` + `engine-strict`, and it needs BOTH halves: the field alone is a
 // warning, the setting alone has nothing to enforce. So this test holds them together.
-const ROOT = join(new URL('.', import.meta.url).pathname, '..', '..')
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 
 describe('npm cannot install in this pnpm workspace', () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,7 +23,7 @@ import { stripComments } from './source-scan'
 // (`scripts/proof-table.mjs`). A row added to the record fails here until the screen lists it, the
 // attribution table names its key origin, and every document that states the count agrees.
 
-const ROOT = join(new URL('.', import.meta.url).pathname, '..', '..')
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 const read = (path: string) => readFileSync(join(ROOT, path), 'utf8')
 
 type Row = { txid: string; label: string; block: string }

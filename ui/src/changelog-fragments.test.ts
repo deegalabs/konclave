@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 // @ts-expect-error - plain .mjs scripts
 import { mergeFragments, readFragments, fragmentProblem, compileFragments } from '../../scripts/changelog-sections.mjs'
 // @ts-expect-error - plain .mjs scripts
@@ -126,7 +127,7 @@ describe('every fragment in the repository is a valid fragment (the gate reads p
   it('has a body that starts with "- " and a path of the form <changelog.d>/<category>/<slug>.md', () => {
     for (const d of dirs) {
       for (const f of walk(d)) {
-        const rel = f.slice(repo.length + 1)
+        const rel = f.slice(repo.length + 1).split(sep).join('/')
         expect(fragmentProblem(rel, readFileSync(f, 'utf8')), rel).toBeNull()
       }
     }
@@ -162,7 +163,7 @@ describe('the one reader of Unreleased', () => {
   })
 
   it('no other script parses the Unreleased heading itself', () => {
-    const scripts = new URL('../../scripts/', import.meta.url).pathname
+    const scripts = fileURLToPath(new URL('../../scripts/', import.meta.url))
     const offenders = readdirSync(scripts)
       .filter((f) => f.endsWith('.mjs') && f !== 'changelog-sections.mjs')
       .filter((f) => {

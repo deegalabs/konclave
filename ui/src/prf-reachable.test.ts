@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,7 +16,7 @@ import { codeAt } from './source-scan'
 // A source scan is the only place to ask that, since the two halves live in different screens and
 // no unit test spans them. It is the same shape as `css-classes-exist` and `wasm-pkg-freshness`.
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 
 function sources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

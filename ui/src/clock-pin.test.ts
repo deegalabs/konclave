@@ -12,11 +12,12 @@
 // transaction is refused while the first is alive" stops being true there. `owner-signing.test.ts`
 // signed no vector, so a scan for the expiry helpers alone never saw it, and from the upgrade on it
 // failed. So the scan also names these three.
+import { fileURLToPath } from 'node:url'
 import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { codeOf } from './source-scan'
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 
 describe('tests that sign a vector pin the clock', () => {
   const files = readdirSync(SRC).filter((f) => /\.test\.tsx?$/.test(f) && f !== 'clock-pin.test.ts')

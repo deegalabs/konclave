@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { codeAt } from './source-scan'
@@ -7,7 +8,7 @@ import { codeAt } from './source-scan'
 // since been fixed piecemeal - the overspend guard fails closed, `no-funds` is distinguished from
 // `over-balance`, and the dropped balance fields are back - so what remains is these, and they are
 // held here rather than by a rewrite nobody needs.
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
 describe('a blocked money screen watches the thing that blocked it', () => {

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { codeAt } from './source-scan'
 import { executeProposal } from './helper'
@@ -42,7 +43,7 @@ describe('executeProposal sends exactly the dry_run its caller chose', () => {
   })
 
   it('has no default for dryRun', () => {
-    const src = codeAt(new URL('./helper.ts', import.meta.url).pathname)
+    const src = codeAt(fileURLToPath(new URL('./helper.ts', import.meta.url)))
     const fn = src.slice(src.indexOf('export async function executeProposal('))
     const head = fn.slice(0, fn.indexOf('): Promise<SendReply>'))
     expect(head, 'dryRun is optional again').not.toMatch(/dryRun\?:/)

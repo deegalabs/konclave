@@ -2,12 +2,13 @@
 // The network-upgrade rules have one home, `konclave-seal::epochs`, and the app reads them through
 // WASM (#638). Nothing in the app's own code may carry a row of the table or the margin: it would be a
 // second copy that a release changes in one place and not the other.
+import { fileURLToPath } from 'node:url'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { codeOf } from './source-scan'
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 
 function appFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

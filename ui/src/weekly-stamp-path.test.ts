@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,7 +23,7 @@ import { stripComments } from './source-scan'
 // own record belongs rather than in the project's history.
 describe('the weekly stamp is written where the hook reads it', () => {
   const SRC = readFileSync(
-    join(new URL('.', import.meta.url).pathname, '..', '..', 'scripts', 'weekly-update.mjs'),
+    join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'scripts', 'weekly-update.mjs'),
     'utf8',
   )
 
