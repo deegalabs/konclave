@@ -1,0 +1,1 @@
+- On a phone, the "We compared it. Show the address" button on the viewing-code card no longer runs past the card's edge: its label wraps inside the card.
