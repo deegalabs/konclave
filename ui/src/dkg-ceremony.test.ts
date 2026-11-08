@@ -2,6 +2,7 @@
 // The vault creation ceremony (version 2) driven over an in-memory relay, as the relay drives real
 // devices: honest devices agree on one code and, once it is confirmed, create one vault; anything
 // inconsistent before the code is confirmed stops the ceremony and nothing secret is sent.
+import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -617,7 +618,7 @@ describe('sealing during vault creation has one implementation', () => {
     // The round-2 packages and the vault secret are sealed inside WASM (CreationSession), to the
     // keys bound into the code. A caller of sealTo, or of the previous DkgSession, would be a
     // second, unchecked answer to "whose key does this secret go to".
-    const SRC = new URL('.', import.meta.url).pathname
+    const SRC = fileURLToPath(new URL('.', import.meta.url))
     const files = (dir: string, out: string[] = []): string[] => {
       for (const name of readdirSync(dir)) {
         const p = join(dir, name)
@@ -636,7 +637,7 @@ describe('sealing during vault creation has one implementation', () => {
 describe('NetVault routes the creation ceremony through DkgCeremony', () => {
   // NetVault has no test harness of its own; these pin the places it must defer to the ceremony,
   // so removing one is a red test rather than a silent gap.
-  const nv = codeAt(new URL('./screens/NetVault.tsx', import.meta.url).pathname)
+  const nv = codeAt(fileURLToPath(new URL('./screens/NetVault.tsx', import.meta.url)))
   it('reports every relay message to the ceremony, in order', () => {
     expect(nv).toMatch(/\(m: RelayMsg\) => \{\s*ceremonyRef\.current\?\.noteSeq\(m\.seq\)/)
   })
@@ -660,7 +661,7 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
   })
   it('finishVault reads the coordinator\'s answer through the one deposit rule, and backs up only a finished vault', () => {
     // The deposit rule now lives in the one registration function, which the creation calls.
-    expect(codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)).toMatch(/depositAddress\(\{ ...rec, pending: false \}, addressText\(v\.address\), \{ threshold: v\.threshold, total: v\.total \}\)/)
+    expect(codeAt(fileURLToPath(new URL('./conclude-registration.ts', import.meta.url)))).toMatch(/depositAddress\(\{ ...rec, pending: false \}, addressText\(v\.address\), \{ threshold: v\.threshold, total: v\.total \}\)/)
     expect(nv).toMatch(/await concludeRegistration\(saved\.vaultId\)/)
     expect(nv).toMatch(/if \(saved && pass && finished\) \{/)
   })
@@ -673,7 +674,7 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
     expect(nv).toMatch(/sessionRef\.current\?\.stop\(\)\s*savePassRef\.current = ''/)
   })
   it('a vault left unfinished is finished only by the member, in two steps, from the vault list', () => {
-    const vl = codeAt(new URL('./screens/Vaults.tsx', import.meta.url).pathname)
+    const vl = codeAt(fileURLToPath(new URL('./screens/Vaults.tsx', import.meta.url)))
     expect(vl).toMatch(/finishing !== v\.id \?[\s\S]{0,1200}?disabled=\{finishArmed !== v\.id\}[\s\S]{0,500}?updateVaultMeta\(v\.id, \{ pending: false \}\)/)
   })
   it('lets no rejoin touch the seats while a vault is being created', () => {

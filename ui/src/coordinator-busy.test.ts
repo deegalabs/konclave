@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codeAt } from './source-scan'
 
@@ -135,12 +136,12 @@ describe('the endings of a busy that never cleared', () => {
   it('a registration that stayed busy is "try again", never "unreachable"', async () => {
     const { refusalKey } = await import('./conclude-registration')
     expect(refusalKey({ refused: 'busy' })).toBe('registration.tryAgain')
-    const code = codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./conclude-registration.ts', import.meta.url)))
     expect(code).toMatch(/if \(failure\?\.busy\) return \{ refused: 'busy' \}/)
   })
 
   it('there is one reader of a busy answer', () => {
-    const helper = codeAt(new URL('./helper.ts', import.meta.url).pathname)
+    const helper = codeAt(fileURLToPath(new URL('./helper.ts', import.meta.url)))
     expect(helper).toMatch(/export function busyOf\(/)
     expect(helper.match(/\.busy ===/g) ?? [], 'a second reader of the busy field').toHaveLength(0)
   })

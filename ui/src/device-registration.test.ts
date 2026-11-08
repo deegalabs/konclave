@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -20,7 +21,7 @@ import { codeAt } from './source-scan'
 // Asserted as UNIQUENESS rather than as "the signer no longer calls it", because a scan for an
 // absence is satisfied by any file that happens to mention the right symbol somewhere else. That
 // exact mistake shipped in this repo this week and was caught only by red-checking it.
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 const HOME = 'device-registration.ts' // the one file allowed to call it
 const DEFINES = 'helper.ts' // where registerDeviceKey is declared
 

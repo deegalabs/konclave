@@ -49,7 +49,8 @@ test.describe('the trust disclosure on a phone', () => {
       const wrap = page.locator('.trust-wrap')
       expect(await wrap.evaluate((w) => w.scrollWidth > w.clientWidth)).toBe(true)
       // Wider than its frame is not enough: the frame must scroll, or the far columns are cut off by
-      // whatever clips further up, out of the member's reach.
+      // whatever clips further up. Setting scrollLeft rules out `overflow: visible`; it still passes on
+      // `overflow: hidden`, which the arrow keys below catch.
       expect(await wrap.evaluate((w) => { w.scrollLeft = 80; return w.scrollLeft > 0 })).toBe(true)
       // And from the keyboard: focused, the frame scrolls with the arrow keys.
       await wrap.evaluate((w) => { w.scrollLeft = 0 })
