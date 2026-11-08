@@ -11,11 +11,13 @@ const en = (k: string, vars: Record<string, string> = {}): string =>
   Object.entries(vars).reduce((s, [a, b]) => s.replace(`{${a}}`, b), dict[k] ?? k)
 
 // The vault card's figures as badges, each explaining itself, over the real list.
-const h = vi.hoisted(() => ({ list: vi.fn(), select: vi.fn() }))
+const h = vi.hoisted(() => ({ list: vi.fn(), select: vi.fn(), unlocked: false }))
 vi.mock('./screens/NetVault', () => ({ default: () => null }))
 vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), helperConfigured: () => true }))
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), health: async () => false, getVaults: async () => [], isVaultUnlocked: () => false, setSelectedVault: h.select }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: h.list, readVaults: h.list }))
+vi.mock('./session', async (orig) => ({ ...(await orig<typeof import('./session')>()), unlockedHere: () => h.unlocked }))
+vi.mock('./conclude-registration', async (orig) => ({ ...(await orig<typeof import('./conclude-registration')>()), concludeRegistration: async () => ({ address: 'u1registered' }) }))
 const Vaults = (await import('./screens/Vaults')).default
 
 // jsdom has no PointerEvent: without one the pointer type a handler reads would be lost.
@@ -39,6 +41,7 @@ beforeEach(() => {
   })
   localStorage.clear()
   h.select.mockClear()
+  h.unlocked = false
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 
@@ -146,7 +149,8 @@ describe('entering, and what does not enter', () => {
     expect(h.select).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('heading', { name: 'Alpha' }))
     expect(h.select).toHaveBeenCalledTimes(1)
-  })  // The card's notes are the member's to read and act on, and the one guard is what keeps a click on
+  })
+  // The card's notes are the member's to read and act on, and the one guard is what keeps a click on
   // them from entering: no note on the card stops the click itself, so the click must reach the document.
   // (The viewing-code note shows only while the code is not compared, and entering refuses then too;
   // what that test can catch is a note that swallows the click again.)
@@ -179,6 +183,26 @@ describe('entering, and what does not enter', () => {
     fireEvent.click(note.querySelector('strong')!)
     fireEvent.click(note.querySelector('p')!)
     expect(bubbled).toHaveBeenCalledTimes(3)
+    expect(h.select).not.toHaveBeenCalled()
+  })
+  it('a click on the words of either warning does not enter: the unfinished creation, then the registered vault', async () => {
+    // A creation that did not finish on this device, every seat saved: the card warns, offers to finish.
+    h.unlocked = true
+    h.list.mockResolvedValue([rec(A, 'Alpha', { cp: 3, pending: true, allSaved: true })])
+    const card = await cardOf('Alpha')
+    const bubbled = reachesDocument()
+    const unfinished = card.querySelector('.cv-warn') as HTMLElement
+    expect(unfinished.querySelector('strong')!.textContent).toBe(en('vaults.pendingBadge'))
+    fireEvent.click(unfinished.querySelector('strong')!)
+    fireEvent.click(unfinished)
+    expect(bubbled).toHaveBeenCalledTimes(2)
+    expect(h.select).not.toHaveBeenCalled()
+    // Finished from the card: the other warning, the one that offers the backup copy.
+    fireEvent.click(within(card).getByRole('button', { name: en('vaults.resumeButton') }))
+    await act(async () => { fireEvent.click(within(card).getByRole('button', { name: en('vaults.resumeGo') })) })
+    const done = await within(card).findByText(en('vaults.resumeDone'))
+    fireEvent.click(done)
+    fireEvent.click(within(card).getByText(en('vaults.resumeBackupAsk')))
     expect(h.select).not.toHaveBeenCalled()
   })
 })
