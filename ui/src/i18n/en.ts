@@ -240,8 +240,6 @@ export const en: Record<string, string> = {
   'dashboard.evictionCta': "Back up this vault",
   'dashboard.openBanner': 'Open vault: anyone with the link can read this vault (balance, history, members) through the server. The blockchain itself stays encrypted. Protecting it means re-creating the vault and moving the funds with a signed send; not automatic.',
   'dashboard.securedNote': 'Private vault: a leaked link opens neither the books nor the signing room.',
-  'dashboard.upgradeBefore': 'The Zcash network upgrades at block {height}. Payments are paused for a while around the upgrade. Nothing is lost and your approvals stand.',
-  'dashboard.upgradeAfter': 'The Zcash network has upgraded. If a payment is refused for a while, Konclave is still being updated; try again later. Nothing is lost.',
   'vaults.membersCount': '{n} members',
   'vaults.receive': 'receive',
   'vaults.enter': 'Enter',
