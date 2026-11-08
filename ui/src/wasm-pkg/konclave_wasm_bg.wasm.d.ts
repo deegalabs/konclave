@@ -86,6 +86,7 @@ export const testvault_new: () => [number, number, number];
 export const testvault_pubkeys: (a: number) => [number, number];
 export const approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const describeOutputs: (a: number, b: number) => [number, number, number, number];
+export const estimatedFeeZat: (a: number) => number;
 export const extractRandomizers: (a: number, b: number) => [number, number, number, number];
 export const injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const pcztSighash: (a: number, b: number) => [number, number, number, number];

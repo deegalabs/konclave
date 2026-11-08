@@ -144,6 +144,8 @@ export function refusalKey(e: unknown): string {
   switch (code) {
     case 'fee':
       return 'net.err.feeTooHigh'
+    case 'clock':
+      return 'net.err.feeClock'
     case 'commitment':
     case 'undecryptable':
       return 'net.err.outputMismatch'

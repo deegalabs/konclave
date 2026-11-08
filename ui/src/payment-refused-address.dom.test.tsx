@@ -16,6 +16,11 @@ const ZS = 'zs1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
 const T1 = 't1Rv4exT7bqhZqi2j7xz8bUHDMxwosrjADU'
 const U1 = 'u1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'
 const benefs = vi.hoisted(() => ({ list: [] as unknown[] }))
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  // The real estimate needs the wasm, which jsdom does not load; this is the rule's figure (fee-estimate.test.ts).
+  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+}))
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
   health: async () => true,

@@ -29,7 +29,7 @@ import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price
 import { describeSigningError } from '../signing-refusal'
 import { readingRows } from '../device-reading'
 import { againFromPanel } from '../sign-again'
-import { estimatedFeeZat } from '../fee-estimate'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import type { SignPreview } from '../signing-machine'
 import { ARM_TTL_MS } from '../signing-gate'
 
@@ -166,6 +166,7 @@ export default function SigningPanel() {
   // Which confirm is open: the usual one, or the one for a second signature on this payment.
   const [confirming, setConfirming] = useState<null | 'sign' | 'again'>(null)
   const [sending, setSending] = useState(false)
+  const feeEstimate = useFeeEstimate()
   // The coordinator answered busy and the send is waiting to try again (busy contract v1).
   const [busyWaiting, setBusyWaiting] = useState(false)
   // When the ceremony started on THIS device. The run is minutes long and emits no event we can
@@ -417,15 +418,17 @@ export default function SigningPanel() {
   const amt = fmtZecExact(Number(active.value_zec))
   const isPayroll = active.kind === 'payroll'
 
-  // ZIP-317, spends + outputs (see the note in Proposal.tsx): one spend + N destinations + change.
-  // The line count is fetched with the proposal; a payroll whose lines have not landed yet is
-  // costed as one destination, which under-states rather than over-states, so the block never
-  // fires on a guess.
-  const feeZat = estimatedFeeZat(isPayroll ? payrollLines ?? 1 : 1)
-  // A payroll's fee depends on its lines: shown only once they are known, never costed on a guess.
-  const feeKnown = !isPayroll || payrollLines !== null
+  // The one estimate (`fee-estimate.ts`, read from the device's rule), the figure the proposal page
+  // shows. A payroll whose lines have not landed yet is costed as one destination, which
+  // under-states rather than over-states, so the block never fires on a guess.
+  const feeEstimator = estimatorOf(feeEstimate)
+  const feeEst = feeEstimator ? feeEstimator(isPayroll ? payrollLines ?? 1 : 1) : null
+  const feeZat = feeEst ?? 0
+  // Shown only once it is known: a payroll's fee depends on its lines, and the estimate on the rule
+  // having answered. Unknown never blocks signing: what the device signs is judged by the device.
+  const feeKnown = feeEst !== null && (!isPayroll || payrollLines !== null)
   const amountZat = parseZecToZat(active.value_zec ?? '')
-  const shortZat = spendableZat === null || amountZat === null
+  const shortZat = spendableZat === null || amountZat === null || feeEst === null
     ? 0
     : Math.max(0, amountZat + feeZat - spendableZat)
 
