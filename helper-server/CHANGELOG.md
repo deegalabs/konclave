@@ -42,6 +42,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
+  2026-11-08 00:06 UTC
+  ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
+  For a vault with no read key yet, `POST /api/vault/readkey` registered the first key it received,
+  with no proof of membership. Whoever set it could then read the vault's gated routes, fetch its
+  viewing key (`/api/vault/ufvk`) and claim its unregistered seats (`/api/vault/devicekey`), and the
+  members' own read key answered `401`; nothing could be spent. Since the coordinator of 2026-11-08 a
+  new vault is created under creation protocol 3 and opens nothing until `t` seats' certificates agree
+  on one package and one read-key hash (ADR-0012), and no vault takes a first read key any more. At the
+  fix, none of the vaults checked on the hosted coordinator was without a read key (one, belonging to a
+  user outside the project, was not opened). The hosted coordinator has run this
+  since 2026-11-08 00:06 UTC.
 - **A new vault must be created with the current app.** The coordinator requires creation
   protocol 3 of every new vault registration, and `/api/health` reports it (`client.creation: 3`);
   an older app is answered `update_required`: from 0.13.0 it tells its member to update, an older
@@ -82,6 +94,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   built (409), and the boot log counts such vaults and names them by prefix: their sealed sends
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
+
+### Added
+
+- **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
+  trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
+  bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
+  own field, never as the memo, and returned on the reads. A payroll without one, a single payment,
+  and every proposal stored before this version carry no `title` key, so an older reader sees the
+  same record. It is a label: no signature covers it yet (#567). Not yet on the hosted coordinator.
 
 ### Changed
 

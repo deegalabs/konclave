@@ -13,6 +13,7 @@ import { Root } from './Root'
 import { applyTheme, getTheme } from './theme'
 import { isDesktop } from './platform'
 import { retireServiceWorkers } from './desktop-worker'
+import { sweepRemovedVaults } from './sweep-removed'
 
 // Apply the saved theme before first paint (white-first; dark is opt-in via Settings).
 applyTheme(getTheme())
@@ -23,3 +24,7 @@ createRoot(document.getElementById('root')!).render(<Root />)
 // rendered in the app tree. The desktop app renders no <UpdatePrompt /> and removes any worker an
 // earlier version left in the WebView profile (desktop-worker.ts).
 if (isDesktop) void retireServiceWorkers()
+
+// What this browser still keeps for vaults it no longer holds (removed before #813) is cleared once
+// per start. It reads the vault records first and clears nothing when they cannot be read.
+void sweepRemovedVaults()

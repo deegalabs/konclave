@@ -10,7 +10,7 @@ import { Identicon } from '../avatar'
 import { fmtZecExact, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
-import { estimatedFeeZat } from '../fee-estimate'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -19,6 +19,7 @@ import {
 } from '../api'
 import { useVaultReadable } from '../vault-readable'
 import { readPlan } from '../approved-payment'
+import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
 
@@ -43,6 +44,7 @@ export default function Proposal() {
   const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
+  const feeEstimate = useFeeEstimate()
   const [rosterDiffers, setRosterDiffers] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
@@ -217,13 +219,14 @@ export default function Proposal() {
   const single = plan.kind === 'payment' ? plan.lines[0] : undefined
   const dest = single ? shortAddr(single.address) : '-'
   const isPayroll = plan.kind === 'payroll'
-  // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
-  // count is spends + outputs (orchard's builder pairs each with a fabricated zero-valued
-  // counterpart), so one spend + N destinations + change. Measured against a real refusal: a 2-line
-  // payroll of 4000 zat was charged 20000, exactly four actions.
+  // The one estimate (`fee-estimate.ts`, read from the device's rule), the same figure the payment
+  // and payroll screens reserved with (#692). Not shown while it is unknown, never guessed.
+  const feeEstimator = estimatorOf(feeEstimate)
   const cost = (() => {
     const amountZat = plan.totalZat
-    const feeZat = estimatedFeeZat(plan.lines.length)
+    if (!feeEstimator) return null
+    const feeZat = feeEstimator(Math.max(1, plan.lines.length))
+    if (feeZat === null) return null
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }
@@ -239,7 +242,7 @@ export default function Proposal() {
 
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
-  const title = plan.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
+  const title = proposalName({ title: p.title, memo: plan.memo }, isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
   // The payment's destination is stated in full in the facts below, so the subtitle does not repeat it shortened.
   const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: plan.lines.length }) : ''
 

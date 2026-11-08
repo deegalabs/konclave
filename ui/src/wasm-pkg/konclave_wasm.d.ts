@@ -243,6 +243,13 @@ export function describeOutputs(pczt: Uint8Array): string;
 export function deviceWritePubHex(key_package: Uint8Array): string;
 
 /**
+ * The fee a screen shows and reserves for a payment to `destinations`, in zatoshis, read from the
+ * one rule (`konclave_seal::epochs`, ZIP 2009) with this device's clock. `0` when the clock
+ * confirms no window: the caller treats that as unknown and blocks, never as a default.
+ */
+export function estimatedFeeZat(destinations: number): number;
+
+/**
  * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
  * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
  */
@@ -509,6 +516,7 @@ export interface InitOutput {
     readonly testvault_pubkeys: (a: number) => [number, number];
     readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly estimatedFeeZat: (a: number) => number;
     readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
     readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly pcztSighash: (a: number, b: number) => [number, number, number, number];

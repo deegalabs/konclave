@@ -101,6 +101,11 @@ describe('the rule for a new passphrase', () => {
     expect(refused / 2000).toBeLessThan(0.13)
   })
 
+  it('the floor is twelve characters, exactly', () => {
+    expect(newPassphraseProblem('Xq7#vB2!pL9')).toBe('too-short') // 11
+    expect(newPassphraseProblem('Xq7#vB2!pL9m')).toBeNull() // 12
+  })
+
   it('says short for a short one, whatever else is wrong with it', () => {
     expect(newPassphraseProblem('12345678')).toBe('too-short')
     expect(newPassphraseProblem('Konclave2026')).toBe('guessable')

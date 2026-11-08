@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// The dashboard tells a member, before they try to pay, that the network is about to upgrade and that
-// payments pause around it. It reads the chain tip from the balance answer and the upgrade height from
-// WASM (the epoch table); this drives the real screen with a stubbed balance at three tips.
+// The dashboard told a member, around a network upgrade, that payments pause around it. NU7 activated
+// at block 3,543,405 and payments after it are proven on mainnet, so the notice was removed.
+// This drives the real screen with a stubbed balance at tips that used to show it, and checks that
+// nothing does now. The window rule (`upgrade-notice.ts`) stays in the code for the next upgrade.
 
 const VAULT_ID = 'a'.repeat(64)
 const UPGRADE = 3_543_405
@@ -54,26 +55,18 @@ async function openDashboardAt(page: Page, tip: number) {
   }
 }
 
-test('a tip just before the upgrade shows the notice with the block, from the table', async ({ page }) => {
-  await openDashboardAt(page, UPGRADE - 200)
-  await expect(page.getByRole('status').filter({ hasText: /upgrades at block 3,543,405/ })).toBeVisible()
-  await expect(page.getByText(/Nothing is lost and your approvals stand/)).toBeVisible()
-})
-
-test('a tip just after it says what to expect, without promising a time', async ({ page }) => {
-  await openDashboardAt(page, UPGRADE + 500)
-  await expect(page.getByRole('status').filter({ hasText: /The Zcash network has upgraded/ })).toBeVisible()
-})
-
-test('a tip far from it shows no notice', async ({ page }) => {
-  // A positive control first, on the same stub: near the upgrade the notice shows, so the balance, the
-  // table in WASM and the screen all work. Without it this test would also pass with a broken pipeline.
+test('no tip around the upgrade shows a notice on the dashboard', async ({ page }) => {
+  // A positive control first: the dashboard rendered for this vault on the stubbed balance, so the
+  // absence below is not a page that never loaded.
   const setTip = await openDashboardAt(page, UPGRADE - 200)
-  await expect(page.getByRole('status').filter({ hasText: /upgrades at block 3,543,405/ })).toBeVisible()
-  setTip(UPGRADE - 20_000)
+  await expect(page.getByRole('heading', { name: 'V', exact: true })).toBeVisible()
+  await page.waitForTimeout(1_000)
+  await expect(page.getByText(/Zcash network (upgrades|has upgraded)/)).toHaveCount(0)
+  setTip(UPGRADE + 500)
   const balance = page.waitForResponse(/\/api\/balance/)
   await page.reload()
   await balance
+  await expect(page.getByRole('heading', { name: 'V', exact: true })).toBeVisible()
   await page.waitForTimeout(1_000)
   await expect(page.getByText(/Zcash network (upgrades|has upgraded)/)).toHaveCount(0)
 })

@@ -4,7 +4,7 @@
 // against the same real Ironwood (V6/NU6.3, pczt v2) golden vector that pins the native signer
 // (audit C6). It proves the wire encoding round-trips in JavaScript, not just that Rust compiles.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import init, { describeOutputs, extractRandomizers, injectSigs, readPayment } from './wasm-pkg/konclave_wasm.js'
 
 const vec = (name: string) =>
@@ -17,6 +17,16 @@ const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
 // action-0 alpha. A `create-max` tx spending four notes, so every action is a real Ironwood spend.
 const IW_SIGHASH = hex('332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0')
 const IW_ALPHA0 = '63267dad44b3621cd5246056295def55bd012cb053de4ba7af406e35d4ba4734'
+
+// A fixed clock: readPayment and describeOutputs judge the fee by the device's clock (ZIP 2009 eras),
+// so a test that reads the real time changes its verdict the day the window moves, with no code change.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T00:00:00Z'))
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 beforeAll(async () => {
   const wasmBytes = readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url))

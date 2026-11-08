@@ -958,6 +958,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
 
   it('refusalKey maps each bracketed code, with or without the Error: prefix (#610)', () => {
     expect(refusalKey('[fee] x')).toBe('net.err.feeTooHigh')
+    expect(refusalKey('[clock] x')).toBe('net.err.feeClock')
     expect(refusalKey('Error: [commitment] x')).toBe('net.err.outputMismatch')
     expect(refusalKey('[undecryptable] x')).toBe('net.err.outputMismatch')
     expect(refusalKey('[dummy] action 1 still carries a dummy spending key')).toBe('net.err.unexpectedShape')

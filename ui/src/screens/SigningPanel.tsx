@@ -30,7 +30,7 @@ import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price
 import { describeSigningError } from '../signing-refusal'
 import { readingRows } from '../device-reading'
 import { againFromPanel } from '../sign-again'
-import { estimatedFeeZat } from '../fee-estimate'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import type { SignPreview } from '../signing-machine'
 import { ARM_TTL_MS } from '../signing-gate'
 
@@ -198,6 +198,7 @@ export default function SigningPanel() {
   const lastAtOpen = useRef(false)
   const [confirmChanged, setConfirmChanged] = useState(false)
   const [sending, setSending] = useState(false)
+  const feeEstimate = useFeeEstimate()
   // The coordinator answered busy and the send is waiting to try again (busy contract v1).
   const [busyWaiting, setBusyWaiting] = useState(false)
   // When the ceremony started on THIS device. The run is minutes long and emits no event we can
@@ -504,15 +505,15 @@ export default function SigningPanel() {
   const isPayroll = plan?.kind === 'payroll'
   const destPublic = plan?.kind === 'payment' && !!plan.lines[0]?.isPublic
 
-  // ZIP-317, spends + outputs (see the note in Proposal.tsx): one spend + N destinations + change.
-  // The line count is fetched with the proposal; a payroll whose lines have not landed yet is
-  // costed as one destination, which under-states rather than over-states, so the block never
-  // fires on a guess.
-  const feeZat = estimatedFeeZat(plan?.lines.length ?? 1)
-  // A payroll's fee depends on its lines: shown only once they are known, never costed on a guess.
-  const feeKnown = !!plan
+  // The one estimate (`fee-estimate.ts`, read from the device's rule), the figure the proposal page
+  // shows, over the lines of this device's own reading. Shown only once the reading and the rule have
+  // answered; unknown never blocks signing: what the device signs is judged by the device.
+  const feeEstimator = estimatorOf(feeEstimate)
+  const feeEst = feeEstimator && plan ? feeEstimator(Math.max(1, plan.lines.length)) : null
+  const feeZat = feeEst ?? 0
+  const feeKnown = !!plan && feeEst !== null
   const amountZat = plan ? plan.totalZat : null
-  const shortZat = spendableZat === null || amountZat === null
+  const shortZat = spendableZat === null || amountZat === null || feeEst === null
     ? 0
     : Math.max(0, amountZat + feeZat - spendableZat)
 

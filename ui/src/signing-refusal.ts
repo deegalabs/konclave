@@ -23,6 +23,7 @@ export const REFUSALS: ReadonlySet<string> = new Set([
   'net.err.approvalUnknown',
   'net.err.unreadablePczt',
   'net.err.feeTooHigh',
+  'net.err.feeClock',
   'net.err.outputMismatch',
   'net.err.labelMismatch',
   'net.err.unexpectedShape',

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { rememberBalance, rememberProposals, vaultStatus, statusIsStale, openCountKey } from './vault-status'
+import { rememberBalance, rememberProposals, vaultStatus, readAt, readIsStale, openBadgeKey } from './vault-status'
 import { setReadSecret, clearReadSecret } from './session'
 import type { Proposal } from './api'
 import { codeOf } from './source-scan'
@@ -116,14 +116,21 @@ describe('a private vault keeps no amounts on the device', () => {
 })
 
 describe('how the card reads it', () => {
-  it('greys the free figure by the age of the free figure, past a day', () => {
-    const base = { freeZat: 1, openCount: 0, lastProposal: null, proposalsAt: 0 }
+  const base = { freeZat: 1, freeAt: 100, openCount: 0, lastProposal: null, proposalsAt: 500 }
+  it('the card carries the time of the amount when the amount is shown, the proposals read otherwise', () => {
+    expect(readAt(base, true)).toBe(100)
+    expect(readAt(base, false)).toBe(500)
+    expect(readAt({ ...base, proposalsAt: null }, false)).toBeNull()
+  })
+  it('past a day is stale, by that one time: a locked private card, with no amount, greys too', () => {
     const n = 1_000_000
-    expect(statusIsStale({ ...base, freeAt: n - 86_400 - 1, proposalsAt: n }, n)).toBe(true)
-    expect(statusIsStale({ ...base, freeAt: n - 86_400 + 60, proposalsAt: n - 900_000 }, n)).toBe(false)
+    expect(readIsStale(n - 86_400 - 1, n)).toBe(true)
+    expect(readIsStale(n - 86_400 + 60, n)).toBe(false)
+    // The private card shows no amount, so its time is the proposals read, and that one ages.
+    expect(readIsStale(readAt({ ...base, freeZat: null, freeAt: null, proposalsAt: n - 90_000 }, false)!, n)).toBe(true)
   })
   it('says one, none, or many open proposals', () => {
-    expect([openCountKey(0), openCountKey(1), openCountKey(2)]).toEqual(['vaults.stateNoOpen', 'vaults.stateOpenOne', 'vaults.stateOpen'])
+    expect([openBadgeKey(0), openBadgeKey(1), openBadgeKey(2)]).toEqual(['vaults.badgeNoOpen', 'vaults.badgeOpenOne', 'vaults.badgeOpen'])
   })
 })
 
@@ -148,17 +155,44 @@ describe('the reads leave the figures, and the list shows them', () => {
     expect(rest).toMatch(/rememberProposals\(sel,/)
     expect(rest.indexOf('const sel')).toBeLessThan(rest.indexOf('await getJson'))
   })
-  it('the vault card reads the status, dates each figure, and says when nothing was read', () => {
+  it('the vault card reads the status, carries one read time, and says when nothing was read', () => {
     const src = codeOf('screens/Vaults.tsx')
     expect(src).toMatch(/vaultStatus\(/)
+    expect(src).toMatch(/readAt\(/)
     expect(src).toMatch(/t\('vaults\.stateNone'\)/)
     expect(src).toMatch(/fmtDateTime\(/)
-    expect(src).toMatch(/stopPropagation\(\)\}><Secret/) // the veil's click stays in the veil
-    for (const k of ['vaults.stateFree', 'vaults.stateOpen', 'vaults.stateOpenOne', 'vaults.stateNoOpen', 'vaults.stateLast', 'vaults.stateNone']) {
+    for (const k of ['vaults.badgeOpen', 'vaults.badgeOpenOne', 'vaults.badgeNoOpen', 'vaults.badgeLast', 'vaults.badgeFree', 'vaults.badgeUnread',
+      'vaults.readAt', 'vaults.readAtStale', 'vaults.tipFree', 'vaults.tipOpen', 'vaults.tipLast', 'vaults.stateNone', 'vaults.enterNamed']) {
       expect(en[k], k).toBeTruthy(); expect(ptBR[k], k).toBeTruthy()
     }
-    for (const k of ['vaults.stateOpen', 'vaults.stateOpenOne', 'vaults.stateNoOpen']) { expect(en[k], k).toContain('{when}'); expect(ptBR[k], k).toContain('{when}') }
-    expect(en['vaults.stateNone']).toBe('Nothing read on this device yet. Open it to see how it stands.')
-    expect(ptBR['vaults.stateNone']).toBe('Nada lido neste aparelho ainda. Abra para ver como está.')
+    for (const k of ['vaults.stateFree', 'vaults.stateOpen', 'vaults.stateOpenOne', 'vaults.stateNoOpen', 'vaults.stateLast']) {
+      expect(en[k], k).toBeUndefined(); expect(ptBR[k], k).toBeUndefined()
+    }
+    expect(en['vaults.stateNone']).toBe('Nothing read on this device yet. Enter the vault to see how it stands.')
+    expect(ptBR['vaults.stateNone']).toBe('Nada lido neste aparelho ainda. Entre no cofre para ver como está.')
   })
+  it('the badges say it in the reviewed words, in both languages', () => {
+    const want: Record<string, [string, string]> = {
+      'vaults.badgeOpen': ['{n} open proposals', '{n} propostas abertas'],
+      'vaults.badgeOpenOne': ['1 open proposal', '1 proposta aberta'],
+      'vaults.badgeNoOpen': ['no open proposals', 'nenhuma proposta aberta'],
+      'vaults.badgeLast': ['last proposal {date}', 'última proposta {date}'],
+      'vaults.badgeFree': ['{amount} ZEC free', '{amount} ZEC livres'],
+      'vaults.badgeUnread': ['not read here', 'não lido aqui'],
+      'vaults.readAt': ['as of {when} on this device', 'lido neste aparelho em {when}'],
+      'vaults.readAtStale': ['as of {when} on this device, over a day ago', 'lido neste aparelho em {when}, há mais de um dia'],
+      'vaults.tipFree': ["Spendable balance minus what open proposals reserve, as this device last read it. The reserve is a Konclave rule, not the network's.",
+        'Saldo disponível menos o que as propostas abertas reservam, na última leitura deste aparelho. A reserva é regra da Konclave, não da rede.'],
+      'vaults.tipOpen': ['Proposals waiting for votes or to be signed and sent, as this device last read them.',
+        'Propostas esperando votos ou assinatura e envio, na última leitura deste aparelho.'],
+      'vaults.tipLast': ['When the newest proposal was made, open or not.', 'Quando foi feita a proposta mais recente, aberta ou não.'],
+      'vaults.enterNamed': ['Enter {name}', 'Entrar em {name}'],
+    }
+    for (const [k, [e, p]] of Object.entries(want)) { expect(en[k], k).toBe(e); expect(ptBR[k], k).toBe(p) }
+    // "Open" is the vault's tag (an open vault); a count of open proposals never reads as a bare "0 open".
+    for (const k of ['vaults.badgeOpen', 'vaults.badgeOpenOne', 'vaults.badgeNoOpen']) {
+      expect(en[k], k).toMatch(/proposal/); expect(ptBR[k], k).toMatch(/proposta/); expect(ptBR[k], k).not.toMatch(/pendente/i)
+    }
+  })
+
 })
