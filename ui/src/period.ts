@@ -7,6 +7,12 @@ export type PeriodKind = 'all' | 'month' | 'quarter' | 'year'
 /** Unix seconds, half-open: an entry belongs when `from <= created_at < to`. */
 export type PeriodWindow = { from: number; to: number }
 
+/** An entry's creation date, or null when it has none: the local bridge sends `null` for older
+ *  proposals and the helper may leave it out, and both mean the same thing. The rules that need
+ *  "no date" told apart from a number take it from here, so a null is never read as a number. */
+export const createdAt = (e: { created_at?: number | null }): number | null =>
+  (typeof e.created_at === 'number' ? e.created_at : null)
+
 const unix = (d: Date) => Math.floor(d.getTime() / 1000)
 
 /** The window `offset` units away from the one holding `now` (0 = the current one, -1 = the previous). */
