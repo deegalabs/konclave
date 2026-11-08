@@ -28,10 +28,10 @@
 //   is complete only when every seat has, and only then is it registered or its address shown, so
 //   no one funds a vault a member does not hold.
 // A stop is final: nothing is sealed or sent after it, and the vault is not saved.
-import { CreationSession, DeviceKey } from './wasm-pkg/konclave_wasm.js'
+import { CreationSession, sameMember, DeviceKey } from './wasm-pkg/konclave_wasm.js'
 import { b64, unb64, bytesEqual } from './net'
 import { bytesToHex } from './bytes'
-import { signVaultSecret, vaultSecretIsProven, signCreated, createdIsProven } from './room-auth'
+import { doneIsProven, signDone, signVaultSecret, vaultSecretIsProven } from './room-auth'
 import type { Governance } from './storage'
 import { CREATION_PROTOCOL } from './creation-protocol'
 
@@ -45,8 +45,9 @@ export type DkgMsg =
   | { type: 'commit'; c: string }
   | { type: 'reveal'; r1: string; nonce: string }
   | { type: 'r2'; to: number; box: string }
-  // A seat finished round 3: a signature by its new share over the vault.
-  | { type: 'done'; sig: string }
+  // A seat finished round 3: its certificate sealed under the vault's proof key, and its share's
+  // signature over that box, which is what says the box is that seat's.
+  | { type: 'done'; proof: string; sig: string }
   // The previous version's round 1. Its presence means a device on an old build is in the room.
   | { type: 'r1'; pkg: string }
 
@@ -55,7 +56,7 @@ export type DkgMsg =
  *  devices than seats; `excluded`: this device arrived after the seats were taken; `gap`: this device did not see every message of the room, in order;
  *  `version`: a device on another version; `failed`: a ceremony step failed; `mismatch`: the
  *  members said the codes did not match; `secret`: the vault's access secret arrived twice, differently. */
-export type DkgAbort = 'conflict' | 'extra' | 'excluded' | 'gap' | 'version' | 'failed' | 'mismatch' | 'secret'
+export type DkgAbort = 'conflict' | 'extra' | 'excluded' | 'gap' | 'version' | 'failed' | 'mismatch' | 'secret' | 'secretSplit' | 'names'
 
 export interface SeatRow {
   tag: string
@@ -71,7 +72,8 @@ export interface Applied {
 
 // Before the config says how many seats there are, a roster stops growing here, so a flood cannot
 // grow it without bound. Also the largest vault WASM accepts.
-const MAX_SEATS = 32
+/** The most seats a vault may have. A test pins it to the module's `maxSeats()`. */
+export const MAX_SEATS = 16
 const MAX_NAME = 64
 
 /** A quorum the signing library accepts: frost-core refuses `min_signers < 2` (#589). Shared with the
@@ -97,6 +99,8 @@ export class DkgCeremony {
   readonly myName: string
   config: DkgConfig | null = null
   aborted: DkgAbort | null = null
+  private vaultKeys: { readKey: Uint8Array; proofKey: Uint8Array } | null = null
+  private waitingDone = new Map<number, string>()
   session: CreationSession | null = null
   private readonly roster = new Map<string, Uint8Array>() // tag -> encPub, in relay order
   private readonly names = new Map<string, string>()
@@ -201,7 +205,7 @@ export class DkgCeremony {
         case 'r2':
           return this.onR2(from, m.to, m.box)
         case 'done':
-          return this.onDone(from, m.sig)
+          return this.onDone(from, m.proof, m.sig)
       }
     } catch {
       this.anomaly('failed') // a malformed message: a stop before the code is confirmed, a note after
@@ -265,6 +269,13 @@ export class DkgCeremony {
     if (this.mySeat === 0) {
       this.excluded = true
       this.abort('excluded') // the seats were taken before this device's hello was counted
+      return []
+    }
+    // A roster has one distinct name per seat, and the coordinator would refuse any other after the
+    // shares exist. Said now, while nothing secret has moved.
+    const seated = tags.map((tag) => this.names.get(tag) ?? '')
+    if (seated.some((a, i) => !a.trim() || seated.slice(0, i).some((b) => sameMember(a, b)))) {
+      this.abort('names')
       return []
     }
     try {
@@ -368,28 +379,67 @@ export class DkgCeremony {
     return { applied: true, out: [] }
   }
 
+  /** The read key and the proof key, both from the vault secret. A seat's certificate needs them, so
+   *  a `done` that comes first waits here, and counts now. */
+  useVaultKeys(readKey: Uint8Array, proofKey: Uint8Array): void {
+    this.vaultKeys ??= { readKey, proofKey }
+    if (!this.part3Done) return
+    const waiting = [...this.waitingDone]
+    this.waitingDone.clear()
+    for (const [seat, proof] of waiting) this.countDone(seat, proof)
+  }
+
   /** This device saved its share: now, and only now, it tells the others it finished. So the vault
    *  is complete (and gets an address) only once every member holds its share on its device. */
   markSaved(): DkgMsg[] {
-    if (this.aborted || !this.part3Done || this.doneSeats.has(this.mySeat)) return []
+    if (this.aborted || !this.part3Done || !this.vaultKeys || this.doneSeats.has(this.mySeat)) return []
+    const { readKey, proofKey } = this.vaultKeys
+    const proof = b64(this.session!.sealedCertificate(readKey, proofKey, CREATION_PROTOCOL))
     this.doneSeats.add(this.mySeat)
     const s = this.session!
-    return [{ type: 'done', sig: signCreated(s.keyPackage(), this.mySeat, bytesToHex(s.groupVk())) }]
+    return [{ type: 'done', proof, sig: signDone(s.keyPackage(), this.mySeat, bytesToHex(s.groupVk()), proof) }]
   }
 
-  private onDone(from: string, sig: string): Applied {
+  private onDone(from: string, proof: string, sig: string): Applied {
     if (!this.part3Done) return { applied: false, out: [] } // judged against this device's own round 3
     const seat = this.seatByTag.get(from)
-    if (seat === undefined || seat === this.mySeat) return { applied: true, out: [] }
     const s = this.session!
-    if (createdIsProven({ groupVk: s.groupVk(), pubkeys: s.pubkeys() }, seat, sig)) this.doneSeats.add(seat)
-    else this.onLog?.('anomaly', seat)
+    // Anyone can write under a tag. Only that seat's share signs this box, so anything else is
+    // dropped here: it holds no place, stops nothing and names nobody.
+    if (seat === undefined || seat === this.mySeat) return { applied: true, out: [] }
+    if (!doneIsProven({ groupVk: s.groupVk(), pubkeys: s.pubkeys() }, seat, proof, sig)) return { applied: true, out: [] }
+    if (!this.vaultKeys) {
+      if (!this.waitingDone.has(seat)) this.waitingDone.set(seat, proof)
+      return { applied: true, out: [] }
+    }
+    this.countDone(seat, proof)
     return { applied: true, out: [] }
+  }
+
+  private countDone(seat: number, proof: string): void {
+    if (this.aborted) return
+    const { readKey, proofKey } = this.vaultKeys!
+    let outcome: string
+    try {
+      outcome = this.session!.addCertificate(seat, unb64(proof), proofKey, readKey, CREATION_PROTOCOL)
+    } catch {
+      outcome = 'invalid'
+    }
+    if (outcome === 'counted') this.doneSeats.add(seat)
+    // The seat signed this box and it does not open here: the two hold different secrets.
+    else if (outcome === 'secretDiffers' || outcome === 'doesNotOpen') this.abort('secretSplit')
+    else if (outcome === 'invalid') this.onLog?.('anomaly', seat)
+    // `repeated`: this seat is already in, and nothing it sends now changes that.
   }
 
   /** Every seat saved its share and proved it: only now may the vault be registered or shown. */
   get complete(): boolean {
-    return this.part3Done && this.config !== null && this.doneSeats.size === this.config.n
+    return !this.aborted && this.part3Done && this.config !== null && this.session?.certificatesComplete() === true
+  }
+
+  /** What the coordinator is asked to pin, once the vault is complete. */
+  pinBundle(): string | null {
+    return this.complete ? this.session!.pinBundleJson() : null
   }
 
   /** The names of the seats that have not yet proven they finished. */
@@ -423,11 +473,13 @@ export class DkgCeremony {
     const s = this.session!
     if (!vaultSecretIsProven({ groupVk: s.groupVk(), pubkeys: s.pubkeys() }, creatorSeat, this.mySeat, box, sig)) return none
     if (this.secretBox !== null) {
-      if (box !== this.secretBox) this.abort('secret')
+      // A device that holds the whole vault is past anything this box could stop.
+      if (box !== this.secretBox && !this.complete) this.abort('secret')
       return none
     }
     try {
       const secret = s.openFromSeat(creatorSeat, unb64(box))
+      if (secret.length !== 32) return none
       this.secretBox = box
       return { applied: true, secret }
     } catch {

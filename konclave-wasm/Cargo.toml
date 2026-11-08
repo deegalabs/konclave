@@ -44,7 +44,8 @@ getrandom = { version = "0.2", features = ["js"] }
 # The confidential channel (ECIES over X25519) - seal each secret to its recipient so the blind relay
 # carries only ciphertext. Extracted to a shared crate so the hosted helper seals with the SAME code
 # (#63); getrandom's `js` feature above unifies into it for the wasm build.
-konclave-seal = { path = "../konclave-seal", features = ["pczt"] }
+konclave-seal = { path = "../konclave-seal", features = ["pczt", "share-sig", "receivers"] }
+serde_json = "1"
 zcash_address = "0.14.0"
 zcash_protocol = { version = "0.11.0", default-features = false }
 # #610: the device opens each paying output with the ephemeral key it derives from the note's

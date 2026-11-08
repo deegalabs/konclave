@@ -34,13 +34,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use konclave_http::ClientAddress;
-use orchestrator::helper::request_recipients;
+use orchestrator::helper::recipients_for;
 use orchestrator::helper::{
-    claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
-    load_device_keys, load_members, load_proposal, payment_plan, read_authorized, register_vault,
-    rename_member, save_proposal, send_config_for, set_read_key, vault_balance, vault_transactions,
-    DeviceError, HelperConfig, HelperProposal, HelperState, PayrollLine, RegisterError,
-    RosterWrite, VaultRegistration, WriteGate,
+    claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
+    load_proposal, payment_plan, read_authorized, register_vault, rename_member, save_proposal,
+    send_config_for, vault_balance, vault_transactions, DeviceError, HelperConfig, HelperProposal,
+    HelperState, PayrollLine, RegisterError, RosterWrite, VaultRegistration, WriteGate,
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
@@ -71,7 +70,15 @@ fn resp(status: u16, body: impl Into<String>) -> Resp {
 /// The vault's PUBLIC view for a response. Deliberately omits the UFVK and the account uuid: the
 /// UFVK decrypts the whole tx graph and the browser does not need it (the helper holds it). The
 /// browser only needs the address (to receive) and the id.
-fn vault_value(r: &VaultRegistration) -> serde_json::Value {
+fn vault_value(vaults_dir: &std::path::Path, r: &VaultRegistration) -> serde_json::Value {
+    use orchestrator::helper::{read_key_state, ReadKey};
+    let state = match read_key_state(vaults_dir, r) {
+        ReadKey::Absent | ReadKey::Set(_) => "legacy",
+        ReadKey::Closed => "closed",
+        ReadKey::Pinned(_) => "pinned",
+        ReadKey::Unreadable => "unreadable",
+    };
+    let pkp_digest = orchestrator::seat_registry::pinned_digest(vaults_dir, r);
     // Quorum (threshold/total) is public and drives the UI; the UFVK + account stay omitted (M1).
     //
     // `change_receiver` is published for #281: a signing device cannot derive the vault's internal
@@ -87,6 +94,8 @@ fn vault_value(r: &VaultRegistration) -> serde_json::Value {
         "threshold": r.threshold,
         "total": r.total,
         "change_receiver": r.change_receiver,
+        "state": state,
+        "pkp_digest": pkp_digest,
     })
 }
 
@@ -202,16 +211,14 @@ fn handle_request(
         };
         // Absent and unreadable both refuse here, harder than the reads: only a key that is SET opens
         // the viewing key, and then only for the holder of it (the same comparison as every read).
-        if !matches!(
-            orchestrator::helper::read_key_state(&cfg.vaults_dir, &reg.vault_id),
-            orchestrator::helper::ReadKey::Set(_)
-        ) {
-            return resp(
-                401,
-                json!({ "error": "this vault has no read key; protect it first" }).to_string(),
-            );
+        use orchestrator::helper::ReadKey;
+        match orchestrator::helper::read_key_state(&cfg.vaults_dir, &reg) {
+            ReadKey::Set(_) | ReadKey::Pinned(_) => {}
+            ReadKey::Closed | ReadKey::Absent | ReadKey::Unreadable => {
+                return read_refusal(cfg, &reg, "this vault has no read key; protect it first");
+            }
         }
-        if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
+        if !read_authorized(&cfg.vaults_dir, &reg, read_token) {
             return resp(401, json!({ "error": "read key required" }).to_string());
         }
         // The birthday rides with the viewing key (#480), because neither rebuilds a vault alone:
@@ -231,9 +238,22 @@ fn handle_request(
         // to its own viewing key, and nobody is ever locked out of something they already hold.
         // A registry that is there and cannot be read is not "no devices": it must not turn the sealed
         // answer into the plaintext one.
-        let pubs = match orchestrator::helper::load_device_keys(&cfg.vaults_dir, &reg.vault_id) {
-            Ok(pubs) => pubs,
-            Err(why) => return registry_unreadable(&reg.vault_id, &why, "viewing key withheld"),
+        let records =
+            match orchestrator::helper::load_device_records(&cfg.vaults_dir, &reg.vault_id) {
+                Ok(records) => records,
+                Err(why) => {
+                    return registry_unreadable(&reg.vault_id, &why, "viewing key withheld")
+                }
+            };
+        // Protocol 3 has no plaintext answer: a vault with nothing to seal to is damaged.
+        let pubs = if orchestrator::helper::holds_pinned_forms(reg.cp) {
+            let keys = orchestrator::helper::seal_keys(&reg, &records);
+            if keys.is_empty() {
+                return coded(503, "vault_unreadable", VAULT_UNREADABLE_TEXT);
+            }
+            keys
+        } else {
+            records.into_iter().map(|r| r.comms).collect()
         };
         return match orchestrator::envelope::seal_to_devices(
             SEALED_UFVK_KIND,
@@ -252,11 +272,8 @@ fn handle_request(
     }
     if *method == Method::Get && GATED_READS.contains(&p) {
         if let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) {
-            if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
-                return resp(
-                    401,
-                    json!({ "error": "read not authorized for this vault" }).to_string(),
-                );
+            if !read_authorized(&cfg.vaults_dir, &reg, read_token) {
+                return read_refusal(cfg, &reg, "read not authorized for this vault");
             }
         }
     }
@@ -299,7 +316,10 @@ fn handle_request(
         // The per-vault read capability is the other half of #267.
         (Method::Get, "/api/vault") => match query_param(query, "vault").and_then(|v| state.get(v))
         {
-            Some(r) => resp(200, json!({ "vault": vault_value(&r) }).to_string()),
+            Some(r) => resp(
+                200,
+                json!({ "vault": vault_value(&cfg.vaults_dir, &r) }).to_string(),
+            ),
             None => resp(404, json!({ "error": "no such vault" }).to_string()),
         },
         (Method::Post, "/api/vault") => {
@@ -311,15 +331,35 @@ fn handle_request(
             // `none`) and whether the vault was already known. An HTTP log carries no bodies, so
             // this is the only place that count can come from.
             log_registration(req.cp, state.contains(&req.group_key));
+            // Protocol 3 goes through the count whether or not the key is known, so a bundle never
+            // gets a stored vault for an answer.
+            if let (Some((pkp, proofs)), Some(cp)) = (&req.bundle, req.cp) {
+                let name = req.name.as_deref().unwrap_or("vault");
+                return match orchestrator::seat_registry::register_and_pin(
+                    cfg,
+                    &req.group_key,
+                    name,
+                    cp,
+                    pkp,
+                    proofs,
+                ) {
+                    Ok(r) => {
+                        let out = vault_value(&cfg.vaults_dir, &r).to_string();
+                        state.insert(r);
+                        resp(200, out)
+                    }
+                    Err(e) => pin_failure(&e),
+                };
+            }
             // Idempotent: if already registered, return it without re-running the tooling. The
             // record keeps the `cp` of the registration that made it.
             if let Some(r) = state.get(&req.group_key) {
-                return resp(200, vault_value(&r).to_string());
+                return resp(200, vault_value(&cfg.vaults_dir, &r).to_string());
             }
             let name = req.name.as_deref().unwrap_or("vault");
             match register_vault(cfg, &req.group_key, name, req.threshold, req.total, req.cp) {
                 Ok(r) => {
-                    let out = vault_value(&r).to_string();
+                    let out = vault_value(&cfg.vaults_dir, &r).to_string();
                     state.insert(r);
                     resp(200, out)
                 }
@@ -341,6 +381,9 @@ fn handle_request(
                 seat: Option<u16>,
                 #[serde(default)]
                 write_pub: Option<String>,
+                /// The seat's own certificate, which a pinned vault asks of a seat it does not hold.
+                #[serde(default)]
+                proof: Option<orchestrator::seat_registry::ProofJson>,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
@@ -380,27 +423,50 @@ fn handle_request(
                     // Open while the vault has no readKey, exactly like the reads: migration stays
                     // per vault, and a pre-#388 vault keeps working rather than losing the ability
                     // to register its own devices.
-                    if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
-                        return resp(
+                    // Everything about the registration is `offer_device`'s, this only maps the
+                    // answer.
+                    use orchestrator::seat_registry as seats;
+                    let proof = match req.proof.as_ref().map(seats::ProofJson::parse) {
+                        Some(None) => {
+                            return resp(
+                                400,
+                                json!({ "error": "proof is not well formed" }).to_string(),
+                            )
+                        }
+                        Some(Some(p)) => Some(p),
+                        None => None,
+                    };
+                    let claim = seats::DeviceClaim {
+                        comms: &req.device_pub,
+                        seat: req.seat,
+                        write_pub: req.write_pub.as_deref(),
+                        proof: proof.as_ref(),
+                    };
+                    match seats::offer_device(&cfg.vaults_dir, &reg, read_token, &claim) {
+                        Ok(seats::DeviceOutcome::NeedsReadKey) => resp(
                             401,
                             json!({ "error": "read key required to register a device on this vault" })
                                 .to_string(),
-                        );
-                    }
-                    // Judged only now, AFTER the vault was found and the read key checked: a stranger
-                    // holding just the id is told to authenticate and learns nothing about what a
-                    // valid registration looks like. Everything about the registration - its shape,
-                    // the seat bound by the vault's own `total`, the keys, and whether an existing
-                    // record may change - is `register_device`'s; this only maps the answer.
-                    match orchestrator::helper::register_device(
-                        &cfg.vaults_dir,
-                        &reg.vault_id,
-                        reg.total,
-                        &req.device_pub,
-                        req.seat,
-                        req.write_pub.as_deref(),
-                    ) {
-                        Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
+                        ),
+                        Ok(seats::DeviceOutcome::Closed) => {
+                            coded(401, "vault_closed", VAULT_CLOSED_TEXT)
+                        }
+                        Ok(seats::DeviceOutcome::SeatNeedsProof) => coded(
+                            401,
+                            "seat_needs_proof",
+                            "this seat needs its own proof to register here",
+                        ),
+                        Ok(seats::DeviceOutcome::SeatBound) => coded(
+                            409,
+                            "seat_bound",
+                            "this seat is already registered to another device",
+                        ),
+                        Ok(seats::DeviceOutcome::Unreadable) => {
+                            coded(503, "vault_unreadable", VAULT_UNREADABLE_TEXT)
+                        }
+                        Ok(seats::DeviceOutcome::Recorded { added }) => {
+                            resp(200, json!({ "ok": true, "added": added }).to_string())
+                        }
                         Err(DeviceError::Invalid(why)) => {
                             resp(400, json!({ "error": why }).to_string())
                         }
@@ -449,33 +515,37 @@ fn handle_request(
             match state.get(&req.group_key) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
-                    // CHANGING a vault's read key requires the current one. Setting the FIRST one
-                    // does not, which is what `read_authorized` already answers: it returns true
-                    // while no key is registered.
-                    //
-                    // `set_read_key` overwrites unconditionally, and this endpoint asked for
-                    // nothing - so a vault id, which is a bearer credential by design, was enough
-                    // to REPLACE the key of any vault, including a protected one. The members'
-                    // devices then derive the right key, present it, and are refused: 401 on
-                    // balance, ledger, proposals, members, transactions. Their own books.
-                    //
-                    // It leaks nothing and moves no money; it locks people out. And it does not
-                    // heal: `registerReadKey` runs only at the DKG, from the creator, so no screen
-                    // would ever re-register the true key. Recovery was a hand-made request by
-                    // someone who knew.
-                    //
-                    // The same shape as the seat claim this repo closed the same day, and the same
-                    // one-line answer - which is the argument for the rule living in
-                    // `read_authorized` rather than being restated per endpoint.
-                    if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
-                        return resp(
+                    // Every answer is `offer_read_key`'s: changing a key needs the current one, a
+                    // first key is taken on nobody's word, a pinned vault's key never changes.
+                    use orchestrator::helper::ReadKeyOutcome as Offer;
+                    match orchestrator::helper::offer_read_key(&cfg.vaults_dir, &reg, read_token, rk) {
+                        Ok(Offer::Set | Offer::Unchanged) => {
+                            resp(200, json!({ "ok": true }).to_string())
+                        }
+                        Ok(Offer::NeedsProof) => coded(
+                            401,
+                            "read_key_needs_proof",
+                            "this vault's first read key is set when it is created",
+                        ),
+                        Ok(Offer::NeedsCurrentKey) => resp(
                             401,
                             json!({ "error": "changing this vault's read key requires the current one" })
                                 .to_string(),
-                        );
-                    }
-                    match set_read_key(&cfg.vaults_dir, &reg.vault_id, rk) {
-                        Ok(()) => resp(200, json!({ "ok": true }).to_string()),
+                        ),
+                        Ok(Offer::Closed) => coded(401, "vault_closed", VAULT_CLOSED_TEXT),
+                        Ok(Offer::PinnedToAnother) => coded(
+                            409,
+                            "read_key_pinned",
+                            "this vault's read key is fixed and this is not it",
+                        ),
+                        Ok(Offer::NotAKey) => resp(
+                            400,
+                            json!({ "error": "read_key must be 64 lower-case hex chars" })
+                                .to_string(),
+                        ),
+                        Ok(Offer::Unreadable) => {
+                            coded(503, "vault_unreadable", VAULT_UNREADABLE_TEXT)
+                        }
                         Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
                     }
                 }
@@ -597,11 +667,18 @@ fn handle_request(
             // INSIDE that ceremony to use it. The gate costs one line, because `read_authorized`
             // already answers "open while unmigrated" - which is also what keeps vault creation
             // working, since the roster is claimed BEFORE the creator registers the read key.
-            if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
-                return resp(
-                    401,
-                    json!({ "error": "this vault's roster is set; changing it requires its read key" })
-                        .to_string(),
+            if !read_authorized(&cfg.vaults_dir, &reg, read_token) {
+                return read_refusal(
+                    cfg,
+                    &reg,
+                    "this vault's roster is set; changing it requires its read key",
+                );
+            }
+            if !orchestrator::helper::roster_fits(&reg, &req.names) {
+                return coded(
+                    400,
+                    "roster_invalid",
+                    "a roster has one distinct name for each seat",
                 );
             }
             match claim_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
@@ -658,7 +735,7 @@ fn handle_request(
             let target = format!("{}\0{}", req.old, req.new);
             let old = match gate_write(
                 cfg,
-                &reg.vault_id,
+                &reg,
                 WriteAction::Rename,
                 &target,
                 Some(&req.old),
@@ -943,7 +1020,7 @@ struct Gated {
 #[allow(clippy::too_many_arguments)]
 fn gate_write(
     cfg: &HelperConfig,
-    vault: &str,
+    reg: &VaultRegistration,
     action: WriteAction,
     target: &str,
     acts_as: Option<&str>,
@@ -954,7 +1031,7 @@ fn gate_write(
     refusal: &'static str,
 ) -> Result<Option<String>, Resp> {
     gate_write_checked(
-        cfg, vault, action, target, acts_as, seat, ts, nonce, sig, refusal,
+        cfg, reg, action, target, acts_as, seat, ts, nonce, sig, refusal,
     )
     .map(|gated| gated.name)
 }
@@ -997,7 +1074,7 @@ fn gate_write(
 #[allow(clippy::too_many_arguments)]
 fn gate_write_checked(
     cfg: &HelperConfig,
-    vault: &str,
+    reg: &VaultRegistration,
     action: WriteAction,
     target: &str,
     acts_as: Option<&str>,
@@ -1009,7 +1086,9 @@ fn gate_write_checked(
 ) -> Result<Gated, Resp> {
     // One decision, in one place: open, gated, or unreadable. An unreadable registry refuses the write:
     // reading it as "no write keys" would open the gate exactly for the vault whose keys it holds.
-    let write_keys = match orchestrator::helper::write_gate(&cfg.vaults_dir, vault) {
+    let vault = reg.vault_id.as_str();
+    let write_keys = match orchestrator::helper::write_gate(&cfg.vaults_dir, reg) {
+        WriteGate::Closed => return Err(coded(401, "vault_closed", VAULT_CLOSED_TEXT)),
         WriteGate::Open => {
             // open vault (D5)
             return Ok(Gated {
@@ -1206,7 +1285,7 @@ fn handle_proposal_send(
     // Bound to the proposal id, so a signature for one send cannot fire another.
     let gated = match gate_write_checked(
         cfg,
-        &req.vault,
+        &reg,
         WriteAction::Send,
         id,
         None, // a send records no name
@@ -1242,13 +1321,14 @@ fn handle_proposal_send(
     // of its own vault. Until then (and for legacy 0-total vaults) the request stays plaintext, so
     // the rollout never breaks a live vault. A device registers on unlock, so a vault converges to
     // sealed as its members open it on a build that registers.
-    let registered = match load_device_keys(&cfg.vaults_dir, &reg.vault_id) {
+    let registered = match orchestrator::helper::load_device_records(&cfg.vaults_dir, &reg.vault_id)
+    {
         Ok(registered) => registered,
         Err(why) => return registry_unreadable(&reg.vault_id, &why, "send refused"),
     };
     // Who it is sealed to, and whether it may go out in clear text at all, is `request_recipients`'s
     // to say. A refusal waits for the gate below: an earlier attempt is settled first.
-    let recipients = request_recipients(reg.total, &registered, gated.signed);
+    let recipients = recipients_for(&reg, &registered, gated.signed);
     let steps = LiveSend {
         sc: &sc,
         plan: plan.as_ref().ok(),
@@ -1418,7 +1498,7 @@ fn unreadable_read_keys(vaults_dir: &std::path::Path) -> Vec<String> {
                 .filter_map(|e| {
                     let vault = e.file_name().to_string_lossy().into_owned();
                     matches!(
-                        orchestrator::helper::read_key_state(vaults_dir, &vault),
+                        orchestrator::helper::read_key_state_on_disk(vaults_dir, &vault),
                         orchestrator::helper::ReadKey::Unreadable
                     )
                     .then(|| orchestrator::helper::short_id(&vault).to_string())
@@ -1573,7 +1653,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
     // claimed a device could not propose under another member's name, and nothing enforced it.
     let proposer = match gate_write(
         cfg,
-        &req.vault,
+        &reg,
         WriteAction::Propose,
         req.proposer.trim(),
         Some(req.proposer.trim()),
@@ -1697,7 +1777,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
     // hold that name (#568).
     let proposer = match gate_write(
         cfg,
-        &req.vault,
+        &reg,
         WriteAction::Propose,
         req.proposer.trim(),
         Some(req.proposer.trim()),
@@ -1852,9 +1932,12 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     } else {
         WriteAction::Refuse
     };
+    let Some(reg) = state.get(&req.vault) else {
+        return resp(404, json!({ "error": "no such vault" }).to_string());
+    };
     let voter = match gate_write(
         cfg,
-        &req.vault,
+        &reg,
         action,
         id,
         Some(&req.member),
@@ -2037,6 +2120,11 @@ struct Registration {
     name: Option<String>,
     threshold: u16,
     total: u16,
+    /// A protocol-3 registration's package and certificates, shape-checked.
+    bundle: Option<(
+        konclave_seal::share_sig::PkpCanonical,
+        Vec<orchestrator::seat_registry::SeatProof>,
+    )>,
     /// The creation protocol the client declared (`cp`); `None` when it declared nothing.
     cp: Option<u32>,
 }
@@ -2047,10 +2135,13 @@ struct Registration {
 /// the number is published in `/api/health` (`client.creation`), which is what a deploy reads to
 /// confirm the build it is looking at.
 ///
-/// It is `0` in this build: the coordinator records the `cp` it is given and logs one line per
-/// registration, and refuses nothing, so the registrations that still arrive without one can be
-/// counted (an HTTP log carries no bodies).
-const MIN_CREATION: u32 = 0;
+/// It is `3`: a new vault must be created under protocol 3, whose seats' certificates the coordinator
+/// counts before anything of the vault opens (the seat certificates). A registration declaring less, or nothing, is
+/// refused with `update_required`, which an app from 0.13.0 on shows as "update the app" (an older one
+/// shows a failed registration). Vaults already
+/// registered are not registrations and are not touched by this number. Raised in the same deploy that
+/// turns on the pin, so no vault created after it can be one the coordinator cannot pin.
+const MIN_CREATION: u32 = 3;
 
 /// The minimum in force for THIS call. Production reads the constant. Under test it is `0` unless
 /// the test sets it for its own THREAD (`with_creation_min`; a thread a test spawns starts at `0`
@@ -2109,6 +2200,7 @@ fn registration_log_line(cp: Option<u32>, known: bool) -> String {
 fn registration_failure(e: &RegisterError) -> Resp {
     match e {
         RegisterError::Engine(_) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        RegisterError::AddressMismatch(_) => coded(502, "address_mismatch", &e.to_string()),
         RegisterError::NotPersisted(_) => resp(
             503,
             json!({ "error": e.to_string(), "code": "registration_not_persisted" }).to_string(),
@@ -2202,6 +2294,62 @@ where
 /// registration will reach the engine, and the only honest way to know is to ask the code that
 /// decides: a second, looser parse counted bodies the handler goes on to refuse for free, so
 /// anyone behind the same address could spend another group's allowance with garbage.
+const VAULT_CLOSED_TEXT: &str = "this vault has not finished being created";
+const VAULT_UNREADABLE_TEXT: &str = "this vault's records cannot be read; nothing was changed";
+
+/// A read refused: a protocol-3 vault says closed or unreadable as such, and an older one keeps the
+/// sentence it always had.
+fn read_refusal(cfg: &HelperConfig, reg: &VaultRegistration, older: &str) -> Resp {
+    use orchestrator::helper::{holds_pinned_forms, read_key_state, ReadKey};
+    match read_key_state(&cfg.vaults_dir, reg) {
+        ReadKey::Closed => coded(401, "vault_closed", VAULT_CLOSED_TEXT),
+        ReadKey::Unreadable if holds_pinned_forms(reg.cp) => {
+            coded(503, "vault_unreadable", VAULT_UNREADABLE_TEXT)
+        }
+        _ => resp(401, json!({ "error": older }).to_string()),
+    }
+}
+
+/// A refusal the client tells apart by its code.
+fn coded(status: u16, code: &str, error: &str) -> Resp {
+    resp(status, json!({ "error": error, "code": code }).to_string())
+}
+
+/// What a protocol-3 registration's refusal says. Maps; decides nothing.
+fn pin_failure(e: &orchestrator::seat_registry::RegisterPinError) -> Resp {
+    use orchestrator::seat_registry::{PinError, RegisterPinError as E};
+    match e {
+        E::Pin(PinError::NeedsTProofs) => coded(
+            401,
+            "pin_needs_t_proofs",
+            "this vault needs its members' proofs to be registered",
+        ),
+        E::Pin(PinError::ReadKeySplit) => coded(
+            409,
+            "pin_read_key_split",
+            "the members proved two different read keys",
+        ),
+        E::Pin(_) => coded(
+            400,
+            "bundle_invalid",
+            "this registration's package is not well formed",
+        ),
+        E::NotClosed => coded(
+            409,
+            "pin_package_differs",
+            "this vault is registered with something else",
+        ),
+        E::Unreadable => coded(503, "vault_unreadable", VAULT_UNREADABLE_TEXT),
+        E::Device(DeviceError::Conflict(why)) => resp(409, json!({ "error": why }).to_string()),
+        E::Device(_) => resp(
+            500,
+            json!({ "error": "this vault's devices could not be recorded" }).to_string(),
+        ),
+        E::Write(why) => resp(500, json!({ "error": why.to_string() }).to_string()),
+        E::Register(why) => registration_failure(why),
+    }
+}
+
 fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
     #[derive(Deserialize)]
     struct Req {
@@ -2218,6 +2366,12 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
         /// "declared nothing": a registration is never refused here for the SHAPE of this field.
         #[serde(default, deserialize_with = "lenient_cp")]
         cp: Option<u32>,
+        /// Protocol 3's bundle: the package in its canonical form, and the seats' certificates.
+        /// A value of the wrong type is a shape refusal, not an unreadable request.
+        #[serde(default)]
+        pkp: Option<serde_json::Value>,
+        #[serde(default)]
+        proofs: Option<serde_json::Value>,
     }
     let req: Req = serde_json::from_slice(body)
         .map_err(|_| resp(400, json!({ "error": "invalid json" }).to_string()))?;
@@ -2254,11 +2408,42 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
                 .to_string(),
         ));
     }
+    let bundle = if orchestrator::helper::holds_pinned_forms(req.cp) {
+        if req.pkp.is_none() && req.proofs.is_none() {
+            return Err(coded(
+                401,
+                "pin_needs_t_proofs",
+                "this vault needs its members' proofs to be registered",
+            ));
+        }
+        let parsed = req.pkp.as_ref().and_then(|p| p.as_str()).and_then(|pkp| {
+            let proofs: Vec<orchestrator::seat_registry::ProofJson> =
+                serde_json::from_value(req.proofs.clone()?).ok()?;
+            orchestrator::seat_registry::parse_bundle(pkp, &proofs)
+        });
+        match parsed {
+            Some((pkp, proofs))
+                if pkp.t == req.threshold && pkp.shares.len() == req.total as usize =>
+            {
+                Some((pkp, proofs))
+            }
+            _ => {
+                return Err(coded(
+                    400,
+                    "bundle_invalid",
+                    "this registration's package is not well formed",
+                ))
+            }
+        }
+    } else {
+        None
+    };
     Ok(Registration {
         group_key: req.group_key,
         name: req.name,
         threshold: req.threshold,
         total: req.total,
+        bundle,
         cp: req.cp,
     })
 }
@@ -2291,10 +2476,21 @@ fn new_vault_refusal(
         return None;
     }
     let reg = parse_registration(body).ok()?;
-    if state.contains(&reg.group_key) {
+    if state.contains(&reg.group_key) || !registration_reaches_the_engine(&reg) {
         return None;
     }
     limits.new_vault(client, &reg.group_key, now).err()
+}
+
+/// A protocol-3 registration reaches the engine only when its bundle counts. Everything else that
+/// parses does.
+fn registration_reaches_the_engine(reg: &Registration) -> bool {
+    match (&reg.bundle, reg.cp) {
+        (Some((pkp, proofs)), Some(cp)) => {
+            orchestrator::seat_registry::bundle_counts(&reg.group_key, cp, pkp, proofs)
+        }
+        _ => true,
+    }
 }
 
 /// The private read routes the #388 read gate covers. ONE list: the gate reads it, and the lock table
@@ -2469,7 +2665,7 @@ fn serve(
         state.contains(v)
             || (*method == Method::Post
                 && route == "/api/vault"
-                && parse_registration(body).is_ok())
+                && parse_registration(body).is_ok_and(|r| registration_reaches_the_engine(&r)))
     });
     let (write, wallet) = match (lock_class(method, path), vault) {
         (LockClass::Write { wallet }, Some(v)) => (
@@ -2734,6 +2930,9 @@ fn main() {
 }
 
 #[cfg(test)]
+use orchestrator::helper::set_read_key;
+
+#[cfg(test)]
 mod tests {
 
     /// The preflight must ANNOUNCE the read token, or a browser never sends it and every private
@@ -2762,6 +2961,23 @@ mod tests {
 
     /// A client address for a test: 203.0.113.`host` (a documentation range). `serve` takes the
     /// typed address the worker loop builds with `konclave_http::client_address`.
+    /// A registration older than protocol 3, for asking the read gate about a vault.
+    fn legacy_reg(vault: &str) -> VaultRegistration {
+        VaultRegistration {
+            vault_id: vault.to_string(),
+            address: String::new(),
+            ufvk: String::new(),
+            wallet_dir: String::new(),
+            account: String::new(),
+            threshold: 2,
+            total: 2,
+            change_receiver: String::new(),
+            birthday: None,
+            cp: None,
+            created_at_unix: None,
+        }
+    }
+
     const fn client_at(host: u8) -> ClientAddress {
         ClientAddress::from_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
             203, 0, 113, host,
@@ -4582,7 +4798,7 @@ mod tests {
         // this payload has to break a test rather than slip through.
         let st = HelperState::new();
         seed(&st, "aaaa");
-        let v = vault_value(&st.get("aaaa").expect("seeded"));
+        let v = vault_value(&cfg().vaults_dir, &st.get("aaaa").expect("seeded"));
         assert_eq!(v["change_receiver"], "utest1changeaaaa");
         assert_eq!(v["address"], "utest1aaaa");
         assert!(v.get("ufvk").is_none(), "the UFVK must never be published");
@@ -5605,8 +5821,7 @@ mod tests {
         let mine = "ab".repeat(32);
         let theirs = "cd".repeat(32);
 
-        // A vault with no key accepts its FIRST one from anyone. That is the migration path and the
-        // only way a new vault can ever be protected - there is nothing yet to prove possession of.
+        // A first key is taken on nobody's word.
         let first = handle(
             &st,
             &c,
@@ -5614,10 +5829,8 @@ mod tests {
             "/api/vault/readkey",
             &body(&fresh, &mine),
         );
-        assert_eq!(
-            first.status, 200,
-            "a new vault must be able to register its first read key"
-        );
+        assert_eq!(first.status, 401, "{}", first.body);
+        assert!(!c.vaults_dir.join(&fresh).join("read-key.json").exists());
 
         // Now armed. An id alone must not be able to change it.
         set_read_key(&c.vaults_dir, &armed, &mine).unwrap();
@@ -5635,7 +5848,7 @@ mod tests {
         // And it must not have taken effect. A refusal that wrote anyway would be the whole bug
         // with a different status code.
         assert_eq!(
-            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::read_key_state(&c.vaults_dir, &legacy_reg(&armed)),
             orchestrator::helper::ReadKey::Set(mine.clone()),
             "the refusal still overwrote the key"
         );
@@ -5654,7 +5867,7 @@ mod tests {
             "the holder of the current key must be able to rotate it"
         );
         assert_eq!(
-            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::read_key_state(&c.vaults_dir, &legacy_reg(&armed)),
             orchestrator::helper::ReadKey::Set(theirs.clone())
         );
     }
@@ -6226,7 +6439,11 @@ mod tests {
             .err()
             .expect("refused");
         assert_eq!(r.status, 400);
-        assert!(r.body.contains("at most 32 seats"), "{}", r.body);
+        assert!(
+            r.body.contains(&format!("at most {max} seats")),
+            "{}",
+            r.body
+        );
     }
 
     #[test]
@@ -7567,6 +7784,41 @@ mod tests {
         assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
     }
 
+    /// Protocol 3 has no unsealed way out, signed or not: an absent member cannot turn sealing off.
+    #[cfg(unix)]
+    #[test]
+    fn a_protocol_3_send_short_of_keys_is_refused_through_the_route() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let reg = VaultRegistration {
+            cp: Some(3),
+            ..st.get("relayv").unwrap()
+        };
+        st.insert(reg);
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 key, below t
+        let pinned = json!({ "v": 1, "state": "pinned", "read_key_sha256": "ab".repeat(32) });
+        std::fs::write(
+            c.vaults_dir.join("relayv").join("read-key.json"),
+            pinned.to_string(),
+        )
+        .unwrap();
+
+        let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-cp3");
+        let r = send_as(&st, &c, Some(&fields));
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !ran.contains("pczt"),
+            "nothing is built or published: {ran}"
+        );
+    }
+
     /// A body that LOOKS signed proves nothing on a vault with no write key: the send is still
     /// unsigned, and is refused as one.
     #[cfg(unix)]
@@ -7785,7 +8037,7 @@ mod tests {
                 "/api/vault/readkey",
                 replace.as_bytes(),
             );
-            assert_eq!(r.status, 401, "{tag}: {}", r.body);
+            assert_eq!(r.status, 503, "{tag}: {}", r.body);
             let roster = json!({ "vault": v, "names": ["alice", "bob"] }).to_string();
             let r = handle(
                 &st,
@@ -7803,10 +8055,10 @@ mod tests {
                 "/api/vault/devicekey",
                 device.as_bytes(),
             );
-            assert_eq!(r.status, 401, "{tag}: devicekey: {}", r.body);
+            assert_eq!(r.status, 503, "{tag}: devicekey: {}", r.body);
             assert!(
                 matches!(
-                    orchestrator::helper::read_key_state(&c.vaults_dir, &v),
+                    orchestrator::helper::read_key_state(&c.vaults_dir, &legacy_reg(&v)),
                     orchestrator::helper::ReadKey::Unreadable
                 ),
                 "{tag}: still unreadable, nothing replaced it"
@@ -9355,22 +9607,43 @@ mod tests {
         format!(r#"{{"group_key":"{n:064x}","name":"v","threshold":2,"total":3{cp}}}"#).into_bytes()
     }
 
-    /// The constant ships at `0`: this is the one test that changes when the number does. A build
-    /// with it on by accident would refuse every registration of every client that does not send
-    /// `cp` yet. Everything else here sets its own minimum, so the suite says the same thing at
-    /// either number.
+    /// The constant ships at `3`: this is the one test that changes when the number does. Everything
+    /// else here sets its own minimum (tests start at `0`), so the suite says the same thing at any
+    /// number.
     #[test]
-    fn the_shipped_minimum_is_phase_a() {
+    fn the_shipped_minimum_is_protocol_3() {
         assert_eq!(
-            MIN_CREATION, 0,
-            "raising it is a deliberate, separate change"
+            MIN_CREATION, 3,
+            "lowering it reopens creation without certificates: a deliberate, separate change"
         );
-        assert_eq!(creation_min(), 0);
     }
 
-    /// Phase A records what it is given and refuses nothing.
+    /// At the shipped minimum, the earlier creations are refused with the typed answer an older app
+    /// words as "update the app", and protocol 3 goes on to ask for its proofs.
     #[test]
-    fn phase_a_accepts_a_registration_with_or_without_cp() {
+    fn at_the_shipped_minimum_an_older_creation_is_told_to_update() {
+        with_creation_min(MIN_CREATION, || {
+            for cp in [None, Some("0"), Some("1"), Some("2")] {
+                let refused = match parse_registration(&body_with_cp(1, cp)) {
+                    Err(r) => r,
+                    Ok(_) => panic!("cp {cp:?} must be refused"),
+                };
+                assert_eq!(refused.status, 403, "{}", refused.body);
+                let j: serde_json::Value = serde_json::from_str(&refused.body).unwrap();
+                assert_eq!(j["update_required"], true, "{}", refused.body);
+                assert_eq!(j["min_creation"], 3);
+            }
+            let more = match parse_registration(&body_with_cp(3, Some("3"))) {
+                Err(r) => r,
+                Ok(_) => panic!("protocol 3 with no bundle"),
+            };
+            assert_eq!(more.status, 401, "{}", more.body);
+        });
+    }
+
+    /// With no minimum, what is declared is recorded as declared and nothing is refused.
+    #[test]
+    fn with_no_minimum_a_registration_is_recorded_as_declared() {
         let none = parse_registration(&body_with_cp(1, None))
             .ok()
             .expect("accepted");
@@ -9385,9 +9658,9 @@ mod tests {
         assert_eq!(low.cp, Some(1), "recorded as declared, not corrected");
     }
 
-    /// Phase B: a registration that does not declare the minimum is refused with a typed answer.
+    /// A registration that does not declare the minimum is refused with a typed answer.
     #[test]
-    fn phase_b_refuses_a_registration_below_the_minimum() {
+    fn a_registration_below_the_minimum_is_refused() {
         with_creation_min(2, || {
             for cp in [None, Some("0"), Some("1")] {
                 let refused = match parse_registration(&body_with_cp(1, cp)) {
@@ -9404,23 +9677,25 @@ mod tests {
                 .ok()
                 .expect("accepted");
             assert_eq!(ok.cp, Some(2));
-            let more = parse_registration(&body_with_cp(3, Some("3")))
-                .ok()
-                .expect("accepted");
-            assert_eq!(more.cp, Some(3));
+            // Above the minimum it passes this gate, and protocol 3 then asks for its proofs.
+            let more = match parse_registration(&body_with_cp(3, Some("3"))) {
+                Err(r) => r,
+                Ok(_) => panic!("protocol 3 with no bundle"),
+            };
+            assert_eq!(more.status, 401, "{}", more.body);
         });
     }
 
     /// A known key is refused like an unknown one: the gate runs before the idempotent branch, so the
     /// answer does not depend on who registered the key first.
     #[test]
-    fn phase_b_refuses_a_known_key_without_cp() {
+    fn a_known_key_without_cp_is_refused_below_the_minimum() {
         let st = HelperState::new();
         let id = format!("{:064x}", 7);
         seed(&st, &id);
         let body = body_with_cp(7, None);
-        let phase_a = handle(&st, &cfg(), &Method::Post, "/api/vault", &body);
-        assert_eq!(phase_a.status, 200, "{}", phase_a.body);
+        let no_minimum = handle(&st, &cfg(), &Method::Post, "/api/vault", &body);
+        assert_eq!(no_minimum.status, 200, "{}", no_minimum.body);
         with_creation_min(2, || {
             let refused = handle(&st, &cfg(), &Method::Post, "/api/vault", &body);
             assert_eq!(refused.status, 403, "{}", refused.body);
@@ -9491,10 +9766,12 @@ mod tests {
                 assert_eq!(refused.status, 403, "{shape}: {}", refused.body);
             });
         }
-        let max = parse_registration(&body_with_cp(99, Some("4294967295")))
-            .ok()
-            .expect("accepted");
-        assert_eq!(max.cp, Some(u32::MAX));
+        // The largest integer is read as declared, so it is held to protocol 3's rule.
+        let max = match parse_registration(&body_with_cp(99, Some("4294967295"))) {
+            Err(r) => r,
+            Ok(_) => panic!("protocol 3 with no bundle"),
+        };
+        assert_eq!(max.status, 401, "{}", max.body);
     }
 
     /// A refused registration is answered by `serve` before admission and before any lock: for a key
@@ -9631,7 +9908,7 @@ mod tests {
         );
         assert_eq!(again.status, 200, "{}", again.body);
         assert_eq!(st.get(&id).unwrap().cp, Some(2));
-        // ...or that declares a different one.
+        // ...or that declares a different one, which is refused and rewrites nothing either.
         let other = handle(
             &st,
             &c,
@@ -9639,7 +9916,7 @@ mod tests {
             "/api/vault",
             &body_with_cp(0x5151, Some("7")),
         );
-        assert_eq!(other.status, 200, "{}", other.body);
+        assert_eq!(other.status, 401, "{}", other.body);
         assert_eq!(st.get(&id).unwrap().cp, Some(2));
         let on_disk = orchestrator::helper::load_registration(&c.vaults_dir, &id).unwrap();
         assert_eq!(on_disk.cp, Some(2));
@@ -10016,7 +10293,7 @@ mod tests {
     }
 
     /// Every production caller of `register_vault`, in the helper server and in the orchestrator:
-    /// exactly one, the registration handler. A second one (a re-registration, a migration) that
+    /// the registration handler and the protocol-3 pin, which passes its own `cp`. Another one (a re-registration, a migration) that
     /// passes `None` would record "no protocol" for a vault silently. Read from the source tree at
     /// test time, so a file added later is covered too; comment lines and the test modules do not
     /// count, and neither does the definition.
@@ -10046,7 +10323,15 @@ mod tests {
                 }
             }
         }
-        assert_eq!(found, vec![("main.rs".to_string(), 1)], "{found:?}");
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ("main.rs".to_string(), 1),
+                ("seat_registry.rs".to_string(), 1)
+            ],
+            "{found:?}"
+        );
     }
 
     /// The registration handler logs through `log_registration(req.cp, state.contains(..))`, once,
@@ -10146,6 +10431,984 @@ mod tests {
                 "{:?}",
                 String::from_utf8_lossy(body)
             );
+        }
+    }
+
+    /// Protocol 3 through the routes: a real dealer's package, real certificates, and a fake engine
+    /// that answers with a viewing key on this vault's group key.
+    #[cfg(unix)]
+    mod protocol_3 {
+        use super::*;
+        use konclave_seal::share_sig::{read_key_hash, sign_seat, PkpCanonical, SeatStatement};
+        use rand::rngs::OsRng;
+        use reddsa::frost::redpallas as frost;
+        use std::os::unix::fs::PermissionsExt;
+
+        pub(super) struct Vault {
+            pub pkp: PkpCanonical,
+            pub id: [u8; 32],
+            pub shares: Vec<[u8; 32]>,
+        }
+
+        pub(super) fn hex(b: &[u8]) -> String {
+            b.iter().map(|x| format!("{x:02x}")).collect()
+        }
+
+        pub(super) fn vault(t: u16, n: u16) -> Vault {
+            let (secrets, public) = frost::keys::generate_with_dealer(
+                n,
+                t,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let id: [u8; 32] = public
+                .verifying_key()
+                .serialize()
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let (mut verifying, mut shares) = (Vec::new(), Vec::new());
+            for seat in 1..=n {
+                let who = frost::Identifier::try_from(seat).unwrap();
+                let vs = public.verifying_shares().get(&who).unwrap();
+                verifying.push(<[u8; 32]>::try_from(vs.serialize().unwrap()).unwrap());
+                let share = secrets.get(&who).unwrap().signing_share().serialize();
+                shares.push(<[u8; 32]>::try_from(share).unwrap());
+            }
+            Vault {
+                pkp: PkpCanonical {
+                    group_key: id,
+                    t,
+                    shares: verifying,
+                },
+                id,
+                shares,
+            }
+        }
+
+        pub(super) fn comms(seat: u16) -> [u8; 32] {
+            konclave_seal::device_key_from_share(&seat.to_be_bytes()).public_bytes()
+        }
+        pub(super) fn write(seat: u16) -> [u8; 32] {
+            ed25519_dalek::SigningKey::from_bytes(&[seat as u8 + 1; 32])
+                .verifying_key()
+                .to_bytes()
+        }
+        pub(super) const READ_KEY: [u8; 32] = [0x42; 32];
+
+        pub(super) fn proof(v: &Vault, seat: u16, read_key: &[u8; 32]) -> serde_json::Value {
+            let st = SeatStatement {
+                vault_id: v.id,
+                cp: 3,
+                t: v.pkp.t,
+                n: v.pkp.shares.len() as u16,
+                seat,
+                pkp_digest: v.pkp.digest(),
+                read_key_hash: read_key_hash(read_key),
+                comms_pub: comms(seat),
+                write_pub: write(seat),
+            };
+            let sig = sign_seat(&v.shares[seat as usize - 1], &st).unwrap();
+            json!({
+                "seat": seat,
+                "comms_pub": hex(&st.comms_pub),
+                "write_pub": hex(&st.write_pub),
+                "read_key_hash": hex(&st.read_key_hash),
+                "sig": hex(&sig),
+            })
+        }
+
+        pub(super) fn body(v: &Vault, proofs: &[serde_json::Value]) -> Vec<u8> {
+            json!({
+                "group_key": hex(&v.id),
+                "name": "v",
+                "threshold": v.pkp.t,
+                "total": v.pkp.shares.len(),
+                "cp": 3,
+                "pkp": hex(&v.pkp.encode()),
+                "proofs": proofs,
+            })
+            .to_string()
+            .into_bytes()
+        }
+
+        /// A coordinator whose engine answers for this vault with a key on its group key.
+        pub(super) fn coordinator(name: &str, v: &Vault) -> HelperConfig {
+            use zcash_address::unified::{Encoding, Fvk, Revision, Ufvk, Uitem};
+            use zcash_protocol::consensus::NetworkType::Main;
+            let dir =
+                std::env::temp_dir().join(format!("konclave-p3-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut sk = [7u8; 32];
+            let fvk = loop {
+                let spending: Option<orchard::keys::SpendingKey> =
+                    orchard::keys::SpendingKey::from_bytes(sk).into();
+                if let Some(spending) = spending {
+                    let mut bytes = orchard::keys::FullViewingKey::from(&spending).to_bytes();
+                    bytes[..32].copy_from_slice(&v.id);
+                    if orchard::keys::FullViewingKey::from_bytes(&bytes).is_some() {
+                        break bytes;
+                    }
+                }
+                sk[0] = sk[0].wrapping_add(1);
+            };
+            let ufvk = Ufvk::try_from_items(Revision::R0, vec![Uitem::Data(Fvk::Orchard(fvk))])
+                .unwrap()
+                .encode(&Main);
+            let r = konclave_seal::receivers::vault_receivers(&ufvk, Main, &v.id).unwrap();
+            let exe = |file: &str, text: String| {
+                let p = dir.join(file);
+                std::fs::write(&p, text).unwrap();
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+                for _ in 0..200 {
+                    match std::process::Command::new(&p).arg("--probe").output() {
+                        Err(e) if e.raw_os_error() == Some(26) => {
+                            std::thread::sleep(std::time::Duration::from_millis(10))
+                        }
+                        _ => break,
+                    }
+                }
+                p
+            };
+            let mut c = cfg();
+            c.zcash_sign = exe(
+                "sign",
+                format!(
+                    "#!/bin/sh\necho 'Orchard-only unified address: \"{}\"'\necho 'Unified Full Viewing Key: \"{ufvk}\"'\n",
+                    r.external_ua
+                ),
+            );
+            c.devtool = exe(
+                "devtool",
+                "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n".to_string(),
+            );
+            c.network = "main".into();
+            c.vaults_dir = dir.join("vaults");
+            c
+        }
+
+        pub(super) fn post(st: &HelperState, c: &HelperConfig, b: &[u8]) -> Resp {
+            handle(st, c, &Method::Post, "/api/vault", b)
+        }
+        pub(super) fn code(r: &Resp) -> String {
+            serde_json::from_str::<serde_json::Value>(&r.body)
+                .ok()
+                .and_then(|v| v["code"].as_str().map(str::to_string))
+                .unwrap_or_default()
+        }
+
+        #[test]
+        fn t_proofs_register_and_pin_through_the_route() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("ok", &v));
+            let r = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+            let reg = st.get(&hex(&v.id)).expect("served");
+            assert_eq!(reg.cp, Some(3));
+            assert!(read_authorized(&c.vaults_dir, &reg, Some(&hex(&READ_KEY))));
+            assert!(!read_authorized(&c.vaults_dir, &reg, None));
+        }
+
+        #[test]
+        fn a_protocol_3_registration_without_a_bundle_creates_nothing() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("no-bundle", &v));
+            let b = json!({"group_key": hex(&v.id), "threshold": 2, "total": 3, "cp": 3});
+            let r = post(&st, &c, b.to_string().as_bytes());
+            assert_eq!(r.status, 401, "{}", r.body);
+            assert_eq!(code(&r), "pin_needs_t_proofs");
+            assert!(!c.vaults_dir.join(hex(&v.id)).exists());
+            assert!(!st.contains(&hex(&v.id)));
+        }
+
+        #[test]
+        fn an_observer_cannot_register_a_vault_id_it_learned_from_the_room() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("observer", &v));
+            let r = post(&st, &c, &body(&v, &[proof(&v, 1, &READ_KEY)]));
+            assert_eq!(r.status, 401, "{}", r.body);
+            assert_eq!(code(&r), "pin_needs_t_proofs");
+            assert!(!c.vaults_dir.join(hex(&v.id)).exists());
+        }
+
+        #[test]
+        fn a_bundle_of_the_wrong_shape_is_refused_before_the_count() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("shape", &v));
+            let good = [proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)];
+            let mut other_quorum: serde_json::Value =
+                serde_json::from_slice(&body(&v, &good)).unwrap();
+            other_quorum["threshold"] = json!(3);
+            let mut bad_hex: serde_json::Value = serde_json::from_slice(&body(&v, &good)).unwrap();
+            bad_hex["pkp"] = json!("zz");
+            let mut short_sig: serde_json::Value =
+                serde_json::from_slice(&body(&v, &good)).unwrap();
+            short_sig["proofs"][0]["sig"] = json!("abcd");
+            let mut many: serde_json::Value = serde_json::from_slice(&body(&v, &good)).unwrap();
+            many["proofs"] = json!(vec![good[0].clone(); 17]);
+            for bad in [other_quorum, bad_hex, short_sig, many] {
+                let r = post(&st, &c, bad.to_string().as_bytes());
+                assert_eq!(r.status, 400, "{}", r.body);
+                assert_eq!(code(&r), "bundle_invalid", "{}", r.body);
+            }
+            assert!(!c.vaults_dir.join(hex(&v.id)).exists());
+        }
+
+        #[test]
+        fn the_same_bundle_again_is_200_and_writes_nothing() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("again", &v));
+            let b = body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]);
+            assert_eq!(post(&st, &c, &b).status, 200);
+            let dir = c.vaults_dir.join(hex(&v.id));
+            let files = ["read-key.json", "creation-pin.json", "device-keys.json"];
+            let before: Vec<_> = files
+                .iter()
+                .map(|f| std::fs::read(dir.join(f)).unwrap())
+                .collect();
+            // Another member's bundle: the same package and key, other proofs.
+            let other = body(&v, &[proof(&v, 3, &READ_KEY), proof(&v, 1, &READ_KEY)]);
+            let r = post(&st, &c, &other);
+            assert_eq!(r.status, 200, "{}", r.body);
+            let after: Vec<_> = files
+                .iter()
+                .map(|f| std::fs::read(dir.join(f)).unwrap())
+                .collect();
+            assert_eq!(before, after);
+        }
+
+        #[test]
+        fn a_pinned_vault_refuses_another_key_or_too_few_proofs_as_a_conflict() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("differs", &v));
+            let b = body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]);
+            assert_eq!(post(&st, &c, &b).status, 200);
+            let other_key = [9u8; 32];
+            let other = body(&v, &[proof(&v, 1, &other_key), proof(&v, 2, &other_key)]);
+            for bad in [other, body(&v, &[proof(&v, 1, &READ_KEY)])] {
+                let r = post(&st, &c, &bad);
+                assert_eq!(r.status, 409, "{}", r.body);
+                assert_eq!(code(&r), "pin_package_differs");
+            }
+        }
+
+        #[test]
+        fn a_known_legacy_key_with_a_bundle_is_409_not_the_stored_vault() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("legacy", &v));
+            let legacy = json!({"group_key": hex(&v.id), "threshold": 2, "total": 3, "cp": 2});
+            assert_eq!(post(&st, &c, legacy.to_string().as_bytes()).status, 200);
+            let r = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(r.status, 409, "{}", r.body);
+            assert_eq!(code(&r), "pin_package_differs");
+        }
+
+        #[test]
+        fn two_hashes_each_with_t_seats_is_a_split() {
+            let v = vault(2, 4);
+            let other_key = [9u8; 32];
+            let (st, c) = (HelperState::new(), coordinator("split", &v));
+            let b = body(
+                &v,
+                &[
+                    proof(&v, 1, &READ_KEY),
+                    proof(&v, 2, &READ_KEY),
+                    proof(&v, 3, &other_key),
+                    proof(&v, 4, &other_key),
+                ],
+            );
+            let r = post(&st, &c, &b);
+            assert_eq!(r.status, 409, "{}", r.body);
+            assert_eq!(code(&r), "pin_read_key_split");
+        }
+
+        #[test]
+        fn an_address_the_key_does_not_derive_answers_address_mismatch_and_leaves_nothing() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("mismatch", &v));
+            let sign = c.zcash_sign.clone();
+            let text = std::fs::read_to_string(&sign).unwrap();
+            std::fs::write(&sign, swap_address(&text)).unwrap();
+            let r = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(r.status, 502, "{}", r.body);
+            assert_eq!(code(&r), "address_mismatch", "{}", r.body);
+            assert!(!c.vaults_dir.join(hex(&v.id)).join("wallet").exists());
+        }
+
+        fn pinned(name: &str) -> (Vault, HelperState, HelperConfig, String) {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator(name, &v));
+            let r = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+            let id = hex(&v.id);
+            (v, st, c, id)
+        }
+        /// A protocol-3 vault a failure left closed: registered, no pin.
+        fn closed(name: &str) -> (Vault, HelperState, HelperConfig, String) {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator(name, &v));
+            let id = hex(&v.id);
+            let reg = register_vault(&c, &id, "v", 2, 3, Some(3)).unwrap();
+            st.insert(reg);
+            (v, st, c, id)
+        }
+        fn token() -> String {
+            hex(&READ_KEY)
+        }
+        fn with(
+            st: &HelperState,
+            c: &HelperConfig,
+            m: &Method,
+            path: &str,
+            b: &[u8],
+            t: Option<&str>,
+        ) -> Resp {
+            handle_with_token(st, c, m, path, b, t)
+        }
+        fn readkey(
+            st: &HelperState,
+            c: &HelperConfig,
+            id: &str,
+            key: &str,
+            t: Option<&str>,
+        ) -> Resp {
+            let b = json!({"group_key": id, "read_key": key}).to_string();
+            with(st, c, &Method::Post, "/api/vault/readkey", b.as_bytes(), t)
+        }
+        fn devicekey(
+            st: &HelperState,
+            c: &HelperConfig,
+            b: serde_json::Value,
+            t: Option<&str>,
+        ) -> Resp {
+            with(
+                st,
+                c,
+                &Method::Post,
+                "/api/vault/devicekey",
+                b.to_string().as_bytes(),
+                t,
+            )
+        }
+        fn device_body(
+            v: &Vault,
+            seat: u16,
+            proof: Option<serde_json::Value>,
+        ) -> serde_json::Value {
+            let mut b = json!({
+                "group_key": hex(&v.id),
+                "device_pub": hex(&comms(seat)),
+                "seat": seat,
+                "write_pub": hex(&write(seat)),
+            });
+            if let Some(p) = proof {
+                b["proof"] = p;
+            }
+            b
+        }
+
+        #[test]
+        fn readkey_answers_by_the_vaults_state() {
+            let (_v, st, c, id) = pinned("rk-pinned");
+            assert_eq!(readkey(&st, &c, &id, &token(), None).status, 200);
+            let other = readkey(&st, &c, &id, &"cd".repeat(32), Some(&token()));
+            assert_eq!(other.status, 409, "{}", other.body);
+            assert_eq!(code(&other), "read_key_pinned");
+            let reg = st.get(&id).unwrap();
+            assert!(
+                read_authorized(&c.vaults_dir, &reg, Some(&token())),
+                "and nothing changed"
+            );
+
+            let (_v, st, c, id) = closed("rk-closed");
+            let r = readkey(&st, &c, &id, &token(), None);
+            assert_eq!(r.status, 401, "{}", r.body);
+            assert_eq!(code(&r), "vault_closed");
+        }
+
+        #[test]
+        fn a_first_read_key_on_an_older_vault_is_refused_to_anyone() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("rk-first", &v));
+            let legacy = json!({"group_key": hex(&v.id), "threshold": 2, "total": 3, "cp": 2});
+            assert_eq!(post(&st, &c, legacy.to_string().as_bytes()).status, 200);
+            let r = readkey(&st, &c, &hex(&v.id), &token(), None);
+            assert_eq!(r.status, 401, "{}", r.body);
+            assert_eq!(code(&r), "read_key_needs_proof");
+            assert!(!c.vaults_dir.join(hex(&v.id)).join("read-key.json").exists());
+        }
+
+        #[test]
+        fn a_key_file_that_cannot_be_read_answers_so_at_readkey_and_devicekey() {
+            let (v, st, c, id) = pinned("rk-bad");
+            std::fs::write(c.vaults_dir.join(&id).join("read-key.json"), "{").unwrap();
+            assert_eq!(readkey(&st, &c, &id, &token(), None).status, 503);
+            assert_eq!(
+                devicekey(&st, &c, device_body(&v, 1, None), Some(&token())).status,
+                503
+            );
+        }
+
+        #[test]
+        fn devicekey_on_a_pinned_vault_takes_a_seat_only_with_its_own_proof() {
+            let (v, st, c, _id) = pinned("dk");
+            let without = devicekey(&st, &c, device_body(&v, 3, None), Some(&token()));
+            assert_eq!(without.status, 401, "{}", without.body);
+            assert_eq!(code(&without), "seat_needs_proof");
+            let added = devicekey(
+                &st,
+                &c,
+                device_body(&v, 3, Some(proof(&v, 3, &READ_KEY))),
+                None,
+            );
+            assert_eq!(added.status, 200, "{}", added.body);
+            assert!(added.body.contains("\"added\":true"), "{}", added.body);
+            let again = devicekey(&st, &c, device_body(&v, 1, None), Some(&token()));
+            assert_eq!(again.status, 200, "{}", again.body);
+            assert!(again.body.contains("\"added\":false"), "{}", again.body);
+
+            let mut other = device_body(&v, 1, None);
+            other["device_pub"] = json!(hex(&comms(9)));
+            let bound = devicekey(&st, &c, other, Some(&token()));
+            assert_eq!(bound.status, 409, "{}", bound.body);
+            assert_eq!(code(&bound), "seat_bound");
+
+            let mut only = device_body(&v, 3, None);
+            only.as_object_mut().unwrap().remove("seat");
+            only.as_object_mut().unwrap().remove("write_pub");
+            let comms_only = devicekey(&st, &c, only, Some(&token()));
+            assert_eq!(comms_only.status, 401, "{}", comms_only.body);
+            assert_eq!(code(&comms_only), "seat_needs_proof");
+        }
+
+        #[test]
+        fn a_malformed_proof_is_refused_as_a_request() {
+            let (v, st, c, _id) = pinned("dk-shape");
+            let mut p = proof(&v, 3, &READ_KEY);
+            p["sig"] = json!("abcd");
+            let r = devicekey(&st, &c, device_body(&v, 3, Some(p)), None);
+            assert_eq!(r.status, 400, "{}", r.body);
+        }
+
+        #[test]
+        fn a_closed_vault_refuses_reads_the_ufvk_devices_and_the_roster() {
+            let (v, st, c, id) = closed("closed-all");
+            let t = Some(token());
+            let t = t.as_deref();
+            let ufvk = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/ufvk?vault={id}"),
+                b"",
+                t,
+            );
+            assert_eq!(ufvk.status, 401, "{}", ufvk.body);
+            assert_eq!(code(&ufvk), "vault_closed");
+            let read = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/members?vault={id}"),
+                b"",
+                t,
+            );
+            assert_eq!(read.status, 401, "{}", read.body);
+            let dk = devicekey(
+                &st,
+                &c,
+                device_body(&v, 1, Some(proof(&v, 1, &READ_KEY))),
+                t,
+            );
+            assert_eq!(dk.status, 401, "{}", dk.body);
+            assert_eq!(code(&dk), "vault_closed");
+            let names = json!({"vault": id, "names": ["a", "b", "c"]}).to_string();
+            let roster = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                names.as_bytes(),
+                t,
+            );
+            assert_eq!(roster.status, 401, "{}", roster.body);
+        }
+
+        /// H-I3: no records is no gate on an older vault, and is not on a protocol-3 one.
+        #[test]
+        fn every_write_on_a_closed_vault_is_refused() {
+            let (_v, st, c, id) = closed("closed-writes");
+            a_ready_proposal(&c.vaults_dir, &id);
+            let proposal = json!({"vault": id, "to": "u1x", "amount_zat": 1000, "proposer": "a"});
+            let writes: [(&str, serde_json::Value); 6] = [
+                ("/api/vault/proposals", proposal),
+                (
+                    "/api/vault/proposals/p1/send",
+                    json!({"vault": id, "relay_base": TEST_RELAY, "room": "0123456789abcdef0123456789abcdef", "dry_run": false}),
+                ),
+                (
+                    "/api/vault/payroll",
+                    json!({"vault": id, "proposer": "a", "lines": [{"to": "u1x", "amount_zat": 1000, "label": "x", "memo": ""}]}),
+                ),
+                (
+                    "/api/vault/proposals/p1/approve",
+                    json!({"vault": id, "member": "a"}),
+                ),
+                (
+                    "/api/vault/proposals/p1/refuse",
+                    json!({"vault": id, "member": "a"}),
+                ),
+                (
+                    "/api/vault/members/rename",
+                    json!({"vault": id, "old": "a", "new": "b"}),
+                ),
+            ];
+            for (path, b) in writes {
+                let r = with(
+                    &st,
+                    &c,
+                    &Method::Post,
+                    path,
+                    b.to_string().as_bytes(),
+                    Some(&token()),
+                );
+                assert_eq!(r.status, 401, "{path}: {}", r.body);
+                assert_eq!(code(&r), "vault_closed", "{path}: {}", r.body);
+            }
+            let proposals = c.vaults_dir.join(&id).join("proposals");
+            let held: Vec<_> = std::fs::read_dir(&proposals).unwrap().flatten().collect();
+            assert_eq!(held.len(), 1, "nothing new was written");
+        }
+
+        #[test]
+        fn a_pinned_vault_that_lost_its_records_refuses_writes_instead_of_opening() {
+            let (_v, st, c, id) = pinned("no-records");
+            std::fs::remove_file(c.vaults_dir.join(&id).join("device-keys.json")).unwrap();
+            let b = json!({"vault": id, "old": "a", "new": "b"}).to_string();
+            let r = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members/rename",
+                b.as_bytes(),
+                Some(&token()),
+            );
+            assert_eq!(r.status, 503, "{}", r.body);
+        }
+
+        #[test]
+        fn the_ufvk_of_a_pinned_vault_needs_the_read_key_and_never_goes_out_in_the_clear() {
+            let (_v, st, c, id) = pinned("ufvk");
+            let path = format!("/api/vault/ufvk?vault={id}");
+            let refused = with(&st, &c, &Method::Get, &path, b"", None);
+            assert_eq!(refused.status, 401, "{}", refused.body);
+            let sealed = with(&st, &c, &Method::Get, &path, b"", Some(&token()));
+            assert_eq!(sealed.status, 200, "{}", sealed.body);
+            assert!(sealed.body.contains("boxes"), "{}", sealed.body);
+            assert!(!sealed.body.contains("uview"), "{}", sealed.body);
+
+            std::fs::remove_file(c.vaults_dir.join(&id).join("device-keys.json")).unwrap();
+            let none = with(&st, &c, &Method::Get, &path, b"", Some(&token()));
+            assert_eq!(none.status, 503, "{}", none.body);
+            assert!(!none.body.contains("uview"), "{}", none.body);
+        }
+
+        #[test]
+        fn get_vault_reports_state_and_digest_in_all_three_answers() {
+            let (v, st, c, id) = pinned("state");
+            let got = handle(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault?vault={id}"),
+                b"",
+            );
+            let j: serde_json::Value = serde_json::from_str(&got.body).unwrap();
+            assert_eq!(j["vault"]["state"], "pinned", "{}", got.body);
+            assert_eq!(j["vault"]["pkp_digest"], hex(&v.pkp.digest()));
+            let again = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            let j: serde_json::Value = serde_json::from_str(&again.body).unwrap();
+            assert_eq!(j["state"], "pinned", "{}", again.body);
+
+            let (_v, st, c, id) = closed("state-closed");
+            let got = handle(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault?vault={id}"),
+                b"",
+            );
+            let j: serde_json::Value = serde_json::from_str(&got.body).unwrap();
+            assert_eq!(j["vault"]["state"], "closed", "{}", got.body);
+
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("state-legacy", &v));
+            let legacy = json!({"group_key": hex(&v.id), "threshold": 2, "total": 3, "cp": 2});
+            let r = post(&st, &c, legacy.to_string().as_bytes());
+            let j: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+            assert_eq!(j["state"], "legacy", "{}", r.body);
+        }
+
+        /// The arms map and decide nothing: each door has one production caller, in the orchestrator.
+        #[test]
+        fn the_coordinator_reaches_the_read_key_and_devices_only_through_their_doors() {
+            let source = production_source();
+            for call in [
+                ["register", "_device("].concat(),
+                ["set_read", "_key("].concat(),
+            ] {
+                assert!(!source.contains(call.as_str()), "{call} in the coordinator");
+            }
+            for door in [
+                ["offer_read", "_key("].concat(),
+                ["offer", "_device("].concat(),
+            ] {
+                assert_eq!(source.matches(door.as_str()).count(), 1, "{door}");
+            }
+        }
+
+        #[test]
+        fn one_members_roster_cannot_freeze_the_others() {
+            let (_v, st, c, id) = pinned("roster");
+            let t = token();
+            for names in [
+                json!(["mallory"]),
+                json!(["a", "b", "c", "d"]),
+                json!(["a", "a", "b"]),
+                json!(["a", " a ", "b"]),
+                json!(["a", "", "b"]),
+                json!(["a", "   ", "b"]),
+            ] {
+                let b = json!({"vault": id, "names": names}).to_string();
+                let r = with(
+                    &st,
+                    &c,
+                    &Method::Post,
+                    "/api/vault/members",
+                    b.as_bytes(),
+                    Some(&t),
+                );
+                assert_eq!(r.status, 400, "{names}: {}", r.body);
+                assert_eq!(code(&r), "roster_invalid");
+                assert!(!c.vaults_dir.join(&id).join("members.json").exists());
+            }
+            let b = json!({"vault": id, "names": ["a", "b", "c"]}).to_string();
+            let r = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                b.as_bytes(),
+                Some(&t),
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+        }
+
+        #[test]
+        fn a_bundle_that_does_not_count_spends_no_allowance() {
+            let v = vault(2, 3);
+            let (st, limits) = (HelperState::new(), admission::Limits::new());
+            let one = body(&v, &[proof(&v, 1, &READ_KEY)]);
+            let empty = body(&v, &[]);
+            for _ in 0..40 {
+                for b in [&one, &empty] {
+                    assert!(new_vault_refusal(
+                        &limits,
+                        &st,
+                        &CLIENT,
+                        &Method::Post,
+                        "/api/vault",
+                        b,
+                        0
+                    )
+                    .is_none());
+                }
+            }
+            // Bundles that count do spend it: the allowance is five new vaults an hour.
+            for n in 0..5 {
+                let w = vault(2, 2);
+                let b = body(&w, &[proof(&w, 1, &READ_KEY), proof(&w, 2, &READ_KEY)]);
+                assert!(
+                    new_vault_refusal(&limits, &st, &CLIENT, &Method::Post, "/api/vault", &b, 0)
+                        .is_none(),
+                    "{n}"
+                );
+            }
+            let w = vault(2, 2);
+            let b = body(&w, &[proof(&w, 1, &READ_KEY), proof(&w, 2, &READ_KEY)]);
+            assert!(
+                new_vault_refusal(&limits, &st, &CLIENT, &Method::Post, "/api/vault", &b, 0)
+                    .is_some()
+            );
+        }
+
+        #[test]
+        fn reads_and_the_roster_say_closed_and_unreadable_as_such() {
+            let (_v, st, c, id) = closed("words-closed");
+            let t = token();
+            let names = json!({"vault": id, "names": ["a", "b", "c"]}).to_string();
+            let read = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/balance?vault={id}"),
+                b"",
+                Some(&t),
+            );
+            assert_eq!(
+                (read.status, code(&read)),
+                (401, "vault_closed".to_string()),
+                "{}",
+                read.body
+            );
+            let roster = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                names.as_bytes(),
+                Some(&t),
+            );
+            assert_eq!(
+                (roster.status, code(&roster)),
+                (401, "vault_closed".to_string()),
+                "{}",
+                roster.body
+            );
+
+            let (_v, st, c, id) = pinned("words-bad");
+            std::fs::write(c.vaults_dir.join(&id).join("read-key.json"), "{").unwrap();
+            let names = json!({"vault": id, "names": ["a", "b", "c"]}).to_string();
+            let read = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/balance?vault={id}"),
+                b"",
+                Some(&t),
+            );
+            assert_eq!(read.status, 503, "{}", read.body);
+            let ufvk = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/ufvk?vault={id}"),
+                b"",
+                Some(&t),
+            );
+            assert_eq!(ufvk.status, 503, "{}", ufvk.body);
+            let roster = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                names.as_bytes(),
+                Some(&t),
+            );
+            assert_eq!(roster.status, 503, "{}", roster.body);
+        }
+
+        #[test]
+        fn a_second_post_of_another_package_is_a_conflict() {
+            let (v, st, c, id) = pinned("confirm");
+            let pin = c.vaults_dir.join(&id).join("creation-pin.json");
+            let mut record: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&pin).unwrap()).unwrap();
+            record["pkp_digest"] = json!("00".repeat(32));
+            std::fs::write(&pin, record.to_string()).unwrap();
+            let again = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(again.status, 409, "{}", again.body);
+        }
+
+        #[test]
+        fn the_digest_is_served_only_for_a_pinned_vault_and_only_as_worked_out() {
+            let (v, st, c, id) = pinned("digest");
+            let pin = c.vaults_dir.join(&id).join("creation-pin.json");
+            let mut record: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&pin).unwrap()).unwrap();
+            record["pkp_digest"] = json!("00".repeat(32));
+            std::fs::write(&pin, record.to_string()).unwrap();
+            let got = handle(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault?vault={id}"),
+                b"",
+            );
+            let j: serde_json::Value = serde_json::from_str(&got.body).unwrap();
+            assert_eq!(
+                j["vault"]["pkp_digest"],
+                hex(&v.pkp.digest()),
+                "{}",
+                got.body
+            );
+
+            let (_v, st, c, id) = closed("digest-closed");
+            std::fs::write(
+                c.vaults_dir.join(&id).join("creation-pin.json"),
+                record.to_string(),
+            )
+            .unwrap();
+            let got = handle(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault?vault={id}"),
+                b"",
+            );
+            let j: serde_json::Value = serde_json::from_str(&got.body).unwrap();
+            assert!(j["vault"]["pkp_digest"].is_null(), "{}", got.body);
+        }
+
+        #[test]
+        fn an_unreadable_key_file_refuses_writes_as_damage_not_as_a_missing_signature() {
+            let (_v, st, c, id) = pinned("gate-bad");
+            std::fs::write(c.vaults_dir.join(&id).join("read-key.json"), "{").unwrap();
+            let b = json!({"vault": id, "old": "a", "new": "b"}).to_string();
+            let r = with(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members/rename",
+                b.as_bytes(),
+                None,
+            );
+            assert_eq!(r.status, 503, "{}", r.body);
+        }
+
+        #[test]
+        fn the_ufvk_is_sealed_only_to_seated_records() {
+            let (_v, st, c, id) = pinned("ufvk-seats");
+            let file = c.vaults_dir.join(&id).join("device-keys.json");
+            let mut records: Vec<serde_json::Value> =
+                serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            let stranger = hex(&comms(9));
+            records.push(json!({ "comms": stranger }));
+            std::fs::write(&file, serde_json::to_string(&records).unwrap()).unwrap();
+            let r = with(
+                &st,
+                &c,
+                &Method::Get,
+                &format!("/api/vault/ufvk?vault={id}"),
+                b"",
+                Some(&token()),
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+            assert!(r.body.contains(&hex(&comms(1))), "{}", r.body);
+            assert!(!r.body.contains(&stranger), "{}", r.body);
+        }
+
+        #[test]
+        fn every_gated_read_of_a_pinned_vault_needs_the_read_key() {
+            let (_v, st, c, id) = pinned("gated");
+            for route in GATED_READS {
+                let r = with(
+                    &st,
+                    &c,
+                    &Method::Get,
+                    &format!("{route}?vault={id}"),
+                    b"",
+                    None,
+                );
+                assert_eq!(r.status, 401, "{route}: {}", r.body);
+                let wrong = "cd".repeat(32);
+                let r = with(
+                    &st,
+                    &c,
+                    &Method::Get,
+                    &format!("{route}?vault={id}"),
+                    b"",
+                    Some(&wrong),
+                );
+                assert_eq!(r.status, 401, "{route}: {}", r.body);
+            }
+            assert!(GATED_READS.contains(&"/api/vault/ledger.csv"));
+        }
+
+        #[test]
+        fn a_refused_second_bundle_leaves_the_pinned_files_as_they_were() {
+            let (v, st, c, id) = pinned("files");
+            let dir = c.vaults_dir.join(&id);
+            let before = std::fs::read(dir.join("read-key.json")).unwrap();
+            let other_key = [9u8; 32];
+            let other = body(&v, &[proof(&v, 1, &other_key), proof(&v, 2, &other_key)]);
+            assert_eq!(post(&st, &c, &other).status, 409);
+            assert_eq!(std::fs::read(dir.join("read-key.json")).unwrap(), before);
+        }
+
+        #[test]
+        fn an_unreadable_registration_gets_no_key_file_beside_it() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("bad-reg", &v));
+            let dir = c.vaults_dir.join(hex(&v.id));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("registration.json"), "{cut").unwrap();
+            let r = post(
+                &st,
+                &c,
+                &body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]),
+            );
+            assert_eq!(r.status, 503, "{}", r.body);
+            assert!(!dir.join("read-key.json").exists());
+            assert!(!st.contains(&hex(&v.id)));
+        }
+
+        #[test]
+        fn a_pin_that_cannot_be_written_is_not_answered_as_done() {
+            let v = vault(2, 3);
+            let (st, c) = (HelperState::new(), coordinator("pin-fails", &v));
+            let dir = c.vaults_dir.join(hex(&v.id));
+            std::fs::create_dir_all(dir.join("creation-pin.json")).unwrap();
+            let b = body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]);
+            let r = post(&st, &c, &b);
+            assert_eq!(r.status, 500, "{}", r.body);
+            assert!(!st.contains(&hex(&v.id)), "not served");
+            std::fs::remove_dir_all(dir.join("creation-pin.json")).unwrap();
+            assert_eq!(post(&st, &c, &b).status, 200, "the same bundle finishes it");
+        }
+
+        /// The engine's address with its last character changed, which no key derives.
+        fn swap_address(script: &str) -> String {
+            let from = script.find("address: \"").unwrap() + "address: \"".len();
+            let to = from + script[from..].find('"').unwrap();
+            // Not the character it already ends in, or this address is the right one.
+            let other = if script[..to].ends_with('q') {
+                'p'
+            } else {
+                'q'
+            };
+            format!(
+                "{}{}{other}{}",
+                &script[..from],
+                &script[from..to - 1],
+                &script[to..]
+            )
         }
     }
 }

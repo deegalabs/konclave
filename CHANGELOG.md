@@ -56,14 +56,18 @@ explicitly accepted.
 
 ## [Unreleased]
 
-### Added
+## [0.18.0] 2026-11-08
 
-- **A payroll's name has a home in the shared core (#296).** The coordinator's proposal record
-  carries an optional `title`, and its one rule (`orchestrator::helper::payroll_title`: trimmed, at
-  most 120 characters, no control or bidirectional characters) is applied by the coordinator. What a
-  member sees is in [ui/CHANGELOG.md](ui/CHANGELOG.md) and
-  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The desktop's local bridge names a
-  payroll from its description, as before.
+> **Services deployed when this was cut (2026-11-08):** coordinator `a2818df5`, relay `ba546740f3d136f5`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The shared crates carry the checks of the new vault creation.** `konclave-seal` holds them
+  once, and the app (through `konclave-wasm`) and the coordinator (through the orchestrator) both
+  read that one definition. Nothing changes for how a vault that already exists is used.
 
 ### Changed
 
@@ -71,6 +75,10 @@ explicitly accepted.
   with an AI assistant carries a generic `Co-Authored-By: Claude <noreply@anthropic.com>` trailer
   and never a session link; earlier history is not rewritten. Contributions made with an AI
   assistant are welcome, and the person who sends them answers for every line (CONTRIBUTING.md).
+- **A new vault has at most 16 seats, in the app's creation and in the local bridge.** The 0.17.0
+  entry below says the app and the coordinator share 32. A new vault now has at most 16 (the create
+  screen still offers up to 5); the coordinator keeps room for up to 32 devices only so that a vault
+  an older app created keeps its devices.
 
 ## [0.17.0] 2026-11-06
 

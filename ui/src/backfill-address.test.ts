@@ -114,10 +114,10 @@ describe('backfill never writes into an unfinished vault', () => {
 describe('getVault reads the deposit address through that one rule', () => {
   const api = codeOf('./api.ts')
   it('shows, adopts and pins only what depositAddress allows', () => {
-    expect(api).toMatch(/const deposit = depositAddress\(rec, served, \{ threshold: v\.threshold, total: v\.total \}\)/)
+    expect(api).toMatch(/: depositAddress\(rec, served, \{ threshold: v\.threshold, total: v\.total \}\)/)
     expect(api).toMatch(/if \(deposit\.adopt\) void backfillAddress\(id, served\)/)
     expect(api).toMatch(/orchard_address: deposit\.address,/)
-    expect(api).toMatch(/if \(change && deposit\.address\) void recordChangeReceiver/)
+    expect(api).toMatch(/if \(change && deposit\.address && !protocol3\) void recordChangeReceiver/)
   })
 })
 

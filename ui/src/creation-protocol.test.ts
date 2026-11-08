@@ -27,33 +27,27 @@ vi.stubGlobal('fetch', async (url: string, init?: { body?: string }) => {
   return new Response(JSON.stringify({ vault: { id: 'x', address: 'u1x' } }), { status: 200 })
 })
 const helper = await import('./helper')
-const { CREATION_PROTOCOL, creationAllowed, isUpdateRequired, protocolOfRecord } = await import('./creation-protocol')
+const { CREATION_PROTOCOL, creationAllowed, creationVerdict, isUpdateRequired, resumable, protocolOfRecord, verifiedAddress } = await import('./creation-protocol')
 const { DKG_VERSION } = await import('./dkg-ceremony')
 
 describe('every registration names its creation protocol', () => {
   it('the number is 2, the v0.12.0 creation core, and the ceremony speaks the same one', () => {
-    expect(CREATION_PROTOCOL).toBe(2)
+    expect(CREATION_PROTOCOL).toBe(3)
     expect(DKG_VERSION).toBe(CREATION_PROTOCOL)
     expect(codeOf('./dkg-ceremony.ts')).toMatch(/export const DKG_VERSION = CREATION_PROTOCOL/)
     expect(codeOf('./net.ts')).toMatch(/`konclave-room-v\$\{CREATION_PROTOCOL\}\\u0000\$\{code\}\\u0000\$\{p\}`/)
   })
   it('registerVault sends cp itself', async () => {
     sent.length = 0
-    await helper.registerVault('aa'.repeat(32), 'v', 2, 2, 2)
+    await helper.registerVault('aa'.repeat(32), 'v', 2, 2, CREATION_PROTOCOL)
     const reg = sent.find((s) => s.url.endsWith('/api/vault'))
     expect(reg?.body).toMatchObject({ cp: CREATION_PROTOCOL })
     expect(reg?.body).not.toHaveProperty('cv')
   })
-  it('the vault read names the protocol the VAULT was made with, never the app\'s', async () => {
-    sent.length = 0
-    await helper.getVault('aa'.repeat(32), 2)
-    expect(sent[0]?.url).toMatch(/\/api\/vault\?vault=a+&cp=2$/)
+  it('the vault read names no protocol', async () => {
     sent.length = 0
     await helper.getVault('aa'.repeat(32))
     expect(sent[0]?.url).toMatch(/\/api\/vault\?vault=a+$/)
-    // The app passes the device's record of the vault, read before asking the coordinator.
-    const api = codeOf('./api.ts')
-    expect(api).toMatch(/rec = \(await listVaults\(\)\)\.find\(\(s\) => s\.id === id\)[\s\S]{0,200}const v = await netGetVault\(id, rec \? protocolOfRecord\(rec\) : undefined\)/)
     // And a creation records it when it saves the vault.
     expect(codeOf('./screens/NetVault.tsx')).toMatch(/saveVault\(vaultId, \{[^}]*cp: CREATION_PROTOCOL[^}]*\}, savePass\)/)
   })
@@ -72,20 +66,36 @@ describe('the protocol a vault was made with, from the device record', () => {
     // The old flow kept no quorum and no protocol: it reads as before, with none.
     expect(protocolOfRecord({})).toBeUndefined()
   })
-  it('the vault read uses it', () => {
-    expect(codeOf('./api.ts')).toMatch(/const v = await netGetVault\(id, rec \? protocolOfRecord\(rec\) : undefined\)/)
+  it('the vault read names no protocol', () => {
+    expect(codeOf('./api.ts')).toMatch(/const v = await netGetVault\(id\)/)
   })
   it('an imported backup cannot claim a protocol this app does not know', () => {
-    expect(codeOf('./storage.ts')).toMatch(/p\.cp > 0 && p\.cp <= CREATION_PROTOCOL \? p\.cp : undefined/)
+    // Behaviour in storage.test.ts (refused as newer, refused as corrupt); here, that the import says so.
+    expect(codeOf('./storage.ts')).toMatch(/if \(p\.cp > CREATION_PROTOCOL\) \{\s*throw storageError\('unsupported-version'/)
   })
 })
 
 describe('an outdated client says so, before it starts and if it is refused', () => {
   it('creation is allowed when the coordinator asks for no more than this client speaks, or says nothing', () => {
-    expect(creationAllowed(2, null)).toBe(true)
-    expect(creationAllowed(2, 2)).toBe(true)
-    expect(creationAllowed(2, 1)).toBe(true)
-    expect(creationAllowed(2, 3)).toBe(false)
+    expect(resumable({ cp: 3, threshold: 2, total: 2, abandoned: 'secretSplit' } as never)).toBe(false)
+    expect(resumable({ cp: 3, threshold: 2, total: 2, pending: true, address: 'u1x' } as never)).toBe(true)
+    expect(resumable({ cp: 3, threshold: 2, total: 2, address: 'u1x' } as never)).toBe(false)
+    expect(resumable({ cp: 3, threshold: 2, total: 2, pending: true, receiversState: 'refused' } as never)).toBe(true)
+    expect(resumable({ cp: 3, threshold: 2, total: 2, pending: true, receiversState: 'refused', address: 'u1x' } as never)).toBe(false)
+    // Protocol 3 never starts on a coordinator that has not said it pins.
+    expect(creationVerdict(3, null)).toBe('blocked')
+    expect(creationVerdict(3, 0)).toBe('blocked')
+    expect(creationVerdict(3, 2)).toBe('blocked')
+    expect(creationVerdict(3, 2.5)).toBe('blocked')
+    expect(creationVerdict(3, 3)).toBe('ok')
+    expect(creationVerdict(3, 4)).toBe('update')
+    // A later protocol starts only on a coordinator that announces at least its own number: an app of
+    // protocol 4 must not create against a coordinator that only pins protocol 3.
+    expect(creationVerdict(4, 3)).toBe('blocked')
+    expect(creationVerdict(4, 4)).toBe('ok')
+    expect(creationAllowed(3, 3)).toBe(true)
+    expect(creationAllowed(3, 0)).toBe(false)
+    expect(creationAllowed(3, null)).toBe(false)
   })
   it('a coordinator that does not answer health in time does not hold a creation up', () => {
     expect(codeOf('./helper.ts')).toMatch(/coordinatorCreationMin[\s\S]{0,600}AbortSignal\.timeout\(\d+\)/)
@@ -118,7 +128,7 @@ describe('an outdated client says so, before it starts and if it is refused', ()
     const src = codeOf('./screens/NetVault.tsx')
     // Before anything starts: the member stays on the screen they were on, with the message and no
     // counters of a ceremony that never began, and can try again after updating.
-    expect(src).toMatch(/startGuardRef\.current = true\s*try \{\s*if \(!creationAllowed\(CREATION_PROTOCOL, await coordinatorCreationMin\(\)\)\) \{\s*setError\(tt\('net\.err\.updateRequired'\)\)\s*startGuardRef\.current = false\s*return\s*\}/)
+    expect(src).toMatch(/startGuardRef\.current = true\s*try \{\s*const verdict = creationVerdict\(CREATION_PROTOCOL, await coordinatorCreationMin\(\)\)/)
     // The refusal itself is read where the registration happens (conclude-registration.ts), once.
     expect(codeOf('./conclude-registration.ts')).toMatch(/isUpdateRequired\(failure\)/)
   })
@@ -144,3 +154,16 @@ describe('resumable: a record by fact, in one place', () => {
     localStorage.setItem('konclave.coord.mode', 'custom')
   })
 })
+
+describe('verifiedAddress', () => {
+  it('a protocol-3 vault shows an address only verified and finished; an older one its own', () => {
+    expect(verifiedAddress({ cp: 3, address: 'a', receiversState: 'verified' } as never)).toBe('a')
+    expect(verifiedAddress({ cp: 3, address: 'a', receiversState: 'verified', viewingFingerprint: 'C' } as never)).toBe('')
+    expect(verifiedAddress({ cp: 3, address: 'a', receiversState: 'verified', viewingFingerprint: 'C', codeCompared: true } as never)).toBe('a')
+    expect(verifiedAddress({ cp: 3, address: 'a', receiversState: 'refused' } as never)).toBe('')
+    expect(verifiedAddress({ cp: 3, address: 'a' } as never)).toBe('')
+    expect(verifiedAddress({ cp: 3, address: 'a', receiversState: 'verified', pending: true } as never)).toBe('')
+    expect(verifiedAddress({ cp: 2, address: 'a' } as never)).toBe('a')
+  })
+})
+

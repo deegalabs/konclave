@@ -11,11 +11,12 @@ import { isDesktop } from '../platform'
 import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { removeVaultFromDevice } from '../remove-vault'
 import { storageErrorKey } from '../storage-errors'
-import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
+import { CodeFirst } from './CodeFirst'
+import { resumable, isCurrentFlow, sameCoordinator, verifiedAddress, mustCompareCode } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup, type VaultBackup } from '../build-backup'
 import { downloadText } from '../download'
-import { getUnlockedShare, unlockedHere } from '../session'
+import { unlockedHere } from '../session'
 import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
@@ -30,7 +31,6 @@ import { lastReadFailure, type ReadFailureInfo } from '../read-failure'
 import { holdsPlainViewingKey } from '../plain-key'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
-import { addressText } from '../approved-payment'
 import '../redesign.css'
 
 // Every vault carries WHERE it lives, so one unified list can hold both worlds and route each
@@ -130,7 +130,7 @@ export default function Vaults() {
       }
       let backup: VaultBackup | null = null
       if (pass) {
-        try { backup = await buildVaultBackup(id, pass, getUnlockedShare(id), recs[id]?.name) } catch { /* optional */ }
+        try { backup = await buildVaultBackup(id, pass, recs[id]?.name) } catch { /* optional */ }
       }
       setResumeDone((d) => ({ ...d, [id]: backup }))
       setResumeFor(null)
@@ -151,7 +151,7 @@ export default function Vaults() {
     concluding.current.add(id)
     setResumeBusy(id)
     try {
-      const b = await buildVaultBackup(id, backupPass, getUnlockedShare(id), recs[id]?.name)
+      const b = await buildVaultBackup(id, backupPass, recs[id]?.name)
       setResumeDone((d) => ({ ...d, [id]: b }))
     } catch {
       setResumeMsg((m) => ({ ...m, [id]: t('vaults.unlockWrong') }))
@@ -286,22 +286,11 @@ export default function Vaults() {
     setImpErr(null); setImpBusy(true)
     try {
       const meta = await importAndUnlock(impParsed, impPass)
-      const row: Row = {
-        src: 'net',
-        v: {
-          id: meta.id,
-          name: meta.name || t('vaults.networkedVault'),
-          threshold: 0,
-          total: meta.roster.length,
-          members: meta.roster.length,
-          member_list: meta.roster.map((name) => ({ name, pubkey: name })),
-          group_pubkey: meta.groupKey,
-          orchard_address: meta.address,
-        },
-      }
-      setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
+      // The list is read again rather than built here: the card's address goes through the same
+      // check as every other read (the code compared, the record's own receivers), never the file's.
+      setReload((x) => x + 1)
       resetImport()
-      toast.ok(t('toast.vaultImported', { name: row.v.name }))
+      toast.ok(t('toast.vaultImported', { name: meta.name || t('vaults.networkedVault') }))
     } catch (e) {
       setImpErr(t(storageErrorKey(e, 'import.errGeneric')))
     } finally {
@@ -316,6 +305,7 @@ export default function Vaults() {
 
   function enter(row: Row) {
     const { v, src } = row
+    if (mustCompareCode(recs[v.id])) return
     setSelectedVault(v.id)
     // Same inline unlock gate for both worlds. Already unlocked this session -> straight in. A 'net'
     // vault always holds a device share, so it always unlocks; a 'local' vault only when locked.
@@ -385,7 +375,7 @@ export default function Vaults() {
           members: s.roster.length,
           member_list: s.roster.map((name) => ({ name, pubkey: name })),
           group_pubkey: s.groupKey,
-          orchard_address: addressText(s.address),
+          orchard_address: verifiedAddress(s),
           secured: s.secured, // #388: whether this vault holds S (gated reads/room)
           pending: s.pending,
         },
@@ -543,11 +533,13 @@ export default function Vaults() {
                   const canResume = !!rec && resumable(rec)
                   // The earlier flow: warned, never offered a finish. A coordinator is not what it lacks.
                   const oldFlow = !!rec && !isCurrentFlow(rec)
+                  const stopped = !!rec?.abandoned
                   return (
                   <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
                     <strong>{v.pending ? t('vaults.pendingBadge') : t('vaults.resumeBadge')}</strong>{' '}
                     {v.pending && !(canResume && rec.allSaved) ? t('vaults.pendingHint') : t('vaults.resumeHint')}
                     {oldFlow && <p style={{ marginTop: 8 }}>{t('vaults.resumeOldFlow')}</p>}
+                    {stopped && <p role="alert" style={{ marginTop: 8 }}>{t('registration.doNotUse')}</p>}
                     {resumeBusy === v.id && <p role="status" style={{ marginTop: 8 }}>{t('vaults.resumeBusy')}</p>}
                     {resumeMsg[v.id] && <p className="unlock-err" role="alert" style={{ marginTop: 8 }}>{resumeMsg[v.id]}</p>}
                     {!oldFlow && canResume && resumeFor === v.id && (
@@ -584,7 +576,10 @@ export default function Vaults() {
                         {t('vaults.resumeButton')}
                       </button>
                     )}
-                    {!oldFlow && !(canResume && (rec.allSaved || resumeFor === v.id)) && (finishing !== v.id ? (
+                    {!canResume && !stopped && (rec?.cp ?? 0) >= 3 && (
+                      <p style={{ marginTop: 8 }}>{t(rec?.receiversState === 'refused' ? 'vaults.repairInSettings' : 'vaults.cannotFinishHere')}</p>
+                    )}
+                    {!oldFlow && ((rec?.cp ?? 0) < 3 || canResume) && !(canResume && (rec.allSaved || resumeFor === v.id)) && !stopped && (finishing !== v.id ? (
                       <button type="button" className="cv-stop" style={{ marginTop: 8 }}
                         onClick={() => {
                           setFinishing(v.id); setFinishArmed(null)
@@ -615,9 +610,18 @@ export default function Vaults() {
                   </div>
                   )
                 })()}
+                {!v.pending && resumeMsg[v.id] && <p className="unlock-err" role="alert">{resumeMsg[v.id]}</p>}
+                <CodeFirst code={recs[v.id]?.viewingFingerprint} compared={!mustCompareCode(recs[v.id])}
+                  onCompared={() => {
+                    setResumeMsg((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== v.id)))
+                    void updateVaultMeta(v.id, { codeCompared: true })
+                      .then(() => setReload((x) => x + 1))
+                      .catch((e) => setResumeMsg((m) => ({ ...m, [v.id]: t(storageErrorKey(e, 'export.errGeneric')) })))
+                  }}>
                 {v.orchard_address && (
                   <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
+                </CodeFirst>
                 <span className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></span>
                 {row.src === 'net' && (
                   <button type="button" className="rd-remove"

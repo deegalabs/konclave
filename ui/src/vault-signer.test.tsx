@@ -52,7 +52,7 @@ describe('the provider hands the gate its answer (#610)', () => {
   // both refusals), and the lab, which has no proposal, answers `unknown`. A wrapper at either one
   // turned the money gate off with every test green (#610 fifth review).
   it('contributes its share only on its own owner\'s signature, through the tested rule', () => {
-    expect(codeOf('./VaultSigner.tsx')).toMatch(/isArmed: \(\) => owner\.current\.allows\(activeIdRef\.current\),/)
+    expect(codeOf('./VaultSigner.tsx')).toMatch(/isArmed: \(\) => owner\.current\.allows\(activeIdRef\.current\) && !deviceRefusal\(vaultIdRef\.current\),/)
   })
 
   it('signs at one instant, and the screen asks the session whether that signature would send', () => {

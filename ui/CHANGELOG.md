@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.18.0] 2026-11-08
+
 ### Security
 
 - **Removing a vault left its personal data in this browser (#813).** Since 2026-08-21, removing a
@@ -61,20 +63,15 @@ history to tidy it is how context gets lost.
   removed before this version, and its passkey shortcut if it was removed from Settings or from the
   create and join screen, stay in that browser; this change clears them only for vaults removed from
   now on.
+- **Creating a vault is hardened.** New vaults are created under a new creation protocol, and
+  before a new vault's address is shown the app gives each member a viewing code to compare with
+  the others outside the app, and shows the address once the member confirms they compared it. An
+  app older than this one cannot create or join a new vault: from 0.13.0 it says to update before
+  it starts; an older one fails when it registers the vault. Vaults that already exist keep working
+  as before.
 
 ### Added
 
-- **A payroll has a name on the web (#296).** The period and description typed on the payroll
-  screen were dropped on the web, so every payroll showed as "Payroll" on the desk, the proposal,
-  the ledger and the exported book. They now travel as the payroll's own name and are shown in all
-  of those places, including the Document column of the CSV and XLSX export. It is never put in a
-  memo: on a single payment the memo is the one written on the chain, and the desk no longer calls
-  the name of the proposal it leads with a memo. A name longer than 120 characters, or with a tab,
-  a line break or a text-direction mark (often carried in from a spreadsheet), is refused on the
-  screen before anything is sent, with words saying which. The name is a label, and no
-  signature covers it yet (#567), so read the lines, not the name, before you approve. A payroll
-  created before this version, or on a coordinator that does not accept the name yet, still shows
-  "Payroll".
 - **"What changed", a tab under Approvals.** What changed state since this device last looked:
   what arrived for you, became ready, was sent, confirmed, rejected, cancelled, invalidated or
   expired (by this device's clock, as on the desk), most pressing first, each named with the word the proposal list
@@ -120,6 +117,12 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **In the ledger, colour now means one thing: the state's group.** Blue is a state that needs
+  someone, grey is on its way or closed, green is settled, and the word is always beside the
+  colour, and a proposal past its deadline on this device's clock is closed, as on the desk. The
+  band's figures lead and the labels step back; the labels, the table's head and the filters are
+  plain text; the rows have room. All of it is for the screen: the printed book keeps its own
+  layout (#780).
 - **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
   opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
   book, three names, and the member had to work out that they were the same thing. Everything now
@@ -128,6 +131,24 @@ history to tidy it is how context gets lost.
   over the accounting term. English already used one word, "Ledger". A test keeps the menu entry,
   the screen title and the activity tab equal in every language, and fails if any Portuguese text or
   in-app doc says "razão" again.
+- **Approving is not paying, said where the buttons are.** Above "Approve": approving is your
+  yes to this payment, it moves no money, once enough members approve, any member can sign, and
+  the last signature sends. Under "Sign this payment": signing is your part of the key at work, and before the last
+  signature nothing has left the vault; the local build's "Sign and send" says instead that one
+  confirm gathers the parts and sends in one step. In Settings, the removal gate offers the
+  cheaper fix first ("export this vault first if you might want it back: the backup file and the
+  passphrase are what bring your part back") and links the page that says what to do if the device is lost (#309).
+
+- **Creating a passkey in Settings now says when that passkey can sync.** The unlock
+  shortcut is made for one device: nothing guarantees a passkey keeps opening it after it syncs to
+  another device, and on some phones it has stopped working even without a sync. Until now Settings
+  created the passkey and said nothing about which kind it was. It now reads, from the data the
+  device returns, whether the passkey is eligible for backup (one your passkey manager can sync),
+  and if so says that the shortcut still works only on this device, that a sync may stop it working
+  here too, and that your passphrase stays the way in. Nothing is blocked: the shortcut is still turned
+  on. A passkey that stays on the device, or a browser that does not give that data, shows no notice.
+- **The largest vault a creation accepts is now 16 devices** (it was 32). The create screen still
+  offers up to 5, as before, and vaults created before keep all their members.
 
 ### Fixed
 

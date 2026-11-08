@@ -16,6 +16,7 @@ import { clearUnlockedShare, clearReadSecret } from './session'
 import { clearPrfWrap } from './prf-store'
 import { clearRecentPayees } from './recent-payees'
 import { clearPayrollDraft } from './payroll-draft'
+import { noteSeatRegistered } from './seat-registration'
 import { forgetStatus } from './vault-status'
 import { clearSeen } from './seen-store'
 
@@ -38,6 +39,7 @@ export function clearVaultTraces(id: string): void {
   clearPrfWrap(id)
   try { localStorage.removeItem(beneficiariesKey(id)) } catch { /* storage unavailable */ }
   clearRecentPayees(id)
+  noteSeatRegistered(id) // forgets a refused seat
   forgetStatus(id)
   clearSeen(id)
   if (getSelectedVault() === id) clearSelectedVault()

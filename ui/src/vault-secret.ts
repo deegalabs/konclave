@@ -27,6 +27,16 @@ export function generateVaultSecret(): Uint8Array {
  * registration; the helper stores it and constant-time compares it on every read. A vault with no
  * stored readKey keeps accepting reads without a token (pre-#388 compat), so migration is per-vault.
  */
+export async function deriveSeatProofKey(secret: Uint8Array): Promise<Uint8Array> {
+  const base = await crypto.subtle.importKey('raw', bufOf(secret), 'HKDF', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('konclave-seat-proof-v1') },
+    base,
+    256,
+  )
+  return new Uint8Array(bits)
+}
+
 export async function deriveReadKey(secret: Uint8Array): Promise<Uint8Array> {
   const base = await crypto.subtle.importKey('raw', bufOf(secret), 'HKDF', false, ['deriveBits'])
   const bits = await crypto.subtle.deriveBits(

@@ -13,14 +13,15 @@ import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
-import { readSecretFor, getUnlockedShare } from '../session'
+import { readSecretFor } from '../session'
 import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, type Governance } from '../storage'
+import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { trustRows, type Cell } from '../trust-facts'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
+import { ReceiversRepair } from './ReceiversRepair'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
@@ -53,6 +54,7 @@ export default function Settings() {
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
+  const [localRec, setLocalRec] = useState<VaultPublic | null>(null)
   // #469: everything below the vault card is gated on an async chain (health -> getVault ->
   // listVaults -> fingerprint), and until it lands the sections are simply ABSENT - they pop in one
   // by one. Worse, the danger zone renders `removeNoLocal` meanwhile, which asserts this device
@@ -90,7 +92,7 @@ export default function Settings() {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
             if (on) {
-              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setSecured(found?.secured)
+              setGov(found?.governance ?? 'open'); setHasLocal(!!found); setLocalRec(found ?? null); setSecured(found?.secured)
               if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
             }
             if (found?.groupKey) identity = found.groupKey
@@ -114,6 +116,10 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
+  // Decided by the maintainer on 2026-11-06: the passkey just created may sync (BE read from its authenticator data). Shown once, after
+  // enrolment, and never blocking it: the shortcut is per device by design, so a synced passkey is
+  // the case it does not rely on, and the member is owed that sentence before they do.
+  const [pkSynced, setPkSynced] = useState(false)
   useEffect(() => { setHasPasskey(!!(vaultId && loadPrfWrap(vaultId))) }, [vaultId])
   // Offered only when this device can actually do it: a vault selected, `S` in the session, and a
   // browser with WebAuthn. Advertising a control that cannot work is worse than not offering it.
@@ -123,7 +129,7 @@ export default function Settings() {
     if (!vaultId) return
     const s = readSecretFor(vaultId)
     if (!s) { setPkErr(t('settings.passkeyNeedUnlock')); return }
-    setPkBusy(true); setPkErr(null)
+    setPkBusy(true); setPkErr(null); setPkSynced(false)
     try {
       const label = vault?.name || t('settings.vault')
       const r = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
@@ -134,6 +140,9 @@ export default function Settings() {
       if (typeof r === 'string') { setPkErr(t(DENIAL_COPY[r])); return }
       savePrfWrap(vaultId, r)
       setHasPasskey(true)
+      // Only a BE we read as SET earns the notice. Null (nothing readable) is unknown, not a reason
+      // to alarm anyone, and the always-shown access note below already says the rule.
+      setPkSynced(r.backupEligible === true)
     } finally {
       setPkBusy(false)
     }
@@ -145,6 +154,7 @@ export default function Settings() {
     clearPrfWrap(vaultId)
     setHasPasskey(false)
     setPkErr(null)
+    setPkSynced(false)
   }
 
   // #470: rotating the passphrase that seals this device's share. Local and per DEVICE - the
@@ -189,7 +199,7 @@ export default function Settings() {
       // The viewing key and the scan floor ride in the export so it can REBUILD the vault, not just
       // restore the seat (#214/#434/#480); the share in session opens the coordinator's sealed
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
-      const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
+      const b = await buildVaultBackup(id, xpPass, vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
       if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
       return { json: b.json, name: b.name, complete: b.complete }
@@ -327,6 +337,13 @@ export default function Settings() {
           {/* Figures are mono. The contract has no exception for small ones. */}
           <span className="set-v mono">{thr} / {n}</span>
         </div>
+        {localRec?.viewingFingerprint && (
+          <div className="set-row">
+            <span className="set-k">{t('set.viewingCode')}</span>
+            <span className="set-v mono">{localRec.viewingFingerprint}</span>
+            <span className="set-hint">{t('set.viewingCodeHintFull')}</span>
+          </div>
+        )}
         <div className="set-row">
           <span className="set-k">{t('settings.members')}</span>
           {/* `?? n` reported the CONFIGURED total as the seated count when the list was missing -
@@ -400,6 +417,7 @@ export default function Settings() {
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
+      {hasPasskey && pkSynced && <p className="set-hint" role="status">{t('settings.passkeySynced')}</p>}
       {/* Unconditional. It used to render only when this device could use a passkey, so a device
           that cannot never learned the rule it is subject to. */}
       <p className="set-hint">{t('set.accessNote')}</p>
@@ -500,11 +518,13 @@ export default function Settings() {
         </div>
       ) : null}
 
+      {localRec && <ReceiversRepair rec={localRec} onDone={() => { void listVaults().then((all) => setLocalRec(all.find((v) => v.id === localRec.id) ?? null)) }} />}
+
       <h2 className="set-sec" id="s-remove">{t('set.secRemove')}</h2>
       <section className="set-danger">
         {/* The old note said what is NOT lost ("nothing is deleted from the network"), which is
             true and hides the part that matters. This says the cost. */}
-        <p className="set-danger-note">{t('set.removeCost')}</p>
+        <p className="set-danger-note">{t('set.removeCost')} <Link to="/docs/recovery">{t('set.loseDevice')}</Link></p>
         {!settled ? (
           /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
              vault" is a guess, and it is the alarming one - so the row waits instead. */
@@ -523,6 +543,17 @@ export default function Settings() {
             {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
             <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
             <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
+            {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
+            {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
+                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
+                sections above. */}
+            {hasLocal && (
+              <p className="hint mt-xs">
+                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
+                  {t('set.removeExportFirst')}
+                </button>
+              </p>
+            )}
             <label className="field">
               {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
                   to force an act of recall printed the answer inside the box - a transcription
