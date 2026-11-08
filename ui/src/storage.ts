@@ -93,6 +93,17 @@ export interface VaultPublic {
   /** Every member's share was proven saved (the ceremony's verified `done` from each seat) before
    *  the registration was attempted: written by `finishVault` ahead of any network call. Absent on
    *  records older than that, whose finish is asked of the member. */
+  /** Protocol 3: the package and the seats' certificates, public material, until it is registered. */
+  pinBundle?: string
+  /** This creation was stopped on this device, and why. Nothing finishes it. */
+  abandoned?: string
+  /** The member said they compared the viewing code with the others. */
+  codeCompared?: boolean
+  /** Protocol 3: whether the address and change receiver below were derived from the vault's own key here. */
+  receiversState?: 'verified' | 'refused'
+  /** Protocol 3: the code of the viewing key this device verified, and of one it refused. */
+  viewingFingerprint?: string
+  servedFingerprint?: string
   allSaved?: boolean
   /** The coordinator's base URL the registration was attempted against (public). */
   coordinator?: string
@@ -156,6 +167,9 @@ export interface VaultLoaded {
   total?: number
   /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
    *  before it was recorded. The vault's, never the app's. */
+  abandoned?: string
+  /** The member said they compared the viewing code with the others. */
+  codeCompared?: boolean
   cp?: number
 }
 
@@ -202,6 +216,17 @@ interface VaultRecord {
   /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
    *  before it was recorded. The vault's, never the app's. */
   cp?: number
+  /** Protocol 3: the package and the seats' certificates, public material, until it is registered. */
+  pinBundle?: string
+  /** This creation was stopped on this device, and why. Nothing finishes it. */
+  abandoned?: string
+  /** The member said they compared the viewing code with the others. */
+  codeCompared?: boolean
+  /** Protocol 3: whether the address and change receiver below were derived from the vault's own key here. */
+  receiversState?: 'verified' | 'refused'
+  /** Protocol 3: the code of the viewing key this device verified, and of one it refused. */
+  viewingFingerprint?: string
+  servedFingerprint?: string
   allSaved?: boolean
   coordinator?: string
 }
@@ -532,6 +557,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     threshold: record.threshold,
     total: record.total,
     cp: record.cp,
+    abandoned: record.abandoned,
   }
 }
 
@@ -605,6 +631,7 @@ interface V2Payload {
    *  vault cannot: the helper refuses to hand a viewing key out by id alone). */
   ufvk?: string
   birthday?: number
+  abandoned?: string
   /** The pinned internal (change) receiver (#281). It rides inside the encrypted blob for the same
    *  reason the viewing key does: a restore that dropped it would have to re-ask the helper, and
    *  that re-opens the exact window the pin exists to close - by then the helper may be the thing
@@ -671,6 +698,7 @@ export async function exportVault(
   passphrase: string,
   ufvk?: string,
   birthday?: number,
+  opts: { storedKey?: boolean } = {},
 ): Promise<VaultExportV2> {
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to export the vault')
@@ -693,7 +721,7 @@ export async function exportVault(
     accessSecret: loaded.accessSecret ? hex(loaded.accessSecret) : null,
     beneficiaries: readBeneficiaries(id),
     // Explicit wins (a fresh authenticated fetch), else whatever this device already recorded.
-    ...(ufvk ?? loaded.ufvk ? { ufvk: ufvk ?? loaded.ufvk } : {}),
+    ...(ufvk ?? (opts.storedKey === false ? undefined : loaded.ufvk) ? { ufvk: ufvk ?? (opts.storedKey === false ? undefined : loaded.ufvk) } : {}),
     // The scan floor travels with the viewing key, for the same reason it is served with it:
     // neither rebuilds a vault alone (#480).
     ...((birthday ?? loaded.birthday) !== undefined
@@ -701,6 +729,7 @@ export async function exportVault(
       : {}),
     ...(loaded.changeReceiver ? { changeReceiver: loaded.changeReceiver } : {}),
     ...(loaded.pending ? { pending: true } : {}),
+    ...(loaded.abandoned ? { abandoned: loaded.abandoned } : {}),
     ...(loaded.threshold !== undefined ? { threshold: loaded.threshold, total: loaded.total } : {}),
     ...(loaded.cp !== undefined ? { cp: loaded.cp } : {}),
   }
@@ -779,6 +808,7 @@ interface DecodedImport {
    *  before #214, so an importer must treat it as "not in this file", never as "none exists". */
   ufvk?: string
   birthday?: number
+  abandoned?: string
   /** The pinned change receiver (#281), when the export carried one. */
   changeReceiver?: string
   pending?: boolean
@@ -836,6 +866,17 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
   if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw storageError('corrupt', 'The export is incomplete or corrupt')
   // A vault's id IS its group key, in a v2 as in a v1 (see `vaultIdOf`).
   const id = vaultIdOf(p.id, p.groupKey)
+  // The creation protocol is never read as an older one: read as older, a vault would skip the checks
+  // its own protocol requires. A newer one than this app speaks means update the app; one present but
+  // not a whole number from 1 is a damaged backup. Absent is a vault of the earlier flow.
+  if (p.cp !== undefined) {
+    if (typeof p.cp !== 'number' || !Number.isInteger(p.cp) || p.cp < 1) {
+      throw storageError('corrupt', 'The export is incomplete or corrupt')
+    }
+    if (p.cp > CREATION_PROTOCOL) {
+      throw storageError('unsupported-version', 'This vault was made by a newer app - update Konclave')
+    }
+  }
   return {
     id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
     groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),
@@ -851,9 +892,10 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
         : undefined,
     // A backup of a vault whose creation had not finished comes back unfinished, with its quorum.
     pending: p.pending === true ? true : undefined,
+    abandoned: typeof p.abandoned === 'string' && p.abandoned ? p.abandoned : undefined,
     ...quorumOfExport(p),
-    // At most the protocol this app speaks: a backup cannot claim one the app does not know.
-    cp: typeof p.cp === 'number' && Number.isInteger(p.cp) && p.cp > 0 && p.cp <= CREATION_PROTOCOL ? p.cp : undefined,
+    // Checked above: absent, or a whole number from 1 to this app's protocol.
+    cp: p.cp,
   }
 }
 
@@ -1033,6 +1075,7 @@ export async function importVault(
     ...(d.birthday !== undefined ? { birthday: d.birthday } : {}),
     ...(d.changeReceiver ? { changeReceiver: d.changeReceiver } : {}),
     ...(d.pending ? { pending: true } : {}),
+    ...(d.abandoned ? { abandoned: d.abandoned } : {}),
     ...(d.threshold !== undefined ? { threshold: d.threshold, total: d.total } : {}),
     ...(d.cp !== undefined ? { cp: d.cp } : {}),
   }
@@ -1086,7 +1129,7 @@ async function vaultsIn(db: IDBDatabase): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, plainViewingKey: typeof r.ufvk === 'string', changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, plainViewingKey: typeof r.ufvk === 'string', changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, pinBundle: r.pinBundle, abandoned: r.abandoned, codeCompared: r.codeCompared, receiversState: r.receiversState, viewingFingerprint: r.viewingFingerprint, servedFingerprint: r.servedFingerprint, coordinator: r.coordinator }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -1130,18 +1173,66 @@ export async function recordChangeReceiver(id: string, receiver: unknown): Promi
   try {
     // One transaction, not a read and then a write: a write built from an earlier read puts back
     // whatever it read, so a passphrase change landing in between would be undone (#599).
-    return await updateRecord(id, (rec) => (rec.changeReceiver ? undefined : { ...rec, changeReceiver: value })) // already pinned - never overwrite
+    return await updateRecord(id, (rec) => (rec.changeReceiver || (rec.cp ?? 0) >= 3 ? undefined : { ...rec, changeReceiver: value })) // already pinned - never overwrite
   } catch {
     return false
   }
 }
 
+/** The receivers of a protocol-3 vault, from `adoptVaultReceivers` alone. */
+export async function recordVerifiedReceivers(
+  id: string,
+  address: string,
+  changeReceiver: string,
+  viewingFingerprint: string,
+  readAs?: { address: string; change: string },
+  birthday?: number,
+): Promise<boolean> {
+  if (!storageAvailable()) return false
+  return updateRecord(id, (rec) => {
+    // A repair that landed since this was read wins: nothing here was checked against it.
+    if (readAs && ((rec.address ?? '') !== readAs.address || (rec.changeReceiver ?? '') !== readAs.change)) return undefined
+    // The scan floor is kept from the first answer: a later, higher one would bury the vault's notes.
+    const floor = rec.birthday === undefined && birthday !== undefined ? { birthday } : {}
+    return { ...rec, ...floor, address, changeReceiver, viewingFingerprint, receiversState: 'verified' as const }
+  })
+}
+
+/** `viewingFingerprint` stays what this device verified, and the served one is shown beside it. */
+export async function recordReceiversRefused(id: string, servedFingerprint: string): Promise<void> {
+  if (!storageAvailable()) return
+  await updateRecord(id, (rec) => ({ ...rec, servedFingerprint, receiversState: 'refused' }))
+}
+
+/** A member's repair: the agreed key's receivers replace the pin in one write, only if it is still
+ *  refused. Only `repairVaultReceivers` calls this. */
+export async function replaceRefusedReceivers(id: string, address: string, changeReceiver: string, viewingFingerprint: string): Promise<boolean> {
+  if (!storageAvailable()) return false
+  return updateRecord(id, (rec) => {
+    if (rec.receiversState !== 'refused') return undefined
+    // The sealed key is the old one: a backup must not pair it with the new address.
+    const { servedFingerprint: _gone, ufvkIv: _iv, ufvkCipher: _cipher, ufvk: _clear, codeCompared: _compared, ...rest } = rec
+    return { ...rest, address, changeReceiver, viewingFingerprint, receiversState: 'verified' as const }
+  })
+}
+
+/** What a finished creation needs to register, and the fact that it finished, in one write: a card
+ *  that resumes on `allSaved` must find the bundle beside it. */
+export async function recordPinBundle(id: string, pinBundle: string, coordinator: string): Promise<void> {
+  if (!storageAvailable()) return
+  await updateRecord(id, (rec) => ({ ...rec, allSaved: true, coordinator, pinBundle }))
+}
+
 export async function updateVaultMeta(
   id: string,
-  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address' | 'pending' | 'allSaved' | 'coordinator'>>,
+  patch: Partial<Pick<VaultRecord, 'abandoned' | 'codeCompared' | 'roster' | 'name' | 'myName' | 'creatorName' | 'address' | 'pending' | 'allSaved' | 'coordinator'>>,
 ): Promise<void> {
   if (!storageAvailable()) return
-  await updateRecord(id, (rec) => ({ ...rec, ...patch }))
+  // A protocol-3 vault's address comes from one writer (`recordVerifiedReceivers`), and only that.
+  await updateRecord(id, (rec) => {
+    const { address, ...rest } = patch
+    return { ...rec, ...rest, ...(address !== undefined && (rec.cp ?? 0) < 3 ? { address } : {}) }
+  })
 }
 
 /** Remove a saved vault (and its encrypted share) from this device. */

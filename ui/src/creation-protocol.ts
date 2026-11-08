@@ -9,12 +9,19 @@
 import { helperConfigured } from './helper'
 import { addressText } from './approved-payment'
 
-export const CREATION_PROTOCOL = 2
+export const CREATION_PROTOCOL = 3
 
-/** Whether this app may start a creation or a join, given the coordinator's minimum (null when it
- *  states none, or could not be asked: the registration itself still refuses an outdated client). */
+/** What this app does about the coordinator's minimum. From protocol 3 it starts only on a coordinator
+ *  that announces at least this app's own protocol: a lower number, or no answer, is `blocked`, never a
+ *  silent fall back. One function, so the screen does not choose the reason. */
+export function creationVerdict(own: number, min: number | null): 'ok' | 'blocked' | 'update' {
+  if (min !== null && Number.isInteger(min) && min > own) return 'update'
+  if (own >= 3) return min !== null && Number.isInteger(min) && min >= own ? 'ok' : 'blocked'
+  return min === null || min <= own ? 'ok' : 'update'
+}
+
 export function creationAllowed(own: number, min: number | null): boolean {
-  return min === null || min <= own
+  return creationVerdict(own, min) === 'ok'
 }
 
 /** A registration refused because this app is too old for the coordinator, as opposed to any other
@@ -32,13 +39,29 @@ export function protocolOfRecord(r: { cp?: number; threshold?: number; total?: n
   return r.threshold !== undefined ? 2 : undefined
 }
 
+/** Whether a member still has the viewing code to compare before this vault's address is shown. */
+export function mustCompareCode(r: { cp?: number; receiversState?: string; viewingFingerprint?: string; codeCompared?: boolean } | undefined): boolean {
+  return !!r && (r.cp ?? 0) >= 3 && r.receiversState === 'verified' && !!r.viewingFingerprint && !r.codeCompared
+}
+
+/** The address a device may show for its record. Protocol 3: only what it verified, on a finished
+ *  vault whose code the member compared, never what a record merely holds. Older vaults: what the record holds. */
+export function verifiedAddress(r: { cp?: number; threshold?: number; total?: number; address?: unknown; receiversState?: string; pending?: boolean; viewingFingerprint?: string; codeCompared?: boolean }): string {
+  if ((protocolOfRecord(r) ?? 0) < 3) return addressText(r.address)
+  return r.receiversState === 'verified' && !r.pending && !mustCompareCode(r) ? addressText(r.address) : ''
+}
+
 /** Whether a vault's record is one whose registration with the coordinator can be finished from this
  *  device: made by the creation that records the quorum, holding no address, with a coordinator to
  *  register with. By fact, with or without `pending` (a member who answered the old "did everyone
  *  save" card has `pending: false` and still no address). Registering a vault the coordinator
  *  already holds is idempotent, so the wide reading costs nothing. The one place this is decided. */
-export function resumable(r: { cp?: number; threshold?: number; total?: number; address?: unknown; pending?: boolean }): boolean {
-  return isCurrentFlow(r) && !addressText(r.address) && helperConfigured()
+export function resumable(r: { cp?: number; threshold?: number; total?: number; address?: unknown; pending?: boolean; abandoned?: string; receiversState?: string }): boolean {
+  // Protocol 3: pending is what says it is unfinished, since the address may be written before it ends.
+  const unfinished = (r.cp ?? 0) >= 3 ? !!r.pending : !addressText(r.address)
+  // A refusal over receivers it already holds is the repair's; one with none can simply try again.
+  const refused = r.receiversState === 'refused' && !!addressText(r.address)
+  return isCurrentFlow(r) && !r.abandoned && !refused && unfinished && helperConfigured()
 }
 
 /** Whether a record is one of the current creation flow: it names the protocol it was made with AND

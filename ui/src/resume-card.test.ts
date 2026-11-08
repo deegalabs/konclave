@@ -41,7 +41,7 @@ describe('the vault card', () => {
     expect(vl).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)\s*\n/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor === v\.id/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor !== v\.id && rec\.allSaved/)
-    expect(vl).toMatch(/\{!oldFlow && !\(canResume/)
+    expect(vl).toMatch(/\{!oldFlow && \(\(rec\?\.cp \?\? 0\) < 3 \|\| canResume\) && !\(canResume/)
   })
   it('opening an unlocked vault concludes it with no question only when allSaved is recorded and the coordinator is the same', () => {
     expect(vl).toMatch(/rec && rec\.allSaved && resumable\(rec\) && sameCoord\(rec\) && hasShare\(row\.v\.id\)[^)]*\) \{[\s\S]{0,200}?await runConclude\(row\.v\.id, pass\)\s*return\s*\}/)
@@ -63,7 +63,7 @@ describe('the vault card', () => {
   })
   it('asks the passphrase when the vault is locked, and builds the backup with it through the shared builder', () => {
     expect(vl).toMatch(/!hasShare\(v\.id\) && \(\s*<>\s*<p>\{t\('vaults\.resumePassAsk'\)\}/)
-    expect(vl).toMatch(/await buildVaultBackup\(id, pass, getUnlockedShare\(id\), recs\[id\]\?\.name\)/)
+    expect(vl).toMatch(/await buildVaultBackup\(id, pass, recs\[id\]\?\.name\)/)
   })
   it('no coordinator configured keeps today\'s local finish for a pending record', () => {
     expect(vl).toMatch(/void updateVaultMeta\(v\.id, \{ pending: false \}\)/)
@@ -71,3 +71,67 @@ describe('the vault card', () => {
     expect(vl).toMatch(/if \(canResume\) \{[^}]*return \}\s*void updateVaultMeta\(v\.id, \{ pending: false \}\)/)
   })
 })
+
+describe('the code-first gate', () => {
+  it('the card, its opening and the finish screen all go through it', () => {
+    expect(vl).toMatch(/<CodeFirst code=\{recs\[v\.id\]\?\.viewingFingerprint\} compared=\{!mustCompareCode\(recs\[v\.id\]\)\}/)
+    expect(vl).toMatch(/function enter\(row: Row\) \{\s*const \{ v, src \} = row\s*if \(mustCompareCode\(recs\[v\.id\]\)\) return/)
+    expect(nv).toMatch(/<CodeFirst code=\{viewingCode \?\? undefined\} compared=\{codeCompared\}/)
+  })
+})
+
+describe('the signing panel', () => {
+  it('says when the coordinator list is not the one this device holds', () => {
+    const panel = codeOf('./screens/SigningPanel.tsx')
+    expect(panel).toMatch(/vault\?\.roster_differs && <p[^>]*role="alert">\{t\('members\.rosterDiffers'\)\}/)
+  })
+})
+
+describe('the rest of what a device says', () => {
+  it('the proposal says when the lists differ', () => {
+    expect(codeOf('./screens/Proposal.tsx')).toMatch(/setRosterDiffers\(!!v\.roster_differs\)[\s\S]*rosterDiffers && <p[^>]*role="alert">/)
+  })
+  it('an imported vault is read back like every other, never shown with the file\'s address', () => {
+    const code = codeOf('./screens/Vaults.tsx')
+    const imp = code.slice(code.indexOf('async function doImport()'), code.indexOf('const startCreate'))
+    expect(imp).toMatch(/setReload\(\(x\) => x \+ 1\)/)
+    expect(imp).not.toMatch(/orchard_address: meta\.address/)
+  })
+  it('Receive says when the compare could not be recorded', () => {
+    const code = codeOf('./screens/Receive.tsx')
+    expect(code).not.toMatch(/codeCompared: true \}\)[^\n]*\.catch\(\(\) => \{\}\)/)
+    expect(code).toMatch(/onCompared=\{\(\) => \{ setCompareErr\(null\); void updateVaultMeta\(vault\.id, \{ codeCompared: true \}\)[^\n]*\.catch\(\(e\) => setCompareErr\(/)
+    expect(code).toMatch(/compareErr && \(\s*<p[^>]*role="alert">\{compareErr\}/)
+  })
+  it('Settings says when a backup is incomplete', () => {
+    expect(codeOf('./screens/Settings.tsx')).toMatch(/if \(!b\.complete\) setXpErr\(t\('vaults\.resumeBackupIncomplete'\)\)/)
+    expect(codeOf('./screens/Settings.tsx')).toMatch(/xpErr && <div[^>]*role="alert">\{xpErr\}/)
+  })
+})
+
+describe('Settings', () => {
+  it('mounts the repair, or a member could not reach it', () => {
+    expect(codeOf('./screens/Settings.tsx')).toMatch(/<ReceiversRepair rec=\{localRec\}/)
+  })
+})
+describe('the card address', () => {
+  it('reads through the one rule getVault uses', () => {
+    expect(vl).toMatch(/orchard_address: verifiedAddress\(s\)/)
+    expect(codeOf('./api.ts')).toMatch(/verifiedAddress\(rec\)/)
+  })
+})
+
+describe('what these screens read, where only their source can be pinned', () => {
+  it('the finish screen starts with the code not compared, and reads it from the record', () => {
+    expect(nv).toMatch(/\[codeCompared, setCodeCompared\] = useState\(false\)/)
+    expect(nv).toMatch(/setViewingCode\(held\?\.viewingFingerprint \?\? null\)/)
+  })
+  it('the signing panel names seats through the one rule, and Settings shows the code', () => {
+    expect(codeOf('./screens/SigningPanel.tsx')).toMatch(/const roster = seatRoster\(vault\)/)
+    expect(codeOf('./screens/Settings.tsx')).toMatch(/\{localRec\?\.viewingFingerprint && \(/)
+  })
+  it('the shell says when this device was refused', () => {
+    expect(codeOf('./Layout.tsx')).toMatch(/\{refusedCode && \(\s*<p className="unlock-err" role="alert">/)
+  })
+})
+

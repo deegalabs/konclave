@@ -7,7 +7,9 @@
 // It reads the PERSISTED record (name, group key, quorum, roster, protocol), never the in-session
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.
 // The session copy is used for one thing, to sign this device's own registration.
-import { helperConfigured, registerVault, setMembers, lastHelperPostFailure } from './helper'
+import { getVault, helperConfigured, registerVault, setMembers, lastHelperPostFailure, type HelperVault } from './helper'
+import { ownPkpDigest } from './pin-digest'
+import { adoptVaultReceivers } from './vault-receivers'
 import { listVaults, updateVaultMeta } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { registerThisDevice } from './device-registration'
@@ -34,6 +36,34 @@ export type Concluded =
   /** The coordinator stayed busy through the retries: try again, never "unreachable". */
   | { refused: 'busy' }
   | { refused: 'rejected'; status: number }
+  /** The coordinator named why. */
+  | { refused: 'coded'; code: CoordinatorCode }
+  /** This device did not keep what a new vault's registration needs. */
+  | { refused: 'nobundle' }
+  /** This creation was stopped on this device. Nothing finishes it. */
+  | { refused: 'abandoned' }
+
+/** What the coordinator refuses with, and the one sentence for each. */
+export const COORDINATOR_CODE_KEYS = {
+  pin_needs_t_proofs: 'registration.needsProofs',
+  bundle_invalid: 'registration.bundleInvalid',
+  pin_read_key_split: 'registration.secretSplit',
+  pin_package_differs: 'registration.packageDiffers',
+  vault_closed: 'registration.vaultClosed',
+  vault_unreadable: 'registration.vaultUnreadable',
+  seat_needs_proof: 'registration.seatNeedsProof',
+  seat_bound: 'registration.seatBound',
+  read_key_needs_proof: 'registration.readKeyNeedsProof',
+  read_key_pinned: 'registration.readKeyPinned',
+  roster_invalid: 'registration.rosterInvalid',
+  address_mismatch: 'registration.addressMismatch',
+} as const
+
+export type CoordinatorCode = keyof typeof COORDINATOR_CODE_KEYS
+
+export function coordinatorCode(code: string | undefined): CoordinatorCode | null {
+  return code !== undefined && Object.hasOwn(COORDINATOR_CODE_KEYS, code) ? (code as CoordinatorCode) : null
+}
 
 /** The dictionary key that says a refusal to the member: one wording per cause, for every screen. */
 export function refusalKey(r: Exclude<Concluded, { address: string }>): string {
@@ -44,6 +74,9 @@ export function refusalKey(r: Exclude<Concluded, { address: string }>): string {
     case 'mismatch': return 'net.err.registrationMismatch'
     case 'unreachable': return 'registration.unreachable'
     case 'busy': return 'registration.tryAgain'
+    case 'coded': return COORDINATOR_CODE_KEYS[r.code]
+    case 'nobundle': return 'registration.noBundle'
+    case 'abandoned': return 'registration.doNotUse'
     case 'rejected': return r.status === 429 ? 'registration.tryAgain' : 'registration.rejected'
   }
 }
@@ -53,6 +86,7 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   // The earlier flow kept no quorum and no protocol: never registered here, and no network is used.
   // The definition of "current flow" is the one `resumable` and the card read.
   if (!rec || !isCurrentFlow(rec)) return { refused: 'old' }
+  if (rec.abandoned) return { refused: 'abandoned' }
   // A record whose id is not its group key (hand-edited) is not one this registers: said before the
   // network, instead of as a quorum mismatch it is not.
   if (rec.id.toLowerCase() !== rec.groupKey.toLowerCase()) return { refused: 'old' }
@@ -66,11 +100,23 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
 
   // The vault's name as every member confirmed it; the fallback lives here, once.
   const name = rec.name || `net-${rec.groupKey.slice(0, 8)}`
-  const v = await registerVault(rec.groupKey, name, threshold, total, cp)
+  const protocol3 = cp >= 3
+  const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
+  const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
+  // A device with no bundle never posts. It finishes only on a vault others pinned to its package.
+  if (protocol3 && !rec.pinBundle) {
+    const known = await getVault(rec.groupKey)
+    if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
+  }
+  const v = protocol3 && !rec.pinBundle
+    ? await getVault(rec.groupKey)
+    : await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
   if (!v) {
     const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
     if (failure?.busy) return { refused: 'busy' }
+    const code = coordinatorCode(failure?.code)
+    if (code) return { refused: 'coded', code }
     // Only a 4xx is the coordinator saying no; a 5xx is it failing to answer, which is the network's case.
     if (failure && failure.status < 500) return { refused: 'rejected', status: failure.status }
     return { refused: 'unreachable' }
@@ -82,16 +128,44 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   // record is passed as it is, not as an empty one: an address already recorded wins over the
   // served one (#501/A9), and the record is never overwritten by a later answer.
   if (v.vault_id !== vaultId || v.vault_id !== rec.groupKey) return { refused: 'mismatch' }
-  const allowed = depositAddress({ ...rec, pending: false }, addressText(v.address), { threshold: v.threshold, total: v.total })
-  if (!allowed.address) return { refused: 'mismatch' }
+  if (protocol3 && !pinnedHere(v)) return { refused: 'mismatch' }
+  // Protocol 3 holds the answer to the members' quorum too, and takes no address from it (below).
+  if (protocol3 && (v.threshold !== threshold || v.total !== total)) return { refused: 'mismatch' }
+  const allowed = protocol3
+    ? { address: '' }
+    : depositAddress({ ...rec, pending: false }, addressText(v.address), { threshold: v.threshold, total: v.total })
+  if (!protocol3 && !allowed.address) return { refused: 'mismatch' }
 
   // Each member's name (seat order) exactly as bound into the code; idempotent.
-  if (rec.roster.length) await setMembers(rec.groupKey, rec.roster).catch(() => null)
+  if (rec.roster.length) {
+    const roster = await setMembers(rec.groupKey, rec.roster).catch(() => null)
+    if (protocol3 && !roster) {
+      // On protocol 3 the roster decides who can vote. A list already there (409) is not a refusal:
+      // the Members screen says when it differs. Anything else leaves this vault unfinished.
+      const failure = lastHelperPostFailure()
+      if (failure?.status !== 409) {
+        const code = coordinatorCode(failure?.code)
+        return code ? { refused: 'coded', code } : { refused: 'unreachable' }
+      }
+    }
+  }
   // This device's keys, and the vault's read key from S (#388), registered the one way every unlock
   // registers them. Awaited: a backup asks for the viewing key, which needs the read key in place.
   // The share signs it, so it needs the unlocked copy; a locked device gets them at its next unlock.
-  await registerThisDevice(vaultId, { ...session, threshold, total })
+  const registered = await registerThisDevice(vaultId, { ...session, threshold, total, cp })
+  if (protocol3 && typeof registered === 'object' && 'refused' in registered) {
+    const code = coordinatorCode(registered.refused)
+    return code ? { refused: 'coded', code } : { refused: 'mismatch' }
+  }
 
+  if (protocol3) {
+    const verdict = await adoptVaultReceivers(vaultId, { ...session, threshold, total, cp })
+    if (verdict.state === 'refused') return { refused: 'coded', code: 'address_mismatch' }
+    if (verdict.state === 'unavailable') return { refused: 'unreachable' }
+    await updateVaultMeta(vaultId, { pending: false }).catch(() => {})
+    setUnlockedShare(vaultId, { ...session, address: verdict.address })
+    return { address: verdict.address }
+  }
   await updateVaultMeta(vaultId, { pending: false, address: allowed.address }).catch(() => {})
   setUnlockedShare(vaultId, { ...session, address: allowed.address })
   return { address: allowed.address }

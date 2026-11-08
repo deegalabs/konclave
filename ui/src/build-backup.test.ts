@@ -11,13 +11,23 @@ import { codeOf } from './source-scan'
 const h = vi.hoisted(() => ({
   getUfvk: vi.fn(async () => ({ ufvk: 'uview1x', birthday: 3_000_000 }) as { ufvk?: string; birthday?: number } | null),
   exportVault: vi.fn(async () => ({ v: 2, blob: 'opaque' })),
+  loadVault: vi.fn(async () => ({})),
+  list: vi.fn(async () => [] as unknown[]),
+  checkedWith: [] as unknown[],
 }))
+// A share in session that lacks the scan floor: the backup must not read it (F1).
+vi.mock('./session', async (orig) => ({ ...(await orig<typeof import('./session')>()), getUnlockedShare: () => ({ fromSession: true }) }))
+vi.mock('./vault-receivers', async (orig) => {
+  const real = await orig<typeof import('./vault-receivers')>()
+  return { ...real, checkedViewingKey: (id: string, rec: unknown) => { h.checkedWith.push(rec); return real.checkedViewingKey(id, rec as never) } }
+})
 vi.mock('./wasm-ready', () => ({ ensureWasm: async () => {} }))
 vi.mock('./signing', () => ({ decodeBundle: () => ({ keyPackage: new Uint8Array(4) }) }))
 vi.mock('./device-key', () => ({ deviceCommsKey: () => new Uint8Array(32), devicePubHex: () => 'pub' }))
 vi.mock('./helper', () => ({ getUfvk: h.getUfvk }))
 // The name is the real `backupFileName` (storage.ts): only the export itself is mocked.
-vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), exportVault: h.exportVault }))
+vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), exportVault: h.exportVault, loadVault: h.loadVault, listVaults: h.list }))
+vi.mock('./wasm-pkg/konclave_wasm.js', () => ({ vaultReceivers: () => { throw new Error('NotThisVault') }, uaIsExactly: () => true }))
 
 const { buildVaultBackup } = await import('./build-backup')
 
@@ -25,7 +35,7 @@ describe('buildVaultBackup', () => {
   beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 16, 13, 5)) })
   afterAll(() => { vi.useRealTimers() })
   it('builds the export with the viewing key and the scan floor, under a neutral name with the time (#587)', async () => {
-    const b = await buildVaultBackup('v1', 'pass', {} as never, 'Team Fund!')
+    const b = await buildVaultBackup('v1', 'pass', 'Team Fund!')
     expect(h.exportVault).toHaveBeenCalledWith('v1', 'pass', 'uview1x', 3_000_000)
     expect(b.name).toBe('konclave-backup-2026-10-16-1305.konclave.json') // nothing of the vault in the name (#587)
     expect(JSON.parse(b.json)).toEqual({ v: 2, blob: 'opaque' })
@@ -33,15 +43,32 @@ describe('buildVaultBackup', () => {
   })
   it('is incomplete when the key came without the scan floor: a wallet rebuilt without it starts at now', async () => {
     h.getUfvk.mockResolvedValueOnce({ ufvk: 'uview1x', birthday: undefined })
-    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(false)
+    expect((await buildVaultBackup('v1', 'pass', 'v')).complete).toBe(false)
     h.getUfvk.mockResolvedValueOnce({ birthday: 3_000_000 })
-    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(false)
+    expect((await buildVaultBackup('v1', 'pass', 'v')).complete).toBe(false)
     h.getUfvk.mockResolvedValueOnce({ ufvk: 'uview1x', birthday: 0 })
-    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(true) // 0 is a height
+    expect((await buildVaultBackup('v1', 'pass', 'v')).complete).toBe(true) // 0 is a height
+  })
+  it('reads the record under the passphrase, never a session copy that lacks its scan floor', async () => {
+    h.loadVault.mockClear()
+    h.loadVault.mockResolvedValueOnce({ fromRecord: true })
+    h.checkedWith.length = 0
+    await buildVaultBackup('v1', 'pass', 'v')
+    expect(h.loadVault).toHaveBeenCalledWith('v1', 'pass')
+    expect(h.checkedWith).toEqual([{ fromRecord: true }])
+  })
+  it('with no share in session the passphrase opens one, and a key that does not derive the record stays out', async () => {
+    h.list.mockResolvedValue([{ id: 'v3', cp: 3, address: 'a', changeReceiver: 'c' }])
+    h.exportVault.mockClear()
+    const b = await buildVaultBackup('v3', 'pass', 'v')
+    expect(h.loadVault).toHaveBeenCalledWith('v3', 'pass')
+    expect(h.exportVault).toHaveBeenCalledWith('v3', 'pass', undefined, undefined, { storedKey: false })
+    expect(b.complete).toBe(false)
+    h.list.mockResolvedValue([])
   })
   it('says incomplete when the coordinator would not give the key, and still builds', async () => {
     h.getUfvk.mockResolvedValueOnce(null)
-    const b = await buildVaultBackup('v1', 'pass', undefined, undefined)
+    const b = await buildVaultBackup('v1', 'pass', undefined)
     expect(b.complete).toBe(false)
     expect(b.name).toBe('konclave-backup-2026-10-16-1305.konclave.json')
   })

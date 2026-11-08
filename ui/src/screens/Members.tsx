@@ -122,6 +122,7 @@ export default function Members() {
   return (
     <>
       <main className="page">
+        {vault?.roster_differs && <p className="unlock-err" role="alert">{t('members.rosterDiffers')}</p>}
         <PageHeader
           eyebrow={t('members.eyebrow', { t: thr, n })}
           title={t('members.title')}

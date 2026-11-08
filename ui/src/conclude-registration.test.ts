@@ -6,9 +6,12 @@ import { codeOf } from './source-scan'
 // implementation the end of a creation and the vault card both call (REG-RESUME).
 const h = vi.hoisted(() => ({
   configured: true,
-  failure: null as { status: number; error?: string; updateRequired?: boolean } | null,
+  failure: null as { status: number; error?: string; code?: string; updateRequired?: boolean } | null,
   served: { vault_id: 'x', address: 'u1served', threshold: 2, total: 2 } as unknown,
   registerVault: vi.fn(),
+  getVault: vi.fn(),
+  adopt: vi.fn(),
+  digest: 'd1',
   setMembers: vi.fn(async () => ['a', 'b']),
   registerThisDevice: vi.fn(async () => true),
   listVaults: vi.fn(),
@@ -20,17 +23,22 @@ vi.mock('./helper', async (orig) => ({
   ...(await orig<typeof import('./helper')>()),
   helperConfigured: () => h.configured,
   registerVault: h.registerVault,
+  getVault: h.getVault,
   setMembers: h.setMembers,
   lastHelperPostFailure: () => h.failure,
 }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: h.listVaults, updateVaultMeta: h.updateVaultMeta }))
 vi.mock('./session', async (orig) => ({ ...(await orig<typeof import('./session')>()), getUnlockedShare: h.getUnlockedShare, setUnlockedShare: h.setUnlockedShare }))
+vi.mock('./vault-receivers', () => ({ adoptVaultReceivers: h.adopt }))
+vi.mock('./pin-digest', () => ({ ownPkpDigest: async () => h.digest }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
 const { concludeRegistration, refusalKey } = await import('./conclude-registration')
 const { isCurrentFlow, sameCoordinator } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)
+const BUNDLE = JSON.stringify({ pkp: 'aa', proofs: [] })
+const rec3 = (over: Record<string, unknown> = {}) => rec({ cp: 3, pinBundle: BUNDLE, ...over })
 const rec = (over: Record<string, unknown> = {}) => ({
   id: GK, name: 'Team fund', groupKey: GK, address: '', roster: ['Ana', 'Bo'], createdAt: 1,
   pending: true, threshold: 2, total: 2, cp: 2, ...over,
@@ -42,7 +50,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.configured = true
   h.failure = null
-  h.served = { vault_id: GK, address: 'u1served', threshold: 2, total: 2 }
+  h.digest = 'd1'
+  h.adopt.mockImplementation(async () => ({ state: 'verified', address: 'u1served' }))
+  h.served = { vault_id: GK, address: 'u1served', threshold: 2, total: 2, state: 'pinned', pkp_digest: 'd1' }
+  h.getVault.mockResolvedValue(null)
   h.registerVault.mockImplementation(async () => h.served)
   h.listVaults.mockResolvedValue([rec()])
   h.getUnlockedShare.mockReturnValue(session())
@@ -52,7 +63,7 @@ describe('concludeRegistration reads the persisted record', () => {
   it('registers with the record\'s name, group key, quorum and protocol, and registers the device with the RECORD\'s quorum', async () => {
     const r = await concludeRegistration(GK)
     expect(r).toEqual({ address: 'u1served' })
-    expect(h.registerVault).toHaveBeenCalledWith(GK, 'Team fund', 2, 2, 2)
+    expect(h.registerVault).toHaveBeenCalledWith(GK, 'Team fund', 2, 2, 2, undefined)
     // The session copy has no quorum; without the record's the read key would not be registered.
     expect(h.registerThisDevice).toHaveBeenCalledWith(GK, expect.objectContaining({ threshold: 2, total: 2 }))
     expect(h.setMembers).toHaveBeenCalledWith(GK, ['Ana', 'Bo'])
@@ -60,7 +71,7 @@ describe('concludeRegistration reads the persisted record', () => {
   it('the name falls back to net-<first 8 of the key> once, here', async () => {
     h.listVaults.mockResolvedValue([rec({ name: undefined })])
     await concludeRegistration(GK)
-    expect(h.registerVault).toHaveBeenCalledWith(GK, `net-${GK.slice(0, 8)}`, 2, 2, 2)
+    expect(h.registerVault).toHaveBeenCalledWith(GK, `net-${GK.slice(0, 8)}`, 2, 2, 2, undefined)
   })
   it('sends the record\'s cp, never the app\'s: a v0.12.0-shaped record (quorum, no cp) sends 2', async () => {
     h.listVaults.mockResolvedValue([rec({ cp: undefined })])
@@ -104,6 +115,7 @@ describe('each refusal keeps the record and says its own thing', () => {
   it('update: the coordinator asks for a newer app', async () => {
     h.registerVault.mockResolvedValue(null)
     h.failure = { status: 409, updateRequired: true }
+    h.listVaults.mockResolvedValue([rec3()])
     expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: false })
     kept()
   })
@@ -112,6 +124,16 @@ describe('each refusal keeps the record and says its own thing', () => {
     h.failure = { status: 409, updateRequired: true }
     h.listVaults.mockResolvedValue([rec({ cp: 1 })])
     expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: true })
+  })
+  it('a code the coordinator names is what the member is told, and an unknown one is not trusted', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 409, code: 'pin_package_differs' }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'coded', code: 'pin_package_differs' })
+    h.failure = { status: 400, code: 'constructor' }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'rejected', status: 400 })
+    h.failure = { status: 503, code: 'vault_unreadable' }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'coded', code: 'vault_unreadable' })
+    kept()
   })
   it('rejected: any other 4xx, with its status (a 429 is told apart so the screen can say try again)', async () => {
     h.registerVault.mockResolvedValue(null)
@@ -138,7 +160,7 @@ describe('the address that is written', () => {
     expect(h.updateVaultMeta).toHaveBeenCalledWith(GK, { pending: false, address: 'u1recorded' })
   })
   it('goes through addressText: surrounding whitespace is not written', async () => {
-    h.served = { vault_id: GK, address: '  u1served \n', threshold: 2, total: 2 }
+    h.served = { vault_id: GK, address: '  u1served \n', threshold: 2, total: 2, state: 'pinned', pkp_digest: 'd1' }
     expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
     expect(h.updateVaultMeta).toHaveBeenCalledWith(GK, { pending: false, address: 'u1served' })
     expect(h.setUnlockedShare).toHaveBeenCalledWith(GK, expect.objectContaining({ address: 'u1served' }))
@@ -275,3 +297,95 @@ describe('the pins', () => {
     for (const f of ['./screens/NetVault.tsx', './screens/Vaults.tsx']) expect(codeOf(f)).not.toMatch(/updateVaultMeta\([^)]*address/)
   })
 })
+
+describe('a vault of protocol 3', () => {
+  beforeEach(() => { h.listVaults.mockResolvedValue([rec3()]) })
+  it('without a bundle never posts, and finishes on a vault others pinned to this package', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.getVault.mockResolvedValue(h.served)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.registerVault).not.toHaveBeenCalled()
+    expect(h.registerThisDevice).toHaveBeenCalled()
+  })
+
+  it('without a bundle stays refused on a vault not pinned, or pinned to another package', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
+      h.getVault.mockResolvedValue(answer)
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
+    }
+    expect(h.registerVault).not.toHaveBeenCalled()
+    expect(h.registerThisDevice).not.toHaveBeenCalled()
+  })
+
+  it('takes no answer that is not pinned to the package this device holds', async () => {
+    h.registerVault.mockImplementation(async () => ({ ...(h.served as object), pkp_digest: 'other' }))
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    h.registerVault.mockImplementation(async () => ({ ...(h.served as object), state: 'legacy' }))
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+  })
+
+  it('an abandoned creation is not finished, and no network is used', async () => {
+    h.listVaults.mockResolvedValue([rec3({ abandoned: 'secretSplit' })])
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'abandoned' })
+    expect(h.registerVault).not.toHaveBeenCalled()
+  })
+})
+
+describe('a vault of protocol 3 is finished only when this device was taken', () => {
+  beforeEach(() => { h.listVaults.mockResolvedValue([rec3()]) })
+  it('a roster the coordinator refused does not finish it', async () => {
+    h.setMembers.mockResolvedValueOnce(null as never)
+    h.failure = { status: 400, code: 'roster_invalid' }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'coded', code: 'roster_invalid' })
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+  })
+  it('a roster someone else already set is not a refusal: the banner is for that', async () => {
+    h.setMembers.mockResolvedValueOnce(null as never)
+    h.failure = { status: 409 }
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+  })
+  it('a read key or seat refused does not finish it, and says which', async () => {
+    h.registerThisDevice.mockResolvedValueOnce({ refused: 'read_key_pinned' } as never)
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'coded', code: 'read_key_pinned' })
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+  })
+  it('the live session copy, which has no protocol, registers as what the record says', async () => {
+    await concludeRegistration(GK)
+    expect(h.registerThisDevice).toHaveBeenCalledWith(GK, expect.objectContaining({ cp: 3 }))
+    expect(h.adopt).toHaveBeenCalledWith(GK, expect.objectContaining({ cp: 3 }))
+  })
+  it('a coordinator out of reach at that moment does not undo it: a later unlock registers', async () => {
+    h.registerThisDevice.mockResolvedValueOnce({ unreachable: true } as never)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+  })
+})
+
+describe('a vault of protocol 3 takes its address from its own key', () => {
+  beforeEach(() => { h.listVaults.mockResolvedValue([rec3()]) })
+  it('never the served address, and a refusal or no answer leaves it unfinished', async () => {
+    h.adopt.mockResolvedValueOnce({ state: 'verified', address: 'u1derived' })
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1derived' })
+    expect(h.updateVaultMeta).toHaveBeenCalledWith(GK, { pending: false })
+    vi.clearAllMocks()
+    h.adopt.mockResolvedValueOnce({ state: 'refused' })
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'coded', code: 'address_mismatch' })
+    h.adopt.mockResolvedValueOnce({ state: 'unavailable' })
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+  })
+})
+
+describe('protocol 3, the quorum the coordinator answers with', () => {
+  it('another quorum is refused, and nothing is adopted', async () => {
+    h.listVaults.mockResolvedValue([rec3()])
+    h.getUnlockedShare.mockReturnValue(session())
+    h.registerVault.mockResolvedValue({ vault_id: GK, threshold: 1, total: 2, state: 'pinned', pkp_digest: h.digest })
+    h.getVault.mockResolvedValue({ vault_id: GK, threshold: 1, total: 2, state: 'pinned', pkp_digest: h.digest })
+    h.served = { vault_id: GK, threshold: 1, total: 2, state: 'pinned', pkp_digest: h.digest }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    expect(h.adopt).not.toHaveBeenCalled()
+  })
+})
+

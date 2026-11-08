@@ -5,9 +5,17 @@ import { test, expect } from '@playwright/test'
 // the rule, the dialog's Esc and backdrop, the host that asks instead of closing - not one line of it.
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('konclave.locale', 'en'))
+  await page.addInitScript(() => {
+    localStorage.setItem('konclave.locale', 'en')
+    // Protocol 3 joins only through a coordinator that announces it pins (`creationVerdict`): a
+    // configured one, whose health answer is the one thing stubbed below.
+    localStorage.setItem('konclave.coord.mode', 'custom')
+    localStorage.setItem('konclave.coord.url', 'https://coordinator.invalid')
+  })
   // No network is needed to reach the invite step; keep it that way.
   await page.route(/^(?!http:\/\/127\.0\.0\.1:4173)/, (r) => r.abort())
+  // Everything else stays cut off.
+  await page.route(/^https:\/\/coordinator\.invalid\/api\/health$/, (r) => r.fulfill({ json: { status: 'ok', name: 'konclave-helper', client: { creation: 3 } } }))
 })
 
 // The join door opens the same creation dialog in every build (Create needs a configured

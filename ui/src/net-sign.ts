@@ -99,7 +99,7 @@ export function unsealSignRequest(data: string, key: Opener, devicePubHex: strin
   const plain = openEnvelope(r as unknown as SealedEnvelope, key, devicePubHex)
   if (!plain) return data // no box for this device, tampered, or wrong key
   const opened = new TextDecoder().decode(plain)
-  // Mark it sealed so the coordinator knows every device registered (all opened it) and can drop
+  // Mark it sealed so the coordinator knows the devices that sign hold it, and can drop
   // the PCZT from the sreq without stranding an older device (#63). If the plaintext is not the
   // JSON we expect, return it untouched - the parser will reject it downstream.
   try {
