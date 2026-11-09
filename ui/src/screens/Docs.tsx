@@ -116,6 +116,8 @@ function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, a
   switch (b.k) {
     case 'h':
       return <h2 key={i} className="docs-h">{rich(b.t[loc])}</h2>
+    case 'h3':
+      return <h3 key={i} className="docs-h3">{rich(b.t[loc])}</h3>
     case 'p':
       return <p key={i} className="docs-p">{rich(b.t[loc])}</p>
     case 'ul':
@@ -175,12 +177,72 @@ function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, a
   }
 }
 
+type ReleasePage = (typeof import('virtual:konclave-releases'))['default'][number]
+
+/** A release block as a docs block. The changelog is written in English only, so both locales carry
+ *  the same text and the page says it is English. */
+const asBlock = (b: ReleasePage['blocks'][number]): Block => {
+  const both = (t: string) => ({ en: t, 'pt-BR': t })
+  return b.k === 'ul' ? { k: 'ul', items: b.items.map(both) } : { k: b.k, t: both(b.t) }
+}
+
+/** A changelog date (`2026-11-08`) as words. The date has no time, so it is read and written in UTC:
+ *  read in the reader's own zone, a date west of Greenwich would show the day before. */
+const releaseDate = (d: string) =>
+  new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${d}T00:00:00Z`))
+
+/** One released version, as the GitHub release says it. Older and newer releases in the pager. */
+function ReleaseArticle({ version, pages }: { version: string; pages: ReleasePage[] }) {
+  const idx = pages.findIndex((p) => p.version === version)
+  const page = pages[idx]
+  if (!page) {
+    return (
+      <article className="docs-article" lang="en">
+        <h1 className="docs-title">No release {version}</h1>
+        <p className="docs-lead">No released version has this number.</p>
+      </article>
+    )
+  }
+  const newer = idx > 0 ? pages[idx - 1]! : null
+  const older = idx < pages.length - 1 ? pages[idx + 1]! : null
+  return (
+    <article className="docs-article" lang="en">
+      <span className="docs-eyebrow">Konclave · Release</span>
+      <h1 className="docs-title">Konclave {page.version}</h1>
+      <p className="docs-lead">
+        {page.date && <>Released <time dateTime={page.date}>{releaseDate(page.date)}</time>. </>}
+        These are the release notes, from the changelog.{' '}
+        <a className="docs-link" href={`https://github.com/deegalabs/konclave/releases/tag/v${page.version}`} target="_blank" rel="noreferrer">
+          The release on GitHub
+        </a>
+      </p>
+      {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}))}
+      <nav className="docs-pager" aria-label="Releases">
+        {older
+          ? <Link className="docs-pager-link prev" to={`/docs/releases/${older.version}`}><small>Older</small><span>{older.version}</span></Link>
+          : <span />}
+        {newer
+          ? <Link className="docs-pager-link next" to={`/docs/releases/${newer.version}`}><small>Newer</small><span>{newer.version}</span></Link>
+          : <span />}
+      </nav>
+    </article>
+  )
+}
+
 /** The in-app documentation site: a sidebar of sections plus a rendered page,
  *  bilingual via the language toggle in the shared Letterhead. */
 export default function Docs() {
   const { locale } = useI18n()
   const loc = locale as Locale
-  const { section } = useParams<{ section?: string }>()
+  const { section, version } = useParams<{ section?: string; version?: string }>()
+  // The release pages are their own chunk, fetched the first time one is opened.
+  const [releases, setReleases] = useState<ReleasePage[] | null>(null)
+  useEffect(() => {
+    if (!version || releases) return
+    let on = true
+    void import('virtual:konclave-releases').then((m) => { if (on) setReleases(m.default) })
+    return () => { on = false }
+  }, [version, releases])
   const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === section))
   const cur = SECTIONS[idx]!
   const prev = idx > 0 ? SECTIONS[idx - 1]! : null
@@ -211,8 +273,8 @@ export default function Docs() {
               <Link
                 key={s.id}
                 to={`/docs/${s.id}`}
-                className={'docs-navlink' + (s.id === cur.id ? ' active' : '')}
-                aria-current={s.id === cur.id ? 'page' : undefined}
+                className={'docs-navlink' + (!version && s.id === cur.id ? ' active' : '')}
+                aria-current={!version && s.id === cur.id ? 'page' : undefined}
               >
                 {s.nav[loc]}
               </Link>
@@ -221,6 +283,9 @@ export default function Docs() {
         </aside>
 
         <main className="docs-main">
+          {version ? (
+            releases && <ReleaseArticle version={version} pages={releases} />
+          ) : (
           <article className="docs-article">
             <span className="docs-eyebrow">Konclave · {isPT ? 'Documentação' : 'Docs'}</span>
             <h1 className="docs-title">{cur.title[loc]}</h1>
@@ -242,6 +307,7 @@ export default function Docs() {
                 : <span />}
             </nav>
           </article>
+          )}
         </main>
       </div>
 

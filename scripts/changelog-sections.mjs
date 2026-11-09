@@ -148,6 +148,91 @@ export function compileFragments(file, dir) {
   for (const f of frags) rmSync(f.path)
   return frags.length
 }
+// ---- Release bodies: what the GitHub release says, and the docs page built from the same text ----
+
+/** The changelogs a release body is assembled from, in order, with the label each part gets.
+ *  `helper-server/CHANGELOG.md` is the coordinator's own and is not a release of the app. */
+export const RELEASE_SOURCES = [
+  ['ui/CHANGELOG.md', 'The app'],
+  ['CHANGELOG.md', 'The desktop shell and shared parts'],
+]
+
+/** An entry that opens "**Upgrading from" says what a member must do BEFORE running the installer,
+ *  and a release body otherwise opens with whatever the app's changelog lists first. So each such
+ *  entry is also printed at the top of the body, unbulleted, in the order found; it stays in its
+ *  category below. A body with none is returned unchanged. */
+export function upgradeFirst(body) {
+  const lines = body.split('\n')
+  const lifted = []
+  lines.forEach((line, i) => {
+    if (!/^- \*\*Upgrading from /.test(line)) return
+    const entry = [line.slice(2)]
+    for (let j = i + 1; j < lines.length && /^ {2}\S/.test(lines[j]); j++) entry.push(lines[j].trim())
+    lifted.push(entry.join('\n'))
+  })
+  return lifted.length ? `${lifted.join('\n\n')}\n\n${body}` : body
+}
+
+/** The release body from `[label, body]` parts in RELEASE_SOURCES order. Labelled only when more
+ *  than one part has anything to say: with a single part the body is that part alone, which keeps
+ *  an older release body from changing shape. */
+export function releaseBody(parts) {
+  const present = parts.filter(([, body]) => body)
+  if (present.length === 0) return ''
+  if (present.length === 1) return upgradeFirst(present[0][1])
+  return upgradeFirst(present.map(([label, body]) => `## ${label}\n\n${body}`).join('\n\n'))
+}
+
+/** A release body as the docs' blocks: `##` a heading, `###` a subheading, a run of `- ` entries one
+ *  list (an indented line continues its entry), `>` lines one note, anything else a paragraph. A
+ *  blank line ends whatever was open. Inline marks (`**`, backticks, links) are left for the page. */
+export function notesBlocks(body) {
+  const out = []
+  let open = null
+  const close = () => { open = null }
+  for (const raw of body.split('\n')) {
+    const line = raw.trimEnd()
+    if (!line.trim()) { close(); continue }
+    if (line.startsWith('### ')) { close(); out.push({ k: 'h3', t: line.slice(4).trim() }); continue }
+    if (line.startsWith('## ')) { close(); out.push({ k: 'h', t: line.slice(3).trim() }); continue }
+    if (line.startsWith('- ')) {
+      if (open?.k !== 'ul') { open = { k: 'ul', items: [] }; out.push(open) }
+      open.items.push(line.slice(2).trim())
+      continue
+    }
+    if (line.startsWith('>')) {
+      const text = line.replace(/^>\s?/, '').trim()
+      if (open?.k !== 'note') { open = { k: 'note', t: text }; out.push(open) } else open.t += ` ${text}`
+      continue
+    }
+    if (open?.k === 'ul') { open.items[open.items.length - 1] += ` ${line.trim()}`; continue }
+    if (open?.k === 'p') { open.t += ` ${line.trim()}`; continue }
+    open = { k: 'p', t: line.trim() }
+    out.push(open)
+  }
+  return out
+}
+
+const semverDesc = (a, b) => {
+  const pa = a.split(/[.-]/).map(Number)
+  const pb = b.split(/[.-]/).map(Number)
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i]
+  return 0
+}
+
+/** One page per released version, newest first, from the changelogs' text in RELEASE_SOURCES order:
+ *  {version, date, blocks}, the body being what `releaseBody` gives the GitHub release. The date is
+ *  the one on the app's heading (`## [0.18.0] 2026-11-08`), or the shell's when the app has none. */
+export function releasePages(mds) {
+  const versions = [...new Set(mds.flatMap(versionsIn))].sort(semverDesc)
+  return versions.map((version) => {
+    const heading = mds.map((md) => parseSections(md).find((s) => s.version === version)?.heading ?? '').join(' ')
+    const date = /\b(\d{4}-\d{2}-\d{2})\b/.exec(heading)?.[1] ?? ''
+    const body = releaseBody(RELEASE_SOURCES.map(([, label], i) => [label, sectionBody(mds[i] ?? '', version)]))
+    return { version, date, blocks: notesBlocks(body) }
+  })
+}
+
 
 // CLI: node scripts/changelog-sections.mjs lock --branch B [--base REF=HEAD^1] file...
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

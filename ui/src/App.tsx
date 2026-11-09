@@ -53,6 +53,7 @@ export default function App() {
         <Route path="/net" element={<NetVault />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/docs/:section" element={<Docs />} />
+        <Route path="/docs/releases/:version" element={<Docs />} />
         <Route path="/proof" element={<Proof />} />
         <Route path="/lab" element={<Lab />} />
         <Route path="/lab/background-signer" element={<BackgroundSignerLab />} />
