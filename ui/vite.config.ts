@@ -37,7 +37,7 @@ export default defineConfig({
     // One docs page per released version, built from the changelogs with the function that writes
     // the GitHub release body, so a release is never written twice. Only the converted pages reach
     // the bundle, in their own chunk (Docs imports this module when a release page is opened).
-    // A shallow clone has no tags, so they are fetched; zero pages stops the build.
+    // A shallow clone has no tags, so their names are listed from the remote; zero pages stops the build.
     {
       name: 'konclave-release-pages',
       resolveId: (id) => (id === 'virtual:konclave-releases' ? '\0virtual:konclave-releases' : undefined),

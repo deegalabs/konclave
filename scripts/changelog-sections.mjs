@@ -241,18 +241,21 @@ export function taggedVersions(root = ROOT) {
   }
 }
 
-/** The tags; a shallow clone (CI's UI job, Vercel) has none, so they are fetched, tags only, one commit deep. */
-export function tagsForPages(root = ROOT, run = execFileSync) {
+/** The tags; with none here (a shallow clone, Vercel), their names are listed from the remote, nothing written. */
+export function tagsForPages(root = ROOT, run = execFileSync, env = process.env) {
   const have = taggedVersions(root)
   if (have?.size) return have
-  try { run('git', ['fetch', '--quiet', '--no-tags', '--depth=1', 'origin', '+refs/tags/*:refs/tags/*'], { cwd: root, stdio: 'ignore' }) } catch { return have }
-  return taggedVersions(root)
+  const { VERCEL_GIT_REPO_OWNER: owner, VERCEL_GIT_REPO_SLUG: slug } = env
+  const remote = owner && slug ? `https://github.com/${owner}/${slug}.git` : 'origin'
+  let out
+  try { out = run('git', ['ls-remote', '--tags', '--refs', remote], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return have }
+  return new Set(String(out).split('\n').map((l) => l.split('refs/tags/')[1]?.trim().replace(/^v/, '')).filter(Boolean))
 }
 
 /** The pages, or an error: a releases page with nothing on it must stop the build, not ship. */
 export function releasePagesOrFail(mds, tagged) {
   const pages = releasePages(mds, tagged)
-  if (!pages.length) throw new Error('release pages: no tagged version found (git tag is empty and fetching the tags from origin failed)')
+  if (!pages.length) throw new Error('release pages: no tagged version found (git tag is empty and listing the tags from the remote failed)')
   return pages
 }
 
