@@ -74,6 +74,10 @@ describe('the screen', () => {
   it('takes its numbers from the shared modules, not a rule of its own', () => {
     expect(src).toMatch(/from '\.\.\/balance-parts'/)
     expect(src).toMatch(/nextBalanceView/)
+    // The read that names a busy vault, and the line that names a missing wallet.
+    expect(src).toMatch(/readBalance\(\)/)
+    expect(src).not.toMatch(/getBalance/)
+    expect(src).toMatch(/setUnwired\(!b\.configured\)/)
     expect(src).not.toMatch(/'sent'|'confirmed'/)
   })
   it('says nothing about the balance or the book until the first read has answered', () => {

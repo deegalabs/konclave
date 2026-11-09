@@ -90,8 +90,8 @@ export function commitList(version, {
 
 /** The release body for `version` (or what is unreleased, with no version): the one function the
  *  docs' release pages read too, so the two never say different things. */
-function notes(version) {
-  return releaseBodyFor(version, readReleaseSources(root))
+export function notes(version, tagged = taggedVersions()) {
+  return releaseBodyFor(version, readReleaseSources(root), tagged)
 }
 
 function bumpJson(path, version) {

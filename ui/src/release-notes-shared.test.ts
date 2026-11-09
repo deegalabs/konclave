@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { RELEASE_SOURCES, notesBlocks, releaseBody, releaseBodyFor, releasePages, semverCompare } from '../../scripts/changelog-sections.mjs'
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+import { notes } from '../../scripts/release.mjs'
 
 type Block = { k: string; t?: string; items?: string[] }
 type Page = { version: string; date: string; blocks: Block[] }
@@ -67,6 +69,14 @@ describe('releaseBody', () => {
   })
 })
 
+describe('semverCompare', () => {
+  it('compares by number, and counts a missing part as 0', () => {
+    expect(semverCompare('0.10.0', '0.9.0')).toBeGreaterThan(0)
+    expect(semverCompare('0.10', '0.10.0')).toBe(0)
+    expect(semverCompare('1.2', '1.2.1')).toBeLessThan(0)
+  })
+})
+
 describe('releaseBodyFor', () => {
   it('folds in the sections cut beneath a release and never tagged, as the GitHub release does', () => {
     // 0.9.0 was superseded by 0.10.0, and 0.5.0 by 0.6.0: each release carried both sections.
@@ -98,8 +108,8 @@ describe('the release pages, from the real changelogs', () => {
     }
   })
 
-  it('says on each page exactly what its GitHub release says', () => {
-    for (const p of pages) expect(p.blocks, p.version).toEqual(notesBlocks(releaseBodyFor(p.version, mds, RELEASED)))
+  it('says on each page exactly what `release.mjs --notes` prints for that version', () => {
+    for (const p of pages) expect(p.blocks, p.version).toEqual(notesBlocks(notes(p.version, RELEASED)))
     expect(pages.map((p) => p.version)).not.toContain('0.9.0')
   })
 

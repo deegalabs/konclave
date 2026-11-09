@@ -150,6 +150,7 @@ export function compileFragments(file, dir) {
   for (const f of frags) rmSync(f.path)
   return frags.length
 }
+
 // ---- Release bodies: what the GitHub release says, and the docs page built from the same text ----
 
 /** The changelogs a release body is assembled from, in order, with the label each part gets.
@@ -304,7 +305,6 @@ export function releasePages(mds, tagged = taggedVersions()) {
     return { version, date, blocks: notesBlocks(releaseBodyFor(version, mds, tagged)) }
   })
 }
-
 
 // CLI: node scripts/changelog-sections.mjs lock --branch B [--base REF=HEAD^1] file...
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
