@@ -2,25 +2,32 @@
 // not from the menu, until the menu is reworked.
 //
 // It adds no number of its own. The balance band is `balanceParts`, the same split the payment
-// screen gates on.
+// screen gates on, and the balance is read the way the Dashboard reads it (`readBalance`, with
+// `nextBalanceView` keeping the last one through a busy read).
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { getBalance, getLedger, ledgerReadFailure, type Balance, type Proposal } from '../api'
+import { getLedger, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { RevealButton, Secret } from '../components'
-import { fmtZecExact, zatToZec } from '../format'
+import { fmtZatExact } from '../format'
 import { useI18n, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
 import ReadState from '../ReadState'
+import { nextBalanceView, type BalanceView } from '../useVaultBalance'
 import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
-const zec = (zat: number) => fmtZecExact(Number(zatToZec(zat)))
+const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
 
-/** The vault's balance in its parts. Nothing is drawn from a balance that was not read. */
-export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: readonly Proposal[] | null; t: TFn }) {
-  if (!bal || bal.total_zat == null) return <p className="hint">{t('analyses.balanceUnread')}</p>
+/** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
+ *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
+export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
+  bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
+}) {
+  if (!bal || bal.total_zat == null) {
+    const why = busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
+    return <p className="hint" role="status">{t(why)}</p>
+  }
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
   if (reserved === null) return null
@@ -39,6 +46,9 @@ export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: reado
         </dl>
         <span className="db-reveal"><RevealButton /></span>
       </div>
+      {/* The held amount is capped at what can be spent; when proposals hold more, say so. */}
+      {parts.overCommitted && <p className="hint warn sm" role="status">{t('dashboard.overCommitted')}</p>}
+      {busy && <p className="hint sm" role="status">{t('wallet.busyKept')}</p>}
     </div>
   )
 }
@@ -48,7 +58,8 @@ export default function Analyses() {
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
-  const [bal, setBal] = useState<Balance | null>(null)
+  const [view, setView] = useState<BalanceView>({ bal: null, busy: false })
+  const [unwired, setUnwired] = useState(false)
   const [unread, setUnread] = useState(false)
   const [attempt, setAttempt] = useState(0)
   // Nothing is said about the balance or the book until the first read answers: before it, both
@@ -65,10 +76,11 @@ export default function Analyses() {
       inFlight = true
       if (first) begin()
       try {
-        const [l, b] = await Promise.all([getLedger(), getBalance()])
+        const [l, b] = await Promise.all([getLedger(), readBalance()])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
-        if (b) setBal(b)
+        setView((v) => nextBalanceView(v, b))
+        if (b && typeof b === 'object') setUnwired(!b.configured)
       } finally {
         inFlight = false
         if (first) { end(); if (on) setLoaded(true) }
@@ -86,10 +98,9 @@ export default function Analyses() {
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
-      {loaded && <BalanceBand bal={bal} rows={rows} t={t} />}
+      {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} t={t} />}
       <PageFooter>
         <span className="dim pushr">{t('analyses.foot')}</span>
-        <Link className="link" to="/ledger">{t('ledger.title')}</Link>
       </PageFooter>
     </main>
   )

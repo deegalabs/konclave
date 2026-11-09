@@ -23,12 +23,13 @@ const readTransactions = vi.hoisted(() => vi.fn())
 const health = vi.hoisted(() => vi.fn())
 const getProposalDetail = vi.hoisted(() => vi.fn())
 const getBalance = vi.hoisted(() => vi.fn())
+const readBalance = vi.hoisted(() => vi.fn())
 const vaultCeremonies = vi.hoisted(() => vi.fn())
 // The web, where every vault is: the app starts with a coordinator configured, the lock is the
 // device's, and the vault is the one selected.
 localStorage.setItem('konclave.coord.mode', 'custom')
 localStorage.setItem('konclave.coord.url', 'https://coordinator.invalid')
-vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), getVault, getProposals, getLedger, readTransactions, health, getProposalDetail, getBalance }))
+vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), getVault, getProposals, getLedger, readTransactions, health, getProposalDetail, getBalance, readBalance }))
 // The signer is not what this reads; the proposal screen only asks it for `open`.
 vi.mock('./VaultSigner', () => ({ useVaultSigner: () => ({ open: () => {} }) }))
 vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), vaultCeremonies }))
@@ -44,6 +45,7 @@ const { default: Members } = await import('./screens/Members')
 const { default: Receive } = await import('./screens/Receive')
 const { default: ProposalScreen } = await import('./screens/Proposal')
 const { default: Ceremonies } = await import('./screens/Ceremonies')
+const { default: Analyses } = await import('./screens/Analyses')
 
 const S = new Uint8Array(32).fill(9)
 const save = (secret: boolean) => saveVault(GK, {
@@ -72,6 +74,7 @@ const screens: [string, () => ReactElement, () => ReturnType<typeof vi.fn>][] = 
   ['Add funds (Receive)', () => <Receive />, () => readTransactions],
   ['A proposal (Proposal)', () => <ProposalScreen />, () => getProposalDetail],
   ['Signing evidence (Ceremonies)', () => <Ceremonies embedded />, () => vaultCeremonies],
+  ['Analyses', () => <Analyses />, () => getLedger],
 ]
 
 describe('a locked vault is asked for its passphrase, never read as a failure (#439)', () => {
@@ -80,7 +83,7 @@ describe('a locked vault is asked for its passphrase, never read as a failure (#
     setSelectedVault(GK)
     getVault.mockResolvedValue(vault); getProposals.mockResolvedValue([]); getLedger.mockResolvedValue([])
     readTransactions.mockResolvedValue([]); health.mockResolvedValue(true)
-    getProposalDetail.mockResolvedValue(null); getBalance.mockResolvedValue(null); vaultCeremonies.mockResolvedValue([])
+    getProposalDetail.mockResolvedValue(null); getBalance.mockResolvedValue(null); readBalance.mockResolvedValue(null); vaultCeremonies.mockResolvedValue([])
   })
   afterEach(async () => { cleanup(); vi.clearAllMocks(); clearReadSecret(GK); await deleteVault(GK).catch(() => {}) })
 
