@@ -1,9 +1,23 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import Docs from './screens/Docs'
 import { I18nProvider } from './i18n'
+
+// A build makes pages only for the versions it sees tagged, and CI's checkout has no tags (#573), so
+// the test states which were released, as release-notes-shared.test.ts does.
+vi.mock('virtual:konclave-releases', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const { dirname, join } = await import('node:path')
+  // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+  const { RELEASE_SOURCES, releasePages } = await import('../../scripts/changelog-sections.mjs')
+  // A path, not `new URL(template, import.meta.url)`, which Vite rewrites as an asset under jsdom.
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const read = ([file]: [string, string]) => readFileSync(join(root, file), 'utf8')
+  return { default: releasePages((RELEASE_SOURCES as [string, string][]).map(read), new Set(['0.18.0', '0.17.0'])) }
+})
 
 // The release page as a reader meets it: built from the changelog at build time, in English whatever
 // the app's language, with the issue numbers it cites as links.
