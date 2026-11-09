@@ -34,7 +34,7 @@ vi.mock('./pin-digest', () => ({ ownPkpDigest: async () => h.digest }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
 const { concludeRegistration, refusalKey } = await import('./conclude-registration')
-const { isCurrentFlow, sameCoordinator } = await import('./creation-protocol')
+const { isCurrentFlow, sameCoordinator, CREATION_PROTOCOL } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)
 const BUNDLE = JSON.stringify({ pkp: 'aa', proofs: [] })
@@ -115,7 +115,7 @@ describe('each refusal keeps the record and says its own thing', () => {
   it('update: the coordinator asks for a newer app', async () => {
     h.registerVault.mockResolvedValue(null)
     h.failure = { status: 409, updateRequired: true }
-    h.listVaults.mockResolvedValue([rec3()])
+    h.listVaults.mockResolvedValue([rec3({ cp: CREATION_PROTOCOL })])
     expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: false })
     kept()
   })
@@ -306,6 +306,26 @@ describe('a vault of protocol 3', () => {
     expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
     expect(h.registerVault).not.toHaveBeenCalled()
     expect(h.registerThisDevice).toHaveBeenCalled()
+  })
+
+  // A vault of an earlier pinning protocol that the coordinator already registered: the app moved on,
+  // and the coordinator now asks for the newer one, but this vault exists and is pinned to this device's
+  // package. Telling the member not to fund it would be false; it finishes like a device with no bundle.
+  it('asked to update, a vault already pinned to this package finishes instead', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    h.getVault.mockResolvedValue(h.served)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.registerThisDevice).toHaveBeenCalled()
+  })
+
+  it('asked to update, a vault not pinned to this package still says update', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
+      h.getVault.mockResolvedValue(answer)
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: true })
+    }
   })
 
   it('without a bundle stays refused on a vault not pinned, or pinned to another package', async () => {

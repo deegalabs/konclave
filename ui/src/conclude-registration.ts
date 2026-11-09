@@ -15,7 +15,7 @@ import { getUnlockedShare, setUnlockedShare } from './session'
 import { registerThisDevice } from './device-registration'
 import { depositAddress } from './api'
 import { addressText } from './approved-payment'
-import { CREATION_PROTOCOL, isCurrentFlow, isUpdateRequired, protocolOfRecord } from './creation-protocol'
+import { CREATION_PROTOCOL, FIRST_PINNING_PROTOCOL, isCurrentFlow, isUpdateRequired, protocolOfRecord } from './creation-protocol'
 
 /** Why a registration was not finished. Every one keeps the record exactly as it was.
  *  - `old`: a record of the earlier creation flow, which this never registers (no network was used).
@@ -100,7 +100,7 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
 
   // The vault's name as every member confirmed it; the fallback lives here, once.
   const name = rec.name || `net-${rec.groupKey.slice(0, 8)}`
-  const protocol3 = cp >= 3
+  const protocol3 = cp >= FIRST_PINNING_PROTOCOL
   const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
   const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
   // A device with no bundle never posts. It finishes only on a vault others pinned to its package.
@@ -108,9 +108,20 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
     const known = await getVault(rec.groupKey)
     if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
   }
-  const v = protocol3 && !rec.pinBundle
+  let v = protocol3 && !rec.pinBundle
     ? await getVault(rec.groupKey)
     : await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+  if (!v) {
+    const failure = lastHelperPostFailure()
+    // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
+    // the vault exists and is pinned to this device's package, so it finishes the way a device with no
+    // bundle does, by reading it. Only a vault not pinned here is told it was made by an older app.
+    if (isUpdateRequired(failure) && protocol3 && cp < CREATION_PROTOCOL) {
+      const known = await getVault(rec.groupKey)
+      if (known && pinnedHere(known)) v = known
+      else return { refused: 'update', older: true }
+    }
+  }
   if (!v) {
     const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
