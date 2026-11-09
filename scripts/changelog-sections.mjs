@@ -165,7 +165,7 @@ export function upgradeFirst(body) {
   const lines = body.split('\n')
   const lifted = []
   lines.forEach((line, i) => {
-    if (!/^- \*\*Upgrading from /.test(line)) return
+    if (!line.startsWith('- **Upgrading from ')) return
     const entry = [line.slice(2)]
     for (let j = i + 1; j < lines.length && /^ {2}\S/.test(lines[j]); j++) entry.push(lines[j].trim())
     lifted.push(entry.join('\n'))
