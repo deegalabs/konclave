@@ -241,6 +241,21 @@ export function taggedVersions(root = ROOT) {
   }
 }
 
+/** The tags; a shallow clone (CI's UI job, Vercel) has none, so they are fetched, tags only, one commit deep. */
+export function tagsForPages(root = ROOT, run = execFileSync) {
+  const have = taggedVersions(root)
+  if (have?.size) return have
+  try { run('git', ['fetch', '--quiet', '--no-tags', '--depth=1', 'origin', '+refs/tags/*:refs/tags/*'], { cwd: root, stdio: 'ignore' }) } catch { return have }
+  return taggedVersions(root)
+}
+
+/** The pages, or an error: a releases page with nothing on it must stop the build, not ship. */
+export function releasePagesOrFail(mds, tagged) {
+  const pages = releasePages(mds, tagged)
+  if (!pages.length) throw new Error('release pages: no tagged version found (git tag is empty and fetching the tags from origin failed)')
+  return pages
+}
+
 // The root changelog has every version's heading, so the walk below reads it.
 const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG.md')
 
