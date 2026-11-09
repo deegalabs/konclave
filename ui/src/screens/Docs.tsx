@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
 import { SECTIONS, type Block, type Locale } from '../docs/content'
-import IssueRef from '../docs/IssueRef'
+import IssueRef, { type IssueRefLabels } from '../docs/IssueRef'
 import type { StageStatus } from '../docs/roadmap'
 import '../docs.css'
 
@@ -37,14 +37,20 @@ const LABELS: Record<
   },
 }
 
-// Inline formatter: renders **bold** and `code` spans inside a plain string.
-function rich(s: string): ReactNode[] {
+// Inline formatter: renders **bold** and `code` spans inside a plain string. Given `refs` (the labels
+// IssueRef needs), it also turns each "#123" in the text into an IssueRef: the release notes cite issues
+// that way, and a number that cannot be followed is a dead end.
+function rich(s: string, refs?: IssueRefLabels): ReactNode[] {
+  const text = (t: string, key: number | string): ReactNode =>
+    refs
+      ? <span key={key}>{t.split(/(#\d+)\b/g).map((q, j) => (/^#\d+$/.test(q) ? <IssueRef key={j} r={{ kind: 'issue', n: Number(q.slice(1)) }} labels={refs} /> : q))}</span>
+      : <span key={key}>{t}</span>
   return s.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g).map((p, i) => {
-    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
+    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{text(p.slice(2, -2), 0)}</strong>
     if (p.startsWith('`') && p.endsWith('`')) return <code key={i}>{p.slice(1, -1)}</code>
     const m = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p)
     if (m) return <a key={i} className="docs-link" href={m[2]}>{m[1]}</a>
-    return <span key={i}>{p}</span>
+    return text(p, i)
   })
 }
 
@@ -112,24 +118,24 @@ function DiagramLightbox({ src, alt, closeLabel, onClose }: {
   )
 }
 
-function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, alt: string) => void): ReactNode {
+function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, alt: string) => void, refs?: IssueRefLabels): ReactNode {
   switch (b.k) {
     case 'h':
-      return <h2 key={i} className="docs-h">{rich(b.t[loc])}</h2>
+      return <h2 key={i} className="docs-h">{rich(b.t[loc], refs)}</h2>
     case 'h3':
-      return <h3 key={i} className="docs-h3">{rich(b.t[loc])}</h3>
+      return <h3 key={i} className="docs-h3">{rich(b.t[loc], refs)}</h3>
     case 'p':
-      return <p key={i} className="docs-p">{rich(b.t[loc])}</p>
+      return <p key={i} className="docs-p">{rich(b.t[loc], refs)}</p>
     case 'ul':
       return (
         <ul key={i} className="docs-ul">
-          {b.items.map((it, j) => <li key={j}>{rich(it[loc])}</li>)}
+          {b.items.map((it, j) => <li key={j}>{rich(it[loc], refs)}</li>)}
         </ul>
       )
     case 'code':
       return <pre key={i} className="docs-code"><code>{b.t}</code></pre>
     case 'note':
-      return <aside key={i} className="docs-note">{rich(b.t[loc])}</aside>
+      return <aside key={i} className="docs-note">{rich(b.t[loc], refs)}</aside>
     case 'stages': {
       const L = LABELS[loc]
       const items = b.items.map((st) => (
@@ -216,7 +222,7 @@ function ReleaseArticle({ version, pages }: { version: string; pages: ReleasePag
           The release on GitHub
         </a>
       </p>
-      {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}))}
+      {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}, LABELS.en.ref))}
       <nav className="docs-pager" aria-label="Releases">
         {older
           ? <Link className="docs-pager-link prev" to={`/docs/releases/${older.version}`}><small>Older</small><span>{older.version}</span></Link>
@@ -237,10 +243,16 @@ export default function Docs() {
   const { section, version } = useParams<{ section?: string; version?: string }>()
   // The release pages are their own chunk, fetched the first time one is opened.
   const [releases, setReleases] = useState<ReleasePage[] | null>(null)
+  const [releasesFailed, setReleasesFailed] = useState(false)
   useEffect(() => {
     if (!version || releases) return
+    setReleasesFailed(false)
     let on = true
-    void import('virtual:konclave-releases').then((m) => { if (on) setReleases(m.default) })
+    // Not precached, so offline the import fails: the page says so rather than staying blank.
+    import('virtual:konclave-releases').then(
+      (m) => { if (on) setReleases(m.default) },
+      () => { if (on) setReleasesFailed(true) },
+    )
     return () => { on = false }
   }, [version, releases])
   const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === section))
@@ -284,7 +296,14 @@ export default function Docs() {
 
         <main className="docs-main">
           {version ? (
-            releases && <ReleaseArticle version={version} pages={releases} />
+            releases
+              ? <ReleaseArticle version={version} pages={releases} />
+              : releasesFailed && (
+                <article className="docs-article" lang="en">
+                  <h1 className="docs-title">Konclave {version}</h1>
+                  <p className="docs-lead" role="alert">The release notes could not be loaded. They are not kept for offline use, so they need a connection.</p>
+                </article>
+              )
           ) : (
           <article className="docs-article">
             <span className="docs-eyebrow">Konclave · {isPT ? 'Documentação' : 'Docs'}</span>

@@ -94,6 +94,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,wasm}'],
+        // The release pages (konclave-release-pages) are every release's notes and grow with each one;
+        // they load when a release page is opened, so they are not precached.
+        globIgnores: ['**/*konclave-releases*'],
         // The Orchard/Ironwood WASM core + a couple of large chunks; raise the per-file cap so they
         // are precached (offline + a consistent snapshot).
         // Headroom over the wasm, which is the only file near this ceiling. Workbox drops an
