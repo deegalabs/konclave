@@ -1185,6 +1185,15 @@ export const ptBR: Record<string, string> = {
   'ledger.publicSuffix': ' · transparente',
   'ledger.loadingBeneficiaries': 'carregando beneficiários…',
   'ledger.foot': 'transparência interna · a blockchain pública nada revela',
+  'ledger.toAnalyses': 'Análises',
+  'analyses.title': 'Análises',
+  'analyses.sub': 'O saldo do cofre em partes: o que está livre para gastar e o que as propostas abertas já reservam.',
+  'analyses.foot': 'calculado neste aparelho a partir do livro e do saldo que o cofre informa · nada aqui move dinheiro',
+  'analyses.inVault': 'No cofre',
+  'analyses.free': 'Disponível',
+  'analyses.reserved': 'Reservado por propostas abertas',
+  'analyses.confirming': 'Confirmando',
+  'analyses.balanceUnread': 'Não foi possível ler o saldo, então as partes dele não aparecem.',
 
   // Members
   'members.eyebrow': 'Signatários do cofre · quórum {t}-de-{n}',
