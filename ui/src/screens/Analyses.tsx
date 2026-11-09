@@ -1,0 +1,96 @@
+// Analyses: arithmetic over the vault's book, one reading at a time. Linked from the Ledger only,
+// not from the menu, until the menu is reworked.
+//
+// It adds no number of its own. The balance band is `balanceParts`, the same split the payment
+// screen gates on.
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { getBalance, getLedger, ledgerReadFailure, type Balance, type Proposal } from '../api'
+import { balanceParts, reservedZatOf } from '../balance-parts'
+import { RevealButton, Secret } from '../components'
+import { fmtZecExact, zatToZec } from '../format'
+import { useI18n, type TFn } from '../i18n'
+import { useLoading } from '../loading'
+import { PageFooter, PageHeader } from '../page'
+import ReadState from '../ReadState'
+import { startVisiblePoll } from '../usePoll'
+import { useVaultReadable } from '../vault-readable'
+
+const zec = (zat: number) => fmtZecExact(Number(zatToZec(zat)))
+
+/** The vault's balance in its parts. Nothing is drawn from a balance that was not read. */
+export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: readonly Proposal[] | null; t: TFn }) {
+  if (!bal || bal.total_zat == null) return <p className="hint">{t('analyses.balanceUnread')}</p>
+  // The book was not read: the page's ReadState names it, so the band does not blame the balance.
+  const reserved = reservedZatOf(rows)
+  if (reserved === null) return null
+  const parts = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
+  const cell = (label: string, zat: number) => (
+    <div className="db-t"><dt className="klab">{label}</dt><dd><Secret sm label={label}><b className="mono">{zec(zat)}</b></Secret></dd></div>
+  )
+  return (
+    <div className="doc-band an-band">
+      <div className="db-totals">
+        <dl className="an-cells">
+          {cell(t('analyses.inVault'), parts.totalZat)}
+          {cell(t('analyses.free'), parts.freeZat)}
+          {cell(t('analyses.reserved'), parts.reservedZat)}
+          {cell(t('analyses.confirming'), parts.confirmingZat)}
+        </dl>
+        <span className="db-reveal"><RevealButton /></span>
+      </div>
+    </div>
+  )
+}
+
+export default function Analyses() {
+  const { t } = useI18n()
+  const { begin, end } = useLoading()
+  const readable = useVaultReadable()
+  const [rows, setRows] = useState<Proposal[] | null>(null)
+  const [bal, setBal] = useState<Balance | null>(null)
+  const [unread, setUnread] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  // Nothing is said about the balance or the book until the first read answers: before it, both
+  // are null, and "could not be read" would report a failure that has not happened.
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
+    if (!readable) return
+    let on = true
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return
+      inFlight = true
+      if (first) begin()
+      try {
+        const [l, b] = await Promise.all([getLedger(), getBalance()])
+        if (!on) return
+        if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
+        if (b) setBal(b)
+      } finally {
+        inFlight = false
+        if (first) { end(); if (on) setLoaded(true) }
+      }
+    }
+    void load(true)
+    const stop = startVisiblePoll(() => void load(false), 30_000)
+    return () => { on = false; stop() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt, readable])
+
+  return (
+    <main className="page">
+      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} />
+      {rows === null && unread && (
+        <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
+      )}
+      {loaded && <BalanceBand bal={bal} rows={rows} t={t} />}
+      <PageFooter>
+        <span className="dim pushr">{t('analyses.foot')}</span>
+        <Link className="link" to="/ledger">{t('ledger.title')}</Link>
+      </PageFooter>
+    </main>
+  )
+}

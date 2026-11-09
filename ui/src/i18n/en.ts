@@ -1189,6 +1189,15 @@ export const en: Record<string, string> = {
   'ledger.publicSuffix': ' · transparent',
   'ledger.loadingBeneficiaries': 'loading beneficiaries…',
   'ledger.foot': 'internal transparency · the public blockchain reveals nothing',
+  'ledger.toAnalyses': 'Pace and runway',
+  'analyses.title': 'Analyses',
+  'analyses.sub': "Arithmetic over the vault's book: what it records, and where the same pace would lead. A projection, not a promise.",
+  'analyses.foot': 'computed on this device from the book · nothing here moves money',
+  'analyses.inVault': 'In the vault',
+  'analyses.free': 'Free',
+  'analyses.reserved': 'Held by open proposals',
+  'analyses.confirming': 'Confirming',
+  'analyses.balanceUnread': 'The balance could not be read, so free funds and the runway are not shown.',
 
   // Members
   'members.eyebrow': 'Vault signers · quorum {t}-of-{n}',
