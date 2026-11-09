@@ -16,21 +16,20 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, execSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments, replaceUnreleasedHeading } from './changelog-sections.mjs'
+import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBody } from './changelog-sections.mjs'
+// Moved to the shared reader, where the docs' release pages read it too; still exported from here.
+export { upgradeFirst } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
-const UI_CHANGELOG = join(root, 'ui', 'CHANGELOG.md')
 
 // A desktop release ships the app AND the shell it runs in, so its notes are assembled from both
 // files rather than picked from one. The web ships only the app, and ships it continuously - which
 // is exactly why `ui/CHANGELOG.md` exists as its own file. The tension is real and deliberate: the
 // two products share a UI, so an entry about the app reaches the web on merge and the desktop at
 // the next tag. Recording it once, where the change lives, beats writing it twice.
-const SOURCES = [
-  [UI_CHANGELOG, 'The app'],
-  [CHANGELOG, 'The desktop shell and shared parts'],
-]
+// The list and its labels live in changelog-sections.mjs, which the docs' release pages read too.
+const SOURCES = RELEASE_SOURCES.map(([file, label]) => [join(root, file), label])
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
@@ -174,28 +173,7 @@ export function commitList(version, {
  */
 function notes(version) {
   const versions = versionsToReport(version)
-  const parts = SOURCES
-    .map(([file, label]) => [label, versions.map((v) => sectionOf(file, v)).filter(Boolean).join('\n\n')])
-    .filter(([, body]) => body)
-  if (parts.length === 0) return ''
-  if (parts.length === 1) return upgradeFirst(parts[0][1])
-  return upgradeFirst(parts.map(([label, body]) => `## ${label}\n\n${body}`).join('\n\n'))
-}
-
-/** An entry that opens "**Upgrading from" says what a member must do BEFORE running the installer,
- *  and a release body otherwise opens with whatever the app's changelog lists first. So each such
- *  entry is also printed at the top of the body, unbulleted, in the order found; it stays in its
- *  category below. A body with none is returned unchanged. */
-export function upgradeFirst(body) {
-  const lines = body.split('\n')
-  const lifted = []
-  lines.forEach((line, i) => {
-    if (!/^- \*\*Upgrading from /.test(line)) return
-    const entry = [line.slice(2)]
-    for (let j = i + 1; j < lines.length && /^ {2}\S/.test(lines[j]); j++) entry.push(lines[j].trim())
-    lifted.push(entry.join('\n'))
-  })
-  return lifted.length ? `${lifted.join('\n\n')}\n\n${body}` : body
+  return releaseBody(SOURCES.map(([file, label]) => [label, versions.map((v) => sectionOf(file, v)).filter(Boolean).join('\n\n')]))
 }
 
 function bumpJson(path, version) {
