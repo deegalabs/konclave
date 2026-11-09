@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test'
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('konclave.locale', 'en')
-    // Protocol 3 joins only through a coordinator that announces it pins (`creationVerdict`): a
+    // Protocol 4 joins only through a coordinator that announces it pins (`creationVerdict`): a
     // configured one, whose health answer is the one thing stubbed below.
     localStorage.setItem('konclave.coord.mode', 'custom')
     localStorage.setItem('konclave.coord.url', 'https://coordinator.invalid')
@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
   // No network is needed to reach the invite step; keep it that way.
   await page.route(/^(?!http:\/\/127\.0\.0\.1:4173)/, (r) => r.abort())
   // Everything else stays cut off.
-  await page.route(/^https:\/\/coordinator\.invalid\/api\/health$/, (r) => r.fulfill({ json: { status: 'ok', name: 'konclave-helper', client: { creation: 3 } } }))
+  await page.route(/^https:\/\/coordinator\.invalid\/api\/health$/, (r) => r.fulfill({ json: { status: 'ok', name: 'konclave-helper', client: { creation: 4 } } }))
 })
 
 // The join door opens the same creation dialog in every build (Create needs a configured

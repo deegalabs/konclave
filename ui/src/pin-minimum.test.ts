@@ -48,14 +48,14 @@ describe('room PIN minimum', () => {
   })
 
   // The room of a non-ASCII PIN, pinned by value: computed with node's own SHA-256 over
-  // "konclave-room-v2\0ABCD1234\0" + the composed (NFC) PIN, not with the code under test. Any other
+  // "konclave-room-v4\0ABCD1234\0" + the composed (NFC) PIN, not with the code under test. Any other
   // canonical form that changes these PINs (NFD, no composing, a different strip) goes red.
   it.each([
-    ['caf\u00e9-pin', '9411e845bd5db64fe04d9cefe59666f6'],
-    ['cafe\u0301-pin', '9411e845bd5db64fe04d9cefe59666f6'],
-    ['e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301', 'b68a9bcccb5b875e00deb699ab9aeb54'],
+    ['caf\u00e9-pin', '0de5ed60f23ed6cceee4726f559f8670'],
+    ['cafe\u0301-pin', '0de5ed60f23ed6cceee4726f559f8670'],
+    ['e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301', 'e1a6f26cdaaaa147237d3faa966a8909'],
     // An invisible character between a letter and its accent leaves one composed letter, not two.
-    ['e\u200B\u0301e\u0301e\u0301e\u0301e\u0301e\u0301', 'b68a9bcccb5b875e00deb699ab9aeb54'],
+    ['e\u200B\u0301e\u0301e\u0301e\u0301e\u0301e\u0301', 'e1a6f26cdaaaa147237d3faa966a8909'],
   ])('a non-ASCII PIN %j has its pinned room', async (pin, want) => {
     expect(await deriveRoom('ABCD1234', pin)).toBe(want)
   })
@@ -89,7 +89,7 @@ describe('room PIN minimum', () => {
   it('full-width digits open the room of the same digits', async () => {
     const fullWidth = '\uFF14\uFF18\uFF12\uFF11\uFF19\uFF13'
     expect(pinIsLongEnough(fullWidth)).toBe(true)
-    expect(await deriveRoom('ABCD1234', fullWidth)).toBe('6c9c1d939b5047d6c87c4921a5ec5bfa')
+    expect(await deriveRoom('ABCD1234', fullWidth)).toBe('b65a06a5fee406812f7f148d32f6267f')
   })
 
   // A joiner or a combining mark that opens the PIN has nothing before it to join: it is not a

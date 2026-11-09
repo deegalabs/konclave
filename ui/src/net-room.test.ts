@@ -24,13 +24,26 @@ import { deriveRoom, newInviteCode, parseInvite, inviteLink, joinParam, INVITE_L
 //    vectors above prove, and leaves the file greppable.
 
 describe('deriveRoom', () => {
+  // Computed apart from this code (node crypto over the canonical PIN written by hand), so the vectors
+  // do not prove deriveRoom by itself.
   it.each([
-    // Version 2 (konclave-room-v2): a device on the previous version derives another room.
-    ['ABCD1234', '482193', '6c9c1d939b5047d6c87c4921a5ec5bfa'],
-    ['ROOM-X', 'hunter2', '2c6d69e75748f417de9e6984163df6fa'],
-    ['a', '  spaced  ', '0360e41e46d51f498078adc45e56f187'],
-  ])('code %s + pin %s derives its version-2 room', async (code, pin, want) => {
+    // Version 4 (konclave-room-v4): a device on an earlier version derives another room.
+    ['ABCD1234', '482193', 'b65a06a5fee406812f7f148d32f6267f'],
+    ['ROOM-X', 'hunter2', 'c48f8891481bed71659e90b6f5870d70'],
+    ['a', '  spaced  ', '0902624d034290279b6f4dd9140ecd74'],
+    // The app-made PIN: bare, grouped and in full-width digits are one room.
+    ['K7Q2', '5872041001097', '290c2655f3c409012c9e59e1199385b5'],
+    ['K7Q2', '5872 0410 0109 7', '290c2655f3c409012c9e59e1199385b5'],
+    ['K7Q2', '\uFF15\uFF18\uFF17\uFF12\uFF10\uFF14\uFF11\uFF10\uFF10\uFF11\uFF10\uFF19\uFF17', '290c2655f3c409012c9e59e1199385b5'],
+    // A member's own PIN outside ASCII.
+    ['K7Q2', '\u00F1and\u00FA-42', 'eb87d6326d2da9a0e4cd25ec7f66d5f0'],
+  ])('code %s + pin %s derives its version-4 room', async (code, pin, want) => {
     expect(await deriveRoom(code, pin)).toBe(want)
+  })
+
+  it('a version-3 room is another room', async () => {
+    // konclave-room-v3 for the same code and PIN, computed apart.
+    expect(await deriveRoom('ABCD1234', '482193')).not.toBe('bfdcf3d11e5205a5d9009bca51795e81')
   })
 
   it('refuses to derive a room without a PIN', async () => {
