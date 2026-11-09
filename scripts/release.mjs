@@ -13,12 +13,12 @@
 // builds the installers and uses the printed notes as the release body. Vercel deploys the web from
 // the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
 import { readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { sectionBody, hasSection, versionsIn, unreleasedOf, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBody } from './changelog-sections.mjs'
+import { hasSection, versionsIn, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBodyFor, readReleaseSources, semverCompare, taggedVersions, versionsToReport } from './changelog-sections.mjs'
 // Moved to the shared reader, where the docs' release pages read it too; still exported from here.
-export { upgradeFirst } from './changelog-sections.mjs'
+export { upgradeFirst, versionsToReport } from './changelog-sections.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
@@ -33,82 +33,11 @@ const SOURCES = RELEASE_SOURCES.map(([file, label]) => [join(root, file), label]
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading. The
-// parsing lives in changelog-sections.mjs, the one reader of this format.
-function sectionOf(file, version) {
-  let md
-  // A source that does not exist yet contributes nothing rather than failing the release. Cutting a
-  // release is the worst moment to discover a missing file.
-  try { md = readFileSync(file, 'utf8') } catch { return '' }
-  // A section that exists and is EMPTY is the version's own (the cut renames even when [Unreleased] is
-  // empty): falling back to [Unreleased] would print the NEXT release's notes under this one. Before the
-  // cut, the fragments are part of [Unreleased], so --notes shows them.
-  return hasSection(md, version) ? sectionBody(md, version) : unreleasedOf(md, file)
-}
-
-/** The versions this repo actually released, newest first. A section with no tag was cut and then
- *  superseded before it shipped, which is a thing that happens and must not silently swallow its
- *  entries. */
-function taggedVersions() {
-  try {
-    return new Set(
-      execSync('git tag', { encoding: 'utf8' })
-        .split('\n')
-        .map((t) => t.trim().replace(/^v/, ''))
-        .filter(Boolean),
-    )
-  } catch {
-    // No git, no tags: fall back to "everything is released", which prints the single section -
-    // the behaviour before this existed. Never MORE than asked for when we cannot tell.
-    return null
-  }
-}
-
 /** The version headings in a changelog, in file order (newest first). */
 function versionsFrom(file) {
   let md
   try { md = readFileSync(file, 'utf8') } catch { return [] }
   return versionsIn(md)
-}
-
-/**
- * `version`, plus any section beneath it that was never tagged.
- *
- * A release body has to describe what the INSTALLER contains, not what its own section says. When
- * 0.5.0 was cut and then superseded before publication, a v0.6.0 body built from its own section
- * alone would have described 11 entries while the installer carried 42 - and nine `Security`
- * entries from the orphaned section would have shipped unannounced.
- *
- * Walking DOWN and stopping at the first tagged version is self-correcting: in the normal case the
- * previous release is tagged, the walk stops immediately, and this returns exactly one version.
- *
- * `tagged` is a parameter so a test can state which versions shipped instead of inheriting the
- * answer from the machine it runs on. The tests read the machine's tags until #573, which is how
- * they passed on a laptop and failed in CI.
- */
-export function versionsToReport(version, tagged = taggedVersions()) {
-  // "Cannot tell" is wider than "git is missing". A shallow checkout has git and NO tags, and the
-  // release workflow's has at most the tag being released - an empty answer, not an error, so it
-  // never reached the `catch` above. With no earlier tag to stop at, the walk reported every
-  // section in the file: the whole history, as one release's notes. With nothing beneath this
-  // version tagged, nothing says what shipped before it, so the rule is the one written above:
-  // never more than asked for when we cannot tell.
-  //
-  // The question is whether a version BENEATH this one is tagged, not whether any other tag
-  // exists. A release candidate, a tag that is not a version at all, or a newer release when an old
-  // tag is rebuilt are all "another tag", and none of them is a place for the walk to stop.
-  if (!tagged) return [version]
-  const all = versionsFrom(CHANGELOG)
-  const start = all.indexOf(version)
-  if (start === -1) return [version]
-  const beneath = all.slice(start + 1)
-  if (!beneath.some((v) => tagged.has(v))) return [version]
-  const out = [version]
-  for (const v of beneath) {
-    if (tagged.has(v)) break
-    out.push(v)
-  }
-  return out
 }
 
 /** The commits a release's notes list: from the tag of the release before it (the first tagged
@@ -127,11 +56,6 @@ export function commitRange(version, tagged = taggedVersions()) {
   return `v${previous}..${tagged.has(version) ? `v${version}` : 'HEAD'}`
 }
 
-function semverCompare(a, b) {
-  const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number)
-  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0)
-  return 0
-}
 const semverLess = (a, b) => semverCompare(a, b) < 0
 
 /** The prose, then the commits under their own heading; the prose alone when there is no list. */
@@ -164,16 +88,10 @@ export function commitList(version, {
   }
 }
 
-/**
- * Every source's section for `version`, assembled.
- *
- * Labelled only when more than one source has anything to say. With a single source the output is
- * byte-identical to what this printed before the split, which is what keeps an existing desktop
- * release body from changing shape for a reason nobody asked for.
- */
+/** The release body for `version` (or what is unreleased, with no version): the one function the
+ *  docs' release pages read too, so the two never say different things. */
 function notes(version) {
-  const versions = versionsToReport(version)
-  return releaseBody(SOURCES.map(([file, label]) => [label, versions.map((v) => sectionOf(file, v)).filter(Boolean).join('\n\n')]))
+  return releaseBodyFor(version, readReleaseSources(root))
 }
 
 function bumpJson(path, version) {

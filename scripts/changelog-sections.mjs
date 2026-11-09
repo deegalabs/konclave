@@ -4,10 +4,12 @@
 //
 // The lock asks WHERE, never WHAT: a numbered section already released must be the same after the
 // change as before (blank lines and trailing spaces aside). It never judges the prose.
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 export const CATEGORIES = ['security', 'added', 'changed', 'fixed', 'known-limits']
 
@@ -213,23 +215,93 @@ export function notesBlocks(body) {
   return out
 }
 
-const semverDesc = (a, b) => {
-  const pa = a.split(/[.-]/).map(Number)
-  const pb = b.split(/[.-]/).map(Number)
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i]
+/** Orders `x.y.z` versions; a missing part counts as 0 and a pre-release suffix is ignored. */
+export function semverCompare(a, b) {
+  const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number)
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0)
   return 0
 }
 
-/** One page per released version, newest first, from the changelogs' text in RELEASE_SOURCES order:
- *  {version, date, blocks}, the body being what `releaseBody` gives the GitHub release. The date is
- *  the one on the app's heading (`## [0.18.0] 2026-11-08`), or the shell's when the app has none. */
-export function releasePages(mds) {
-  const versions = [...new Set(mds.flatMap(versionsIn))].sort(semverDesc)
+/** The changelogs' text in RELEASE_SOURCES order; '' for a missing file, which contributes nothing. */
+export function readReleaseSources(root = ROOT) {
+  return RELEASE_SOURCES.map(([file]) => { try { return readFileSync(join(root, file), 'utf8') } catch { return '' } })
+}
+
+/** The versions this repo released (a section with no tag was cut and superseded); null with no git. */
+export function taggedVersions(root = ROOT) {
+  try {
+    return new Set(
+      execFileSync('git', ['tag'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+        .split('\n')
+        .map((t) => t.trim().replace(/^v/, ''))
+        .filter(Boolean),
+    )
+  } catch {
+    return null
+  }
+}
+
+// The root changelog has every version's heading, so the walk below reads it.
+const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG.md')
+
+/**
+ * `version`, plus any section beneath it that was never tagged.
+ *
+ * A release body has to describe what the INSTALLER contains, not what its own section says. When
+ * 0.5.0 was cut and then superseded before publication, a v0.6.0 body built from its own section
+ * alone would have described 11 entries while the installer carried 42 - and nine `Security`
+ * entries from the orphaned section would have shipped unannounced.
+ *
+ * Walking DOWN and stopping at the first tagged version is self-correcting: in the normal case the
+ * previous release is tagged, the walk stops immediately, and this returns exactly one version.
+ *
+ * `tagged` is a parameter so a test can state which versions shipped instead of inheriting the
+ * answer from the machine it runs on. The tests read the machine's tags until #573, which is how
+ * they passed on a laptop and failed in CI. `md` is the root changelog's text.
+ */
+export function versionsToReport(version, tagged = taggedVersions(), md = readReleaseSources()[ROOT_CHANGELOG]) {
+  // "Cannot tell" is wider than "git is missing": a shallow checkout has git and no tags, and the
+  // release workflow's has at most the tag being released. With nothing BENEATH this version tagged
+  // (a release candidate, a tag that is no version, or a newer release is not a place to stop),
+  // nothing says what shipped before it: never more than asked for when we cannot tell.
+  if (!tagged) return [version]
+  const all = versionsIn(md)
+  const start = all.indexOf(version)
+  if (start === -1) return [version]
+  const beneath = all.slice(start + 1)
+  if (!beneath.some((v) => tagged.has(v))) return [version]
+  const out = [version]
+  for (const v of beneath) {
+    if (tagged.has(v)) break
+    out.push(v)
+  }
+  return out
+}
+
+/** The release body for `version`, the GitHub release's and the docs page's, over every section
+ *  `versionsToReport` names; `mds` in RELEASE_SOURCES order. A version cut in NO changelog reads
+ *  each [Unreleased] with its fragments (`--notes` before a release); a cut one reads only its
+ *  sections, so a changelog with none for it (the app's, before 0.5.0) adds nothing. */
+export function releaseBodyFor(version, mds, tagged = taggedVersions(), root = ROOT) {
+  const cut = mds.some((md) => hasSection(md, version))
+  const versions = versionsToReport(version, tagged, mds[ROOT_CHANGELOG])
+  const part = (md, file, v) => (hasSection(md, v) ? sectionBody(md, v) : cut ? '' : unreleasedOf(md, join(root, file)))
+  return releaseBody(RELEASE_SOURCES.map(([file, label], i) => [
+    label,
+    versions.map((v) => part(mds[i] ?? '', file, v)).filter(Boolean).join('\n\n'),
+  ]))
+}
+
+/** One page per TAGGED version, newest first: {version, date, blocks}, the body exactly the GitHub
+ *  release's. An untagged section's entries are on the page of the release that shipped them; with
+ *  no tags there are no pages. The date is on the heading (`## [0.18.0] 2026-11-08`). */
+export function releasePages(mds, tagged = taggedVersions()) {
+  if (!tagged) return []
+  const versions = [...new Set(mds.flatMap(versionsIn))].filter((v) => tagged.has(v)).sort((a, b) => semverCompare(b, a))
   return versions.map((version) => {
     const heading = mds.map((md) => parseSections(md).find((s) => s.version === version)?.heading ?? '').join(' ')
     const date = /\b(\d{4}-\d{2}-\d{2})\b/.exec(heading)?.[1] ?? ''
-    const body = releaseBody(RELEASE_SOURCES.map(([, label], i) => [label, sectionBody(mds[i] ?? '', version)]))
-    return { version, date, blocks: notesBlocks(body) }
+    return { version, date, blocks: notesBlocks(releaseBodyFor(version, mds, tagged)) }
   })
 }
 
