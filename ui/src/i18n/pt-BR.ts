@@ -86,6 +86,8 @@ export const ptBR: Record<string, string> = {
 
   // shared
   'common.hide': 'Ocultar',
+  'chart.showFigures': 'Mostrar valores',
+  'chart.hideFigures': 'Ocultar valores',
   'pass.weak': 'fraca',
   'pass.fair': 'razoável',
   'pass.good': 'boa',

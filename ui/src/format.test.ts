@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amountAmbiguous, amountTyped, typedAmountZat, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
+import { amountAmbiguous, amountTyped, typedAmountZat, fmtZec, fmtZatExact, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -251,5 +251,13 @@ describe('typedAmountZat (the one reader of a typed amount)', () => {
 
   it('refuses what the parser refuses', () => {
     for (const s of ['1.000,5', '1,2,3', '0,123456789', 'abc', '-0,5', '']) expect(typedAmountZat(s), s).toBeNull()
+  })
+})
+
+describe('fmtZatExact - whole zatoshi written as fmtZecExact writes ZEC', () => {
+  it('keeps every zatoshi and at least four decimals', () => {
+    expect(fmtZatExact(300_000_000)).toBe('3.0000')
+    expect(fmtZatExact(123_456_789)).toBe('1.23456789')
+    expect(fmtZatExact(-1)).toBe('-0.00000001')
   })
 })

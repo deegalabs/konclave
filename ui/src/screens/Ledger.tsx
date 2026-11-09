@@ -8,7 +8,7 @@ import { proposalName } from '../proposal-name'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
 import { stateGroupOf, SETTLED } from '../ledger-state'
-import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
+import { explorerTxUrl, fmtDate, fmtZatExact, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
 import { exportLedgerCsv } from '../ledgerCsv'
 import { isOpen } from '../desk'
@@ -253,7 +253,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // hidden, and exact to the zatoshi, like the book's totals.
   const withVeiledDiff = (text: string) => {
     const [before, after = ''] = text.split(DIFF_MARK)
-    return <>{before}<Secret sm label={t('ledger.pivotDiff')}><span>{fmtZecExact(Number(zatToZec(pivotVs.diffZat)))}</span></Secret>{after}</>
+    return <>{before}<Secret sm label={t('ledger.pivotDiff')}><span>{fmtZatExact(pivotVs.diffZat)}</span></Secret>{after}</>
   }
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
   // from the rows it carries (#302).
@@ -437,7 +437,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                     {pivot.rows.map((r) => {
                       const who = r.name || shortAddr(r.address)
                       const amt = (zat: number, col: string) => zat
-                        ? <Secret sm label={`${col}, ${who}`}><span>{fmtZecExact(Number(zatToZec(zat)))}</span></Secret>
+                        ? <Secret sm label={`${col}, ${who}`}><span>{fmtZatExact(zat)}</span></Secret>
                         : <><span aria-hidden="true">-</span><span className="visually-hidden">{t('ledger.pivotNone')}</span></>
                       return (
                         <tr key={r.address}>
@@ -452,8 +452,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                   <tfoot>
                     <tr>
                       <th scope="row">{t('ledger.total')}</th>
-                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colPaid')}, ${t('ledger.total')}`}><span>{fmtZecExact(Number(zatToZec(pivot.totals.paidZat)))}</span></Secret></th>
-                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colDue')}, ${t('ledger.total')}`}><span>{fmtZecExact(Number(zatToZec(pivot.totals.dueZat)))}</span></Secret></th>
+                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colPaid')}, ${t('ledger.total')}`}><span>{fmtZatExact(pivot.totals.paidZat)}</span></Secret></th>
+                      <th scope="col" className="num"><Secret sm label={`${t('ledger.colDue')}, ${t('ledger.total')}`}><span>{fmtZatExact(pivot.totals.dueZat)}</span></Secret></th>
                       <th scope="col" className="num">{pivot.rows.reduce((n, r) => n + r.lines, 0)}</th>
                     </tr>
                   </tfoot>
