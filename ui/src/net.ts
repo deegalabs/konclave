@@ -279,16 +279,146 @@ export function formatInvite(code: string): string {
   return code.match(/.{1,4}/g)?.join('-') ?? code
 }
 
+/** The shortest room PIN a device accepts, counted without the spaces around it. A shorter one is
+ *  guessable by whoever holds only the invite. */
+export const MIN_PIN_LENGTH = 6
+
+/** The PIN as the room reads it, in this order: without the characters a person cannot see or
+ *  read out (format characters such as zero-width space, direction marks and BOM, and the blank
+ *  fillers U+115F, U+1160, U+2800, U+3164, U+FFA0); then in compatibility composition (NFKC), so
+ *  what sounds the same on a call opens the same room: the same letters typed on two keyboards,
+ *  and the full-width digits an IME types (after the strip, so a letter and its accent with an
+ *  invisible character between them compose into one); then without the spaces around it and
+ *  without a joiner or combining mark that opens the PIN, which has nothing before it to join. The
+ *  joiners that build one emoji or one letter out of several (ZWNJ U+200C, ZWJ U+200D) stay inside
+ *  the PIN. The check and the derivation both read this, so the PIN that passed is the one the
+ *  room gets. A PIN of only digits and spaces is read as its digits. */
+function canonicalPin(pin: string): string {
+  const s = pin
+    .replace(/(?![\u200C\u200D])\p{Cf}|[\u115F\u1160\u2800\u3164\uFFA0]/gu, '')
+    .normalize('NFKC')
+    .replace(/^[\s\p{M}\u200C\u200D]+|\s+$/gu, '')
+  // A PIN of digits and spaces only is read as its digits, so the grouped form on the screen and
+  // the digits on a call are one room.
+  return /^[0-9\s]*$/.test(s) && /[0-9]/.test(s) ? s.replace(/\s+/g, '') : s
+}
+
+/** One per character on the screen; by code point where the browser has no grapheme segmenter.
+ *  Built on each call, so a browser without it still loads this module. */
+function visibleLength(s: string): number {
+  if (typeof Intl.Segmenter !== 'function') return Array.from(s).length
+  return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)).length
+}
+
+/** Whether a typed PIN may open a room. The one check: deriveRoom and every form ask it. It counts
+ *  what a person sees and reads out on a call. */
+export function pinIsLongEnough(pin: string): boolean {
+  return visibleLength(canonicalPin(pin)) >= MIN_PIN_LENGTH
+}
+
+/** The Damm quasigroup (the standard 10x10 table): a check digit that catches any single mistyped
+ *  digit and any swap of two neighbours. */
+const DAMM = [
+  [0, 3, 1, 7, 5, 9, 8, 6, 4, 2], [7, 0, 9, 2, 1, 5, 4, 8, 6, 3], [4, 2, 0, 6, 8, 7, 1, 3, 5, 9],
+  [1, 7, 5, 0, 9, 8, 3, 4, 2, 6], [6, 1, 2, 3, 0, 4, 5, 9, 7, 8], [3, 6, 7, 4, 2, 0, 9, 5, 8, 1],
+  [5, 8, 6, 9, 7, 2, 0, 1, 3, 4], [8, 9, 4, 5, 3, 6, 2, 0, 1, 7], [9, 4, 3, 8, 6, 1, 7, 2, 0, 5],
+  [2, 5, 8, 1, 4, 3, 6, 7, 9, 0],
+]
+
+/** The Damm check digit of a string of digits (interim digit 0). */
+export function dammCheckDigit(digits: string): number {
+  let interim = 0
+  for (const c of digits) interim = DAMM[interim]![Number(c)]!
+  return interim
+}
+
+/** The PIN the app makes for the creator: 12 random digits and a 13th that checks them. Returned
+ *  as 13 digits with no spaces; `formatRoomPin` is for the screen. Never stored. */
+export function generateRoomPin(): string {
+  let digits = ''
+  const buf = new Uint8Array(32)
+  while (digits.length < 12) {
+    crypto.getRandomValues(buf)
+    // A byte below 250 maps to a digit with no bias (250 is a multiple of 10).
+    for (const b of buf) if (b < 250 && digits.length < 12) digits += String(b % 10)
+  }
+  return digits + dammCheckDigit(digits)
+}
+
+/** The PIN as the screen shows it: 1234 5678 9012 3. */
+export function formatRoomPin(pin: string): string {
+  const bare = pin.replace(/\s+/g, '')
+  if (!/^[0-9]+$/.test(bare)) return pin
+  return bare.replace(/^(\d{1,4})(\d{1,4})?(\d{1,4})?(\d)?$/, (_m, a, b, c, d) => [a, b, c, d].filter(Boolean).join(' '))
+}
+
+/** Whether a PIN is the length of a generated one (13 digits) and its last digit does not check
+ *  the others: a mistyped digit. The one refusal: deriveRoom and every form ask it. Any other PIN
+ *  is the member's own and is not checked. */
+export function pinCheckFails(pin: string): boolean {
+  const c = canonicalPin(pin)
+  return /^[0-9]{13}$/.test(c) && dammCheckDigit(c.slice(0, 12)) !== Number(c[12])
+}
+
+/** Whether a PIN reads as 13 decimal digits once hyphens, dashes, dots, slashes, underscores, commas and spaces are taken out, but is not
+ *  plain ASCII digits with spaces: digits of another script, or digits split by hyphens or dots.
+ *  Such a PIN is refused, not normalized (that would change the room): the member types the digits. */
+export function pinNeedsPlainDigits(pin: string): boolean {
+  const c = canonicalPin(pin)
+  return /^\p{Nd}{13}$/u.test(c.replace(/[\-\u2010-\u2015./_,\s]/g, '')) && !/^[0-9]{13}$/.test(c)
+}
+
+/** How many digits a PIN of only digits has, when that is near the 13 the app makes (10 to 12, 14 to
+ *  16): a note for a member who may have missed or added one. Null for anything else. */
+export function pinLengthNote(pin: string): number | null {
+  const c = canonicalPin(pin)
+  if (!/^[0-9]+$/.test(c)) return null
+  const n = c.length
+  return (n >= 10 && n <= 12) || (n >= 14 && n <= 16) ? n : null
+}
+
+/** What every form says. `check` is for joining; `own13` for the creator who chose a PIN of 13
+ *  digits that does not end in its check digit. */
+export const PIN_MESSAGES = {
+  check: { pt: 'Confira o PIN: um dígito parece errado.', en: 'Check the PIN: a digit looks wrong.' },
+  digits: { pt: 'Digite só os dígitos do PIN.', en: 'Type only the digits of the PIN.' },
+  own13: {
+    pt: 'Um PIN de 13 dígitos precisa terminar no dígito de conferência. Escolha outro tamanho, ou use o PIN que o app gerou.',
+    en: 'A PIN of 13 digits must end in its check digit. Choose another length, or use the PIN the app made.',
+  },
+}
+
+/** The one reason a form refuses a PIN that is long enough, or null. `creating` is the creator who
+ *  chose the PIN: a 13-digit PIN that fails its check gets the words for that. */
+export function pinProblem(pin: string, creating: boolean): { pt: string; en: string } | null {
+  if (pinNeedsPlainDigits(pin)) return PIN_MESSAGES.digits
+  if (pinCheckFails(pin)) return creating ? PIN_MESSAGES.own13 : PIN_MESSAGES.check
+  return null
+}
+
+/** The PIN as a screen reader should say it: each digit apart, the groups apart by commas, so a
+ *  leading zero is not lost. A PIN that is not digits is returned as typed. */
+export function spokenRoomPin(pin: string): string {
+  const shown = formatRoomPin(pin)
+  if (!/^[0-9 ]+$/.test(shown)) return pin
+  return shown.split(' ').map((g) => g.split('').join(' ')).join(', ')
+}
+
 /**
  * The relay room for a vault-creation ceremony, from the invite and the PIN. Both are required:
  * the room is a 128-bit value derived from the two, so a device with only the invite lands in a
  * different, empty room and never meets the members. The PIN is shared out of band, apart from the
  * invite, and never reaches the relay (only the derived room id does). Version 2: a device on the
  * previous version derives a different room and cannot join a version-2 ceremony by accident.
+ *
+ * Any change to canonicalPin or to the room name format changes the room function, and requires
+ * raising CREATION_PROTOCOL and the coordinator minimum.
  */
 export async function deriveRoom(code: string, pin: string): Promise<string> {
-  const p = pin.trim()
-  if (!p) throw new Error('a PIN is required')
+  const p = canonicalPin(pin)
+  if (!pinIsLongEnough(p)) throw new Error(`a PIN of at least ${MIN_PIN_LENGTH} characters is required`)
+  const problem = pinProblem(p, false)
+  if (problem) throw new Error(problem.en)
   const data = new TextEncoder().encode(`konclave-room-v${CREATION_PROTOCOL}\u0000${code}\u0000${p}`)
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
   return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('') // 128-bit hex room id

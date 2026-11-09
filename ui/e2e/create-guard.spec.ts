@@ -30,7 +30,7 @@ async function toInvite(page: import('@playwright/test').Page) {
   await openDialog(page)
   await page.locator('#cv-join-name').fill('Bia')
   await page.locator('#cv-join-invite').fill('0123456789ABCDEFGHJKMNPQRS')
-  await page.locator('#cv-join-pin').fill('4821')
+  await page.locator('#cv-join-pin').fill('482193')
   await page.getByRole('button', { name: /join the vault/i }).click()
   await expect(page.locator('.cv-cancel')).toBeVisible()
 }
@@ -111,7 +111,7 @@ test('an invite link with a bad code opens the join dialog and says so there', a
 test('a member joins only with a name and the PIN', async ({ page }) => {
   await page.goto('/#/vaults?join=0123456789ABCDEFGHJKMNPQRS')
   const join = page.getByRole('button', { name: /join the vault/i })
-  await page.locator('#cv-join-pin').fill('4821')
+  await page.locator('#cv-join-pin').fill('482193')
   await expect(join).toBeDisabled()
   await expect(page.locator('#cv-join-why')).toContainText(/your name/i)
   await page.locator('#cv-join-name').fill('   ')
@@ -133,4 +133,51 @@ test('the creator also names itself before going on', async ({ page }) => {
   await page.locator('#cv-create-name').fill('Ana')
   await expect(next).toBeEnabled()
   await expect(page.locator('#cv-create-why')).toHaveText('')
+})
+
+// The room PIN minimum, through the real screen: a short PIN (spaces around it do not count) keeps
+// the door closed, and the join form says what is missing.
+test('join: a short PIN keeps Join disabled and says why', async ({ page }) => {
+  await page.goto('/#/vaults?join=0123456789ABCDEFGHJKMNPQRS')
+  const join = page.getByRole('button', { name: /join the vault/i })
+  await page.locator('#cv-join-name').fill('Bia')
+  for (const pin of ['48219', '      ', '48219     ', '\t48219\n']) {
+    await page.locator('#cv-join-pin').fill(pin)
+    await expect(join, `pin ${JSON.stringify(pin)}`).toBeDisabled()
+    await expect(page.locator('#cv-join-why')).toContainText(/the room PIN/i)
+  }
+  await page.locator('#cv-join-pin').fill(' 482193 ')
+  await expect(join).toBeEnabled()
+  await expect(page.locator('#cv-join-why')).toHaveText('')
+})
+
+test('create: a short PIN keeps Generate invite disabled', async ({ page }) => {
+  await page.goto('/#/vaults')
+  await page.getByRole('button', { name: /join by invite/i }).click()
+  await page.getByRole('button', { name: /create a new vault/i }).click()
+  await page.locator('#cv-vault-name').fill('Probe')
+  await page.locator('#cv-create-name').fill('Ana')
+  await page.locator('.create-card button.cv-primary').first().click()
+  const gen = page.getByRole('button', { name: /generate invite/i })
+  // The app's own PIN is the default; a PIN of the member's own is the exception under the minimum.
+  await page.getByRole('button', { name: /choose my own pin instead/i }).click()
+  for (const pin of ['48219', '      ', '48219     ']) {
+    await page.locator('#cv-create-pin').fill(pin)
+    await expect(gen, `pin ${JSON.stringify(pin)}`).toBeDisabled()
+  }
+  await expect(page.locator('#cv-create-pin-help')).toContainText(/at least 6 characters/i)
+  await page.locator('#cv-create-pin').fill('482193')
+  await expect(gen).toBeEnabled()
+})
+
+test('create: the app makes the PIN, so Generate invite is enabled without typing', async ({ page }) => {
+  await page.goto('/#/vaults')
+  await page.getByRole('button', { name: /join by invite/i }).click()
+  await page.getByRole('button', { name: /create a new vault/i }).click()
+  await page.locator('#cv-vault-name').fill('Probe')
+  await page.locator('#cv-create-name').fill('Ana')
+  await page.locator('.create-card button.cv-primary').first().click()
+  await expect(page.locator('#cv-create-pin-made [aria-hidden]')).toHaveText(/^\d{4} \d{4} \d{4} \d$/)
+  await expect(page.getByRole('button', { name: /generate invite/i })).toBeEnabled()
+  await expect(page.locator('#cv-create-pin')).toHaveCount(0)
 })
