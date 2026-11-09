@@ -14,7 +14,8 @@ import { addressText } from './approved-payment'
 export const CREATION_PROTOCOL = 4
 
 /** The first protocol whose vaults are pinned at creation (the viewing code, the receivers derived on
- *  the device, the coordinator's pinned registration). Every "from protocol 3" rule reads this, not a 3. */
+ *  the device, the coordinator's pinned registration). This file and the registration read it; the other
+ *  "from protocol 3" rules still write the 3, and stay correct for every later protocol. */
 export const FIRST_PINNING_PROTOCOL = 3
 
 /** What this app does about the coordinator's minimum. From protocol 3 it starts only on a coordinator
@@ -53,7 +54,7 @@ export function mustCompareCode(r: { cp?: number; receiversState?: string; viewi
 /** The address a device may show for its record. Protocol 3: only what it verified, on a finished
  *  vault whose code the member compared, never what a record merely holds. Older vaults: what the record holds. */
 export function verifiedAddress(r: { cp?: number; threshold?: number; total?: number; address?: unknown; receiversState?: string; pending?: boolean; viewingFingerprint?: string; codeCompared?: boolean }): string {
-  if ((protocolOfRecord(r) ?? 0) < 3) return addressText(r.address)
+  if ((protocolOfRecord(r) ?? 0) < FIRST_PINNING_PROTOCOL) return addressText(r.address)
   return r.receiversState === 'verified' && !r.pending && !mustCompareCode(r) ? addressText(r.address) : ''
 }
 

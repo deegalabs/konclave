@@ -7,6 +7,7 @@
 // It reads the PERSISTED record (name, group key, quorum, roster, protocol), never the in-session
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.
 // The session copy is used for one thing, to sign this device's own registration.
+import { lastReadFailure } from './read-failure'
 import { getVault, helperConfigured, registerVault, setMembers, lastHelperPostFailure, type HelperVault } from './helper'
 import { ownPkpDigest } from './pin-digest'
 import { adoptVaultReceivers } from './vault-receivers'
@@ -116,9 +117,13 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
     // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
     // the vault exists and is pinned to this device's package, so it finishes the way a device with no
     // bundle does, by reading it. Only a vault not pinned here is told it was made by an older app.
-    if (isUpdateRequired(failure) && protocol3 && cp < CREATION_PROTOCOL) {
+    // Only after this device posted (a bundle): a device with no bundle never posted, and a failure
+    // left from an earlier post is not this one's.
+    if (isUpdateRequired(failure) && protocol3 && rec.pinBundle && cp < CREATION_PROTOCOL) {
       const known = await getVault(rec.groupKey)
       if (known && pinnedHere(known)) v = known
+      // No answer is not "no such vault": only a 404 says the coordinator holds none.
+      else if (!known && lastReadFailure('/api/vault')?.reason !== 'missing') return { refused: 'unreachable' }
       else return { refused: 'update', older: true }
     }
   }

@@ -34,6 +34,7 @@ vi.mock('./pin-digest', () => ({ ownPkpDigest: async () => h.digest }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
 const { concludeRegistration, refusalKey } = await import('./conclude-registration')
+const { recordRead } = await import('./read-failure')
 const { isCurrentFlow, sameCoordinator, CREATION_PROTOCOL } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)
@@ -324,7 +325,21 @@ describe('a vault of protocol 3', () => {
     h.failure = { status: 403, updateRequired: true }
     for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
       h.getVault.mockResolvedValue(answer)
+      // The coordinator answered that it holds no such vault (404).
+      recordRead('/api/vault', answer ? null : 'missing')
       expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: true })
+    }
+  })
+
+  // The read that would tell whether the vault is pinned here did not get an answer: nothing is known,
+  // so the member is not told the vault must not be funded; it is the network's case, and a retry decides.
+  it('asked to update, a read that did not get an answer is the network, not "do not fund"', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    h.getVault.mockResolvedValue(null)
+    for (const reason of ['offline', 'timeout', 'unavailable', 'malformed'] as const) {
+      recordRead('/api/vault', reason)
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
     }
   })
 

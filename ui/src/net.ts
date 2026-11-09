@@ -279,8 +279,7 @@ export function formatInvite(code: string): string {
   return code.match(/.{1,4}/g)?.join('-') ?? code
 }
 
-/** The shortest room PIN a device accepts, counted without the spaces around it. A shorter one is
- *  guessable by whoever holds only the invite. */
+/** The shortest room PIN a device accepts, counted without the spaces around it. */
 export const MIN_PIN_LENGTH = 6
 
 /** The PIN as the room reads it, in this order: without the characters a person cannot see or
@@ -408,8 +407,8 @@ export function spokenRoomPin(pin: string): string {
  * The relay room for a vault-creation ceremony, from the invite and the PIN. Both are required:
  * the room is a 128-bit value derived from the two, so a device with only the invite lands in a
  * different, empty room and never meets the members. The PIN is shared out of band, apart from the
- * invite, and never reaches the relay (only the derived room id does). Version 2: a device on the
- * previous version derives a different room and cannot join a version-2 ceremony by accident.
+ * invite, and never reaches the relay (only the derived room id does). The room name carries
+ * CREATION_PROTOCOL: a device on another version derives a different room and cannot join by accident.
  *
  * Any change to canonicalPin or to the room name format changes the room function, and requires
  * raising CREATION_PROTOCOL and the coordinator minimum.
