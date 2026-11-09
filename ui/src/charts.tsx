@@ -51,6 +51,7 @@ export interface SpendPoint {
  * what "Show figures" opens.
  */
 export function SpendBars({ data, unit = 'ZEC', height = 52, source }: { data: SpendPoint[]; unit?: string; height?: number; source?: string }) {
+  const { t } = useI18n()
   if (!data || data.length < 2) return null
   const max = Math.max(...data.map((d) => d.zec), 0)
   // data has >= 2 items here (guarded above), so reduce with no initial is safe and stays typed
@@ -60,7 +61,7 @@ export function SpendBars({ data, unit = 'ZEC', height = 52, source }: { data: S
   const fmt = fmtZecExact
 
   return (
-    <div className="spend" role="group" aria-label={`Spend by period (${unit})`}>
+    <div className="spend" role="group" aria-label={`${t('dashboard.spendByMonth')} (${unit})`}>
       <div className="spend-bars" style={{ minHeight: height }} aria-hidden="true">
         {data.map((d, i) => {
           const h = max > 0 ? Math.max(2, Math.round((d.zec / max) * height)) : 2
@@ -73,7 +74,7 @@ export function SpendBars({ data, unit = 'ZEC', height = 52, source }: { data: S
           )
         })}
       </div>
-      <Figures caption="Spend by period" rows={data.map((d): [string, string] => [d.label, `${fmt(d.zec)} ${unit}`])} />
+      <Figures caption={t('dashboard.spendByMonth')} rows={data.map((d): [string, string] => [d.label, `${fmt(d.zec)} ${unit}`])} />
       {source && <p className="chart-src">{source}</p>}
     </div>
   )

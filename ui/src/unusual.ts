@@ -16,10 +16,10 @@
 //                   whose amount changed (lines to one address added up first)
 //
 // "Earlier" means created no later than the proposal under review (the proposal itself is left
-// out by id); an undated one counts as earlier. A payment or a payroll line with no address is not
-// compared with anything, and the answer says `incomplete`. When the book cannot be read whole (an
-// earlier payroll whose lines were not read, or the payroll under review with no lines), the answer
-// says `incomplete` rather than presenting a partial comparison as the whole one.
+// out by id); an undated one counts as earlier. A payment or a payroll line under review with no
+// address is not compared with anything, and the answer says `incomplete`. When the book cannot be
+// read whole (an earlier payroll whose lines were not read, or the payroll under review with no
+// lines), the answer says `incomplete` rather than presenting a partial comparison as the whole one.
 import type { PayrollLine, Proposal } from './api'
 import { SETTLED } from './ledger-state'
 import { pivotEntries } from './ledgerPivot'
