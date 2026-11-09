@@ -222,15 +222,12 @@ export function semverCompare(a, b) {
   return 0
 }
 
-/** The changelogs' text in RELEASE_SOURCES order; '' for a file that does not exist yet, which
- *  contributes nothing rather than failing a release. */
+/** The changelogs' text in RELEASE_SOURCES order; '' for a missing file, which contributes nothing. */
 export function readReleaseSources(root = ROOT) {
   return RELEASE_SOURCES.map(([file]) => { try { return readFileSync(join(root, file), 'utf8') } catch { return '' } })
 }
 
-/** The versions this repo actually released. A section with no tag was cut and then superseded
- *  before it shipped, which is a thing that happens and must not silently swallow its entries.
- *  Null when git cannot be asked. */
+/** The versions this repo released (a section with no tag was cut and superseded); null with no git. */
 export function taggedVersions(root = ROOT) {
   try {
     return new Set(
@@ -240,12 +237,11 @@ export function taggedVersions(root = ROOT) {
         .filter(Boolean),
     )
   } catch {
-    // No git, no tags: "cannot tell", which reports the single section. Never MORE than asked for.
     return null
   }
 }
 
-// The root changelog has every version's heading, so it is the one the walk below reads.
+// The root changelog has every version's heading, so the walk below reads it.
 const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG.md')
 
 /**
@@ -264,15 +260,10 @@ const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG
  * they passed on a laptop and failed in CI. `md` is the root changelog's text.
  */
 export function versionsToReport(version, tagged = taggedVersions(), md = readReleaseSources()[ROOT_CHANGELOG]) {
-  // "Cannot tell" is wider than "git is missing". A shallow checkout has git and NO tags, and the
-  // release workflow's has at most the tag being released - an empty answer, not an error. With no
-  // earlier tag to stop at, the walk would report every section in the file: the whole history, as
-  // one release's notes. With nothing beneath this version tagged, nothing says what shipped before
-  // it, so the rule is the one written above: never more than asked for when we cannot tell.
-  //
-  // The question is whether a version BENEATH this one is tagged, not whether any other tag
-  // exists. A release candidate, a tag that is not a version at all, or a newer release when an old
-  // tag is rebuilt are all "another tag", and none of them is a place for the walk to stop.
+  // "Cannot tell" is wider than "git is missing": a shallow checkout has git and no tags, and the
+  // release workflow's has at most the tag being released. With nothing BENEATH this version tagged
+  // (a release candidate, a tag that is no version, or a newer release is not a place to stop),
+  // nothing says what shipped before it: never more than asked for when we cannot tell.
   if (!tagged) return [version]
   const all = versionsIn(md)
   const start = all.indexOf(version)
@@ -287,15 +278,10 @@ export function versionsToReport(version, tagged = taggedVersions(), md = readRe
   return out
 }
 
-/**
- * The release body for `version`: the GitHub release's text and the docs page's, from one place.
- * `mds` is the changelogs' text in RELEASE_SOURCES order.
- *
- * It covers every section `versionsToReport` names. A version not yet cut in ANY changelog reads
- * each one's [Unreleased] with its fragments, which is what `--notes` shows before a release. A
- * version that IS cut reads only its sections: a changelog with no section for it (the app's has
- * none before 0.5.0) contributes nothing, rather than its [Unreleased].
- */
+/** The release body for `version`, the GitHub release's and the docs page's, over every section
+ *  `versionsToReport` names; `mds` in RELEASE_SOURCES order. A version cut in NO changelog reads
+ *  each [Unreleased] with its fragments (`--notes` before a release); a cut one reads only its
+ *  sections, so a changelog with none for it (the app's, before 0.5.0) adds nothing. */
 export function releaseBodyFor(version, mds, tagged = taggedVersions(), root = ROOT) {
   const cut = mds.some((md) => hasSection(md, version))
   const versions = versionsToReport(version, tagged, mds[ROOT_CHANGELOG])
@@ -306,11 +292,9 @@ export function releaseBodyFor(version, mds, tagged = taggedVersions(), root = R
   ]))
 }
 
-/** One page per RELEASED version, newest first: {version, date, blocks}, the body being exactly the
- *  GitHub release's (`releaseBodyFor`). A section that was never tagged has no page; its entries are
- *  on the page of the release that shipped them. With no tags to go by there are no pages, rather
- *  than a page per section that would say less than the release did. The date is the one on the
- *  app's heading (`## [0.18.0] 2026-11-08`), or the shell's when the app has none. */
+/** One page per TAGGED version, newest first: {version, date, blocks}, the body exactly the GitHub
+ *  release's. An untagged section's entries are on the page of the release that shipped them; with
+ *  no tags there are no pages. The date is on the heading (`## [0.18.0] 2026-11-08`). */
 export function releasePages(mds, tagged = taggedVersions()) {
   if (!tagged) return []
   const versions = [...new Set(mds.flatMap(versionsIn))].filter((v) => tagged.has(v)).sort((a, b) => semverCompare(b, a))
