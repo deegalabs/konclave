@@ -13,12 +13,13 @@ import { fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
+import { monthShort } from '../period'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, type WalletTx } from '../api'
 import { proposalName } from '../proposal-name'
 import { WALLET_BUSY } from '../helper'
 import { movementOf, settlementOf, type Movement } from '../settlement'
-import { useT, useTr } from '../i18n'
+import { useI18n, useTr } from '../i18n'
 import {
   getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
   type Vault, type Proposal,
@@ -82,7 +83,7 @@ function whatOf(p: Proposal, t: (k: string) => string): string {
 }
 
 export default function Dashboard() {
-  const t = useT()
+  const { t, locale } = useI18n()
   const tr = useTr()
   const { open: openSigning, bg } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
@@ -386,7 +387,7 @@ export default function Dashboard() {
     if (!p.created_at) continue
     const d = new Date(p.created_at * 1000)
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = d.toLocaleDateString(undefined, { month: 'short' })
+    const label = monthShort(d, locale)
     const cur = byMonth.get(key) ?? { label, zec: 0 }
     // Summed in zatoshi, so the month's figure is the sum of the book's, to the zatoshi.
     cur.zec = (Math.round(cur.zec * 1e8) + p.value_zat) / 1e8

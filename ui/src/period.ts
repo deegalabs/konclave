@@ -37,6 +37,13 @@ export function periodWindow(kind: PeriodKind, offset: number, now: Date = new D
 }
 
 /** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
+/** A month written short for a chart axis: no trailing period ("nov." becomes "nov"), and January
+ *  carries its two-digit year ("jan 27"), so an axis that crosses a year says so. */
+export const monthShort = (d: Date, locale: string): string => {
+  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
+  return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
+}
+
 export function periodLabel(
   kind: PeriodKind,
   offset: number,
