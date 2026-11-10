@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { humanError } from './api'
@@ -68,7 +69,7 @@ describe('no caller invents a reason the coordinator did not give', () => {
   // The guard, because the fix is "use what #509 built" and nothing stops the next caller from
   // inventing again. `postJson` collapses failures to null by design - that is what makes inventing
   // so easy, and why it has now happened twice.
-  const CODE = codeAt(join(new URL('.', import.meta.url).pathname, 'api.ts'))
+  const CODE = codeAt(join(fileURLToPath(new URL('.', import.meta.url)), 'api.ts'))
 
   it('createProposal reads the recorded failure instead of asserting a cause', () => {
     const fn = CODE.split('export async function createProposal')[1]?.split('\nexport ')[0] ?? ''
@@ -104,14 +105,14 @@ describe('no caller invents a reason the coordinator did not give', () => {
     expect(fn, 'the rename goes out with no proof, or signs something else')
       .toContain("writeProof(id, 'rename', `${old}\\u0000${next}`)")
     expect(fn, 'the proof must be handed to the call that sends').toMatch(/netRenameMember\(id, old, next, await writeProof/)
-    const helper = codeAt(join(new URL('.', import.meta.url).pathname, 'helper.ts'))
+    const helper = codeAt(join(fileURLToPath(new URL('.', import.meta.url)), 'helper.ts'))
     const send = helper.split('export async function renameMember')[1]?.split('\nexport ')[0] ?? ''
     expect(send, 'and the helper client must SPREAD it into the body').toContain('...(proof ?? {})')
     expect(send, 'beside the same old and new it signed').toContain('old, new: next')
   })
 
   it('the Members screen shows a refused rename through the same translation as everything else', () => {
-    const screen = codeAt(join(new URL('.', import.meta.url).pathname, 'screens', 'Members.tsx'))
+    const screen = codeAt(join(fileURLToPath(new URL('.', import.meta.url)), 'screens', 'Members.tsx'))
     expect(screen, 'it prints the coordinator\'s raw English').toContain('humanError(t, renameErr)')
   })
 

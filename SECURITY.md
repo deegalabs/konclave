@@ -39,7 +39,7 @@ Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zc
   in the desktop app (the same interface code, bundled into a native window), shares are
   stored in IndexedDB under AES-256-GCM with a key derived by PBKDF2-HMAC-SHA256 from the
   member's passphrase: 600,000 iterations for anything sealed since 2026-09-06 (#479); records
-  stored before that keep 210,000 until the passphrase is changed, and an export made before
+  stored before that keep 210,000 until the passphrase is next typed on that device (a passkey unlock does not re-seal, and a record with a sealed field that no longer opens stays at its count), and an export made before
   that keeps 210,000 for good.
 - `frostd` (local build) and the relay see only public or sealed protocol material, plus, on the
   relay, the member names and the quorum exchanged while a vault is created and, until every
@@ -102,7 +102,7 @@ What is fixed and what is open, by kind of attack:
   member unlocks the vault, the signing request is sealed to those devices, so the relay does not
   learn who a payment pays or how much (#63); the coordinator's private reads (balance, history,
   proposals, ledger, members) and the signing room are gated by a per-vault secret, so a leaked
-  vault id opens neither, though it still shows the vault's address and its quorum (#402, #403);
+  vault id opens neither, though it still shows the vault's addresses (receive and change) and its quorum (#402, #403);
   and, once a vault has a registered device, the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
   viewing key and reads its books (#516); a vault where some member has not yet unlocked it on a
   current version still sends its signing requests unsealed; vaults created before the per-vault secret stay

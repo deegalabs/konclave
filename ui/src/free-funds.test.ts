@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { freeZatOf, reservedZatOf } from './balance-parts'
 import type { Proposal } from './api'
@@ -94,7 +95,7 @@ import { blockMessageKey } from './propose-guard'
 import { codeAt } from './source-scan'
 
 describe('one notion of free funds, held in one place', () => {
-  const SRC = new URL('.', import.meta.url).pathname
+  const SRC = fileURLToPath(new URL('.', import.meta.url))
   const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
   it('the payment screen derives what it can send instead of reading spendable', () => {

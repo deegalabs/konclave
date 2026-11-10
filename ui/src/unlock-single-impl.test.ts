@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -14,7 +15,7 @@ import { codeAt } from './source-scan'
 // So this asserts the SHAPE instead: the sequence exists in one file. A fourth copy fails here the
 // moment it is written, which is cheaper than discovering it after the rule changes.
 
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('.', import.meta.url))
 const HOME = 'unlock.ts' // the one file allowed to contain it
 
 function sources(dir: string, out: string[] = []): string[] {

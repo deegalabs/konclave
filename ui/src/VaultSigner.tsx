@@ -10,7 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getVault, getProposalDetail, IS_NET, type Proposal, type Vault } from './api'
 import { listVaults } from './storage'
-import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type GateDecision, type PcztOutput } from './approved-payment'
+import { approvedLinesFor, readPlan, refusePlan, gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type ApprovedPlan, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
 import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
@@ -48,6 +48,11 @@ interface VaultSignerCtx {
   signedBefore: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean } | null
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
   armedUntil: number | null
+  /** What the active proposal asks to pay, from the read the gate compares: undefined until read,
+   *  null when its details contradict each other. */
+  plan: ApprovedPlan | null | undefined
+  /** The read of the active proposal failed: nothing is known yet, and closing and opening reads again. */
+  planFailed: boolean
   /** Is this receiver one of the vault's own, by the same `ourReceivers` the money gate decides
    *  with? False while they are not known, so the signing screen never calls an output change on a
    *  guess (#610). */
@@ -74,6 +79,8 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   const [vault, setVault] = useState<Vault | null>(null)
   const [myName, setMyName] = useState<string | null>(null)
   const [active, setActive] = useState<Proposal | null>(null)
+  const [planRead, setPlanRead] = useState<{ id: string; plan: ApprovedPlan | null } | null>(null)
+  const [planFailedId, setPlanFailedId] = useState<string | null>(null)
   // The proposal THIS device's owner explicitly signed. Nothing signs without this: a present device
   // is no longer enough (it used to sign on its own the moment a request appeared). Every member
   // performs the act, and the one who completes the quorum is the one who sends.
@@ -147,21 +154,18 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
         // Both of the vault's own receivers from this device's record, never from the address the
         // coordinator serves now (#610 review): either one missing -> stay refusing, never guess.
         const ourReceivers = ourReceiversFrom((await listVaults()).find((v) => v.id === vault.id), uaReceiver)
-        if (!ourReceivers) return
         if (live) ourReceiversRef.current = ourReceivers
         const detail = await getProposalDetail(active.id, vault.id) // this signer's vault, never the shared selection
-        if (!detail) return
-        // The memo is part of what was approved (#610): a payslip's text, compared with the memo
-        // the device opens from each paying output. No memo is the empty one.
-        const approved: ApprovedLine[] =
-          detail.lines.length > 0
-            ? detail.lines.map((l) => ({ toReceiver: uaReceiver(l.address), amountZat: l.value_zat, memo: l.memo ?? '' }))
-            : detail.proposal.to_address
-              ? [{ toReceiver: uaReceiver(detail.proposal.to_address), amountZat: detail.proposal.value_zat, memo: detail.proposal.memo ?? '' }]
-              : []
-        if (approved.length === 0) return // nothing to compare against -> keep refusing
+        if (!detail) { if (live) setPlanFailedId(active.id); return }
+        // What the panel shows is what is compared below.
+        let plan = readPlan(active.id, active, detail)
+        let approved: ApprovedLine[] | null = null
+        try { approved = plan && approvedLinesFor(plan, uaReceiver) } catch { plan = refusePlan(active.id) }
+        if (live) { setPlanFailedId(null); setPlanRead({ id: active.id, plan }) }
+        if (!approved || !ourReceivers) return // nothing to compare against -> keep refusing
         if (live) approvalRef.current = { approved, ourReceivers }
       } catch {
+        if (live) setPlanFailedId(active.id)
         // A decode or fetch failure leaves the context null, and null refuses. Failing closed on a
         // money path is the whole point; a caught error must never widen what this device will sign.
       }
@@ -237,6 +241,18 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
 
   const bg = useBackgroundSigner(unlocked, gate, decideApproval, claim, record, endConsent)
 
+  // A later reading refused what this device signed for: it stops counting itself as signed, once.
+  // The room hears this only from the seat named to send; the others count it until the window closes.
+  const activeId = active?.id
+  const unarm = bg.unarm
+  useEffect(() => {
+    if (!activeId || armedProposal !== activeId || planRead?.id !== activeId || planRead.plan !== null) return
+    owner.current.withdraw()
+    setArmedProposal(null)
+    setArmedAt(null)
+    void unarm(activeId)
+  }, [activeId, armedProposal, planRead, unarm])
+
   // Scope the signer to the payment on screen. Without this the room's whole history counts: it is
   // permanent, so the previous payment's signatures replayed as a full quorum for the new one.
   const setProposal = bg.setProposal
@@ -266,7 +282,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     },
     close: () => setActive(null),
     reseat: () => setNonce((n) => n + 1),
-    armed: !!active && armedProposal === active.id,
+    armed: !!active && armedProposal === active.id && !(planRead?.id === active.id && planRead.plan === null),
     unarmActive: async (code?: FailureCode) => {
       if (!active) return
       owner.current.withdraw()
@@ -275,6 +291,8 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       await bg.unarm(active.id, code)
     },
     armedUntil: armedAt === null ? null : armedAt + ARM_TTL_MS,
+    plan: active && planRead?.id === active.id ? planRead.plan : undefined,
+    planFailed: !!active && planFailedId === active.id,
     isOurReceiver: (recipient) => paysOurselves(recipient, ourReceiversRef.current),
     signedBefore: signedBefore && active && signedBefore.proposal === active.id ? signedBefore : null,
     armActive: async (opts?: { again?: boolean }) => {

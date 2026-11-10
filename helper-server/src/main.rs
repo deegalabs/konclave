@@ -301,6 +301,9 @@ fn handle_request(
                 // The creation protocol this coordinator requires of a registration. A roll back
                 // to a build without the gate drops the field, which is what a deploy checks.
                 "client": { "creation": creation_min() },
+                // How many proxies in front of it this coordinator trusts (`DEPLOY.md`); `null`
+                // is the default rule. What a deploy reads to see the setting arrived.
+                "trusted_proxy_hops": konclave_http::forwarding_rule().trusted_hops(),
             })
             .to_string(),
         ),
@@ -1706,6 +1709,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         to: req.to,
         amount_zat: req.amount_zat,
         memo: req.memo,
+        title: None,
         lines: vec![],
         proposer: proposer.clone(),
         state: "pending".into(),
@@ -1744,6 +1748,9 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         lines: Vec<Line>,
         #[serde(default)]
         expiry_unix: u64,
+        /// The payroll's name (#296). Display-only, not signed (#567).
+        #[serde(default)]
+        title: Option<String>,
         /// The signed-write envelope (#288 / ADR-0011 D2).
         seat: Option<u16>,
         ts: Option<i64>,
@@ -1760,6 +1767,10 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
     if req.lines.is_empty() {
         return resp(400, json!({ "error": "payroll has no lines" }).to_string());
     }
+    let title = match orchestrator::helper::payroll_title(req.title.as_deref()) {
+        Ok(t) => t,
+        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    };
     let reg = match state.get(&req.vault) {
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
@@ -1837,6 +1848,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         to: String::new(),
         amount_zat: total,
         memo: None,
+        title,
         lines,
         proposer: proposer.clone(),
         state: "pending".into(),
@@ -2449,10 +2461,83 @@ fn http_response(r: Resp) -> Response<std::io::Cursor<Vec<u8>>> {
     with_cors(Response::from_data(r.body.into_bytes()).with_status_code(r.status))
 }
 
-/// Whether this request is a registration that WILL reach the engine, and is over its limit.
-///
-/// A vault the coordinator already knows is returned as stored and costs nothing; a body
-/// `parse_registration` refuses never reaches the engine either. Neither is counted.
+/// What the one count of a NEW vault's bundle decided, before admission and the vault's lock.
+enum NewRegistration {
+    /// Not a registration of a vault the coordinator does not know yet: nothing to count here.
+    NotNew,
+    /// A new vault whose registration reaches the engine (its bundle counts, or it carries none):
+    /// it spends an allowance and takes the lock, and the handler counts again at the pin door.
+    ReachesEngine,
+    /// Refused now, with the answer the handler would give (`pin_failure`): the bundle does not
+    /// count. No allowance, no lock, no log line.
+    Refused(Resp),
+}
+
+/// The most counts of a NEW vault's bundle that may run at once, across every worker: such a count
+/// is work an unknown caller can ask for without an allowance, so a flood of bundles that do not
+/// count degrades vault creation only, not health, reads or sends. It does not cover a bundle for a
+/// vault already registered: the handler counts that one, under that vault's lock, with no slot.
+const MAX_CONCURRENT_COUNTS: usize = 4;
+static COUNTS_IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// One of the `max` count slots, released when dropped; `None` when all are taken.
+struct CountSlot<'a>(&'a std::sync::atomic::AtomicUsize);
+
+fn take_count_slot(
+    in_flight: &std::sync::atomic::AtomicUsize,
+    max: usize,
+) -> Option<CountSlot<'_>> {
+    use std::sync::atomic::Ordering;
+    if in_flight.fetch_add(1, Ordering::AcqRel) >= max {
+        in_flight.fetch_sub(1, Ordering::AcqRel);
+        return None;
+    }
+    Some(CountSlot(in_flight))
+}
+
+impl Drop for CountSlot<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+/// Counts a new vault's bundle ONCE per request. A bundle that does not count is answered here; one
+/// that counts is counted again by the handler, which alone may pin (taking admission's answer into
+/// the pin door would let a request's own `cp` decide against the stored one).
+fn count_new_registration(state: &HelperState, reg: &Registration) -> NewRegistration {
+    if state.contains(&reg.group_key) {
+        return NewRegistration::NotNew;
+    }
+    let (Some((pkp, proofs)), Some(cp)) = (&reg.bundle, reg.cp) else {
+        return NewRegistration::ReachesEngine;
+    };
+    let Some(slot) = take_count_slot(&COUNTS_IN_FLIGHT, MAX_CONCURRENT_COUNTS) else {
+        return NewRegistration::Refused(resp(
+            503,
+            json!({ "error": "the coordinator is busy creating vaults; try again shortly", "busy": "service", "retry_after": 2 })
+                .to_string(),
+        ));
+    };
+    let counted = orchestrator::seat_registry::count_new_bundle(&reg.group_key, cp, pkp, proofs);
+    drop(slot);
+    match counted {
+        Ok(_) => NewRegistration::ReachesEngine,
+        Err(e) => NewRegistration::Refused(pin_failure(&e)),
+    }
+}
+
+/// Whether a new vault whose registration reaches the engine is over its sender's allowance.
+fn new_vault_allowance(
+    limits: &admission::Limits,
+    client: &ClientAddress,
+    reg: &Registration,
+    now: i64,
+) -> Option<admission::Refused> {
+    limits.new_vault(client, &reg.group_key, now).err()
+}
+
+/// The admission decision for a request, as `serve` takes it: for the tests that ask it directly.
+#[cfg(test)]
 fn new_vault_refusal(
     limits: &admission::Limits,
     state: &HelperState,
@@ -2467,20 +2552,9 @@ fn new_vault_refusal(
         return None;
     }
     let reg = parse_registration(body).ok()?;
-    if state.contains(&reg.group_key) || !registration_reaches_the_engine(&reg) {
-        return None;
-    }
-    limits.new_vault(client, &reg.group_key, now).err()
-}
-
-/// A protocol-3 registration reaches the engine only when its bundle counts. Everything else that
-/// parses does.
-fn registration_reaches_the_engine(reg: &Registration) -> bool {
-    match (&reg.bundle, reg.cp) {
-        (Some((pkp, proofs)), Some(cp)) => {
-            orchestrator::seat_registry::bundle_counts(&reg.group_key, cp, pkp, proofs)
-        }
-        _ => true,
+    match count_new_registration(state, &reg) {
+        NewRegistration::ReachesEngine => new_vault_allowance(limits, client, &reg, now),
+        _ => None,
     }
 }
 
@@ -2624,19 +2698,31 @@ fn serve(
     // creation protocol below the minimum) is answered here: its answer depends on nothing but the
     // body, so it needs neither the vault's lock nor an allowance, and must not queue behind that
     // vault's send. The question is asked of the same function the handler asks.
+    let mut reaches_engine = false;
     if *method == Method::Post && path.split('?').next() == Some("/api/vault") {
-        if let Err(refused) = parse_registration(body) {
-            if refused.status == 403 {
-                eprintln!("registration: refused, update required");
+        let reg = match parse_registration(body) {
+            Ok(reg) => reg,
+            Err(refused) => {
+                if refused.status == 403 {
+                    eprintln!("registration: refused, update required");
+                }
+                return refused;
             }
-            return refused;
+        };
+        // A new vault's bundle is counted ONCE, here: one that does not count is answered now, with
+        // no allowance, no lock and no log line; one that counts goes on, and only then spends its
+        // sender's allowance, before the vault's lock so it never queues behind a vault that is busy
+        // signing.
+        match count_new_registration(state, &reg) {
+            NewRegistration::Refused(answer) => return answer,
+            NewRegistration::ReachesEngine => {
+                reaches_engine = true;
+                if let Some(refused) = new_vault_allowance(limits, client, &reg, now) {
+                    return refusal(refused);
+                }
+            }
+            NewRegistration::NotNew => {}
         }
-    }
-
-    // Before the vault's lock, so a registration that will be refused never queues behind a vault
-    // that is busy signing.
-    if let Some(refused) = new_vault_refusal(limits, state, client, method, path, body, now) {
-        return refusal(refused);
     }
 
     // Held for the whole request, and only when the request names a vault AND can change it - so
@@ -2653,10 +2739,7 @@ fn serve(
     // nobody has used yet.)
     let route = path.split('?').next().unwrap_or(path);
     let vault = vault.filter(|v| {
-        state.contains(v)
-            || (*method == Method::Post
-                && route == "/api/vault"
-                && parse_registration(body).is_ok_and(|r| registration_reaches_the_engine(&r)))
+        state.contains(v) || (*method == Method::Post && route == "/api/vault" && reaches_engine)
     });
     let (write, wallet) = match (lock_class(method, path), vault) {
         (LockClass::Write { wallet }, Some(v)) => (
@@ -2679,6 +2762,10 @@ fn serve(
 }
 
 fn main() {
+    // Which value of `X-Forwarded-For` names the client for the limits. First, before a migration
+    // or a bind: a setting that is not understood stops the coordinator (exit 2), and a restart loop
+    // on a typo must not run the migrations on every turn.
+    konclave_http::boot_forwarding_rule("konclave-helper");
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
     let state = Arc::new(HelperState::new());
@@ -2865,9 +2952,10 @@ fn main() {
                 .find(|h| h.field.equiv(READ_TOKEN_HEADER))
                 .map(|h| h.value.as_str().to_string());
             // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
-            // the proxy, so the forwarded header names the real client.
+            // the proxy, so the address comes from the forwarded header, and which value of it to
+            // believe is the booted rule (default: the first hop, only as good as the platform).
             let remote = req.remote_addr().map(|a| a.ip().to_string());
-            let client = konclave_http::client_address(
+            let client = konclave_http::request_client_address(
                 req.headers()
                     .iter()
                     .filter(|h| h.field.equiv("X-Forwarded-For"))
@@ -2951,7 +3039,7 @@ mod tests {
     use std::time::Duration;
 
     /// A client address for a test: 203.0.113.`host` (a documentation range). `serve` takes the
-    /// typed address the worker loop builds with `konclave_http::client_address`.
+    /// typed address the worker loop builds with `konclave_http::request_client_address`.
     /// A registration older than protocol 3, for asking the read gate about a vault.
     fn legacy_reg(vault: &str) -> VaultRegistration {
         VaultRegistration {
@@ -4163,6 +4251,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -4861,6 +4950,22 @@ mod tests {
         assert_eq!(iso_from_epoch(1_789_629_713), "2026-09-17T07:21:53Z");
     }
 
+    /// The forwarding setting is what a deploy has to confirm arrived, and the boot log is not
+    /// something every operator can read. So health says it.
+    #[test]
+    fn health_says_which_forwarding_rule_is_in_force() {
+        let st = HelperState::new();
+        let r = handle(&st, &cfg(), &Method::Get, "/api/health", b"");
+        let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert!(v.get("trusted_proxy_hops").is_some(), "{}", r.body);
+        // A test runs under the default rule, which is reported as `null`, not left out.
+        assert!(v["trusted_proxy_hops"].is_null(), "{}", r.body);
+        assert_eq!(
+            v["trusted_proxy_hops"].as_u64().map(|n| n as usize),
+            konclave_http::forwarding_rule().trusted_hops()
+        );
+    }
+
     #[test]
     fn health_answers_without_saying_anything_about_the_vaults() {
         let st = HelperState::new();
@@ -5068,6 +5173,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -5515,6 +5621,7 @@ mod tests {
             to: "u1dest".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
@@ -6558,6 +6665,102 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #296. A payroll on the web path carries its own name: stored on the record, returned on the
+    /// read, and absent (no key at all) when none was sent.
+    #[test]
+    fn a_payroll_title_is_stored_and_returned_on_the_read() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-ptitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let titled = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","title":"  Payroll · April 2026 ","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/payroll",
+            titled.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let made: HelperProposal = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(made.title.as_deref(), Some("Payroll · April 2026"));
+        // The payroll's memo stays empty: the title is not smuggled into the on-chain memo field.
+        assert_eq!(made.memo, None);
+        let listed = orchestrator::helper::list_proposals(&cfg.vaults_dir, "aaaa", now_unix());
+        assert_eq!(listed[0].title.as_deref(), Some("Payroll · April 2026"));
+
+        let untitled = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/payroll",
+            untitled.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(!r.body.contains("\"title\""), "{}", r.body);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #296. A title the rule refuses is a 400 before anything is stored, never a silently cut name.
+    #[test]
+    fn a_payroll_with_a_bad_title_is_refused_and_stores_nothing() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-hs-pbadtitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let long = "a".repeat(orchestrator::helper::PAYROLL_TITLE_MAX_CHARS + 1);
+        for title in [long.as_str(), "Payroll\\nApril", "Payroll \\u202Elirpa"] {
+            let body = format!(
+                r#"{{"vault":"aaaa","proposer":"alice","title":"{title}","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+            );
+            let r = handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/payroll",
+                body.as_bytes(),
+            );
+            assert_eq!(r.status, 400, "{title:?}: {}", r.body);
+            assert!(r.body.contains("payroll title"), "{}", r.body);
+        }
+        no_proposal_stored(&cfg, "aaaa");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #296. A single payment takes no title: `memo` is its on-chain memo, and a `title` in the body
+    /// is not stored on it.
+    #[test]
+    fn a_single_payment_stores_no_title() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-paytitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,"memo":"rent","title":"x"}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let made: HelperProposal = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(made.title, None);
+        assert_eq!(made.memo.as_deref(), Some("rent"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn proposal_send_rejects_before_engine() {
         let dir = std::env::temp_dir().join(format!("konclave-hs-psend-{}", std::process::id()));
@@ -6921,6 +7124,7 @@ mod tests {
             to: "utest1x".into(),
             amount_zat: 5000,
             memo: Some("hi".into()),
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "sent".into(),
@@ -7495,6 +7699,7 @@ mod tests {
             to: TESTNET_ORCHARD_UA.into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: "ready".into(),
@@ -11051,6 +11256,128 @@ mod tests {
             assert!(
                 new_vault_refusal(&limits, &st, &CLIENT, &Method::Post, "/api/vault", &b, 0)
                     .is_some()
+            );
+        }
+
+        /// A bundle that does not count, for a vault nobody registered, is answered before
+        /// admission with the handler's own answer: no allowance, no lock, nothing written.
+        #[test]
+        fn a_bundle_that_does_not_count_is_answered_before_admission() {
+            let v = vault(2, 3);
+            let (st, limits, locks) = (
+                HelperState::new(),
+                admission::Limits::new(),
+                concurrency::VaultLocks::new(),
+            );
+            let c = cfg();
+            let mut bad = proof(&v, 2, &READ_KEY);
+            bad["sig"] = json!("00".repeat(64));
+            for (b, status, want) in [
+                (
+                    body(&v, &[proof(&v, 1, &READ_KEY)]),
+                    401,
+                    "pin_needs_t_proofs",
+                ),
+                (
+                    body(&v, &[proof(&v, 1, &READ_KEY), bad]),
+                    401,
+                    "pin_needs_t_proofs",
+                ),
+            ] {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    &CLIENT,
+                    0,
+                    &Method::Post,
+                    "/api/vault",
+                    &b,
+                    None,
+                );
+                assert_eq!(r.status, status, "{}", r.body);
+                assert_eq!(code(&r), want);
+                assert!(!st.contains(&hex(&v.id)));
+                assert!(!c.vaults_dir.join(hex(&v.id)).exists());
+            }
+        }
+
+        /// Through `serve` itself, not a copy of its flow: bundles that do not count, from one
+        /// address, more of them than its allowance of new vaults, leave that allowance whole and
+        /// no lock behind. One of them is a counting bundle whose group key is spelled in capitals,
+        /// which the handler refuses, so admission must refuse it too (one count function).
+        #[test]
+        fn bundles_that_do_not_count_spend_no_allowance_and_take_no_lock() {
+            let (st, limits, locks, c) = (
+                HelperState::new(),
+                admission::Limits::new(),
+                concurrency::VaultLocks::new(),
+                cfg(),
+            );
+            let mut bodies = Vec::new();
+            for _ in 0..admission::NEW_VAULTS_MAX + 1 {
+                let v = vault(2, 3);
+                bodies.push(body(&v, &[proof(&v, 1, &READ_KEY)]));
+            }
+            let v = vault(2, 3);
+            let good = body(&v, &[proof(&v, 1, &READ_KEY), proof(&v, 2, &READ_KEY)]);
+            let lower = hex(&v.id);
+            let upper = String::from_utf8(good)
+                .unwrap()
+                .replace(&lower, &lower.to_uppercase());
+            bodies.push(upper.into_bytes());
+            for b in &bodies {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    &CLIENT,
+                    0,
+                    &Method::Post,
+                    "/api/vault",
+                    b,
+                    None,
+                );
+                assert!(r.status >= 400, "{}", r.body);
+            }
+            assert_eq!(locks.held(), 0, "a refused registration kept a lock");
+            for n in 0..admission::NEW_VAULTS_MAX {
+                assert_eq!(
+                    limits.new_vault(&CLIENT, &format!("{n:064x}"), 0),
+                    Ok(()),
+                    "the allowance was spent by bundles that did not count"
+                );
+            }
+        }
+
+        /// `serve` counts a registration once: one parse, one count. The handler's own count at
+        /// the pin door is the second and last, and only for a bundle that counted.
+        #[test]
+        fn serve_counts_a_registration_once() {
+            let src = include_str!("main.rs");
+            let start = src.find("fn serve(").unwrap();
+            let body = &src[start..start + src[start..].find("\nfn main()").unwrap()];
+            assert_eq!(body.matches("count_new_registration(").count(), 1);
+            assert_eq!(body.matches("parse_registration(").count(), 1);
+            assert!(!src.contains(&["registration_reaches", "_the_engine("].concat()));
+        }
+
+        /// The bound on counts running at once: the slots run out, and come back when released.
+        #[test]
+        fn counts_running_at_once_are_bounded() {
+            let in_flight = std::sync::atomic::AtomicUsize::new(0);
+            let a = take_count_slot(&in_flight, 2).expect("first");
+            let _b = take_count_slot(&in_flight, 2).expect("second");
+            assert!(
+                take_count_slot(&in_flight, 2).is_none(),
+                "the third waits for a slot"
+            );
+            drop(a);
+            assert!(
+                take_count_slot(&in_flight, 2).is_some(),
+                "a released slot is free again"
             );
         }
 

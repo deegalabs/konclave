@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -92,7 +93,7 @@ describe('the sources under ui/src', () => {
       if (e.isDirectory()) return e.name === 'wasm-pkg' ? [] : walk(p)
       return /\.tsx?$/.test(e.name) ? [p] : []
     })
-  })(new URL('.', import.meta.url).pathname)
+  })(fileURLToPath(new URL('.', import.meta.url)))
 
   it.each(files.map((f) => [f.split('/ui/src/')[1] ?? f, f] as const))(
     '%s has no raw control bytes, so grep can still see it',

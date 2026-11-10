@@ -896,6 +896,7 @@ mod tests {
             to: "utest1x".into(),
             amount_zat: 1000,
             memo: None,
+            title: None,
             lines: vec![],
             proposer: "alice".into(),
             state: state.into(),

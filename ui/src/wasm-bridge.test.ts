@@ -4,7 +4,7 @@
 // against the same real Ironwood (V6/NU6.3, pczt v2) golden vector that pins the native signer
 // (audit C6). It proves the wire encoding round-trips in JavaScript, not just that Rust compiles.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import init, { describeOutputs, extractRandomizers, injectSigs, readPayment } from './wasm-pkg/konclave_wasm.js'
 
 const vec = (name: string) =>
@@ -16,7 +16,19 @@ const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
 // Ironwood single_spend vector: the shielded sighash the aggregate signature commits to, plus the
 // action-0 alpha. A `create-max` tx spending four notes, so every action is a real Ironwood spend.
 const IW_SIGHASH = hex('332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0')
+// The vault the vector was built for, as a literal (konclave-seal's tests pin the same one).
+const IW_VAULT_KEY = '0a05787d30adc74909647d026a9034bf86399363ba230189cd187869d2935e1b'
 const IW_ALPHA0 = '63267dad44b3621cd5246056295def55bd012cb053de4ba7af406e35d4ba4734'
+
+// A fixed clock: readPayment and describeOutputs judge the fee by the device's clock (ZIP 2009 eras),
+// so a test that reads the real time changes its verdict the day the window moves, with no code change.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T00:00:00Z'))
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 beforeAll(async () => {
   const wasmBytes = readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url))
@@ -57,11 +69,17 @@ describe('FROST<->PCZT bridge over the JS boundary (Ironwood v2)', () => {
   })
 
   it('extractRandomizers yields every real Ironwood spend index and alpha', () => {
-    const buf = extractRandomizers(proven)
+    const buf = extractRandomizers(proven, hex(IW_VAULT_KEY))
     expect(buf.length).toBe(4 * 36) // four 36-byte records: u32 index + 32-byte alpha
     const index0 = new DataView(buf.buffer, buf.byteOffset, 4).getUint32(0, true)
     expect(index0).toBe(0) // first real Ironwood spend at action index 0
     expect(toHex(buf.slice(4, 36))).toBe(IW_ALPHA0)
+  })
+
+  it('extractRandomizers reads a vault only under its own key', () => {
+    expect(() => extractRandomizers(proven, hex('a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a'))).toThrow(/^\[rk\]/)
+    expect(() => extractRandomizers(proven, new Uint8Array(32))).toThrow(/^\[vaultkey\]/)
+    expect(() => extractRandomizers(proven, new Uint8Array(5))).toThrow(/32 bytes/)
   })
 
   it('injectSigs reproduces the exact signed v2 PCZT the canonical signer produces', () => {

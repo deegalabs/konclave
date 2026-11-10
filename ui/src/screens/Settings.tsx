@@ -5,7 +5,9 @@ import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
+import { newPassphraseProblem } from '../passphrase'
 import { StorageError, storageErrorKey } from '../storage-errors'
+import { isWrongPassphrase, openFailKey } from '../unlock'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
@@ -64,9 +66,6 @@ export default function Settings() {
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
-  // The quorum as this device recorded it when the vault was made: shown first, the server's answer
-  // only when there is no record (or the record predates the field).
-  const [localQuorum, setLocalQuorum] = useState<{ threshold: number; total: number } | null>(null)
   const [xpOpen, setXpOpen] = useState(false)
   const [xpPass, setXpPass] = useState('')
   const [xpBusy, setXpBusy] = useState(false)
@@ -93,7 +92,6 @@ export default function Settings() {
             const found = saved.find((s) => s.id === v.id)
             if (on) {
               setGov(found?.governance ?? 'open'); setHasLocal(!!found); setLocalRec(found ?? null); setSecured(found?.secured)
-              if (found?.threshold !== undefined && found?.total !== undefined) setLocalQuorum({ threshold: found.threshold, total: found.total })
             }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
@@ -184,7 +182,8 @@ export default function Settings() {
       // record was NOT touched - which is what the message promises.
       setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
         : e instanceof StorageError && e.code === 'sealed-field-unreadable' ? t('storage.err.sealedFieldUnreadable')
-        : t('rotate.errWrong'))
+        : e instanceof StorageError && e.code === 'weak-passphrase' ? t('storage.err.weakPassphrase')
+        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false)))
     } finally {
       setRotBusy(false)
     }
@@ -237,8 +236,9 @@ export default function Settings() {
     }
   }
 
-  const thr = localQuorum?.threshold ?? vault?.threshold ?? 2
-  const n = localQuorum?.total ?? vault?.total ?? 3
+  // The quorum as `getVault` gives it: the device's own record first, the server's answer only without one.
+  const thr = vault?.threshold ?? 2
+  const n = vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
@@ -311,18 +311,6 @@ export default function Settings() {
       {live === null && <SkeletonDetail rows={4} />}
 
       {live !== null && <>
-      {/* #488: a section index, the way a settings screen with named sections earns one. Only where
-          there is room BESIDE the content - the app already has a rail, and a second one on a laptop
-          is two navigations competing for the same job. Below that width the page is short enough to
-          scroll, which is the honest reason to hide it rather than shrink it. */}
-      <nav className="set-index" aria-label={t('settings.title')}>
-        <a href="#s-vault">{t('set.secVault')}</a>
-        <a href="#s-access">{t('set.secAccess')}</a>
-        {gov && <a href="#s-gov">{t('set.secGov')}</a>}
-        {hasLocal && secured !== undefined && <a href="#s-trust">{t('set.secTrust')}</a>}
-        {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
-        <a href="#s-remove">{t('set.secRemove')}</a>
-      </nav>
       <div className="set-body">
       <h2 className="set-sec" id="s-vault">{t('set.secVault')}</h2>
       <div className="set-list">
@@ -418,9 +406,9 @@ export default function Settings() {
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
       {hasPasskey && pkSynced && <p className="set-hint" role="status">{t('settings.passkeySynced')}</p>}
-      {/* Unconditional. It used to render only when this device could use a passkey, so a device
-          that cannot never learned the rule it is subject to. */}
-      <p className="set-hint">{t('set.accessNote')}</p>
+      {/* On every device, whether or not it can use a passkey (a device that cannot must still learn
+          the rule it is subject to), except under the synced-passkey notice, which already says it. */}
+      {!(hasPasskey && pkSynced) && <p className="set-hint">{t('set.accessNote')}</p>}
 
       {gov && (
         <>
@@ -447,42 +435,48 @@ export default function Settings() {
             {secured
               ? <span className="set-badge trust-badge" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>
               : <span className="set-badge trust-badge open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
-            {' '}{t('trust.intro')}
+            {' '}{t('trust.summary')}
           </p>
-          {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
-          <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
-            <table className="tbl trust-grid" aria-labelledby="s-trust">
-              <thead>
-                <tr>
-                  <th scope="col">{t('trust.what')}</th>
-                  {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {trustRows({ secured, threshold: thr, total: n }).map((r) => (
-                  <tr key={r.what}>
-                    <th scope="row">{t('trust.row.' + r.what)}</th>
-                    {(['members', 'server', 'relay', 'link'] as const).map((p) => {
-                      const c: Cell = r.cells[p]
-                      return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
-                    })}
+          {/* The table and its limits, closed until the member opens them: native, so the keyboard and
+              a screen reader get it with no script. On a phone the table scrolls sideways inside. */}
+          <details className="trust-details">
+            <summary>{t('trust.disclosure')}</summary>
+            <p className="set-hint">{t('trust.intro')}</p>
+            {/* A five-column table scrolls sideways on a phone: the region is named and reachable. */}
+            <div className="trust-wrap" role="region" aria-labelledby="s-trust" tabIndex={0}>
+              <table className="tbl trust-grid" aria-labelledby="s-trust">
+                <thead>
+                  <tr>
+                    <th scope="col">{t('trust.what')}</th>
+                    {(['members', 'server', 'relay', 'link'] as const).map((p) => <th scope="col" key={p}>{t('trust.party.' + p)}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="set-hint">{t('trust.limits')}</p>
-          <ul className="trust-limits">
-            <li>{t('trust.limit.builds')}</li>
-            <li>{t('trust.limit.viewingKey')}</li>
-            <li>{t('trust.limit.relay')}</li>
-            <li>{t('trust.limit.gate')}</li>
-            <li>{t('trust.limit.metadata')}</li>
-            {secured && <li>{t('trust.limit.private')}</li>}
-            <li>{t('trust.limit.product')}</li>
-            <li>{t('trust.limit.audit')}</li>
-          </ul>
-          <p className="set-hint">{t('trust.limitsNotAll')}</p>
+                </thead>
+                <tbody>
+                  {trustRows({ secured, threshold: thr, total: n }).map((r) => (
+                    <tr key={r.what}>
+                      <th scope="row">{t('trust.row.' + r.what)}</th>
+                      {(['members', 'server', 'relay', 'link'] as const).map((p) => {
+                        const c: Cell = r.cells[p]
+                        return <td key={p} className={'trust-cell ' + c}>{c === 'quorum' ? t('trust.cell.quorum', { t: thr, n }) : t('trust.cell.' + c)}</td>
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="set-hint">{t('trust.limits')}</p>
+            <ul className="trust-limits">
+              <li>{t('trust.limit.builds')}</li>
+              <li>{t('trust.limit.viewingKey')}</li>
+              <li>{t('trust.limit.relay')}</li>
+              <li>{t('trust.limit.gate')}</li>
+              <li>{t('trust.limit.metadata')}</li>
+              {secured && <li>{t('trust.limit.private')}</li>}
+              <li>{t('trust.limit.product')}</li>
+              <li>{t('trust.limit.audit')}</li>
+            </ul>
+            <p className="set-hint">{t('trust.limitsNotAll')}</p>
+          </details>
           <p className="set-hint"><Link to="/docs/security">{t('trust.more')}</Link></p>
         </>
       )}
@@ -641,7 +635,7 @@ export default function Settings() {
               </label>
               <div className="unlock-btns">
                 <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2}
+                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>

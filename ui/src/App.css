@@ -236,6 +236,11 @@
 .sign-to{color:var(--text-muted); font-size:13px}
 /* The full destination in the signing panel: long, and must wrap, not scroll or clip. */
 .sign-dest{overflow-wrap:anywhere; word-break:break-all; color:var(--text); line-height:1.5}
+.sign-lines{list-style:none; margin:8px 0 0; padding:0; max-height:40vh; overflow-y:auto; display:grid; gap:8px}
+.sign-lines li{display:grid; gap:2px}
+.sign-line-head{display:flex; justify-content:space-between; gap:12px}
+.sign-line-head .num{white-space:nowrap}
+.sign-confirm .sign-lines{max-height:none; overflow:visible}
 .sign-arrow{user-select:none}
 .p-cost-note{margin-top:2px; line-height:1.45}
 .sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
@@ -370,6 +375,8 @@
 .reveal-btn:hover{border-color:var(--accent); color:var(--accent)}
 .fig{display:flex; align-items:baseline; gap:14px; margin:16px 0 10px}
 .amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:clamp(38px,7vw,62px); letter-spacing:-.02em}
+/* An exact balance can carry eight decimals; at the full size that figure passes the side column. */
+.amt-long{font-size:clamp(30px,4.6vw,40px)}
 .unit{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:16px; color:var(--text-muted); letter-spacing:.14em}
 .breakdown{display:flex; gap:34px; font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .breakdown b{color:var(--text); font-weight:500}
@@ -392,17 +399,56 @@
 .kpi-k{color:var(--text-muted)}
 .kpi-v{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
 .kpi-u{font-size:12px; color:var(--text-muted); letter-spacing:.12em}
+/* An exact figure with more than four decimals, so it and its unit stay on one line in the rail's
+   ~127px column: 111px in Archivo, and 125px even in DejaVu Sans if Archivo has not loaded. */
+.kpi-v.kpi-long{font-size:14px}
 .kpi-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
 
 /* Spend-by-month bars (charts.tsx) */
 .spendwrap{margin:2px 0 20px}
 .spendwrap .klab{margin-bottom:14px}
 .spend-bars{display:flex; align-items:flex-end; gap:10px; justify-content:flex-start}
-.spend-col{flex:0 0 auto; width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
+@media (max-width:480px){.spend-bars{gap:4px}}
+.spend-col{flex:1 1 0; min-width:0; max-width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
 .spend-bar{width:100%; max-width:34px; background:var(--silver); border-radius:4px 4px 0 0;
   box-shadow:0 0 0 2px var(--surface-0)}
 .spend-bar.peak{background:var(--text)}
 .spend-lab{margin-top:7px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
+/* Treasury charts (charts.tsx; STYLE.md "Charts (treasury)"): matte, still, tone not hue. */
+.chart{margin:0}
+.chart-src{margin:8px 0 0; font-size:12px; color:var(--text-muted); max-width:65ch}
+.chart-warn{margin:8px 0 0; font-size:13px; color:var(--warn-strong, var(--warn))}
+.funds-plot{position:relative}
+.funds-svg{position:absolute; inset:0; display:block; width:100%; height:100%; overflow:visible}
+.funds-zero{stroke:var(--line-strong); stroke-width:1; vector-effect:non-scaling-stroke}
+.funds-zero-lab{position:absolute; left:0; transform:translateY(-115%); font-size:10.5px; color:var(--text-muted)}
+.funds-proj{fill:none; stroke:var(--silver); stroke-width:1.5; stroke-dasharray:5 4; vector-effect:non-scaling-stroke}
+.funds-proj.below{stroke:var(--warn)}
+.funds-pt{position:absolute; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; background:var(--surface-0); border:1.5px solid var(--silver)}
+.funds-pt.rec{background:var(--text); border-color:var(--text)}
+.funds-pt.below{border-color:var(--warn)}
+.funds-pt:hover{background:var(--accent); border-color:var(--accent)}
+.funds-axis{position:relative; height:1.4em; margin-top:6px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
+.funds-axis span{position:absolute; transform:translateX(-50%); white-space:nowrap}
+.funds-tags{display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 12px; margin-top:2px; font-size:10.5px; color:var(--text-muted)}
+.funds-tags span:last-child{margin-left:auto}
+.chart-figs-btn{align-self:flex-start; margin-top:8px}
+.chart-figs{margin-top:8px; overflow-x:auto}
+.chart-figs table{border-collapse:collapse; font-size:12.5px}
+.chart-figs caption{text-align:left; font-size:12px; color:var(--text-muted); padding-bottom:4px}
+.chart-figs th,.chart-figs td{padding:3px 14px 3px 0; text-align:left; font-weight:400; border-bottom:1px solid var(--line-2)}
+.chart-figs td{font-family:var(--font-mono); text-align:right; white-space:nowrap}
+/* Analyses screen */
+.an-band .db-totals{flex-wrap:wrap; gap:18px 30px}
+.an-cells{display:flex; flex-wrap:wrap; gap:18px 30px; margin:0}
+.an-cells dd{margin:0}
+.an-sec{max-width:760px}
+.an-sec h2.klab{margin:0 0 16px; padding-bottom:8px; border-bottom:1px solid var(--line-soft, var(--line))}
+.an-figs{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:18px 30px; margin:0 0 18px}
+.an-figs > div{display:flex; flex-direction:column; gap:4px; min-width:0}
+.an-figs dd{margin:0}
+.an-figs dd.by{font-size:12.5px; line-height:1.45; color:var(--text-muted)}
+.an-figs b{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:18px}
 
 .visually-hidden{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
   clip:rect(0 0 0 0); white-space:nowrap; border:0}
@@ -491,7 +537,7 @@
 /* auto-fit, not `1fr 1fr`: the outflow chart hides below two months of history (a single bar is
    not a trend), and a fixed two-column grid then left the surviving panel at half width with a
    hole beside it. With auto-fit a lone panel simply fills the row. */
-.dash-charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px;
+.dash-charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:16px;
   margin-top:16px; align-items:start}
 .dash-charts .panel{padding:20px 22px; border-radius:var(--radius-lg);
   background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
@@ -911,9 +957,14 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .xs-btn{padding:5px 10px; font-size:11.5px}
 .fp-card{border:1px solid var(--accent-line); border-radius:var(--radius);
   background:var(--accent-soft); padding:14px 16px}
+/* The "compared" button's label is long (Portuguese above all): it wraps inside the card on a phone. */
+.fp-card .btn{white-space:normal; text-align:center}
 .fp-head{display:flex; align-items:center; justify-content:space-between; gap:12px}
 .fp-code{font-size:26px; letter-spacing:.16em; color:var(--text); margin:8px 0 6px;
   font-variant-numeric:tabular-nums; word-break:break-all}
+/* The viewing code (groups of five): a group never splits, a line breaks only between groups. */
+.fp-code.grouped{word-break:normal; overflow-wrap:normal}
+.fp-code .fp-grp{white-space:nowrap}
 .fp-help{font-size:12.5px; line-height:1.5}
 .fp-help b{color:var(--silver); font-weight:600}
 .who-name{font-weight:600; font-size:14.5px}
@@ -1079,27 +1130,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .copy-btn:hover{color:var(--text); border-color:var(--line-strong)}
 .copy-btn.done{color:var(--silver); border-color:var(--silver)}
 
-/* The section index (#488). A settings screen with named sections earns one, but the app already
-   has a rail - so this appears only where there is genuinely room beside the content, and below
-   that the page is short enough to scroll. Hiding it is the honest answer; shrinking it into the
-   content column would be two navigations fighting over one job. */
-.set-index{display:none}
 .set-body{min-width:0}
-@media(min-width:1180px){
-  .page:has(.set-index){display:grid; grid-template-columns:1fr 176px;
-    grid-template-areas:'head head' 'body nav'; column-gap:40px; align-items:start}
-  .page:has(.set-index) > .page-header{grid-area:head}
-  .page:has(.set-index) > .set-body{grid-area:body}
-  .page:has(.set-index) > .page-footer{grid-column:1 / -1}
-  .set-index{grid-area:nav; display:flex; flex-direction:column; gap:2px;
-    position:sticky; top:24px; padding-top:6px}
-  .set-index a{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--text-muted); text-decoration:none;
-    padding:7px 10px; border-radius:7px; border-left:2px solid transparent;
-    transition:color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
-  .set-index a:hover{color:var(--text); background:var(--surface-2)}
-  .set-index a:target, .set-index a:focus-visible{color:var(--accent)}
-}
 /* An anchored heading must not land under the sticky top bar on the way down. */
 .set-sec{scroll-margin-top:88px}
 
@@ -1623,6 +1654,10 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .trust-grid td.no{color:var(--text-muted)}
 .trust-grid td.yes, .trust-grid td.quorum{color:var(--text)}
 .trust-grid td.metadata, .trust-grid td.keeps, .trust-grid td.builds, .trust-grid td.sealedWhenRegistered, .trust-grid td.untilUnlock{color:var(--warn-strong, var(--warn))}
+.trust-details{margin-top:10px; border:1px solid var(--line); border-radius:var(--radius-sm); padding:0 12px}
+.trust-details > summary{cursor:pointer; padding:10px 0; font-size:13px; font-weight:600; color:var(--text)}
+.trust-details > summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+.trust-details[open]{padding-bottom:12px}
 .trust-limits{margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.55; color:var(--text-muted); display:grid; gap:6px; max-width:62ch}
 /* A button that reads as a link, for an action inside a sentence. */
 .link-btn{appearance:none; border:0; background:transparent; padding:0; font:inherit; color:var(--accent-ink); text-decoration:underline; text-underline-offset:2px; cursor:pointer}

@@ -1,9 +1,9 @@
 import { LangToggle } from './AppPrefs'
-import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useT } from './i18n'
-import { scorePassphrase, generatePassphrase } from './passphrase'
+import { scorePassphrase, generatePassphrase, newPassphraseProblem } from './passphrase'
 
 /** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
  *  below, announced via `role="status"`. Shown while an initial fetch is in flight instead of
@@ -165,7 +165,13 @@ export function Letterhead({ right }: { right?: ReactNode }) {
  *  The bar is a real button so the privacy gesture is keyboard-operable.
  *  On paper a hidden value is not drawn at all (lacre.css, print): a bar over drawn text still
  *  leaves the text in the PDF, where it can be selected and copied (#811). */
-export function Secret({ children, sm, label }: { children: ReactNode; sm?: boolean; /** What the veil covers, for the button's name in a table of veils. */ label?: string }) {
+export function Secret({ children, sm, label, describedBy, barEvents }: {
+  children: ReactNode; sm?: boolean
+  /** What the veil covers, for the button's name in a table of veils. */ label?: string
+  /** The id of a tip that explains the figure (never the figure itself). */ describedBy?: string
+  /** A tip's handlers on the veil: on a phone the veil is the only control there is to tap. */
+  barEvents?: Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'onFocus' | 'onBlur' | 'onPointerEnter' | 'onPointerLeave' | 'onPointerDown'>
+}) {
   const { revealed, toggle } = useReveal()
   const t = useT()
   return (
@@ -175,8 +181,10 @@ export function Secret({ children, sm, label }: { children: ReactNode; sm?: bool
         type="button"
         className="bar"
         data-label={t('secret.tarja')}
-        onClick={toggle}
+        {...barEvents}
+        onClick={(e) => { toggle(); barEvents?.onClick?.(e) }}
         aria-pressed={revealed}
+        aria-describedby={describedBy}
         aria-label={(revealed ? t('common.hide') : t('common.reveal')) + (label ? `: ${label}` : '')}
       />
     </span>
@@ -275,6 +283,7 @@ export function PassphraseField({
   const t = useT()
   const [show, setShow] = useState(false)
   const s = scorePassphrase(value)
+  const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
@@ -330,6 +339,7 @@ export function PassphraseField({
           <span className={'pf-label s' + s.score}>{t('pass.' + s.label)}</span>
         </div>
       )}
+      {problem && <p className="dim" aria-live="polite">{t(problem === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>}
     </div>
   )
 }

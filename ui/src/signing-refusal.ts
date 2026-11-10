@@ -19,10 +19,13 @@
 /** The device's refusals of a transaction: each is final for that transaction on this device. */
 export const REFUSALS: ReadonlySet<string> = new Set([
   'net.err.unreadableSpends',
+  'net.err.notBuiltForVault',
+  'net.err.vaultRecordMismatch',
   'net.err.notApproved',
   'net.err.approvalUnknown',
   'net.err.unreadablePczt',
   'net.err.feeTooHigh',
+  'net.err.feeClock',
   'net.err.outputMismatch',
   'net.err.labelMismatch',
   'net.err.unexpectedShape',

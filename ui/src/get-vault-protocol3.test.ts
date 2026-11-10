@@ -16,7 +16,7 @@ const rec = async () => (await listVaults()).find((v) => v.id === GK)!
 const show = async (_when: string) => { const v = await api.getVault(); await new Promise((r) => setTimeout(r, 30)); const r = await rec(); return { v, r } }
 beforeAll(() => { api.setSelectedVault(GK) })
 it('getVault, real, cp 3', async () => {
-  await saveVault(GK, data({ pending: true }), 'pw')
+  await saveVault(GK, data({ pending: true }), 'river stone maple lantern')
   let s = await show('pending empty'); expect(s.v?.orchard_address).toBe(''); expect(s.r.address).toBeFalsy()
   await updateVaultMeta(GK, { pending: false })
   s = await show('finished, unverified, empty'); expect(s.v?.orchard_address).toBe(''); expect(s.v?.address_gate).toBe('waiting'); expect(s.r.address).toBeFalsy(); expect(s.r.changeReceiver).toBeFalsy()

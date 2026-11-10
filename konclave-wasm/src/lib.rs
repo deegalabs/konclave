@@ -2768,7 +2768,7 @@ pub use konclave_seal as seal;
 // which rides on `orchard` (already linked). Pinned to byte-for-byte parity with konclave-signer by
 // the same real mainnet golden vectors used to close audit C6.
 pub mod pczt_bridge {
-    use konclave_seal::spends::spends_to_sign;
+    use konclave_seal::spends::{spends_to_sign, spends_to_sign_for};
     use orchard::primitives::redpallas::{self, SpendAuth};
     use pczt::{
         roles::low_level_signer::{OrchardParseError, Signer},
@@ -2803,22 +2803,38 @@ pub mod pczt_bridge {
     // rule konclave-signer reads too: the spends still awaiting a signature, and a refusal for any
     // spend that still carries `dummy_sk`.
 
-    fn orchard_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+    type Selected = Result<Vec<(usize, [u8; 32])>, String>;
+
+    fn orchard_spends(pczt: &Pczt) -> Selected {
+        orchard_spends_with(pczt, spends_to_sign)
+    }
+
+    fn ironwood_spends(pczt: &Pczt) -> Selected {
+        ironwood_spends_with(pczt, spends_to_sign)
+    }
+
+    fn orchard_spends_with(
+        pczt: &Pczt,
+        select: impl Fn(&orchard::pczt::Bundle) -> Selected,
+    ) -> Selected {
         let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_orchard_with(|_pczt, bundle, _| {
-                r = spends_to_sign(bundle);
+                r = select(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("orchard parse: {:?}", e))?;
         r
     }
 
-    fn ironwood_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+    fn ironwood_spends_with(
+        pczt: &Pczt,
+        select: impl Fn(&orchard::pczt::Bundle) -> Selected,
+    ) -> Selected {
         let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_ironwood_with(|_pczt, bundle, _| {
-                r = spends_to_sign(bundle);
+                r = select(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("ironwood parse: {:?}", e))?;
@@ -2855,7 +2871,9 @@ pub mod pczt_bridge {
     }
 
     /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real spends
-    /// that need a FROST signature, from whichever pool the tx spends from.
+    /// that need a FROST signature, from whichever pool the tx spends from. `vault_ak` is the
+    /// device's own group key: every spend is checked against it (`spends_to_sign_for`), and the
+    /// whole answer is a refusal if any is not.
     ///
     /// This used to answer the pool question ITSELF - `if !orchard.is_empty() { return orchard }`,
     /// falling through to Ironwood - four lines below an `active_pool` it did not call (#364). Its
@@ -2864,13 +2882,33 @@ pub mod pczt_bridge {
     /// refused: the device would contribute signatures for half the spends and stay quiet about the
     /// rest. It is the repo's most repeated defect (one rule, two implementations, one of them
     /// diverged) and the diverged copy was the one the live ceremony consumes.
-    pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
+    pub fn extract_randomizers(
+        pczt_bytes: &[u8],
+        vault_ak: &[u8; 32],
+    ) -> Result<Vec<(usize, [u8; 32])>, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        // The pool is decided on the plain selection, then that pool's spends are read under the
+        // vault's key: the one place a device gets its randomizers from.
+        let for_vault = |b: &orchard::pczt::Bundle| spends_to_sign_for(b, vault_ak);
         if active_pool(&pczt)? {
-            ironwood_spends(&pczt)
+            ironwood_spends_with(&pczt, for_vault)
         } else {
-            orchard_spends(&pczt)
+            orchard_spends_with(&pczt, for_vault)
         }
+    }
+
+    /// The group verifying key of a saved `PublicKeyPackage`: what the device signs under, so it can
+    /// confirm the key it holds on record for a vault is the package's own before it passes it to
+    /// `extract_randomizers`.
+    pub fn group_key_of_package(pubkeys: &[u8]) -> Result<[u8; 32], String> {
+        let package = crate::frost::keys::PublicKeyPackage::deserialize(pubkeys)
+            .map_err(|e| format!("[vaultkey] the saved vault package does not read: {e}"))?;
+        package
+            .verifying_key()
+            .serialize()
+            .map_err(|e| format!("{e}"))?
+            .try_into()
+            .map_err(|_| "[vaultkey] a group key is 32 bytes".to_string())
     }
 
     /// One output as the device reads it from a proven PCZT, for the "what am I signing?" check
@@ -3210,8 +3248,7 @@ pub mod pczt_bridge {
         check_header_for(rules, h, now_unix, false)
     }
 
-    const MARGINAL_FEE: u64 = 5_000;
-    const GRACE_ACTIONS: u64 = 2;
+    use konclave_seal::epochs::GRACE_ACTIONS;
 
     /// What the fee rule needs to know about one bundle.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3232,19 +3269,32 @@ pub mod pczt_bridge {
     /// to. The fee here comes from the bundles' value balance, which the sighash covers.
     ///
     /// The ZIP 317 fee grows with the number of actions, so a fee check alone would let a builder
-    /// add empty padding actions and raise the fee it must pay by 5000 zatoshis each. So each
+    /// add empty padding actions and raise the fee it must pay by one marginal fee each. So each
     /// bundle may carry at most `max(2, to_sign + paying)` actions. That covers both ways a builder
     /// pairs spends with outputs: one action per spend-or-output where cross-address transfers are
     /// allowed (Ironwood), and a spend and an output in separate actions where they are not
     /// (Orchard after NU6.3), whose fabricated zero-value spends are ours to sign and so counted.
     ///
     /// What this does NOT bound: the builder chooses both terms. It can split change into more
-    /// outputs, spend more of the vault's notes, or add zero-value spends left for the vault to
-    /// sign (`spends_to_sign` does not check a spend's `rk` against the vault's key), and each such
-    /// action raises the fee by 5000 zatoshis, paid to the network. Nothing on the device caps
+    /// outputs, spend more of the vault's notes, or add fabricated zero-value spends under the
+    /// vault's key, which the device must sign (each is under the vault's key, so the spend check accepts
+    /// it), and each such
+    /// action raises the fee by one marginal fee, paid to the network. Nothing on the device caps
     /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
     /// needs the device to know which notes a payment should spend.
-    fn check_fee(fee: i64, bundles: &[BundleShape]) -> Result<u64, String> {
+    ///
+    /// `accepted` is the set of marginal fees this device's clock allows; `known` is every rate the
+    /// table accepts in any era. A fee that is exact at one of the `known` rates, not at an
+    /// `accepted` one, and below the lowest accepted one is refused with `[clock]`, not `[fee]`: it is what an honest builder sends to a
+    /// device whose clock is behind the fee switch (ZIP 2009), and the member is asked to check the
+    /// date and time instead of being told the request may have been tampered with. Nothing is
+    /// signed either way.
+    fn check_fee_in_era(
+        fee: i64,
+        bundles: &[BundleShape],
+        accepted: &[u64],
+        known: &[u64],
+    ) -> Result<u64, String> {
         let fee = u64::try_from(fee).map_err(|_| {
             format!(
                 "[fee] the transaction adds {} zatoshis to the shielded pools instead of paying a fee",
@@ -3265,13 +3315,38 @@ pub mod pczt_bridge {
         // (all twenty in docs/PROOF.md, payroll and migration included). Above it the builder keeps
         // the difference from the change; below it the network may not relay the transaction, which
         // then sits signed with whoever built it.
-        let zip317 = MARGINAL_FEE * actions.max(GRACE_ACTIONS);
-        if fee != zip317 {
+        // `accepted` is the set of marginal fees this device's clock allows (konclave_seal::epochs,
+        // ZIP 2009); a value between two of them is not a compromise, it is refused.
+        if !konclave_seal::epochs::fee_in(fee, actions, accepted) {
+            // Only a fee BELOW every accepted one gets the clock wording: that is what a slow clock
+            // sees from an honest builder after the switch. Anything above stays [fee].
+            let lowest = accepted
+                .iter()
+                .filter_map(|m| konclave_seal::epochs::conventional_fee(*m, actions))
+                .min();
+            if konclave_seal::epochs::fee_in(fee, actions, known) && lowest.is_some_and(|l| fee < l)
+            {
+                return Err(format!(
+                    "[clock] the transaction pays {fee} zatoshis in fee, a rate this device's clock does not allow for its {actions} actions"
+                ));
+            }
+            let want: Vec<String> = accepted
+                .iter()
+                .filter_map(|m| konclave_seal::epochs::conventional_fee(*m, actions))
+                .map(|f| f.to_string())
+                .collect();
             return Err(format!(
-                "[fee] the transaction pays {fee} zatoshis in fee, not the {zip317} that ZIP 317 sets for its {actions} actions"
+                "[fee] the transaction pays {fee} zatoshis in fee, not {} that ZIP 317 sets for its {actions} actions at the rates this device's clock allows",
+                if want.is_empty() { "any amount".to_string() } else { want.join(" or ") }
             ));
         }
         Ok(fee)
+    }
+
+    /// `check_fee_in_era` with one rate set, for the tests of the rule itself.
+    #[cfg(test)]
+    fn check_fee(fee: i64, bundles: &[BundleShape], accepted: &[u64]) -> Result<u64, String> {
+        check_fee_in_era(fee, bundles, accepted, accepted)
     }
 
     /// Read one Orchard-shaped bundle's outputs, refusing any output whose fields its note
@@ -3458,7 +3533,25 @@ pub mod pczt_bridge {
     /// shielded bundles. A V6 transaction can carry both: an Orchard-to-Ironwood migration spends
     /// from Orchard and pays into Ironwood, and reading only the pool the spends come from would
     /// miss where the money lands. The order is the sighash's: Orchard, then Ironwood.
+    ///
+    /// Test-only: the fee is judged by the clock (ZIP 2009), and a native wall clock is neither
+    /// available in wasm nor stable in a test. Production callers pass the device clock to
+    /// `read_payment_with`. The fixed reading here sits in the 5,000 era every fixture was built in.
+    #[cfg(test)]
     pub fn read_payment(pczt_bytes: &[u8]) -> Result<Payment, String> {
+        read_payment_with(&MAINNET, pczt_bytes, FIXTURE_CLOCK)
+    }
+
+    /// A clock reading in the 5,000-only era, for the test-only readers above and below.
+    #[cfg(test)]
+    pub(crate) const FIXTURE_CLOCK: i64 = MAINNET.anchor.unix + 30 * 86_400;
+
+    /// The one reader of a PCZT's outputs, with the rules and the clock the fee is judged by (D3).
+    pub fn read_payment_with(
+        rules: &NetworkRules,
+        pczt_bytes: &[u8],
+        now_unix: i64,
+    ) -> Result<Payment, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
         let tx_version = *pczt.global().tx_version();
         let pools = signed_pools(
@@ -3511,7 +3604,19 @@ pub mod pczt_bridge {
             outputs.extend(part);
             shapes.push(shape);
         }
-        let fee_zat = check_fee(fee, &shapes)?;
+        let accepted = rules.accepted_marginal_fees(now_unix);
+        if accepted.is_empty() {
+            return Err(
+                "[expiry] this device's clock is earlier than the network this app signs for"
+                    .into(),
+            );
+        }
+        let fee_zat = check_fee_in_era(
+            fee,
+            &shapes,
+            &accepted,
+            &rules.every_accepted_marginal_fee(),
+        )?;
         let actions = shapes.iter().map(|s| s.actions).sum();
         Ok(Payment {
             outputs,
@@ -3560,7 +3665,7 @@ pub mod pczt_bridge {
     ) -> Result<ForSigning, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
         let header = header_of(&pczt)?;
-        let payment = read_payment(pczt_bytes)?;
+        let payment = read_payment_with(rules, pczt_bytes, now_unix)?;
         let crossing = is_canonical_crossing(
             payment.orchard_actions,
             payment.ironwood_actions,
@@ -3590,8 +3695,18 @@ pub mod pczt_bridge {
     /// reading as `read_payment`, so it carries the same checks: there is one reader of a PCZT's
     /// outputs in this crate, and it refuses what it cannot confirm. Dummy padding outputs surface
     /// as `value: Some(0)` with no address, so the caller can ignore them.
+    #[cfg(test)]
     pub fn describe_outputs(pczt_bytes: &[u8]) -> Result<Vec<OutputInfo>, String> {
         read_payment(pczt_bytes).map(|p| p.outputs)
+    }
+
+    /// `describe_outputs` with the rules and clock the fee is judged by (what the exports call).
+    pub fn describe_outputs_with(
+        rules: &NetworkRules,
+        pczt_bytes: &[u8],
+        now_unix: i64,
+    ) -> Result<Vec<OutputInfo>, String> {
+        read_payment_with(rules, pczt_bytes, now_unix).map(|p| p.outputs)
     }
 
     /// The raw Orchard receiver of a unified address, hex-encoded - directly comparable to an
@@ -3874,14 +3989,21 @@ pub mod pczt_bridge {
             include_bytes!("../tests/vectors/ironwood_single_spend.published.pczt");
         const OR_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/orchard_mainnet_two_spend.proven.pczt");
+        // The vault key each vector was built for, as literals. OR_PROVEN is the evidence vault's
+        // group key (docs/HISTORY.md, Phase 5); the Ironwood one records no vault and was computed
+        // once, offline. Neither is read from the PCZT under test.
+        const IW_AK: [u8; 32] =
+            hex_literal("0a05787d30adc74909647d026a9034bf86399363ba230189cd187869d2935e1b");
+        const OR_AK: [u8; 32] =
+            hex_literal("a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a");
         const OR_PUBLISHED: &[u8] =
             include_bytes!("../tests/vectors/orchard_mainnet_two_spend.published.pczt");
 
         #[test]
         fn a_device_reads_the_published_copy_exactly_as_it_reads_the_full_pczt() {
-            for (name, full, published) in [
-                ("ironwood", IW_PROVEN, IW_PUBLISHED),
-                ("orchard", OR_PROVEN, OR_PUBLISHED),
+            for (name, full, published, ak) in [
+                ("ironwood", IW_PROVEN, IW_PUBLISHED, IW_AK),
+                ("orchard", OR_PROVEN, OR_PUBLISHED, OR_AK),
             ] {
                 assert_ne!(full, published, "{name}: the copy must really differ");
                 assert_eq!(
@@ -3890,8 +4012,8 @@ pub mod pczt_bridge {
                     "{name}: the message the quorum signs"
                 );
                 assert_eq!(
-                    extract_randomizers(published),
-                    extract_randomizers(full),
+                    extract_randomizers(published, &ak),
+                    extract_randomizers(full, &ak),
                     "{name}: what each seat signs with"
                 );
                 assert_eq!(
@@ -4004,7 +4126,7 @@ pub mod pczt_bridge {
             assert!(via_active_pool, "the fixture is an Ironwood tx");
 
             // extract_randomizers must now reach the SAME answer, and return that pool's spends.
-            let spends = extract_randomizers(IW_PROVEN).expect("extraction succeeds");
+            let spends = extract_randomizers(IW_PROVEN, &IW_AK).expect("extraction succeeds");
             let ironwood = ironwood_spends(&pczt).expect("ironwood parse");
             assert_eq!(
                 spends, ironwood,
@@ -4065,7 +4187,7 @@ pub mod pczt_bridge {
         fn extract_matches_signer_ironwood() {
             // The WASM must read the SAME real Ironwood spends the canonical signer reads from the
             // v2 PCZT (a `create-max` tx spending 4 notes; every action is a real Ironwood spend).
-            let r = extract_randomizers(IW_PROVEN).unwrap();
+            let r = extract_randomizers(IW_PROVEN, &IW_AK).unwrap();
             assert_eq!(r.len(), 4, "four real Ironwood spends");
             assert_eq!(r[0].0, 0);
             assert_eq!(
@@ -4086,7 +4208,7 @@ pub mod pczt_bridge {
             // `MissingSpendAuthSig` (#86). The browser signer must not diverge from the native one
             // here: two signers that disagree about WHICH spends need a signature produce a
             // transaction that one of them thinks is complete (#365).
-            let r = extract_randomizers(IW_ZERO_VALUE).unwrap();
+            let r = extract_randomizers(IW_ZERO_VALUE, &IW_AK).unwrap();
             let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
             assert_eq!(
                 indices,
@@ -4101,7 +4223,7 @@ pub mod pczt_bridge {
             // ours, such a spend joined the ceremony, raised the action count the fee is read from,
             // and failed at injection. The device must refuse it before it signs or shows a fee,
             // on both readers: the randomizers the ceremony uses and the payment it shows.
-            let err = extract_randomizers(IW_DUMMY_SK).unwrap_err();
+            let err = extract_randomizers(IW_DUMMY_SK, &IW_AK).unwrap_err();
             assert!(err.contains("dummy_sk"), "{err}");
             let shown = read_payment(IW_DUMMY_SK).map(|_| ()).unwrap_err();
             assert_eq!(shown, err, "one refusal, worded once");
@@ -4113,7 +4235,7 @@ pub mod pczt_bridge {
             // already signed (`ironwood_single_spend.signed.pczt` with `dummy_sk` set on action
             // 0; konclave-signer carries the identical file) is refused as well, though that
             // action would not join the ceremony.
-            let err = extract_randomizers(IW_DUMMY_SK_SIGNED).unwrap_err();
+            let err = extract_randomizers(IW_DUMMY_SK_SIGNED, &IW_AK).unwrap_err();
             assert!(err.contains("dummy_sk"), "{err}");
         }
 
@@ -4123,13 +4245,57 @@ pub mod pczt_bridge {
             // earlier signer authorized carries a signature and is skipped, which is what keeps a
             // signed action out of a second ceremony.
             let signed = inject_sigs(IW_PROVEN, IW_SIGHASH, &[(0, sig64(IW_SIG0))]).unwrap();
-            let r = extract_randomizers(&signed).unwrap();
+            let r = extract_randomizers(&signed, &IW_AK).unwrap();
             let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
             assert_eq!(
                 indices,
                 vec![1, 2, 3],
                 "action 0 now carries a signature and must not be collected again",
             );
+        }
+
+        #[test]
+        fn each_spend_is_read_only_under_the_vaults_own_key() {
+            // The key a device passes is its own. The same bytes under another vault's key are
+            // refused whole, on both pools.
+            let iw = extract_randomizers(IW_PROVEN, &OR_AK).unwrap_err();
+            assert!(iw.starts_with("[rk]"), "{iw}");
+            let or = extract_randomizers(OR_PROVEN, &IW_AK).unwrap_err();
+            assert!(or.starts_with("[rk]"), "{or}");
+            assert!(extract_randomizers(OR_PROVEN, &OR_AK).is_ok());
+        }
+
+        #[test]
+        fn the_group_key_of_a_saved_package_is_the_one_the_vault_signs_under() {
+            // The seeded vault of the committed fixture, whose group key is pinned as a literal in
+            // konclave-seal's tests; the package is read out of the file, the key is not.
+            let json = include_str!("../tests/vectors/ironwood_single_spend.rekeyed.json");
+            let hex = json.split("\"pubkeys\": \"").nth(1).unwrap();
+            let pubkeys = hex::decode(&hex[..hex.find('"').unwrap()]).unwrap();
+            assert_eq!(
+                group_key_of_package(&pubkeys).unwrap(),
+                hex_literal("d65a5af38aa554969843dc0fba8113043c09513fdd22a477d9a7b7ff5b89db35")
+            );
+            assert!(group_key_of_package(&[1, 2, 3])
+                .unwrap_err()
+                .starts_with("[vaultkey]"));
+        }
+
+        #[test]
+        fn a_spend_whose_key_was_changed_is_refused_before_anything_is_signed() {
+            // Actions 0 and 1 of the vector swap their keys: each is a valid point, neither is the
+            // vault's key under its own randomizer.
+            let k0 =
+                hex_literal("c871590112403b67683601d133633aab9723fe5059b2fb8354ae7a4dcc91c209");
+            let k1 =
+                hex_literal("1bb8dd832d483c912c39cf9b03e14b39fb9a3fb23d641ced58dfebe45107231c");
+            let at = |k: &[u8; 32]| IW_PROVEN.windows(32).position(|w| w == k).unwrap();
+            let (p0, p1) = (at(&k0), at(&k1));
+            let mut swapped = IW_PROVEN.to_vec();
+            swapped[p0..p0 + 32].copy_from_slice(&k1);
+            swapped[p1..p1 + 32].copy_from_slice(&k0);
+            let e = extract_randomizers(&swapped, &IW_AK).unwrap_err();
+            assert!(e.starts_with("[rk]"), "{e}");
         }
 
         #[test]
@@ -4468,6 +4634,7 @@ pub mod pczt_bridge {
         /// the real table rightly answers differently. They are tests of the rule, not of the date.
         const ONE_ROW: NetworkRules = NetworkRules {
             epochs: &[MAINNET.epochs[0]],
+            fees: MAINNET.fees,
             anchor: MAINNET.anchor,
         };
         /// A record entry of an NU6.3 transaction, as every record written so far is.
@@ -4693,7 +4860,14 @@ pub mod pczt_bridge {
                 height: expiry - 41,
                 unix: T_ANCHOR,
             };
-            (NetworkRules { epochs: e, anchor }, T_ANCHOR)
+            (
+                NetworkRules {
+                    epochs: e,
+                    fees: MAINNET.fees,
+                    anchor,
+                },
+                T_ANCHOR,
+            )
         }
 
         #[test]
@@ -4991,6 +5165,7 @@ pub mod pczt_bridge {
                     expiry_delta: 120,
                 },
             ],
+            fees: MAINNET.fees,
             anchor: konclave_seal::epochs::Anchor {
                 height: 3_428_143,
                 unix: T_ANCHOR,
@@ -5387,27 +5562,36 @@ pub mod pczt_bridge {
         #[test]
         fn the_fee_rule_accepts_what_an_honest_builder_makes() {
             // This fixture: an Ironwood bundle of 4 actions, 4 spends, a payment and change.
-            assert_eq!(check_fee(20_000, &[EMPTY, shape(4, 4, 2)]), Ok(20_000));
+            assert_eq!(
+                check_fee(20_000, &[EMPTY, shape(4, 4, 2)], &[5_000]),
+                Ok(20_000)
+            );
             // A fee below ZIP 317's is refused too: the network may not relay that transaction, and
             // it would sit signed with whoever built it.
-            assert!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)])
+            assert!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)], &[5_000])
                 .unwrap_err()
                 .starts_with("[fee]"));
             // One spend, a payment and change: two actions where spends and outputs share them,
             // three where the builder keeps them apart.
-            assert_eq!(check_fee(10_000, &[EMPTY, shape(2, 1, 2)]), Ok(10_000));
-            assert_eq!(check_fee(15_000, &[EMPTY, shape(3, 1, 2)]), Ok(15_000));
+            assert_eq!(
+                check_fee(10_000, &[EMPTY, shape(2, 1, 2)], &[5_000]),
+                Ok(10_000)
+            );
+            assert_eq!(
+                check_fee(15_000, &[EMPTY, shape(3, 1, 2)], &[5_000]),
+                Ok(15_000)
+            );
             // An Orchard-to-Ironwood migration: two Orchard spends paired with zero-value outputs,
             // and an Ironwood bundle whose padding spends arrive already signed.
             assert_eq!(
-                check_fee(20_000, &[shape(2, 2, 0), shape(2, 0, 1)]),
+                check_fee(20_000, &[shape(2, 2, 0), shape(2, 0, 1)], &[5_000]),
                 Ok(20_000)
             );
         }
 
         #[test]
         fn the_fee_rule_refuses_a_fee_above_zip317() {
-            let err = check_fee(25_000, &[EMPTY, shape(4, 4, 2)]).unwrap_err();
+            let err = check_fee(25_000, &[EMPTY, shape(4, 4, 2)], &[5_000]).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
         }
 
@@ -5415,14 +5599,131 @@ pub mod pczt_bridge {
         fn the_fee_rule_refuses_padding_that_raises_its_own_fee() {
             // Six actions for one spend and two outputs: their exact ZIP 317 fee would be 30000,
             // and the three extra actions are there only to raise it.
-            let err = check_fee(30_000, &[EMPTY, shape(6, 1, 2)]).unwrap_err();
+            let err = check_fee(30_000, &[EMPTY, shape(6, 1, 2)], &[5_000]).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
         }
 
         #[test]
         fn the_fee_rule_refuses_value_flowing_into_the_pool() {
-            let err = check_fee(-1, &[EMPTY, shape(2, 1, 2)]).unwrap_err();
+            let err = check_fee(-1, &[EMPTY, shape(2, 1, 2)], &[5_000]).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
+        }
+
+        #[test]
+        fn the_fee_rule_takes_the_accepted_set_and_refuses_what_is_between() {
+            // 4 actions: 5,000 x 4 = 20,000 and 1,000 x 4 = 4,000 are the two accepted fees.
+            let b = [EMPTY, shape(4, 4, 2)];
+            let both = [5_000, 1_000];
+            assert_eq!(check_fee(20_000, &b, &both), Ok(20_000));
+            assert_eq!(check_fee(4_000, &b, &both), Ok(4_000));
+            // 3,000 per action is neither: not "anything between the two".
+            let err = check_fee(12_000, &b, &both).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            // The old rate alone does not accept 1,000; the new alone does not accept 5,000.
+            assert!(check_fee(4_000, &b, &[5_000]).is_err());
+            assert!(check_fee(20_000, &b, &[1_000]).is_err());
+            // The grace floor holds at 1,000: two actions' worth, never less.
+            assert_eq!(
+                check_fee(2_000, &[EMPTY, shape(2, 1, 2)], &[1_000]),
+                Ok(2_000)
+            );
+            // Padding is still refused at the new rate.
+            assert!(check_fee(6_000, &[EMPTY, shape(6, 1, 2)], &[1_000]).is_err());
+            // No accepted set accepts nothing.
+            assert!(check_fee(20_000, &b, &[]).is_err());
+            // A rate of another era is told apart: the clock, not tampering. Padding and an
+            // off-schedule fee stay [fee] whatever the eras.
+            let known = [5_000, 1_000];
+            let err = check_fee_in_era(4_000, &b, &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[clock]"), "{err}");
+            let err = check_fee_in_era(12_000, &b, &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            let err =
+                check_fee_in_era(6_000, &[EMPTY, shape(6, 1, 2)], &[5_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            // A rate of another era ABOVE what the clock accepts is [fee], never the softer wording.
+            let err = check_fee_in_era(20_000, &b, &[1_000], &known).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+        }
+
+        /// Fixed clock: IW_PROVEN pays 20,000 in 4 actions (5,000 each).
+        #[test]
+        fn read_payment_with_judges_the_fee_by_the_clock_it_is_given() {
+            let (r, now) = rules_for_fixture();
+            // The fixture's own rules accept 5,000 (MAINNET.fees): reads.
+            assert_eq!(
+                read_payment_with(&r, IW_PROVEN, now).unwrap().fee_zat,
+                20_000
+            );
+            // A table whose only era accepts 1,000: the same bytes are refused with [fee].
+            const NEW_ONLY: NetworkRules = NetworkRules {
+                epochs: MAINNET.epochs,
+                fees: &[konclave_seal::epochs::FeeEra {
+                    from_height: 0,
+                    builds: 1_000,
+                    accepts: &[1_000],
+                }],
+                anchor: MAINNET.anchor,
+            };
+            let e =
+                read_payment_with(&NEW_ONLY, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
+            assert!(e.starts_with("[fee]"), "{e}");
+            // The same bytes against a table whose later era (not reached by this clock) accepts
+            // 5,000: a rate of another era, but ABOVE what the clock accepts, so [fee], never the
+            // softer clock wording. (A rate below it is [clock]: the synthetic 1,000 test.)
+            const LATER_ERA: NetworkRules = NetworkRules {
+                epochs: MAINNET.epochs,
+                fees: &[
+                    konclave_seal::epochs::FeeEra {
+                        from_height: 0,
+                        builds: 1_000,
+                        accepts: &[1_000],
+                    },
+                    konclave_seal::epochs::FeeEra {
+                        from_height: 4_000_000_000,
+                        builds: 5_000,
+                        accepts: &[5_000],
+                    },
+                ],
+                anchor: MAINNET.anchor,
+            };
+            let e =
+                read_payment_with(&LATER_ERA, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
+            assert!(e.starts_with("[fee]"), "{e}");
+            // A clock before the anchor is the empty window: [expiry], not [fee].
+            let e = read_payment_with(&MAINNET, IW_PROVEN, MAINNET.anchor.unix - 1).unwrap_err();
+            assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        /// SYNTHETIC: `IW_PROVEN` (4 actions, 20,000 = 5,000 each) with its value balance edited to
+        /// 4,000, i.e. 1,000 each. Its proofs and binding signature no longer match, so the network
+        /// would refuse it; it exists only so the device's READER is exercised at the ZIP 2009 rate,
+        /// which no real PCZT in the repository pays yet. The clock readings are worked out by hand
+        /// in konclave-seal (`T_F` there): 3,590,000 is estimated at 1,795,057,168.
+        #[test]
+        fn the_device_reads_a_payment_at_the_lower_rate_only_once_its_window_reaches_the_switch() {
+            const T_F: i64 = 1_795_057_168;
+            let low = patch_once(IW_PROVEN, &varint(20_000), &varint(4_000));
+            // Well before the switch: the lower rate is not one this clock allows yet.
+            let e = read_payment_with(&MAINNET, &low, T_F - 120_000).unwrap_err();
+            assert!(e.starts_with("[clock]"), "{e}");
+            // The window straddles the switch, and after it: both rates read.
+            for now in [T_F - 100_000, T_F + 30 * 86_400] {
+                assert_eq!(
+                    read_payment_with(&MAINNET, &low, now).unwrap().fee_zat,
+                    4_000
+                );
+                assert_eq!(
+                    read_payment_with(&MAINNET, IW_PROVEN, now).unwrap().fee_zat,
+                    20_000
+                );
+            }
+            // Off-schedule fees stay refused after the switch.
+            for off in [12_000u64, 5_000] {
+                let odd = patch_once(IW_PROVEN, &varint(20_000), &varint(off));
+                let e = read_payment_with(&MAINNET, &odd, T_F + 30 * 86_400).unwrap_err();
+                assert!(e.starts_with("[fee]"), "{off}: {e}");
+            }
         }
 
         /// 32 bytes from the middle of the payment output's encrypted note (the memo region).
@@ -5635,9 +5936,9 @@ pub mod pczt_bridge {
             // them itself again, which is how the pool question once drifted (#364).
             let src = include_str!("lib.rs");
             let body = src
-                .split("pub fn read_payment(pczt_bytes")
+                .split("pub fn read_payment_with(")
                 .nth(1)
-                .expect("read_payment exists")
+                .expect("read_payment_with exists")
                 .split("\n    }")
                 .next()
                 .unwrap();
@@ -6701,14 +7002,26 @@ mod js_pczt {
     /// Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
     /// Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
     #[wasm_bindgen(js_name = extractRandomizers)]
-    pub fn extract_randomizers(pczt: &[u8]) -> Result<Vec<u8>, JsValue> {
-        let rs = pczt_bridge::extract_randomizers(pczt).map_err(je)?;
+    pub fn extract_randomizers(pczt: &[u8], group_vk: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let ak: [u8; 32] = group_vk
+            .try_into()
+            .map_err(|_| je("the vault's group key must be 32 bytes"))?;
+        let rs = pczt_bridge::extract_randomizers(pczt, &ak).map_err(je)?;
         let mut out = Vec::with_capacity(rs.len() * 36);
         for (idx, alpha) in rs {
             out.extend_from_slice(&(idx as u32).to_le_bytes());
             out.extend_from_slice(&alpha);
         }
         Ok(out)
+    }
+
+    /// The 32-byte group verifying key of a saved `PublicKeyPackage` (the key the device signs
+    /// under), for confirming the key on record before it is used to read a transaction.
+    #[wasm_bindgen(js_name = groupKeyOfPackage)]
+    pub fn group_key_of_package(pubkeys: &[u8]) -> Result<Vec<u8>, JsValue> {
+        pczt_bridge::group_key_of_package(pubkeys)
+            .map(|k| k.to_vec())
+            .map_err(je)
     }
 
     /// The raw Orchard receiver of a unified address, hex - the approved destination in the same
@@ -6779,8 +7092,21 @@ mod js_pczt {
     /// commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
     #[wasm_bindgen(js_name = describeOutputs)]
     pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
-        let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        let outs = pczt_bridge::describe_outputs_with(&pczt_bridge::MAINNET, pczt, now_unix)
+            .map_err(je)?;
         Ok(outputs_json(&outs))
+    }
+
+    /// The fee a screen shows and reserves for a payment to `destinations`, in zatoshis, read from the
+    /// one rule (`konclave_seal::epochs`, ZIP 2009) with this device's clock. `0` when the clock
+    /// confirms no window: the caller treats that as unknown and blocks, never as a default.
+    #[wasm_bindgen(js_name = estimatedFeeZat)]
+    pub fn estimated_fee_zat(destinations: u32) -> f64 {
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        pczt_bridge::MAINNET
+            .estimated_fee(now_unix, u64::from(destinations))
+            .map_or(0.0, |f| f as f64)
     }
 
     /// What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
@@ -6791,7 +7117,9 @@ mod js_pczt {
     /// `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
     #[wasm_bindgen(js_name = readPayment)]
     pub fn read_payment(pczt: &[u8]) -> Result<String, JsValue> {
-        let p = pczt_bridge::read_payment(pczt).map_err(je)?;
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        let p =
+            pczt_bridge::read_payment_with(&pczt_bridge::MAINNET, pczt, now_unix).map_err(je)?;
         Ok(format!(
             "{{\"outputs\":{},\"feeZat\":{},\"actions\":{}}}",
             outputs_json(&p.outputs),

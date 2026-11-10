@@ -155,10 +155,7 @@ pub fn register_and_pin(
         StoredRegistration::Unreadable => return Err(RegisterPinError::Unreadable),
         StoredRegistration::Absent => {}
     }
-    let vault_id = is_lower_hex_32(group_key).ok_or(RegisterPinError::Pin(PinError::Package(
-        PackageError::NotThisVault,
-    )))?;
-    let counted = tally(pkp, &vault_id, cp, proofs).map_err(RegisterPinError::Pin)?;
+    let counted = count_new_bundle(group_key, cp, pkp, proofs)?;
     match state_with_protocol(vaults_dir, group_key, Some(cp)) {
         ReadKey::Closed => {}
         ReadKey::Unreadable => return Err(RegisterPinError::Unreadable),
@@ -276,10 +273,19 @@ pub fn pinned_digest(vaults_dir: &Path, reg: &VaultRegistration) -> Option<Strin
     Some(hex(&pkp.digest()))
 }
 
-/// Whether a bundle would count: asked before a new vault spends an address's allowance, which is for
-/// what reaches the engine. A refused bundle costs its sender nothing and nobody else anything.
-pub fn bundle_counts(group_key: &str, cp: u32, pkp: &PkpCanonical, proofs: &[SeatProof]) -> bool {
-    is_lower_hex_32(group_key).is_some_and(|id| tally(pkp, &id, cp, proofs).is_ok())
+/// The count of a NEW vault's bundle, group key included. ONE function: the registration handler
+/// counts with it, and so does the coordinator's admission before a new vault spends an address's
+/// allowance or takes a lock, so the two cannot read the key or the proofs by different rules.
+pub fn count_new_bundle(
+    group_key: &str,
+    cp: u32,
+    pkp: &PkpCanonical,
+    proofs: &[SeatProof],
+) -> Result<TallyOk, RegisterPinError> {
+    let vault_id = is_lower_hex_32(group_key).ok_or(RegisterPinError::Pin(PinError::Package(
+        PackageError::NotThisVault,
+    )))?;
+    tally(pkp, &vault_id, cp, proofs).map_err(RegisterPinError::Pin)
 }
 
 /// A registration's bundle, read for its shape only: what costs nothing runs before admission, and

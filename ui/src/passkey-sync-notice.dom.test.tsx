@@ -69,11 +69,26 @@ describe('the synced-passkey notice', () => {
     expect(screen.queryByText(en('settings.passkeySynced'))).toBeNull()
   })
 
+  // The notice already says the shortcut works only on this device and the passphrase stays the way
+  // in, which is the whole of the access note: the note shows only when the notice does not.
+  it('with the notice, the access note is not repeated under it', async () => {
+    enrol.backupEligible = true
+    await turnOn()
+    expect(screen.queryByText(en('set.accessNote'))).toBeNull()
+  })
+
+  it('without the notice, the access note is there', async () => {
+    enrol.backupEligible = false
+    await turnOn()
+    expect(screen.getByText(en('set.accessNote'))).toBeTruthy()
+  })
+
   it('removing the passkey clears the notice', async () => {
     enrol.backupEligible = true
     await turnOn()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en('set.passkeyOff') })) })
     expect(screen.queryByText(en('settings.passkeySynced'))).toBeNull()
+    expect(screen.getByText(en('set.accessNote'))).toBeTruthy()
   })
 })
 

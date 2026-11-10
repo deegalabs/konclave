@@ -179,3 +179,105 @@ export function matchesApprovedPayment(
   // Every approved line must have been paid (no missing beneficiary).
   return remaining.every((l) => l.used)
 }
+
+/** What a proposal asks to pay: the gate compares it and the screens show it. */
+export interface ApprovedPlan {
+  kind: 'payment' | 'payroll'
+  totalZat: number
+  memo?: string
+  lines: { label?: string | null; address: string; amountZat: number; memo: string; isPublic: boolean }[]
+}
+
+/** The slice of a proposal detail this reads (`getProposalDetail`'s answer). */
+export interface ProposalDetailView {
+  proposal: { kind: string; to_address?: string | null; value_zat: number; memo?: string | null; is_public?: boolean }
+  lines: { label?: string | null; address: string; value_zat: number; memo?: string | null; is_public?: boolean }[]
+}
+
+const isAmount = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) > 0
+
+/**
+ * Decide by `kind`, and refuse an answer that does not hold together: a payment with lines, a payroll
+ * with none, or whose lines do not sum to its value. The coordinator writes a payment with no lines
+ * and a payroll with no address, so an honest vault never lands here. Null means refuse: nothing to
+ * show as approved and nothing to compare.
+ */
+export function approvedPlanOf(detail: ProposalDetailView): ApprovedPlan | null {
+  const { proposal: p, lines } = detail
+  if (!isAmount(p.value_zat)) return null
+  const memo = p.memo ?? undefined
+  if (p.kind === 'payment') {
+    const address = addressText(p.to_address)
+    if (lines.length > 0 || !address) return null
+    return {
+      kind: 'payment', totalZat: p.value_zat, memo,
+      lines: [{ address, amountZat: p.value_zat, memo: p.memo ?? '', isPublic: !!p.is_public }],
+    }
+  }
+  if (p.kind === 'payroll') {
+    if (lines.length === 0 || addressText(p.to_address)) return null
+    if (!lines.every((l) => isAmount(l.value_zat) && addressText(l.address))) return null
+    if (lines.reduce((sum, l) => sum + l.value_zat, 0) !== p.value_zat) return null
+    return {
+      kind: 'payroll', totalZat: p.value_zat, memo,
+      lines: lines.map((l) => ({ label: l.label, address: addressText(l.address), amountZat: l.value_zat, memo: l.memo ?? '', isPublic: !!l.is_public })),
+    }
+  }
+  return null
+}
+
+/** The lines the gate compares, from the plan the screens show. `decode` is `uaReceiver` in the WASM,
+ *  injected so this stays pure. The memo is part of what was approved (#610): no memo is the empty one. */
+export function approvedLinesFor(plan: ApprovedPlan, decode: (address: string) => string): ApprovedLine[] {
+  return plan.lines.map((l) => ({ toReceiver: decode(l.address), amountZat: l.amountZat, memo: l.memo }))
+}
+
+/** The proposal a screen was reached from. */
+export interface SeenProposal { kind: string; to_address?: string | null; value_zat: number; memo?: string | null }
+
+function samePlan(a: ApprovedPlan, b: ApprovedPlan): boolean {
+  const key = (p: ApprovedPlan) => JSON.stringify([p.kind, p.totalZat, p.lines.map((l) => [l.address, l.amountZat, l.memo])])
+  return key(a) === key(b)
+}
+
+/**
+ * The plan after a new reading of a proposal, or null. It has to agree with the proposal it was
+ * reached from and with any earlier reading, and a refusal stays.
+ */
+export function planAfterRead(
+  seen: SeenProposal,
+  previous: ApprovedPlan | null | undefined,
+  detail: ProposalDetailView,
+): ApprovedPlan | null {
+  if (previous === null) return null
+  const plan = approvedPlanOf(detail)
+  if (!plan) return null
+  if (previous && !samePlan(previous, plan)) return null
+  if (seen.kind !== plan.kind || seen.value_zat !== plan.totalZat) return null
+  if (plan.kind === 'payment') {
+    const line = plan.lines[0]
+    if (addressText(seen.to_address) !== line?.address || (seen.memo ?? '') !== line.memo) return null
+  }
+  return plan
+}
+
+/** Each proposal's last reading in this session, shared by every screen and the signer. */
+const planMemory = new Map<string, ApprovedPlan | null>()
+
+/** `planAfterRead` against the session's memory of this proposal. The one call screens and signer make. */
+export function readPlan(id: string, seen: SeenProposal, detail: ProposalDetailView): ApprovedPlan | null {
+  const plan = planAfterRead(seen, planMemory.get(id), detail)
+  planMemory.set(id, plan)
+  return plan
+}
+
+/** Refuse this proposal for the rest of the session, on what the screens and the signer read. */
+export function refusePlan(id: string): null {
+  planMemory.set(id, null)
+  return null
+}
+
+/** For tests: a new session. */
+export function forgetPlansForTests(): void {
+  planMemory.clear()
+}

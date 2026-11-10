@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { codeAt } from './source-scan'
 import { proposalsReadable } from './net-proposals'
@@ -22,7 +23,7 @@ describe('proposalsReadable', () => {
   })
 
   it('is what NetVault asks before it loads the proposals', () => {
-    const code = codeAt(new URL('./screens/NetVault.tsx', import.meta.url).pathname)
+    const code = codeAt(fileURLToPath(new URL('./screens/NetVault.tsx', import.meta.url)))
     expect(code).toMatch(/helperConfigured\(\) && groupVk && proposalsReadable\(phase, hostedState\)\) void loadProposals\(\)/)
   })
 })

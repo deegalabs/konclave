@@ -92,6 +92,22 @@ FROST signing share, matching the Zcash Foundation's frost-client pattern.
   to register the write keys, so read-gate (#388) and write-auth (#288) migrate in one guided flow.
   No key change, no re-creation, funds untouched.
 
+### Amendment, 2026-11-08: seat certificates for new vaults (ADR-0012)
+
+Recorded, not rewritten. For vaults created under creation protocol 3 (v0.18.0 on):
+- **D1** (the share reserved for the threshold signature): the share also signs the room messages and
+  one seat certificate per seat ([ADR-0012](0012-seat-certificates.md)).
+- **D3** (bind the first roster claim to a signed device key): a device key cannot close it alone; for
+  new vaults the seat certificate closes it; for vaults that exist the race stays open (the 2026-10-06
+  amendment below).
+- **A1** stays rejected for governance writes; ADR-0012 adopts a narrower form for binding a device to
+  a seat.
+- **Consequences** ("signs threshold transactions and nothing else"; "no redpallas verifier needed in
+  the helper"): superseded; the coordinator now verifies RedPallas seat certificates.
+- **Follow-up** (move room authentication off the share): not done; room authentication stays on the
+  share and its code moved into `konclave-seal`.
+- A certificate proves a seat, not who holds the comms key named in it.
+
 ### Amendment, 2026-10-06: what D4 and D5 actually guarantee
 
 Two sentences above were stronger than the code, and are corrected here rather than rewritten, so the

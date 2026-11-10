@@ -42,6 +42,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
+  2026-11-08 00:06 UTC
+  ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
+  For a vault with no read key yet, `POST /api/vault/readkey` registered the first key it received,
+  with no proof of membership. Whoever set it could then read the vault's gated routes, fetch its
+  viewing key (`/api/vault/ufvk`) and claim its unregistered seats (`/api/vault/devicekey`), and the
+  members' own read key answered `401`; nothing could be spent. Since the coordinator of 2026-11-08 a
+  new vault is created under creation protocol 3 and opens nothing until `t` seats' certificates agree
+  on one package and one read-key hash (ADR-0012), and no vault takes a first read key any more. At the
+  fix, none of the vaults checked on the hosted coordinator was without a read key (one, belonging to a
+  user outside the project, was not opened). The hosted coordinator has run this
+  since 2026-11-08 00:06 UTC.
 - **A new vault must be created with the current app.** The coordinator requires creation
   protocol 3 of every new vault registration, and `/api/health` reports it (`client.creation: 3`);
   an older app is answered `update_required`: from 0.13.0 it tells its member to update, an older
@@ -83,8 +95,29 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
 
+### Added
+
+- **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
+  trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
+  bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
+  own field, never as the memo, and returned on the reads. A payroll without one, a single payment,
+  and every proposal stored before this version carry no `title` key, so an older reader sees the
+  same record. It is a label: no signature covers it yet (#567). Not yet on the hosted coordinator.
+
 ### Changed
 
+- **The coordinator can be told how many proxies in front of it to trust**, with the relay's
+  setting and the same meaning (`KONCLAVE_TRUSTED_PROXY_HOPS`; `DEPLOY.md`). Unset, which is how it
+  runs, nothing changes. A value it does not understand stops the coordinator at boot, before it
+  reads the vaults, and the boot log and `/api/health` (`trusted_proxy_hops`) say which rule is in
+  force. The log also says, once per length, how many values a request's header carried (a count,
+  never an address).
+- **A registration whose members' proofs do not count is answered before anything else.** The
+  coordinator checks a new vault's proofs once, before the sender's allowance and the vault's lock, and
+  answers a set that does not count right there, with the same answer as before. At most four such
+  checks run at once across the service; past that it answers `503` with `busy: service`, which the app
+  retries. Registrations that count are unchanged. This takes effect when the coordinator is next built
+  and deployed.
 - **How long a send waits for the devices is the operator's setting.** The coordinator waits for
   `KONCLAVE_SEND_MAX_POLLS` polls (one a second when the relay answers at once, longer when it does not): default 300, from 120 to 600. Below 120,
   zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log

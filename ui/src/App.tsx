@@ -15,6 +15,7 @@ import Proposal from './screens/Proposal'
 import Proposals from './screens/Proposals'
 import Activity from './screens/Activity'
 import Ledger from './screens/Ledger'
+import Analyses from './screens/Analyses'
 import Members from './screens/Members'
 import People from './screens/People'
 import Vaults from './screens/Vaults'
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/activity" element={<Activity />} />
           <Route path="/proposals" element={<Proposals />} />
           <Route path="/ledger" element={<Ledger />} />
+          <Route path="/analyses" element={<Analyses />} />
           <Route path="/ceremonies" element={<Ceremonies />} />
           <Route path="/members" element={<Members />} />
           <Route path="/people" element={<People />} />

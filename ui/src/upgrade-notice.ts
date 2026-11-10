@@ -7,6 +7,10 @@
 //
 // It does not know whether the coordinator has been updated, and says nothing that depends on it: it
 // tells of the upgrade, that payments pause around it, and that nothing is lost.
+//
+// No screen shows it since 2026-11-07: NU7 activated at block 3,543,405, payments after it are proven
+// on mainnet, and the dashboard's notice was removed with its text. The rule stays so the next upgrade
+// can show one again from the same epoch table.
 
 /** How many blocks before the upgrade the notice starts (about the length of the pause for a pool
  *  crossing, six hours at 75 s a block). */

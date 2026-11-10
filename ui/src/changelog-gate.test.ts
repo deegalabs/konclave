@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -74,7 +75,7 @@ describe('which changelog a change must touch', () => {
     //
     // This is not hypothetical: all three new changelogs were written that way and caught by
     // running `--notes` rather than by reading them. A missing file fails the same way, quietly.
-    const repo = join(new URL('.', import.meta.url).pathname, '..', '..')
+    const repo = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
     for (const [, file] of OWNERS) {
       const md = readFileSync(join(repo, file), 'utf8')
       expect(md.includes('[Unreleased]'), `${file} has no "## [Unreleased]" the release script can find`).toBe(true)

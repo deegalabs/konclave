@@ -262,7 +262,7 @@ mod tests {
     }
 
     /// One client is one budget however its address is written. The text of an address reaches the
-    /// limits only through `client_address`, which hands back the canonical value, so the two
+    /// limits only through `request_client_address`, which hands back the canonical value, so the two
     /// spellings share the flood allowance and the new-vault one. The first pair is an IPv4 client
     /// written as an IPv4-mapped IPv6 address in a forwarded header and as plain IPv4 on the
     /// socket, which only `to_canonical` joins; the second differs in the case of a hex digit.
@@ -270,12 +270,12 @@ mod tests {
     fn two_spellings_of_one_address_share_one_budget() {
         let pairs = [
             (
-                konclave_http::client_address(["::ffff:203.0.113.7"], None),
-                konclave_http::client_address([], Some("203.0.113.7")),
+                konclave_http::request_client_address(["::ffff:203.0.113.7"], None),
+                konclave_http::request_client_address([] as [&str; 0], Some("203.0.113.7")),
             ),
             (
-                konclave_http::client_address(["2001:DB8::1"], None),
-                konclave_http::client_address(["2001:db8::1"], None),
+                konclave_http::request_client_address(["2001:DB8::1"], None),
+                konclave_http::request_client_address(["2001:db8::1"], None),
             ),
         ];
         for (first, second) in pairs {

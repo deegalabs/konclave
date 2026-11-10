@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -20,7 +21,7 @@ import { parseSections } from '../../scripts/changelog-sections.mjs'
 //
 // That is the lesson worth the test: #540 fixed the instance and not the class. A rule nobody can
 // break by accident needs a check, not a cleanup.
-const ROOT = join(new URL('.', import.meta.url).pathname, '..', '..')
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 
 /** Every version section, as (title, its `###` headings), from the one shared parser. */
 function sections(md: string): Array<[string, string[]]> {

@@ -2,21 +2,22 @@
 // The desktop version the site names, and the installer links it builds, come from ONE constant: the
 // latest PUBLISHED pre-release. The landing named 0.8.0 for weeks after newer installers were out, one of
 // them before the device's payment check (central's map, D-03, 2026-10-15).
+import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SECTIONS } from './content'
 import { DESKTOP_VERSION } from '../desktop-release'
 import { codeOf } from '../source-scan'
 
-const SRC = new URL('../', import.meta.url).pathname
+const SRC = fileURLToPath(new URL('../', import.meta.url))
 
 /** Every app source file under ui/src, tests and the generated wasm bindings left out. */
 function sources(dir = SRC): string[] {
   return readdirSync(dir).flatMap((f) => {
     const p = join(dir, f)
     if (statSync(p).isDirectory()) return f === 'wasm-pkg' ? [] : sources(p)
-    return /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p] : []
+    return /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f) ? [p.split(sep).join('/')] : []
   })
 }
 

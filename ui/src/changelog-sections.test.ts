@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { parseSections, sectionBody, lockViolations, versionsIn, CATEGORIES } from '../../scripts/changelog-sections.mjs'
@@ -73,7 +74,7 @@ describe('the lock CLI', () => {
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { execFileSync, spawnSync } = await import('node:child_process')
-    const script = new URL('../../scripts/changelog-sections.mjs', import.meta.url).pathname
+    const script = fileURLToPath(new URL('../../scripts/changelog-sections.mjs', import.meta.url))
     const dir = mkdtempSync(join(tmpdir(), 'kc-lock-'))
     const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: dir })
     git('init', '-q')

@@ -125,6 +125,50 @@ the role-based replacements. Full old->new table + files: `components/token-mapp
 
 ---
 
+## Charts (treasury)
+
+Owner decision, 2026-11-07. The treasury screens may draw charts where a table alone hides a
+shape over time: the pace of spending, the projection of free funds, a month against the months
+before it. The brand stays an instrument, so a chart is a ruled reading of the book, not a
+dashboard tile. Everything below is a rule, not a suggestion.
+
+- **When.** Only with at least two periods to compare, and only where the shape is the point.
+  Below the history a number needs, say so in a line of text ("not enough history yet"); never
+  draw an empty or one-bar chart.
+- **At most two series, never told apart by hue.** The primary series is `--silver` (marks) with
+  `--text` figures. The second series is `--text-muted` **and must** carry a second cue: a dash, an
+  outline instead of a fill, or a direct label at the end of the line. The cue, not the tone, is
+  what tells them apart: the two tones are close (about 1.3:1 to each other in light, 1.6:1 in
+  dark), so the tone only supports. Every series mark keeps at least 3:1 against the background
+  (WCAG 1.4.11), including when a tone is changed later. No legend box of swatches; label the
+  series where they are drawn.
+- **Recorded and projected look different.** What the book records is solid; what is computed
+  forward (a projection, an expected payment) is dashed and labelled as such. A projection is
+  arithmetic over the book, and the chart must not let it pass for a record.
+- **The accent marks the focused point only.** Keyboard focus or hover on one bar or point may
+  take `--accent`; nothing else in a chart is blue. One mark at a time.
+- **Projected negative cash is `--warn`.** A balance that a projection takes below zero is a
+  warning about the future, not an error, so the part below zero is `--warn` and named in text
+  ("runs out in March at this pace"). `--danger` is never used in a chart; it stays for
+  destructive actions and errors.
+- **`--success` is never used in a chart.** Success is earned by an event (quorum met, sent,
+  confirmed), and a bar is not an event.
+- **Inflows.** Drawn only from money the vault has actually read as received; until then the chart
+  says inflows are not shown. When drawn beside outflows, inflows are the second series
+  (`--text-muted`, outlined, labelled "in"); expected inflows are dashed and labelled "expected",
+  and are never added to recorded money without saying so. Inflows are not `--success` here,
+  whatever the ledger row uses.
+- **Every number says where it came from.** The caption names the source and its limits in
+  plain words, for example: "From the vault's book. Month by proposal date. Network fee not
+  included. Incoming money not shown." The same sentence goes with the figures into any export.
+- **The numbers are always there as text.** Every chart has its figures in a table: visible
+  under the chart, or `visually-hidden` for screen readers, never only in a tooltip. A native
+  `title` tooltip may repeat a figure; it never holds one alone.
+- **Matte and still.** No animation, no draw-in, no gradient fills, no shadow. Axis labels and
+  figures in `--font-mono`; at most a zero line and a few `--line-soft` rules, no grid.
+
+---
+
 ## Typography
 
 - **Archivo** (self-hosted) - *language*: page titles (800, uppercase, tight), section
@@ -220,6 +264,7 @@ alpha-step) and the **tarja reveal**. State changes are *stamped*, not sprung.
 - Remove an input focus outline without providing a visible ring.
 - Ship a tarja or nav the keyboard cannot operate.
 - Use emoji, em-dashes, or crypto jargon (FROST/DKG/nonce/SIGHASH) in product copy.
+- Tell chart series apart by hue, or put `--success` or `--danger` in a chart.
 
 ### Always
 
@@ -233,6 +278,7 @@ alpha-step) and the **tarja reveal**. State changes are *stamped*, not sprung.
 - Self-hosted fonts, no external CDN.
 - Honest active voice; preview + explicit confirm on every money action.
 - Gate all motion on `prefers-reduced-motion`.
+- Give every chart its figures as text and a caption that says where they came from.
 
 ---
 

@@ -6,6 +6,7 @@ import { SkeletonRows } from '../skeleton'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, readTransactions, type Proposal, type WalletTx } from '../api'
+import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { rankDesk, expiredByClock, stampKey, type Band } from '../desk'
 import { settlementOf, isConfirmed } from '../settlement'
@@ -38,7 +39,7 @@ function Row({ p, band, last, personal, threshold, t, tr, open }: RowProps) {
       <div className="plist-main">
         <div className="plist-title">
           <Link to="/proposal" state={{ id: p.id }} className="plist-link" onClick={(e) => e.stopPropagation()}>
-            {p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}
+            {proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}
           </Link>
           {stamp && <span className={'plist-stamp' + (band === 'sign' ? ' sign' : '')}>{stamp}</span>}
           {last && <span className="plist-stamp sign">{t('desk.signSends')}</span>}

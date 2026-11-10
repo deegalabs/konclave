@@ -18,6 +18,11 @@ const getVault = vi.hoisted(() => vi.fn())
 const getProposals = vi.hoisted(() => vi.fn())
 const getProposalDetail = vi.hoisted(() => vi.fn())
 const readBalance = vi.hoisted(() => vi.fn())
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  // The real estimate needs the wasm, which jsdom does not load; this is the rule's figure (fee-estimate.test.ts).
+  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+}))
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()), health, getBeneficiaries, getLedger, getVault, getProposals, getProposalDetail, readBalance, IS_NET: true,
 }))

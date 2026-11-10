@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -55,7 +56,7 @@ describe('cliff.toml', () => {
 const hasCliff = (() => { try { execFileSync('git-cliff', ['--version']); execFileSync('git', ['rev-parse', 'v0.4.0', 'v0.6.0', 'v0.11.0']); return true } catch { return false } })()
 describe.skipIf(!hasCliff)('the list git-cliff writes', () => {
   const KNOWN = ['Security', 'Added', 'Fixed', 'Performance', 'Refactored', 'Documentation', 'Maintenance', 'Other']
-  const run = (range: string) => execFileSync('git-cliff', ['--config', new URL('../../cliff.toml', import.meta.url).pathname, '--strip', 'all', range], { encoding: 'utf8' })
+  const run = (range: string) => execFileSync('git-cliff', ['--config', fileURLToPath(new URL('../../cliff.toml', import.meta.url)), '--strip', 'all', range], { encoding: 'utf8' })
   it('only uses the known groups, in order, whatever the commit types', () => {
     for (const range of ['v0.4.0..v0.6.0', 'v0.10.0..v0.11.0']) {
       const heads = [...run(range).matchAll(/^### (.+)$/gm)].map((m) => m[1]!)

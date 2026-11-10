@@ -7,6 +7,12 @@ export type PeriodKind = 'all' | 'month' | 'quarter' | 'year'
 /** Unix seconds, half-open: an entry belongs when `from <= created_at < to`. */
 export type PeriodWindow = { from: number; to: number }
 
+/** An entry's creation date, or null when it has none: the local bridge sends `null` for older
+ *  proposals and the helper may leave it out, and both mean the same thing. The rules that need
+ *  "no date" told apart from a number take it from here, so a null is never read as a number. */
+export const createdAt = (e: { created_at?: number | null }): number | null =>
+  (typeof e.created_at === 'number' ? e.created_at : null)
+
 const unix = (d: Date) => Math.floor(d.getTime() / 1000)
 
 /** The window `offset` units away from the one holding `now` (0 = the current one, -1 = the previous). */
@@ -31,6 +37,9 @@ export function periodWindow(kind: PeriodKind, offset: number, now: Date = new D
 }
 
 /** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
+/** A month written long ("November 2026"): the Ledger's period and the Analyses run-out month. */
+export const monthLong = (d: Date, locale: string): string => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+
 export function periodLabel(
   kind: PeriodKind,
   offset: number,
@@ -41,7 +50,7 @@ export function periodLabel(
   const w = periodWindow(kind, offset, now)
   if (!w) return ''
   const start = new Date(w.from * 1000)
-  if (kind === 'month') return start.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+  if (kind === 'month') return monthLong(start, locale)
   if (kind === 'quarter') return quarter(Math.floor(start.getMonth() / 3) + 1, start.getFullYear())
   return String(start.getFullYear())
 }

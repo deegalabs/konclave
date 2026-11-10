@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { Secret } from '../components'
-import { vaultStatus, statusIsStale, openCountKey } from '../vault-status'
+import { vaultStatus, readAt, readIsStale, openBadgeKey } from '../vault-status'
+import { TipAnchor, TipButton, TipGroup } from '../card-tip'
 import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
@@ -21,7 +22,7 @@ import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
-import { unlockOnDevice, importAndUnlock } from '../unlock'
+import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
@@ -38,6 +39,10 @@ import '../redesign.css'
 // IndexedDB, unlocked by decrypting the share); 'local' = a local-bridge/orchestrator vault.
 type Src = 'net' | 'local'
 type Row = { v: Vault; src: Src }
+
+/** What a click on the card belongs to instead of the card: its controls, its tips, its notices, and a
+ *  badge's own words (`[data-tip]`), so a tap beside the veil on the amount is not a tap on the vault. */
+const CARD_OWN = 'button, a, input, select, textarea, [role="tooltip"], [data-tip], [role="note"]'
 
 export default function Vaults() {
   const t = useT()
@@ -153,8 +158,8 @@ export default function Vaults() {
     try {
       const b = await buildVaultBackup(id, backupPass, recs[id]?.name)
       setResumeDone((d) => ({ ...d, [id]: b }))
-    } catch {
-      setResumeMsg((m) => ({ ...m, [id]: t('vaults.unlockWrong') }))
+    } catch (e) {
+      setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(isWrongPassphrase(e))) }))
     } finally {
       setBackupPass('')
       concluding.current.delete(id)
@@ -171,7 +176,7 @@ export default function Vaults() {
       setResumeBusy(id)
       const u = await unlockOnDevice(id, 'net', resumePass).catch(() => ({ ok: false as const, wrong: true }))
       if (!u.ok) {
-        setResumeMsg((m) => ({ ...m, [id]: t(u.wrong ? 'vaults.unlockWrong' : 'vaults.unlockFail') }))
+        setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(u.wrong)) }))
         setResumePass('')
         setResumeBusy(null)
         return
@@ -331,9 +336,9 @@ export default function Vaults() {
         await openUnlocked(unlocking, used)
         return
       }
-      setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
-    } catch {
-      setUnlockErr(t('vaults.unlockWrong'))
+      setUnlockErr(t(openFailKey(r.wrong, src)))
+    } catch (e) {
+      setUnlockErr(t(openFailKey(isWrongPassphrase(e), src)))
     } finally {
       setUnlockBusy(false)
     }
@@ -444,6 +449,7 @@ export default function Vaults() {
 
         {(rows.length > 0 || !loaded) && <div className="rd-vlabel">{t('vaults.onThisDevice')}</div>}
 
+        <TipGroup>
         <div className="rd-grid">
           {!loaded && Array.from({ length: 2 }, (_, i) => (
             <div key={'sk' + i} className="rd-card rd-skel" aria-hidden="true">
@@ -461,11 +467,14 @@ export default function Vaults() {
             const ms = v.member_list ?? []
             const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: t('vaults.memberN', { n: i + 1 }), pubkey: '' }))
             return (
-              <div key={v.id} className="rd-card" role="button" tabIndex={0}
-                onClick={() => enter(row)} onKeyDown={activateOnKey(() => enter(row))}>
+              // Mouse only: the keyboard and a screen reader enter through "Enter →", the card's button. A
+              // click on a control inside, a tip or a notice belongs to it: ONE check here, not a
+              // stopPropagation on each.
+              <div key={v.id} className="rd-card"
+                onClick={(e) => { if (e.target instanceof Element && e.target.closest(CARD_OWN)) return; enter(row) }}>
                 <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : t('vaults.networkedTag')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
-                {v.secured === true && <span className="rd-sectag safe" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>}
-                {v.secured === false && <span className="rd-sectag open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
+                {v.secured === true && <TipButton id={`tip-${v.id}-secured`} className="rd-sectag safe" tip={t('vaults.securedHint')}>{t('vaults.securedBadge')}</TipButton>}
+                {v.secured === false && <TipButton id={`tip-${v.id}-secured`} className="rd-sectag open" tip={t('vaults.openHint')}><span aria-hidden="true">⚠ </span>{t('vaults.openBadge')}</TipButton>}
                 <h3>{v.name}</h3>
                 {plainKey[v.id] && <PlainKeyNotice vaultId={v.id} onSealed={() => setPlainKey((m) => ({ ...m, [v.id]: false }))} />}
                 <div className="rd-avatars">
@@ -473,32 +482,54 @@ export default function Vaults() {
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
                 {/* The vault's situation as this device last read it: the list reads nothing itself (a
-                    balance read makes the coordinator sync a wallet), so each figure carries its time. */}
+                    balance read makes the coordinator sync a wallet). Badges in a fixed order, so cards
+                    line up, each explaining itself; then the one time they carry. */}
                 {(() => {
                   const st = vaultStatus(v.id)
-                  const free = st && st.freeZat !== null && st.freeAt !== null
-                  const count = st && st.openCount !== null && st.proposalsAt !== null
-                  if (!st || (!free && !count)) return <div className="rd-state none">{t('vaults.stateNone')}</div>
-                  // Each figure with the time it was read: the free amount with the older of its two reads,
-                  // the count with the read of the proposals. The free figure greys past a day, by its own time.
-                  const when = (ts: number) => fmtDateTime(ts, locale)
-                  const sep = <span className="visually-hidden">, </span>
+                  const free = !!st && st.freeZat !== null && st.freeAt !== null
+                  const count = !!st && st.openCount !== null && st.proposalsAt !== null
+                  const tid = (k: string) => `tip-${v.id}-${k}`
+                  if (!st || (!free && !count)) {
+                    return (
+                      <div className="rd-figs">
+                        <div className="rd-badges">
+                          <TipButton id={tid('unread')} className="rd-badge zero" tip={t('vaults.stateNone')}>{t('vaults.badgeUnread')}</TipButton>
+                        </div>
+                      </div>
+                    )
+                  }
+                  const at = readAt(st, free)
+                  const stale = at !== null && readIsStale(at)
+                  // The amount sits under the veil inside the sentence, wherever the language puts it.
+                  const [pre, post] = t('vaults.badgeFree', { amount: '\u0000' }).split('\u0000')
                   return (
-                    <div className={'rd-state' + (statusIsStale(st) ? ' stale' : '')}>
-                      {free && (
-                        <span className="rd-state-fig">
-                          {/* The veil is a button of its own: its click must not open the vault. */}
-                          <span onClick={(e) => e.stopPropagation()}><Secret sm><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret></span>
-                          {' '}{t('vaults.stateFree', { when: when(st.freeAt!) })}{sep}
-                        </span>
-                      )}
-                      {count && <span>{t(openCountKey(st.openCount!), { n: String(st.openCount), when: when(st.proposalsAt!) })}{st.lastProposal !== null ? sep : null}</span>}
-                      {st.lastProposal !== null && <span>{t('vaults.stateLast', { when: fmtDate(st.lastProposal, locale) })}</span>}
+                    <div className={'rd-figs' + (stale ? ' stale' : '')}>
+                      <div className="rd-badges">
+                        {count && (
+                          <TipButton id={tid('open')} className={'rd-badge ' + (st.openCount === 0 ? 'zero' : 'some')} tip={t('vaults.tipOpen')}>
+                            {t(openBadgeKey(st.openCount!), { n: String(st.openCount) })}
+                          </TipButton>
+                        )}
+                        {st.lastProposal !== null && (
+                          <TipButton id={tid('last')} className="rd-badge" tip={t('vaults.tipLast')}>
+                            {t('vaults.badgeLast', { date: fmtDate(st.lastProposal, locale) })}
+                          </TipButton>
+                        )}
+                        {free && (
+                          // The veil is the one control here, so it carries the tip: on a phone it is what a finger taps.
+                          <TipAnchor id={tid('free')} tip={t('vaults.tipFree')}>
+                            {({ 'aria-describedby': describedBy, ...barEvents }) => (
+                              <span className="rd-badge">{pre}<Secret sm describedBy={describedBy} barEvents={barEvents}><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret>{post}</span>
+                            )}
+                          </TipAnchor>
+                        )}
+                      </div>
+                      {at !== null && <p className="rd-read">{t(stale ? 'vaults.readAtStale' : 'vaults.readAt', { when: fmtDateTime(at, locale) })}</p>}
                     </div>
                   )
                 })()}
                 {resumeDone[v.id] !== undefined && (
-                  <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
+                  <div className="cv-warn" role="note">
                     <strong>{t('vaults.resumeDone')}</strong>
                     {resumeDone[v.id] ? (
                       <div style={{ marginTop: 8 }}>
@@ -535,7 +566,7 @@ export default function Vaults() {
                   const oldFlow = !!rec && !isCurrentFlow(rec)
                   const stopped = !!rec?.abandoned
                   return (
-                  <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
+                  <div className="cv-warn" role="note">
                     <strong>{v.pending ? t('vaults.pendingBadge') : t('vaults.resumeBadge')}</strong>{' '}
                     {v.pending && !(canResume && rec.allSaved) ? t('vaults.pendingHint') : t('vaults.resumeHint')}
                     {oldFlow && <p style={{ marginTop: 8 }}>{t('vaults.resumeOldFlow')}</p>}
@@ -622,11 +653,13 @@ export default function Vaults() {
                   <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
                 </CodeFirst>
-                <span className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></span>
+                <button type="button" className="rd-enter" aria-label={t('vaults.enterNamed', { name: v.name })} onClick={() => enter(row)}>
+                  {t('vaults.enter')} <span className="arw" aria-hidden="true">→</span>
+                </button>
                 {row.src === 'net' && (
                   <button type="button" className="rd-remove"
                     title={t('dashboard.deleteThisVaultDesc')}
-                    onClick={(e) => { e.stopPropagation(); setRemoving(row); setRemoveWord(''); setRemoveErr(false) }}>
+                    onClick={() => { setRemoving(row); setRemoveWord(''); setRemoveErr(false) }}>
                     {t('dashboard.deleteThisVault')}
                   </button>
                 )}
@@ -634,6 +667,7 @@ export default function Vaults() {
             )
           })}
         </div>
+        </TipGroup>
 
         {loaded && rows.length === 0 && !deviceUnread && !bridgeUnread && (
           <div className="rd-empty">{t('vaults.empty')}</div>

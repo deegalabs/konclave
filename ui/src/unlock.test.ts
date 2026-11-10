@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { unlockWith, type UnlockDeps } from './unlock'
+import { isWrongPassphrase, openFailKey, unlockWith, type UnlockDeps } from './unlock'
+import { codeOf } from './source-scan'
+import { storageError } from './storage-errors'
 
 const ID = 'a'.repeat(64)
 
@@ -8,7 +10,7 @@ function deps(over: Partial<UnlockDeps> = {}) {
   const base = {
     calls,
     loadVault: async (id: string, pass: string) => {
-      if (pass !== 'right') throw new Error('seal refused')
+      if (pass !== 'right') throw storageError('wrong-passphrase-saved', 'seal refused')
       calls.push(`loadVault:${id}`)
       return { share: 'S' } as never
     },
@@ -30,6 +32,13 @@ describe('unlockOnDevice', () => {
     expect(await unlockWith(d, ID, 'net', 'right')).toEqual({ ok: true })
     expect(d.calls).toContain(`setUnlockedShare:${ID}`)
     expect(d.calls).toContain(`markVaultUnlocked:${ID}`)
+  })
+
+  it('does not call a storage fault a wrong passphrase', async () => {
+    const d = deps({ loadVault: async () => { throw storageError('no-storage', 'no idb') } })
+    expect(await unlockWith(d, ID, 'net', 'right')).toEqual({ ok: false, wrong: false })
+    const e = deps({ loadVault: async () => { throw new Error('quota') } })
+    expect(await unlockWith(e, ID, 'net', 'right')).toEqual({ ok: false, wrong: false })
   })
 
   it('reports a wrong passphrase as wrong', async () => {
@@ -107,6 +116,38 @@ describe('unlockOnDevice', () => {
       await new Promise((r) => setTimeout(r, 0))
       expect(adopted, JSON.stringify(loaded)).toBe(adopts ? 1 : 0)
     }
+  })
+})
+
+describe('the sentence for a vault that did not open', () => {
+  it('names the passphrase only when the seal refused', () => {
+    expect(openFailKey(true)).toBe('vaults.unlockWrong')
+    expect(openFailKey(false)).toBe('vaults.openFailed')
+    expect(openFailKey(false, 'local')).toBe('vaults.unlockFail')
+    expect(isWrongPassphrase(new Error('x'))).toBe(false)
+  })
+  it('every screen asks this one decision', () => {
+    for (const f of ['./LockOverlay.tsx', './screens/SigningPanel.tsx', './screens/Vaults.tsx', './PlainKeyNotice.tsx', './screens/Settings.tsx']) {
+      expect(codeOf(f), f).toContain('openFailKey(')
+      expect(codeOf(f), f).not.toMatch(/t\('vaults\.unlockWrong'\)/)
+    }
+  })
+})
+
+// A vault's id is its group key; the console is read by extensions and copied into bug reports.
+describe('the unlock logs', () => {
+  it('name the vault by its first 8 characters only', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await unlockWith(deps({ loadVault: async () => { throw new Error('quota') } }), ID.replace(/^a{8}/, 'b'.repeat(8)), 'net', 'right')
+    await unlockWith(deps({ registerThisDevice: async () => { throw new Error('offline') } }), ID.replace(/^a{8}/, 'b'.repeat(8)), 'net', 'right')
+    await new Promise((r) => setTimeout(r, 0))
+    const logged = JSON.stringify(err.mock.calls)
+    err.mockRestore()
+    const id = ID.replace(/^a{8}/, 'b'.repeat(8))
+    expect(logged).toContain('did not open')
+    expect(logged).toContain('could not register')
+    expect(logged).toContain(id.slice(0, 8))
+    expect(logged).not.toContain(id)
   })
 })
 

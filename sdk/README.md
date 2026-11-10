@@ -179,7 +179,9 @@ const pczt: Uint8Array = /* proven PCZT from your wallet (Konclave: the blind he
 // 1) "What am I signing?" - read what the transaction really pays and confirm it against the
 //    approved proposal BEFORE signing. readPayment checks every output against its note commitment,
 //    an address label against the receiver it pays, opens each paying output for its memo, and
-//    bounds the fee by ZIP 317; it throws a refusal ("[fee] ...", "[commitment] ...") otherwise.
+//    bounds the fee by ZIP 317 at the rates the device's own clock allows (5,000 zatoshis per action,
+//    and 1,000 as well from block 3,590,000 under ZIP 2009); it throws a refusal ("[fee] ...",
+//    "[commitment] ...") otherwise.
 //    Reading the outputs any other way reads what the signature does not cover.
 const { outputs, feeZat } = JSON.parse(readPayment(pczt)) as {
   outputs: { address: string | null; value: number | null; recipient: string | null; memo: string | null }[]
@@ -192,7 +194,8 @@ const { outputs, feeZat } = JSON.parse(readPayment(pczt)) as {
 const sighash = pcztSighash(pczt)
 
 // 3) Each real Orchard spend has its own (index, alpha). One ceremony per record.
-const rand = extractRandomizers(pczt) // flat 36-byte records: u32-LE index + 32-byte alpha
+const rand = extractRandomizers(pczt, groupVk) // flat 36-byte records: u32-LE index + 32-byte alpha;
+// groupVk is the vault's group key as YOUR device holds it, never a value from the request; every spend is checked against it
 for (let off = 0; off + 36 <= rand.length; off += 36) {
   const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
   const alpha = rand.slice(off + 4, off + 36)

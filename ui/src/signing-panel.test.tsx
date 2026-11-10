@@ -11,7 +11,8 @@ const PAY_UA = 'utest1cx3tarwlxt8vw60ugpddnsjemj3aum5nhkwpdyy0kn0urhhq27lu0q3ajv
 const CHG_RCV = '8dfd0a5e'
 const OUTSIDER = 'cacacaca'
 
-const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean; share: unknown; armed: boolean; signedBefore: unknown } = {
+const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean; share: unknown; armed: boolean; signedBefore: unknown; feeReady: boolean } = {
+  feeReady: true,
   bg: {},
   ours: () => false,
   share: undefined,
@@ -26,11 +27,18 @@ vi.mock('./VaultSigner', () => ({
     threshold: 2,
     myName: 'Ana',
     active: { id: 'p1', kind: 'payment', to_address: PAY_UA, value_zec: '1', state: 'ready' },
+    plan: { kind: 'payment', totalZat: 100_000_000, lines: [{ address: PAY_UA, amountZat: 100_000_000, memo: '', isPublic: false }] },
     open: () => {}, close: () => {}, reseat: () => {}, armed: state.armed,
     unarmActive: async () => {}, armActive: async () => {}, armedUntil: null,
     isOurReceiver: (r: string | null) => state.ours(r),
     signedBefore: state.signedBefore,
   }),
+}))
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  // The real estimate needs the wasm and an effect; a static render runs neither. The rule's figure
+  // (fee-estimate.test.ts): three actions at 5,000 for one payee.
+  useFeeEstimate: () => (state.feeReady ? { state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) } : { state: 'unavailable' }),
 }))
 vi.mock('./session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session')>()),
@@ -43,7 +51,6 @@ vi.mock('./toast', () => ({ useToast: () => ({ show: () => {}, ok: () => {}, err
 const { I18nProvider } = await import('./i18n')
 const { default: SigningPanel, SignConfirm } = await import('./screens/SigningPanel')
 const { signAgainState, againFromPanel } = await import('./sign-again')
-const { estimatedFeeZat } = await import('./fee-estimate')
 const { codeOf } = await import('./source-scan')
 
 // A payment with a label, the vault's change, and an unlabelled output to someone else.
@@ -231,7 +238,7 @@ describe('whether a device may sign again', () => {
   })
   it('the panel asks through againFromPanel, with what it knows', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
-    expect(src).toMatch(/againFromPanel\(\{\s*refusedAsSigned: signAgain, armed, ready: bg\.ready, quorumHere, phase: bg\.phase, sending, arming, shortZat,\s*sent: !!sent, unresolved: !!unresolved, checking,\s*\}\)/)
+    expect(src).toMatch(/againFromPanel\(\{\s*refusedAsSigned: signAgain, armed, ready: bg\.ready && !!plan, quorumHere, phase: bg\.phase, sending, arming, shortZat,\s*sent: !!sent, unresolved: !!unresolved, checking,\s*\}\)/)
     expect(src).not.toContain('signAgainState(')
   })
   it('says why when it cannot offer it yet', () => {
@@ -349,7 +356,7 @@ describe('the confirm for signing again', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/void doSign\(\{ again: confirming === 'again' \}\)/)
     expect(src).toMatch(/await armActive\(\{ again: opts\.again \}\)/)
-    expect(src).toMatch(/onClick=\{\(\) => \{ refreshRate\(\); setConfirming\('again'\) \}\}/)
+    expect(src).toMatch(/onClick=\{\(\) => \{ refreshRate\(\); openConfirm\('again'\) \}\}/)
   })
 })
 
@@ -380,9 +387,22 @@ describe('what the panel shows before signing', () => {
     const html = render({})
     expect(html).toContain(PAY_UA)
     expect(html).toContain('Network fee')
-    expect(html).toContain('0.0001 ZEC')
+    expect(html).toContain('0.00015 ZEC')
     expect(html).toContain('Leaves the vault')
-    expect(html).toContain('1.0001 ZEC')
+    expect(html).toContain('1.00015 ZEC')
+  })
+  it('shows no fee and no total while the estimate is unavailable, and still lets the member sign', () => {
+    state.armed = false
+    state.feeReady = false
+    try {
+      const html = render({})
+      expect(html).toContain(PAY_UA)
+      expect(html).not.toContain('Network fee')
+      expect(html).not.toContain('Leaves the vault')
+      expect(html).not.toContain('NaN')
+    } finally {
+      state.feeReady = true
+    }
   })
   it('says the fee is an estimate, and why, and names the destination for a screen reader', () => {
     state.armed = false
@@ -405,16 +425,13 @@ describe('what the panel shows before signing', () => {
   it('marks the fee box when the vault is short, and costs a payroll only once its lines are known', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/className=\{'p-cost' \+ \(shortZat > 0 \? ' short' : ''\)\}/)
-    expect(src).toMatch(/const feeKnown = !isPayroll \|\| payrollLines !== null/)
+    expect(src).toMatch(/const feeKnown = !!plan && feeEst !== null/)
   })
-  it('one estimate of the fee, used by every screen that shows one', () => {
-    expect(estimatedFeeZat(1)).toBe(10_000)
-    expect(estimatedFeeZat(0)).toBe(10_000)
-    expect(estimatedFeeZat(3)).toBe(20_000)
+  it('one estimate of the fee, used by every screen that shows one (figures in fee-estimate.test.ts)', () => {
     for (const f of ['./screens/SigningPanel.tsx', './screens/Proposal.tsx', './screens/NewPayroll.tsx']) {
       const src = codeOf(f)
       expect(src, f).not.toMatch(/5_?000 \* Math\.max/)
-      expect(src, f).toContain('estimatedFeeZat(')
+      expect(src, f).toContain('useFeeEstimate()')
     }
   })
 })

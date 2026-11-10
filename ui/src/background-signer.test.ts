@@ -5,9 +5,8 @@
 // the same fixpoint the live signer uses.
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it, afterAll } from 'vitest'
-import init, { DkgSession, identifierBytes } from './wasm-pkg/konclave_wasm.js'
-import { bytesEqual } from './net'
-import { dkgProvenPczt } from './demo-vector'
+import init from './wasm-pkg/konclave_wasm.js'
+import { dkg2of3, dkgProvenPczt, dkgVaultKey } from './rekeyed-vault'
 import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
@@ -29,24 +28,6 @@ afterAll(unpinClock)
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
 })
-
-function dkg2of3() {
-  const N = 3, T = 2
-  const ids = [1, 2, 3].map((i) => identifierBytes(i))
-  const sessions = ids.map((id) => new DkgSession(id, N, T))
-  const r1 = sessions.map((s) => s.round1Package())
-  sessions.forEach((s, i) => r1.forEach((pkg, j) => { if (i !== j) s.addRound1(ids[j]!, pkg) }))
-  sessions.forEach((s) => s.part2())
-  sessions.forEach((s, i) => {
-    for (let k = 0; k < s.round2Count(); k++) {
-      const j = ids.findIndex((id) => bytesEqual(id, s.round2Recipient(k)))
-      sessions[j]!.addRound2(ids[i]!, s.round2Package(k))
-    }
-  })
-  sessions.forEach((s) => s.part3())
-  const [s0, s1] = sessions as [DkgSession, DkgSession, DkgSession]
-  return { s0, s1, groupVk: s0.groupVk(), pubkeys: s0.pubkeys() }
-}
 
 interface Wire { seq: number; from: string; data: string }
 class Bus {
@@ -95,7 +76,7 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
 }
 
 function requestFor(pczt: Uint8Array): string {
-  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+  const spends = parseAlphas(pczt, dkgVaultKey()).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
   return JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) })
 }
 

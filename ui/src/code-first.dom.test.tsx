@@ -21,11 +21,15 @@ describe('the code before the address', () => {
     fireEvent.click(screen.getByText(dict['set.viewingCodeSeen']!))
     expect(on).toHaveBeenCalledTimes(1)
   })
-  it('a click in it does not reach the card behind it, and it asks for every group', () => {
+  // The card it sits on keeps ONE guard for what is its own (#779): the note does not swallow a click,
+  // it says what it is, and the host's guard skips anything inside a note.
+  it('a click in it reaches the host, from inside a note; and it asks for every group', () => {
     const behind = vi.fn()
     render(<I18nProvider><div onClick={behind}><CodeFirst code="AAAAA" compared={false} onCompared={() => {}}><span /></CodeFirst></div></I18nProvider>)
-    fireEvent.click(screen.getByText(dict['set.viewingCodeSeen']!))
-    expect(behind).not.toHaveBeenCalled()
+    const seen = screen.getByText(dict['set.viewingCodeSeen']!)
+    fireEvent.click(seen)
+    expect(behind).toHaveBeenCalledTimes(1)
+    expect(seen.closest('[role="note"]')).not.toBeNull()
     expect(screen.getByText(dict['set.viewingCodeHintFull']!)).toBeTruthy()
   })
   it('once compared, or with no code to compare, the address shows and the card does not', () => {
@@ -62,5 +66,21 @@ describe('the seats a device names', () => {
     expect(mySeatName(undefined, 2, 'Renamed')).toBe('Renamed')
     expect(mySeatName(['Own1'], undefined, 'Renamed')).toBe('Renamed')
     expect(mySeatName(['Own1'], 5, null)).toBe(null)
+  })
+})
+
+describe('the viewing code never splits a group', () => {
+  const code = 'ABCDE-FGHJK-MNPQR-STVWX-YZ012'
+  it('each group of five is one unbreakable piece, and the code reads the same', () => {
+    const { container } = render(<I18nProvider><CodeFirst code={code} compared={false} onCompared={() => {}}><span /></CodeFirst></I18nProvider>)
+    const box = container.querySelector('.fp-code')!
+    expect(box.classList.contains('grouped')).toBe(true)
+    const shown = box.querySelector('[aria-hidden="true"]')!
+    expect([...shown.querySelectorAll('.fp-grp')].map((g) => g.textContent)).toEqual(['ABCDE-', 'FGHJK-', 'MNPQR-', 'STVWX-', 'YZ012'])
+    // A line may break between groups, and only there.
+    expect(shown.querySelectorAll('wbr').length).toBe(4)
+    expect(shown.textContent).toBe(code)
+    // A screen reader gets the code whole, as before, not five fragments.
+    expect(box.querySelector('.visually-hidden')!.textContent).toBe(code)
   })
 })

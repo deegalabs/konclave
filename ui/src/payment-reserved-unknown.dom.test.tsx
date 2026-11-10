@@ -8,6 +8,11 @@ const en = (k: string): string => dict[k] ?? k
 // B: open proposals not read yet counted as nothing reserved (`reservedZatOf(null)` was 0), so the
 // payment screen offered the whole balance while the reservation was unknown. Unread blocks.
 localStorage.setItem('konclave.locale', 'en')
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  // The real estimate needs the wasm, which jsdom does not load; this is the rule's figure (fee-estimate.test.ts).
+  useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
+}))
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
   health: async () => true,
