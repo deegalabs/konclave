@@ -106,6 +106,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **A new vault must be created with the current app (creation protocol 4).** A registration that
+  declares an older creation protocol is refused with `update_required`, which the app shows as
+  "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep
+  working.
 - **The coordinator can be told how many proxies in front of it to trust**, with the relay's
   setting and the same meaning (`KONCLAVE_TRUSTED_PROXY_HOPS`; `DEPLOY.md`). Unset, which is how it
   runs, nothing changes. A value it does not understand stops the coordinator at boot, before it
