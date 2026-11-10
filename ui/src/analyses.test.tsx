@@ -42,7 +42,7 @@ describe('RunwayPanel', () => {
     expect(html).toContain('3.5 months')
     expect(html).toContain('<svg')
     expect(html).toContain(SOURCE.replace("'", '&#x27;'))
-    expect(html).toContain('At this pace the free funds are gone by March 2027.')
+    expect(html).toContain('At this pace the free funds would run out by March 2027.')
   })
 
   it('subtracts what open proposals hold before it divides', () => {
@@ -64,7 +64,18 @@ describe('RunwayPanel', () => {
     expect(html).toContain('1.0000 ZEC a month')
     expect(html).not.toMatch(/\d\.\d months/)
     expect(html).not.toContain('<svg')
-    expect(html).toContain('The balance could not be read')
+    // the band above names why; the panel does not repeat or contradict it (busy, no wallet, failed)
+    expect(html).toContain('Shown once the balance is read.')
+    expect(html).not.toContain('could not be read')
+    expect(html).toContain('class="chart-src"')
+  })
+
+  it('says nothing is free now, not a month ahead, when open proposals hold it all', () => {
+    const html = wrap(<RunwayPanel bal={bal(ZEC)} rows={[...book, p('ready', 2 * ZEC, at(2026, 10, 5))]} now={NOW} revealed t={t} locale="en" />)
+    expect(html).toContain(say('analyses.noFreeNow'))
+    expect(html).not.toContain('would run out')
+    expect(html).not.toMatch(/\d\.\d months/)
+    expect(html).not.toContain('<svg')
   })
 
   it('says why there is no runway when nothing left the vault', () => {
@@ -72,6 +83,7 @@ describe('RunwayPanel', () => {
     const html = wrap(<RunwayPanel bal={bal(ZEC)} rows={quiet} now={NOW} revealed t={t} locale="en" />)
     expect(html).toContain('Nothing left the vault in the last three complete months')
     expect(html).not.toContain('<svg')
+    expect(html).toContain('class="chart-src"')
     // the missing runway is said, not left as a bare dash for a screen reader
     expect(html).toContain('<span aria-hidden="true">-</span><span class="visually-hidden">Not available</span>')
   })
@@ -88,13 +100,15 @@ describe('RunwayPanel', () => {
     expect(html).not.toContain('<svg')
     expect(html).not.toContain('<table')
     expect(html).toContain('Amounts are hidden')
-    expect(html).toContain('are gone by')
+    expect(html).toContain('would run out by')
     expect(html).toContain('class="chart-src"')
   })
 
   it('names the outgoing payments it could not date', () => {
     const html = wrap(<RunwayPanel bal={bal(10 * ZEC)} rows={[...book, p('sent', ZEC, undefined)]} now={NOW} revealed t={t} locale="en" />)
-    expect(html).toContain('1 outgoing payments have no date')
+    expect(html).toContain('1 outgoing payment has no date')
+    const two = wrap(<RunwayPanel bal={bal(10 * ZEC)} rows={[...book, p('sent', ZEC, undefined), p('sent', ZEC, undefined)]} now={NOW} revealed t={t} locale="en" />)
+    expect(two).toContain('2 outgoing payments have no date')
   })
 })
 
@@ -157,7 +171,7 @@ describe('the screen', () => {
   })
   it('says nothing about the balance or the book until the first read has answered', () => {
     expect(src).toMatch(/\{loaded && <BalanceBand /)
-    expect(src).toMatch(/\{loaded && <RunwayPanel /)
+    expect(src).toMatch(/\{loaded && \(\s*<section className="an-sec mt"/)
   })
   it('has its route, and is reached from the Ledger, not from the menu', () => {
     expect(codeOf('App.tsx')).toMatch(/<Route path="\/analyses" element=\{<Analyses \/>\} \/>/)

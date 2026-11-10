@@ -103,11 +103,11 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             </b>
           </dd>
           <dd className="by">
-            {run.kind === 'months' ? t('analyses.runwayHow') : run.kind === 'no-spend' ? t('analyses.noSpend') : t('analyses.balanceUnread')}
+            {t(run.kind === 'months' ? 'analyses.runwayHow' : run.kind === 'no-spend' ? 'analyses.noSpend' : run.kind === 'none-free' ? 'analyses.noFreeNow' : 'analyses.runwayAwaitsBalance')}
           </dd>
         </div>
       </dl>
-      {burn.undated > 0 && <p className="hint">{t('analyses.undated', { n: burn.undated })}</p>}
+      {burn.undated > 0 && <p className="hint">{t(burn.undated === 1 ? 'analyses.undatedOne' : 'analyses.undated', { n: burn.undated })}</p>}
       {run.kind === 'months' && proj && free !== null && (revealed
         ? (
           <FundsLine
@@ -180,10 +180,12 @@ export default function Analyses() {
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
       {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} t={t} />}
-      <section className="an-sec mt" aria-labelledby="an-runway">
-        <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
-        {loaded && <RunwayPanel bal={view.bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />}
-      </section>
+      {loaded && (
+        <section className="an-sec mt" aria-labelledby="an-runway">
+          <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
+          <RunwayPanel bal={view.bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />
+        </section>
+      )}
       <PageFooter>
         <span className="dim pushr">{t('analyses.foot')}</span>
       </PageFooter>

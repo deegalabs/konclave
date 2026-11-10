@@ -73,6 +73,8 @@ export type Runway =
   /** No pace (not enough history, or no book read), or the balance or the proposals have not been read. */
   | { kind: 'unknown' }
   | { kind: 'no-spend' }
+  /** Nothing is free now (open proposals hold it all, or the vault is empty): gone now, not next month. */
+  | { kind: 'none-free' }
   /** Months the free funds last at the pace, in tenths, rounded down (33 = 3.3 months). */
   | { kind: 'months'; tenths: number }
 
@@ -82,6 +84,7 @@ export function runway(bal: Bal, proposals: readonly Proposal[] | null, burn: Bu
   if (burn.kind !== 'rate' || free === null) return { kind: 'unknown' }
   if (burn.zatPerMonth <= 0) return { kind: 'no-spend' }
   const f = Math.max(0, free)
+  if (f === 0) return { kind: 'none-free' }
   // Whole months, then the tenths of the remainder: never multiplies the free funds, so it stays
   // exact even for a balance near the whole supply.
   const whole = Math.floor(f / burn.zatPerMonth)
