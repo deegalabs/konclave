@@ -363,6 +363,13 @@ describe('a vault of protocol 3', () => {
     expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
   })
 
+  it('without a bundle, a pinned answer with another quorum is still refused', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.getVault.mockResolvedValue({ ...(h.served as object), threshold: 1 })
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    expect(h.adopt).not.toHaveBeenCalled()
+  })
+
   it('without a bundle stays refused on a vault not pinned, or pinned to another package', async () => {
     h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
     for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {

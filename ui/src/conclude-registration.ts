@@ -104,12 +104,14 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   const protocol3 = cp >= FIRST_PINNING_PROTOCOL
   const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
   const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
+  // Only a 404 says the coordinator holds no such vault; any other empty read is the network's case.
+  const readSaysMissing = () => lastReadFailure('/api/vault')?.reason === 'missing'
   // A device with no bundle never posts. It finishes only on a vault others pinned to its package, read
   // once: that answer is the vault. No answer is not "not pinned": only a 404 says the coordinator holds none.
   let v: HelperVault | null
   if (protocol3 && !rec.pinBundle) {
     const known = await getVault(rec.groupKey)
-    if (!known && lastReadFailure('/api/vault')?.reason !== 'missing') return { refused: 'unreachable' }
+    if (!known && !readSaysMissing()) return { refused: 'unreachable' }
     if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
     v = known
   } else {
@@ -126,7 +128,7 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
       const known = await getVault(rec.groupKey)
       if (known && pinnedHere(known)) v = known
       // No answer is not "no such vault": only a 404 says the coordinator holds none.
-      else if (!known && lastReadFailure('/api/vault')?.reason !== 'missing') return { refused: 'unreachable' }
+      else if (!known && !readSaysMissing()) return { refused: 'unreachable' }
       else return { refused: 'update', older: true }
     }
   }
