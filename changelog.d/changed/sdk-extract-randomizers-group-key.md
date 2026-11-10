@@ -1,1 +1,0 @@
-- **`extractRandomizers(pczt, groupVk)` in the SDK now takes the vault's 32-byte group key as its second argument.** A call with one argument is refused.
