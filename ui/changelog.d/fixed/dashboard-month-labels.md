@@ -1,0 +1,1 @@
+- The month labels under the Dashboard's spending bars follow the app's language rather than the browser's, lose the trailing period some languages add ("nov." now reads "nov"), and January carries its year ("jan '27").

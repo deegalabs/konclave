@@ -34,7 +34,8 @@ vi.mock('./pin-digest', () => ({ ownPkpDigest: async () => h.digest }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
 const { concludeRegistration, refusalKey } = await import('./conclude-registration')
-const { isCurrentFlow, sameCoordinator } = await import('./creation-protocol')
+const { recordRead } = await import('./read-failure')
+const { isCurrentFlow, sameCoordinator, CREATION_PROTOCOL } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)
 const BUNDLE = JSON.stringify({ pkp: 'aa', proofs: [] })
@@ -54,6 +55,7 @@ beforeEach(() => {
   h.adopt.mockImplementation(async () => ({ state: 'verified', address: 'u1served' }))
   h.served = { vault_id: GK, address: 'u1served', threshold: 2, total: 2, state: 'pinned', pkp_digest: 'd1' }
   h.getVault.mockResolvedValue(null)
+  recordRead('/api/vault', null)
   h.registerVault.mockImplementation(async () => h.served)
   h.listVaults.mockResolvedValue([rec()])
   h.getUnlockedShare.mockReturnValue(session())
@@ -115,7 +117,7 @@ describe('each refusal keeps the record and says its own thing', () => {
   it('update: the coordinator asks for a newer app', async () => {
     h.registerVault.mockResolvedValue(null)
     h.failure = { status: 409, updateRequired: true }
-    h.listVaults.mockResolvedValue([rec3()])
+    h.listVaults.mockResolvedValue([rec3({ cp: CREATION_PROTOCOL })])
     expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: false })
     kept()
   })
@@ -308,10 +310,71 @@ describe('a vault of protocol 3', () => {
     expect(h.registerThisDevice).toHaveBeenCalled()
   })
 
+  // A vault of an earlier pinning protocol that the coordinator already registered: the app moved on,
+  // and the coordinator now asks for the newer one, but this vault exists and is pinned to this device's
+  // package. Telling the member not to fund it would be false; it finishes like a device with no bundle.
+  it('asked to update, a vault already pinned to this package finishes instead', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    h.getVault.mockResolvedValue(h.served)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.registerThisDevice).toHaveBeenCalled()
+  })
+
+  it('asked to update, a vault not pinned to this package still says update', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
+      h.getVault.mockResolvedValue(answer)
+      // The coordinator answered that it holds no such vault (404).
+      recordRead('/api/vault', answer ? null : 'missing')
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'update', older: true })
+    }
+  })
+
+  // The read that would tell whether the vault is pinned here did not get an answer: nothing is known,
+  // so the member is not told the vault must not be funded; it is the network's case, and a retry decides.
+  it('asked to update, a read that did not get an answer is the network, not "do not fund"', async () => {
+    h.registerVault.mockResolvedValue(null)
+    h.failure = { status: 403, updateRequired: true }
+    h.getVault.mockResolvedValue(null)
+    for (const reason of ['offline', 'timeout', 'unavailable', 'malformed', 'denied'] as const) {
+      recordRead('/api/vault', reason)
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
+    }
+  })
+
+  // One read decides it: the vault this device just saw pinned to its package is the answer, and a second
+  // read that fails (or a failure some earlier post left behind) does not turn it into "do not fund".
+  it('without a bundle, the vault it saw pinned is the answer, whatever a second read or an old post says', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.failure = { status: 403, updateRequired: true } // left by an earlier post
+    h.getVault.mockResolvedValueOnce(h.served).mockResolvedValueOnce(null)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.getVault).toHaveBeenCalledTimes(1)
+  })
+
+  it('without a bundle, a read that got no answer is the network, and only a 404 is "not pinned"', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.getVault.mockResolvedValue(null)
+    recordRead('/api/vault', 'unavailable')
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
+    recordRead('/api/vault', 'missing')
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
+  })
+
+  it('without a bundle, a pinned answer with another quorum is still refused', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.getVault.mockResolvedValue({ ...(h.served as object), threshold: 1 })
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    expect(h.adopt).not.toHaveBeenCalled()
+  })
+
   it('without a bundle stays refused on a vault not pinned, or pinned to another package', async () => {
     h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
     for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
       h.getVault.mockResolvedValue(answer)
+      recordRead('/api/vault', answer ? null : 'missing') // the coordinator answers 404 for a vault it does not hold
       expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
     }
     expect(h.registerVault).not.toHaveBeenCalled()

@@ -227,18 +227,18 @@ zcash_client_backend = "0.24.0-rc.1"
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
 date        = "2026-11-10"
-commit      = "670a1683"
+commit      = "39b5059a"
 line        = "released crates.io (pczt 0.10.0 / zcash_client_backend 0.25.0 / zcash_primitives 0.31.0 / zcash_protocol 0.11.0, NU7 at 3,543,405)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
-sha256 = "33e731a1c1d34ac90c972cfed944263c97cfbc278f6591673da45d487dbb067d"
-bytes  = 8228304
-role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); built from commit 670a1683, byte-identical to its build from the local commit 60e1525f deployed on 2026-11-09"
+sha256 = "8942888e09694b3e1f4576353f5cc00de169951c2896011839c93e80bcac5184"
+bytes  = 8228424
+role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); built from commit 39b5059a (v0.19.0), byte-identical to its build from the staging tip fef808b9 that ran the v0.19.0 validation"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "d4c25211319ad52297395dd20bc4a4b9b2a22a1d137fce777e8963a87cad3990"
+sha256 = "cb685fe25cf465e2ab1969cec23897c5421925715df9d836b731d5c6a8e0040c"
 bytes  = 3985176
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
@@ -257,7 +257,22 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
-# The current [deploy_build] is the coordinator at commit 670a1683, the squash merge of #902 on staging
+# The current [deploy_build] is the coordinator of v0.19.0, commit 39b5059a: the merge commit of #917
+# (staging -> main), built on 2026-11-10 from a clean worktree at that commit, deployed to staging and
+# then to production by the maintainer on 2026-11-10 (Railway deployment e0139e06; `/api/health`
+# reports 39b5059a, built 2026-11-10T21:12:49Z). helper-server and konclave-signer were built from that
+# commit; zcash-devtool and zcash-sign are the files above, unchanged. Since 670a1683 the service code
+# changed only in konclave-seal (#910: `spends_to_sign_for`, which the signer does not call; the signer
+# calls `spends_to_sign`, unchanged), so the signer's bytes moved and its behaviour did not. The same
+# signer ran on staging from the tip fef808b9, where the v0.19.0 validation sent a payroll on mainnet.
+# The sha256 above are those of the files in the deploy folder (`sha256sum -c` before the `railway up`);
+# they were NOT hashed inside the running container. The relay was not redeployed: its digest inputs
+# did not change, and it reports source_digest 68c687b62bc3d547.
+# PREVIOUS DEPLOY RECORD (commit 670a1683, 2026-11-10), kept as comments: helper-server sha256
+# d4c25211319ad52297395dd20bc4a4b9b2a22a1d137fce777e8963a87cad3990, 3985176 bytes; konclave-signer sha256
+# 33e731a1c1d34ac90c972cfed944263c97cfbc278f6591673da45d487dbb067d, 8228304 bytes; zcash-devtool and
+# zcash-sign the same as today. Its own record read:
+# The [deploy_build] then was the coordinator at commit 670a1683, the squash merge of #902 on staging
 # (after #901, 9fa21d15), built on 2026-11-10 from a clean worktree at that commit and deployed to
 # production by the maintainer on 2026-11-10 (Railway deployment a75aed43; `/api/health` reports 670a1683,
 # built 2026-11-10T12:04:42Z). zcash-devtool and zcash-sign are the files above, unchanged. helper-server

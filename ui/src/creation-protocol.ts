@@ -2,6 +2,8 @@
 // relay room's name and the coordinator registration all read. 2 is the creation core of v0.12.0, in
 // which every member confirms the vault before anything secret is exchanged; the earlier flow had no
 // number (and its room was named without one).
+// 3 (v0.18.0) pins the vault at creation. 4 reads the room PIN in one canonical form (the app-made
+// PIN, its check digit, spaces ignored), which changes the room a PIN derives, so it is a new number.
 //
 // The coordinator refuses a registration that does not carry it, so a vault made by an outdated
 // cached app never gets an address. Self-declared on purpose: it stops honest members on an old
@@ -9,14 +11,19 @@
 import { helperConfigured } from './helper'
 import { addressText } from './approved-payment'
 
-export const CREATION_PROTOCOL = 3
+export const CREATION_PROTOCOL = 4
+
+/** The first protocol whose vaults are pinned at creation (the viewing code, the receivers derived on
+ *  the device, the coordinator's pinned registration). This file and the registration read it; the other
+ *  "from protocol 3" rules still write the 3, and stay correct for every later protocol. */
+export const FIRST_PINNING_PROTOCOL = 3
 
 /** What this app does about the coordinator's minimum. From protocol 3 it starts only on a coordinator
  *  that announces at least this app's own protocol: a lower number, or no answer, is `blocked`, never a
  *  silent fall back. One function, so the screen does not choose the reason. */
 export function creationVerdict(own: number, min: number | null): 'ok' | 'blocked' | 'update' {
   if (min !== null && Number.isInteger(min) && min > own) return 'update'
-  if (own >= 3) return min !== null && Number.isInteger(min) && min >= own ? 'ok' : 'blocked'
+  if (own >= FIRST_PINNING_PROTOCOL) return min !== null && Number.isInteger(min) && min >= own ? 'ok' : 'blocked'
   return min === null || min <= own ? 'ok' : 'update'
 }
 
@@ -41,13 +48,13 @@ export function protocolOfRecord(r: { cp?: number; threshold?: number; total?: n
 
 /** Whether a member still has the viewing code to compare before this vault's address is shown. */
 export function mustCompareCode(r: { cp?: number; receiversState?: string; viewingFingerprint?: string; codeCompared?: boolean } | undefined): boolean {
-  return !!r && (r.cp ?? 0) >= 3 && r.receiversState === 'verified' && !!r.viewingFingerprint && !r.codeCompared
+  return !!r && (r.cp ?? 0) >= FIRST_PINNING_PROTOCOL && r.receiversState === 'verified' && !!r.viewingFingerprint && !r.codeCompared
 }
 
 /** The address a device may show for its record. Protocol 3: only what it verified, on a finished
  *  vault whose code the member compared, never what a record merely holds. Older vaults: what the record holds. */
 export function verifiedAddress(r: { cp?: number; threshold?: number; total?: number; address?: unknown; receiversState?: string; pending?: boolean; viewingFingerprint?: string; codeCompared?: boolean }): string {
-  if ((protocolOfRecord(r) ?? 0) < 3) return addressText(r.address)
+  if ((protocolOfRecord(r) ?? 0) < FIRST_PINNING_PROTOCOL) return addressText(r.address)
   return r.receiversState === 'verified' && !r.pending && !mustCompareCode(r) ? addressText(r.address) : ''
 }
 
@@ -58,7 +65,7 @@ export function verifiedAddress(r: { cp?: number; threshold?: number; total?: nu
  *  already holds is idempotent, so the wide reading costs nothing. The one place this is decided. */
 export function resumable(r: { cp?: number; threshold?: number; total?: number; address?: unknown; pending?: boolean; abandoned?: string; receiversState?: string }): boolean {
   // Protocol 3: pending is what says it is unfinished, since the address may be written before it ends.
-  const unfinished = (r.cp ?? 0) >= 3 ? !!r.pending : !addressText(r.address)
+  const unfinished = (r.cp ?? 0) >= FIRST_PINNING_PROTOCOL ? !!r.pending : !addressText(r.address)
   // A refusal over receivers it already holds is the repair's; one with none can simply try again.
   const refused = r.receiversState === 'refused' && !!addressText(r.address)
   return isCurrentFlow(r) && !r.abandoned && !refused && unfinished && helperConfigured()
