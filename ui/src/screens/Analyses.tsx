@@ -2,40 +2,48 @@
 // not from the menu, until the menu is reworked.
 //
 // It adds no number of its own. The balance band is `balanceParts`, the same split the payment
-// screen gates on; the pace, the runway and the projection are `treasury-metrics.ts`; the chart is
-// `FundsLine`, which follows the chart rule in STYLE.md. Every reading says its limits in the words
-// the metrics module states them: month by proposal date, network fee not included, incoming money
-// not shown. Below three complete months it says there is not enough history and draws nothing.
+// screen gates on, and the balance is read the way the Dashboard reads it (`readBalance`, with
+// `nextBalanceView` keeping the last one through a busy read). The pace, the runway and the
+// projection are `treasury-metrics.ts`; the chart is `FundsLine`, which follows the chart rule in
+// STYLE.md. Every reading says its limits in the words the metrics module states them: month by
+// proposal date, network fee not included, incoming money not shown. Below three complete months it
+// says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { getBalance, getLedger, getVault, ledgerReadFailure, type Balance, type Proposal } from '../api'
+import { getLedger, getVault, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
 import { analysesReport, exportAnalyses } from '../analysesReport'
 import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
-import { fmtZecExact, zatToZec } from '../format'
+import { fmtZatExact } from '../format'
 import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
+import { monthLong } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
-import { burnRate, projection, runway } from '../treasury-metrics'
+import { burnRate, projection, runway, runwayNoteKey } from '../treasury-metrics'
+import { nextBalanceView, type BalanceView } from '../useVaultBalance'
 import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
-const zec = (zat: number) => fmtZecExact(Number(zatToZec(zat)))
-/** A month as the axis and the warning write it. Short months lose the period some locales add
- *  ("nov."), and January carries its two-digit year, so an axis that crosses a year says so. */
-const month = (unix: number, locale: Locale, long = false) => {
+const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
+/** A month as the axis writes it. Short months lose the period some locales add ("nov."), and
+ *  January carries its two-digit year, so an axis that crosses a year says so. */
+const month = (unix: number, locale: Locale) => {
   const d = new Date(unix * 1000)
-  if (long) return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
   const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
   return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
 }
 
-/** The vault's balance in its parts. Nothing is drawn from a balance that was not read. */
-export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: readonly Proposal[] | null; t: TFn }) {
-  if (!bal || bal.total_zat == null) return <p className="hint">{t('analyses.balanceUnread')}</p>
+/** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
+ *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
+export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
+  bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
+}) {
+  if (!bal || bal.total_zat == null) {
+    const why = busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
+    return <p className="hint" role="status">{t(why)}</p>
+  }
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
   if (reserved === null) return null
@@ -54,6 +62,9 @@ export function BalanceBand({ bal, rows, t }: { bal: Balance | null; rows: reado
         </dl>
         <span className="db-reveal"><RevealButton /></span>
       </div>
+      {/* The held amount is capped at what can be spent; when proposals hold more, say so. */}
+      {parts.overCommitted && <p className="hint warn sm" role="status">{t('dashboard.overCommitted')}</p>}
+      {busy && <p className="hint sm" role="status">{t('wallet.busyKept')}</p>}
     </div>
   )
 }
@@ -74,13 +85,13 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
   const run = runway(bal, rows, burn)
   const proj = projection(bal, rows, burn, now)
   const free = freeZatOf(bal, rows)
-  const runsOut = proj && proj.runsOutIndex !== null ? month(proj.points[proj.runsOutIndex]!.from, locale, true) : null
+  const runsOut = proj && proj.runsOutIndex !== null ? monthLong(new Date(proj.points[proj.runsOutIndex]!.from * 1000), locale) : null
   return (
     <>
       <dl className="an-figs">
         <div>
           <dt className="klab">{t('analyses.pace')}</dt>
-          <dd><Secret sm label={t('analyses.pace')}><b className="mono">{t('analyses.paceValue', { zec: zec(burn.zatPerMonth) })}</b></Secret></dd>
+          <dd><Secret sm label={t('analyses.pace')}><b className="mono">{t('analyses.paceValue', { zec: fmtZatExact(burn.zatPerMonth) })}</b></Secret></dd>
           <dd className="by">{t('analyses.paceHow')}</dd>
         </div>
         <div>
@@ -93,11 +104,11 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             </b>
           </dd>
           <dd className="by">
-            {run.kind === 'months' ? t('analyses.runwayHow') : run.kind === 'no-spend' ? t('analyses.noSpend') : t('analyses.balanceUnread')}
+            {t(runwayNoteKey(run))}
           </dd>
         </div>
       </dl>
-      {burn.undated > 0 && <p className="hint">{t('analyses.undated', { n: burn.undated })}</p>}
+      {burn.undated > 0 && <p className="hint">{t(burn.undated === 1 ? 'analyses.undatedOne' : 'analyses.undated', { n: burn.undated })}</p>}
       {run.kind === 'months' && proj && free !== null && (revealed
         ? (
           <FundsLine
@@ -129,7 +140,8 @@ export default function Analyses() {
   const readable = useVaultReadable()
   const { revealed } = useReveal()
   const [rows, setRows] = useState<Proposal[] | null>(null)
-  const [bal, setBal] = useState<Balance | null>(null)
+  const [view, setView] = useState<BalanceView>({ bal: null, busy: false })
+  const [unwired, setUnwired] = useState(false)
   const [unread, setUnread] = useState(false)
   const [attempt, setAttempt] = useState(0)
   // Nothing is said about the balance or the book until the first read answers: before it, both
@@ -150,10 +162,11 @@ export default function Analyses() {
       inFlight = true
       if (first) begin()
       try {
-        const [l, b, v] = await Promise.all([getLedger(), getBalance(), first ? getVault() : Promise.resolve(null)])
+        const [l, b, v] = await Promise.all([getLedger(), readBalance(), first ? getVault() : Promise.resolve(null)])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
-        if (b) setBal(b)
+        setView((x) => nextBalanceView(x, b))
+        if (b && typeof b === 'object') setUnwired(!b.configured)
         if (v) setVaultName(v.name)
       } finally {
         inFlight = false
@@ -174,7 +187,7 @@ export default function Analyses() {
     setExportFailed(false)
     setExported(false)
     try {
-      const report = analysesReport({ bal, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale })
+      const report = analysesReport({ bal: view.bal, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale })
       if (await exportAnalyses(report, kind, locale)) setExported(true)
       else setExportFailed(true)
     } catch {
@@ -208,14 +221,15 @@ export default function Analyses() {
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
-      {loaded && <BalanceBand bal={bal} rows={rows} t={t} />}
-      <section className="an-sec mt" aria-labelledby="an-runway">
-        <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
-        {loaded && <RunwayPanel bal={bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />}
-      </section>
+      {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} t={t} />}
+      {loaded && (
+        <section className="an-sec mt" aria-labelledby="an-runway">
+          <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
+          <RunwayPanel bal={view.bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />
+        </section>
+      )}
       <PageFooter>
         <span className="dim pushr">{t('analyses.foot')}</span>
-        <Link className="link" to="/ledger">{t('ledger.title')}</Link>
       </PageFooter>
     </main>
   )

@@ -44,7 +44,7 @@ describe('analysesReport', () => {
     // now, then one point for each of the six months ahead
     expect(r.sections[3]!.rows.map((x) => x.label)).toEqual(['now (November 2026)', 'December 2026', 'January 2027', 'February 2027', 'March 2027', 'April 2027', 'May 2027'])
     expect(r.sections[3]!.rows[1]!.source).toContain('Projected, not recorded')
-    expect(r.sections[3]!.note).toBe('At this pace the free funds are gone by March 2027.')
+    expect(r.sections[3]!.note).toBe('At this pace the free funds would run out by March 2027.')
   })
 
   it('carries no pace, runway or projection below three complete months, and says why', () => {
@@ -60,6 +60,21 @@ describe('analysesReport', () => {
     expect(r.sections[0]!.note).toContain('The balance could not be read')
     expect(r.sections[2]!.rows[1]!).toMatchObject({ label: 'Runway', value: '-' })
     expect(r.sections.map((s) => s.title)).not.toContain('Projection')
+    // the runway's line is the screen's, not a second "could not be read"
+    expect(r.sections[2]!.rows[1]!.source).toBe(t('analyses.runwayAwaitsBalance'))
+  })
+
+  it('says nothing is free now, as the screen does, when open proposals hold it all', () => {
+    const r = report({ bal: bal(ZEC), rows: [...book, p('ready', 2 * ZEC, at(2026, 10, 5))] })
+    expect(r.sections[2]!.rows[1]!).toMatchObject({ label: 'Runway', value: '-', source: t('analyses.noFreeNow') })
+    expect(r.sections.map((s) => s.title)).not.toContain('Projection')
+  })
+
+  it('writes one undated payment in the singular', () => {
+    const one = report({ rows: [...book, p('sent', ZEC, undefined)] })
+    expect(one.sections[1]!.note).toBe(t('analyses.undatedOne', { n: 1 }))
+    const two = report({ rows: [...book, p('sent', ZEC, undefined), p('sent', ZEC, undefined)] })
+    expect(two.sections[1]!.note).toBe(t('analyses.undated', { n: 2 }))
   })
 })
 
@@ -73,7 +88,7 @@ describe('the two files say the same thing', () => {
     }
     expect(html).toContain(r.limits)
     for (const s of r.sections) if (s.note) expect(html).toContain(`<p class="note">${s.note}</p>`)
-    expect(html).toContain('gone by March 2027')
+    expect(html).toContain('would run out by March 2027')
     expect(analysesHtml(report({ rows: [] }), 'en')).toContain('Not enough history yet')
     expect(html).toContain('Caixa &lt;da&gt; comunidade')
     expect(html).not.toContain('<da>')
@@ -102,4 +117,9 @@ it('adds no rule of its own', () => {
   expect(src).toMatch(/from '\.\/treasury-metrics'/)
   expect(src).toMatch(/from '\.\/balance-parts'/)
   expect(src).not.toMatch(/'sent'|'confirmed'/)
+  // the runway's sentence and the long month are the screen's own, from one place each
+  expect(src).toMatch(/runwayNoteKey\(run\)/)
+  expect(codeOf('screens/Analyses.tsx')).toMatch(/t\(runwayNoteKey\(run\)\)/)
+  expect(src).toMatch(/import \{ monthLong \} from '\.\/period'/)
+  expect(src).not.toMatch(/month: 'long'|analyses\.balanceUnread'\) \}$/m)
 })

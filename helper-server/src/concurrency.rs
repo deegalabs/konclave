@@ -198,6 +198,13 @@ impl VaultLocks {
         Self::default()
     }
 
+    /// How many vaults have a write lock in the map. For tests only: a name that was never a vault
+    /// must not be kept here.
+    #[cfg(test)]
+    pub fn held(&self) -> usize {
+        self.locks.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
     /// The lock for `vault`. Callers hold the returned `Arc` for as long as they hold its guard.
     pub fn for_vault(&self, vault: &str) -> Arc<Mutex<()>> {
         let mut map = self.locks.lock().unwrap_or_else(|e| e.into_inner());

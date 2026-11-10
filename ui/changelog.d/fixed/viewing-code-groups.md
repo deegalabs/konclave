@@ -1,1 +1,0 @@
-- The viewing code on a vault card no longer breaks in the middle of a group of five on a narrow screen: a line breaks only between groups, so the code reads out the way it is compared.
