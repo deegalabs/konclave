@@ -56,6 +56,67 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.19.0] 2026-11-10
+
+> **Services deployed when this was cut (2026-11-10):** coordinator `670a1683`, relay `68c687b62bc3d547`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **`konclave-seal` reads the spends of a transaction a device signs through the vault's own key.** Each spend is checked against that key before the device takes part, and one that is not under it refuses the whole transaction.
+- **A new vault's first read key could be set by anyone who knew the vault's id, from 2026-08-30
+  until 2026-11-08 00:06 UTC
+  ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
+  Before a member's device registered a vault's read key, the coordinator accepted the first one from
+  any caller that knew the vault id: the relay, someone holding the invite, or a member could learn it
+  during the creation. Whoever set it first could read that vault's books through the coordinator
+  (balance, history, proposals with their destinations, amounts and memos, ledger, members), obtain
+  the vault's viewing key, and register devices in the seats no member had registered yet; the
+  members' own reads and registrations were refused. It never allowed spending: signing needs the
+  members' shares. For a vault made by a current app the window was usually seconds; a vault that
+  never registered a read key stayed exposed until it got one or until the fix. Since v0.18.0 a new vault stays closed
+  until its members' seat certificates agree on one package and one read key (ADR-0012), and no vault
+  takes a first read key any more. **How to tell:** if your vault's books open on every member's
+  device, it was not affected; if not, see the advisory before funding it. We have no report that this
+  was used. At the fix, none of the vaults we checked on the hosted coordinator was without a read
+  key; one, belonging to a user outside the project, was not opened for the check. Vaults created
+  before keep their rules.
+
+### Added
+
+- **A payroll's name has a home in the shared core (#296).** The coordinator's proposal record
+  carries an optional `title`, and its one rule (`orchestrator::helper::payroll_title`: trimmed, at
+  most 120 characters, no control or bidirectional characters) is applied by the coordinator. What a
+  member sees is in [ui/CHANGELOG.md](ui/CHANGELOG.md) and
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The desktop's local bridge names a
+  payroll from its description, as before.
+
+### Changed
+
+- **The network fee rule has one home, and follows ZIP 2009 by the block height the device's clock allows (#847).** The fee per
+  action (5,000 zatoshis, and 1,000 from mainnet block 3,590,000 under ZIP 2009, Proposed) lives in
+  one table in the shared crate, beside the network-upgrade rows; the device's signing check and the
+  app's fee estimate both read it. Source scans fail the build when the Rust crates or the app write
+  the fee constants, a marginal fee or the switch height in the forms they know (the coordinator's
+  two files are excused until it reads the table).
+  The desktop app carries the same device check as the web app: see the app's changelog. The
+  coordinator still builds at 5,000.
+- **`extractRandomizers(pczt, groupVk)` in the SDK now takes the vault's 32-byte group key as its second argument.** A call with one argument is refused.
+
+### Known limits
+
+- **Until the coordinator switches, vault payments pay 5,000 zatoshis per action after block
+  3,590,000 and can be told apart on the chain** from wallets that follow ZIP 2009. The plan is for
+  the coordinator to build at 1,000 only for a vault whose every device accepts that rate; that is not
+  built yet.
+- **The desktop app has no updater (#606)**, so a desktop install that is not updated by hand keeps
+  refusing 1,000-zatoshi payments, and under that plan its vault keeps paying 5,000.
+- **A proposal's reservation holds its amount, not its fee.** So a proposal can fit in the free
+  balance the vault shows and still not fit once the fee is added. When open proposals add up to
+  more than the vault can spend, the dashboard says so.
+
 ## [0.18.0] 2026-11-08
 
 > **Services deployed when this was cut (2026-11-08):** coordinator `a2818df5`, relay `ba546740f3d136f5`.

@@ -72,6 +72,9 @@ export {
   /**
    * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT:
    * a flat buffer of 36-byte records (u32-LE index + 32-byte alpha), one ceremony per record.
+   * Takes the vault's 32-byte group key as the SECOND argument (`extractRandomizers(pczt, groupVk)`),
+   * your own, never one read from the request: each spend is checked against it, and a transaction
+   * with a spend that is not under it, or whose key is unusable, throws (`[rk]`, `[alpha]`, `[vaultkey]`).
    */
   extractRandomizers,
   /**

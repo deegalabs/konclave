@@ -12,7 +12,8 @@ import { balanceParts, freeZatOf, reservedZatOf } from './balance-parts'
 import { downloadBlob } from './download'
 import { zatToZec } from './format'
 import type { Locale, TFn } from './i18n'
-import { BURN_MONTHS, burnRate, monthlyOutflows, projection, runway } from './treasury-metrics'
+import { monthLong } from './period'
+import { BURN_MONTHS, burnRate, monthlyOutflows, projection, runway, runwayNoteKey } from './treasury-metrics'
 
 export type ReportRow = { label: string; value: string; unit: string; source: string }
 export type ReportSection = { title: string; rows: ReportRow[]; note?: string }
@@ -24,7 +25,8 @@ export type AnalysesReport = {
   labels: { title: string; vault: string; generated: string; figure: string; value: string; unit: string; source: string }
 }
 
-const longMonth = (unix: number, locale: Locale) => new Date(unix * 1000).toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+/** A month from its unix time, through the one long-month rule in period.ts. */
+const monthAt = (unix: number, locale: Locale) => monthLong(new Date(unix * 1000), locale)
 
 export function analysesReport(input: {
   bal: Balance | null
@@ -59,13 +61,13 @@ export function analysesReport(input: {
     const months = monthlyOutflows(rows, now, BURN_MONTHS).months
     sections.push({
       title: t('analyses.secMonths'),
-      rows: months.map((m) => zec(m.outZat, longMonth(m.from, locale), t('analyses.srcMonth'))),
-      note: burn.undated > 0 ? t('analyses.undated', { n: burn.undated }) : undefined,
+      rows: months.map((m) => zec(m.outZat, monthAt(m.from, locale), t('analyses.srcMonth'))),
+      note: burn.undated > 0 ? t(burn.undated === 1 ? 'analyses.undatedOne' : 'analyses.undated', { n: burn.undated }) : undefined,
     })
     const run = runway(bal, rows, burn)
     const runRow: ReportRow = run.kind === 'months'
-      ? { label: t('analyses.runway'), value: (run.tenths / 10).toFixed(1), unit: t('analyses.unitMonths'), source: t('analyses.runwayHow') }
-      : { label: t('analyses.runway'), value: '-', unit: '', source: run.kind === 'no-spend' ? t('analyses.noSpend') : t('analyses.balanceUnread') }
+      ? { label: t('analyses.runway'), value: (run.tenths / 10).toFixed(1), unit: t('analyses.unitMonths'), source: t(runwayNoteKey(run)) }
+      : { label: t('analyses.runway'), value: '-', unit: '', source: t(runwayNoteKey(run)) }
     sections.push({ title: pace, rows: [zec(burn.zatPerMonth, t('analyses.pace'), t('analyses.paceHow')), runRow] })
     const proj = run.kind === 'months' ? projection(bal, rows, burn, now) : null
     const free = freeZatOf(bal, rows)
@@ -73,10 +75,10 @@ export function analysesReport(input: {
       sections.push({
         title: t('analyses.secProjection'),
         rows: [
-          zec(free, `${t('analyses.now')} (${longMonth(Math.floor(now.getTime() / 1000), locale)})`, t('analyses.srcFree')),
-          ...proj.points.map((pt) => zec(pt.balanceZat, longMonth(pt.from, locale), t('analyses.srcProjected'))),
+          zec(free, `${t('analyses.now')} (${monthAt(Math.floor(now.getTime() / 1000), locale)})`, t('analyses.srcFree')),
+          ...proj.points.map((pt) => zec(pt.balanceZat, monthAt(pt.from, locale), t('analyses.srcProjected'))),
         ],
-        note: proj.runsOutIndex !== null ? t('analyses.runsOut', { month: longMonth(proj.points[proj.runsOutIndex]!.from, locale) }) : undefined,
+        note: proj.runsOutIndex !== null ? t('analyses.runsOut', { month: monthAt(proj.points[proj.runsOutIndex]!.from, locale) }) : undefined,
       })
     }
   }

@@ -2768,7 +2768,7 @@ pub use konclave_seal as seal;
 // which rides on `orchard` (already linked). Pinned to byte-for-byte parity with konclave-signer by
 // the same real mainnet golden vectors used to close audit C6.
 pub mod pczt_bridge {
-    use konclave_seal::spends::spends_to_sign;
+    use konclave_seal::spends::{spends_to_sign, spends_to_sign_for};
     use orchard::primitives::redpallas::{self, SpendAuth};
     use pczt::{
         roles::low_level_signer::{OrchardParseError, Signer},
@@ -2803,22 +2803,38 @@ pub mod pczt_bridge {
     // rule konclave-signer reads too: the spends still awaiting a signature, and a refusal for any
     // spend that still carries `dummy_sk`.
 
-    fn orchard_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+    type Selected = Result<Vec<(usize, [u8; 32])>, String>;
+
+    fn orchard_spends(pczt: &Pczt) -> Selected {
+        orchard_spends_with(pczt, spends_to_sign)
+    }
+
+    fn ironwood_spends(pczt: &Pczt) -> Selected {
+        ironwood_spends_with(pczt, spends_to_sign)
+    }
+
+    fn orchard_spends_with(
+        pczt: &Pczt,
+        select: impl Fn(&orchard::pczt::Bundle) -> Selected,
+    ) -> Selected {
         let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_orchard_with(|_pczt, bundle, _| {
-                r = spends_to_sign(bundle);
+                r = select(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("orchard parse: {:?}", e))?;
         r
     }
 
-    fn ironwood_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+    fn ironwood_spends_with(
+        pczt: &Pczt,
+        select: impl Fn(&orchard::pczt::Bundle) -> Selected,
+    ) -> Selected {
         let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_ironwood_with(|_pczt, bundle, _| {
-                r = spends_to_sign(bundle);
+                r = select(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("ironwood parse: {:?}", e))?;
@@ -2855,7 +2871,9 @@ pub mod pczt_bridge {
     }
 
     /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real spends
-    /// that need a FROST signature, from whichever pool the tx spends from.
+    /// that need a FROST signature, from whichever pool the tx spends from. `vault_ak` is the
+    /// device's own group key: every spend is checked against it (`spends_to_sign_for`), and the
+    /// whole answer is a refusal if any is not.
     ///
     /// This used to answer the pool question ITSELF - `if !orchard.is_empty() { return orchard }`,
     /// falling through to Ironwood - four lines below an `active_pool` it did not call (#364). Its
@@ -2864,13 +2882,33 @@ pub mod pczt_bridge {
     /// refused: the device would contribute signatures for half the spends and stay quiet about the
     /// rest. It is the repo's most repeated defect (one rule, two implementations, one of them
     /// diverged) and the diverged copy was the one the live ceremony consumes.
-    pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
+    pub fn extract_randomizers(
+        pczt_bytes: &[u8],
+        vault_ak: &[u8; 32],
+    ) -> Result<Vec<(usize, [u8; 32])>, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        // The pool is decided on the plain selection, then that pool's spends are read under the
+        // vault's key: the one place a device gets its randomizers from.
+        let for_vault = |b: &orchard::pczt::Bundle| spends_to_sign_for(b, vault_ak);
         if active_pool(&pczt)? {
-            ironwood_spends(&pczt)
+            ironwood_spends_with(&pczt, for_vault)
         } else {
-            orchard_spends(&pczt)
+            orchard_spends_with(&pczt, for_vault)
         }
+    }
+
+    /// The group verifying key of a saved `PublicKeyPackage`: what the device signs under, so it can
+    /// confirm the key it holds on record for a vault is the package's own before it passes it to
+    /// `extract_randomizers`.
+    pub fn group_key_of_package(pubkeys: &[u8]) -> Result<[u8; 32], String> {
+        let package = crate::frost::keys::PublicKeyPackage::deserialize(pubkeys)
+            .map_err(|e| format!("[vaultkey] the saved vault package does not read: {e}"))?;
+        package
+            .verifying_key()
+            .serialize()
+            .map_err(|e| format!("{e}"))?
+            .try_into()
+            .map_err(|_| "[vaultkey] a group key is 32 bytes".to_string())
     }
 
     /// One output as the device reads it from a proven PCZT, for the "what am I signing?" check
@@ -3238,8 +3276,9 @@ pub mod pczt_bridge {
     /// (Orchard after NU6.3), whose fabricated zero-value spends are ours to sign and so counted.
     ///
     /// What this does NOT bound: the builder chooses both terms. It can split change into more
-    /// outputs, spend more of the vault's notes, or add zero-value spends left for the vault to
-    /// sign (`spends_to_sign` does not check a spend's `rk` against the vault's key), and each such
+    /// outputs, spend more of the vault's notes, or add fabricated zero-value spends under the
+    /// vault's key, which the device must sign (each is under the vault's key, so the spend check accepts
+    /// it), and each such
     /// action raises the fee by one marginal fee, paid to the network. Nothing on the device caps
     /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
     /// needs the device to know which notes a payment should spend.
@@ -3950,14 +3989,21 @@ pub mod pczt_bridge {
             include_bytes!("../tests/vectors/ironwood_single_spend.published.pczt");
         const OR_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/orchard_mainnet_two_spend.proven.pczt");
+        // The vault key each vector was built for, as literals. OR_PROVEN is the evidence vault's
+        // group key (docs/HISTORY.md, Phase 5); the Ironwood one records no vault and was computed
+        // once, offline. Neither is read from the PCZT under test.
+        const IW_AK: [u8; 32] =
+            hex_literal("0a05787d30adc74909647d026a9034bf86399363ba230189cd187869d2935e1b");
+        const OR_AK: [u8; 32] =
+            hex_literal("a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a");
         const OR_PUBLISHED: &[u8] =
             include_bytes!("../tests/vectors/orchard_mainnet_two_spend.published.pczt");
 
         #[test]
         fn a_device_reads_the_published_copy_exactly_as_it_reads_the_full_pczt() {
-            for (name, full, published) in [
-                ("ironwood", IW_PROVEN, IW_PUBLISHED),
-                ("orchard", OR_PROVEN, OR_PUBLISHED),
+            for (name, full, published, ak) in [
+                ("ironwood", IW_PROVEN, IW_PUBLISHED, IW_AK),
+                ("orchard", OR_PROVEN, OR_PUBLISHED, OR_AK),
             ] {
                 assert_ne!(full, published, "{name}: the copy must really differ");
                 assert_eq!(
@@ -3966,8 +4012,8 @@ pub mod pczt_bridge {
                     "{name}: the message the quorum signs"
                 );
                 assert_eq!(
-                    extract_randomizers(published),
-                    extract_randomizers(full),
+                    extract_randomizers(published, &ak),
+                    extract_randomizers(full, &ak),
                     "{name}: what each seat signs with"
                 );
                 assert_eq!(
@@ -4080,7 +4126,7 @@ pub mod pczt_bridge {
             assert!(via_active_pool, "the fixture is an Ironwood tx");
 
             // extract_randomizers must now reach the SAME answer, and return that pool's spends.
-            let spends = extract_randomizers(IW_PROVEN).expect("extraction succeeds");
+            let spends = extract_randomizers(IW_PROVEN, &IW_AK).expect("extraction succeeds");
             let ironwood = ironwood_spends(&pczt).expect("ironwood parse");
             assert_eq!(
                 spends, ironwood,
@@ -4141,7 +4187,7 @@ pub mod pczt_bridge {
         fn extract_matches_signer_ironwood() {
             // The WASM must read the SAME real Ironwood spends the canonical signer reads from the
             // v2 PCZT (a `create-max` tx spending 4 notes; every action is a real Ironwood spend).
-            let r = extract_randomizers(IW_PROVEN).unwrap();
+            let r = extract_randomizers(IW_PROVEN, &IW_AK).unwrap();
             assert_eq!(r.len(), 4, "four real Ironwood spends");
             assert_eq!(r[0].0, 0);
             assert_eq!(
@@ -4162,7 +4208,7 @@ pub mod pczt_bridge {
             // `MissingSpendAuthSig` (#86). The browser signer must not diverge from the native one
             // here: two signers that disagree about WHICH spends need a signature produce a
             // transaction that one of them thinks is complete (#365).
-            let r = extract_randomizers(IW_ZERO_VALUE).unwrap();
+            let r = extract_randomizers(IW_ZERO_VALUE, &IW_AK).unwrap();
             let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
             assert_eq!(
                 indices,
@@ -4177,7 +4223,7 @@ pub mod pczt_bridge {
             // ours, such a spend joined the ceremony, raised the action count the fee is read from,
             // and failed at injection. The device must refuse it before it signs or shows a fee,
             // on both readers: the randomizers the ceremony uses and the payment it shows.
-            let err = extract_randomizers(IW_DUMMY_SK).unwrap_err();
+            let err = extract_randomizers(IW_DUMMY_SK, &IW_AK).unwrap_err();
             assert!(err.contains("dummy_sk"), "{err}");
             let shown = read_payment(IW_DUMMY_SK).map(|_| ()).unwrap_err();
             assert_eq!(shown, err, "one refusal, worded once");
@@ -4189,7 +4235,7 @@ pub mod pczt_bridge {
             // already signed (`ironwood_single_spend.signed.pczt` with `dummy_sk` set on action
             // 0; konclave-signer carries the identical file) is refused as well, though that
             // action would not join the ceremony.
-            let err = extract_randomizers(IW_DUMMY_SK_SIGNED).unwrap_err();
+            let err = extract_randomizers(IW_DUMMY_SK_SIGNED, &IW_AK).unwrap_err();
             assert!(err.contains("dummy_sk"), "{err}");
         }
 
@@ -4199,13 +4245,57 @@ pub mod pczt_bridge {
             // earlier signer authorized carries a signature and is skipped, which is what keeps a
             // signed action out of a second ceremony.
             let signed = inject_sigs(IW_PROVEN, IW_SIGHASH, &[(0, sig64(IW_SIG0))]).unwrap();
-            let r = extract_randomizers(&signed).unwrap();
+            let r = extract_randomizers(&signed, &IW_AK).unwrap();
             let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
             assert_eq!(
                 indices,
                 vec![1, 2, 3],
                 "action 0 now carries a signature and must not be collected again",
             );
+        }
+
+        #[test]
+        fn each_spend_is_read_only_under_the_vaults_own_key() {
+            // The key a device passes is its own. The same bytes under another vault's key are
+            // refused whole, on both pools.
+            let iw = extract_randomizers(IW_PROVEN, &OR_AK).unwrap_err();
+            assert!(iw.starts_with("[rk]"), "{iw}");
+            let or = extract_randomizers(OR_PROVEN, &IW_AK).unwrap_err();
+            assert!(or.starts_with("[rk]"), "{or}");
+            assert!(extract_randomizers(OR_PROVEN, &OR_AK).is_ok());
+        }
+
+        #[test]
+        fn the_group_key_of_a_saved_package_is_the_one_the_vault_signs_under() {
+            // The seeded vault of the committed fixture, whose group key is pinned as a literal in
+            // konclave-seal's tests; the package is read out of the file, the key is not.
+            let json = include_str!("../tests/vectors/ironwood_single_spend.rekeyed.json");
+            let hex = json.split("\"pubkeys\": \"").nth(1).unwrap();
+            let pubkeys = hex::decode(&hex[..hex.find('"').unwrap()]).unwrap();
+            assert_eq!(
+                group_key_of_package(&pubkeys).unwrap(),
+                hex_literal("d65a5af38aa554969843dc0fba8113043c09513fdd22a477d9a7b7ff5b89db35")
+            );
+            assert!(group_key_of_package(&[1, 2, 3])
+                .unwrap_err()
+                .starts_with("[vaultkey]"));
+        }
+
+        #[test]
+        fn a_spend_whose_key_was_changed_is_refused_before_anything_is_signed() {
+            // Actions 0 and 1 of the vector swap their keys: each is a valid point, neither is the
+            // vault's key under its own randomizer.
+            let k0 =
+                hex_literal("c871590112403b67683601d133633aab9723fe5059b2fb8354ae7a4dcc91c209");
+            let k1 =
+                hex_literal("1bb8dd832d483c912c39cf9b03e14b39fb9a3fb23d641ced58dfebe45107231c");
+            let at = |k: &[u8; 32]| IW_PROVEN.windows(32).position(|w| w == k).unwrap();
+            let (p0, p1) = (at(&k0), at(&k1));
+            let mut swapped = IW_PROVEN.to_vec();
+            swapped[p0..p0 + 32].copy_from_slice(&k1);
+            swapped[p1..p1 + 32].copy_from_slice(&k0);
+            let e = extract_randomizers(&swapped, &IW_AK).unwrap_err();
+            assert!(e.starts_with("[rk]"), "{e}");
         }
 
         #[test]
@@ -6912,14 +7002,26 @@ mod js_pczt {
     /// Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
     /// Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
     #[wasm_bindgen(js_name = extractRandomizers)]
-    pub fn extract_randomizers(pczt: &[u8]) -> Result<Vec<u8>, JsValue> {
-        let rs = pczt_bridge::extract_randomizers(pczt).map_err(je)?;
+    pub fn extract_randomizers(pczt: &[u8], group_vk: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let ak: [u8; 32] = group_vk
+            .try_into()
+            .map_err(|_| je("the vault's group key must be 32 bytes"))?;
+        let rs = pczt_bridge::extract_randomizers(pczt, &ak).map_err(je)?;
         let mut out = Vec::with_capacity(rs.len() * 36);
         for (idx, alpha) in rs {
             out.extend_from_slice(&(idx as u32).to_le_bytes());
             out.extend_from_slice(&alpha);
         }
         Ok(out)
+    }
+
+    /// The 32-byte group verifying key of a saved `PublicKeyPackage` (the key the device signs
+    /// under), for confirming the key on record before it is used to read a transaction.
+    #[wasm_bindgen(js_name = groupKeyOfPackage)]
+    pub fn group_key_of_package(pubkeys: &[u8]) -> Result<Vec<u8>, JsValue> {
+        pczt_bridge::group_key_of_package(pubkeys)
+            .map(|k| k.to_vec())
+            .map_err(je)
     }
 
     /// The raw Orchard receiver of a unified address, hex - the approved destination in the same

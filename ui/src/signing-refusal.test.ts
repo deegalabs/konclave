@@ -82,7 +82,7 @@ describe('REFUSALS is what the machine reports after taking a transaction up', (
   const keysIn = (s: string) => [...s.matchAll(/'(net\.err\.\w+)'/g)].map((m) => m[1]!)
   const onSreq = src.slice(src.indexOf('private async onSreq('), src.indexOf('this.cleared = true'))
   const taken = onSreq.indexOf('this.started = true')
-  const refusalKeyFn = src.slice(src.indexOf('export function refusalKey('), src.indexOf('export function refusalKey(') + 800)
+  const refusalKeyFn = src.slice(src.indexOf('export function refusalKey('), src.indexOf('export function refusalKey(') + 1000)
 
   it('every key reported after the transaction is taken up, or returned by refusalKey, is a refusal', () => {
     expect(taken, 'onSreq marks the transaction taken up').toBeGreaterThan(-1)
