@@ -36,9 +36,9 @@ describe('the ledger period window', () => {
 describe('the short month on a chart axis', () => {
   it('drops the period some locales add, and gives January its year', () => {
     expect(monthShort(new Date(2026, 10, 15), 'pt-BR')).toBe('nov')
-    expect(monthShort(new Date(2027, 0, 15), 'pt-BR')).toBe('jan 27')
+    expect(monthShort(new Date(2027, 0, 15), 'pt-BR')).toBe("jan '27")
     expect(monthShort(new Date(2026, 10, 15), 'en')).toBe('Nov')
-    expect(monthShort(new Date(2027, 0, 15), 'en')).toBe('Jan 27')
+    expect(monthShort(new Date(2027, 0, 15), 'en')).toBe("Jan '27")
   })
   it("is what the Dashboard writes under its month bars, in the app's language", () => {
     const src = codeOf('screens/Dashboard.tsx')

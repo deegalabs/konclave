@@ -15,7 +15,7 @@ import { Coordinator, identifierBytes, participantRound1, type Round1, participa
 import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
-import { parseAlphas } from './signing'
+import { deviceGroupKey, parseAlphas } from './signing'
 
 /** The signing-only subset of the /net wire protocol. `k` = the 0-based spend position in a
  *  multi-note tx (each real Orchard spend is its own ceremony; single-spend tx is always k=0). */
@@ -162,6 +162,11 @@ export function refusalKey(e: unknown): string {
       return 'net.err.locktime'
     case 'record':
       return 'net.err.recordFailed'
+    case 'rk':
+    case 'alpha':
+      return 'net.err.notBuiltForVault'
+    case 'vaultkey':
+      return 'net.err.vaultRecordMismatch'
     default:
       return 'net.err.unreadablePczt'
   }
@@ -424,10 +429,25 @@ export class SigningMachine {
       // rejection: the member would see nothing at all, which trades a wrong signature for a silent
       // stall. The engine's own sentence is appended because "which transaction, and why" is the
       // whole value of the refusal.
+      //
+      // Every spend is checked against THIS device's own key for the vault (`deviceGroupKey`: the key
+      // of its saved package, which must match the record, never a value from the wire) before it
+      // takes part. A transaction with a spend that is not under that key is refused whole, in words
+      // that do not describe why; the engine's own sentence goes to the log only.
+      //
+      // A reading belongs to one transaction. Cleared first, so a refusal of this one is never
+      // shown over the reading of the payment before it.
+      this.d.onWhat(null)
       try {
-        this.spends = parseAlphas(pczt)
+        this.spends = parseAlphas(pczt, deviceGroupKey(this.d.signingMaterial()))
       } catch (e) {
-        this.d.onError(this.d.tt('net.err.unreadableSpends') + ' ' + String(e))
+        const key = refusalKey(e)
+        if (key === 'net.err.notBuiltForVault' || key === 'net.err.vaultRecordMismatch') {
+          this.d.onError(this.d.tt(key))
+          this.d.onLog(`~ ${String(e)}`)
+        } else {
+          this.d.onError(this.d.tt('net.err.unreadableSpends') + ' ' + String(e))
+        }
         return true
       }
       this.sigs = []
@@ -446,9 +466,6 @@ export class SigningMachine {
       // pays, opens each paying output for its memo, and bounds the fee by ZIP 317. Before it, the
       // device read the outputs as the builder wrote them, beside the commitment and not bound to
       // it, and nothing looked at the fee at all.
-      // A reading belongs to one transaction. Cleared first, so a refusal of this one is never
-      // shown over the reading of the payment before it.
-      this.d.onWhat(null)
       // `readForSigning` (#610's reading plus what the device confirms about the transaction itself:
       // its network, that nothing delays it, and that it expires inside the window this device's own
       // clock allows, so it cannot be held signed and broadcast much later) is the one reading.

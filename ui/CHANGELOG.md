@@ -40,6 +40,131 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.19.0] 2026-11-10
+
+### Security
+
+- **What the browser still kept for vaults removed before v0.18.0 is now cleared.** Since
+  2026-08-21, removing a vault deleted only its record; v0.18.0 made removal take everything else,
+  but only for vaults removed from then on. A vault removed earlier left in the browser's storage the
+  people saved for it (names, addresses and memos) and, if it was removed from Settings or from the
+  create and join screen, its passkey shortcut (encrypted, of no use without that passkey), readable
+  by anyone with access to the device or to that browser profile. The app now clears them when it
+  opens, for every vault this device no longer holds. It keeps the device's record of the payments it
+  signed, for the same reason a removal keeps it. When it cannot read which vaults the device holds
+  (or, on a local bridge, when the bridge does not list them), it clears nothing and tries again the
+  next time the app opens; with a hosted coordinator it leaves alone the traces of vaults that live
+  on a local bridge.
+- **Each spend is now checked against the vault's key before the device takes part.** A transaction with a spend that is not under this vault's key is refused whole, with a message that says the transaction was not built for the vault's key.
+- **A new vault's first read key could be set by anyone who knew the vault's id, until 2026-11-08**
+  ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).
+  The full entry, with who was exposed and how to tell, is in the root CHANGELOG. If your vault's books
+  open on every member's device, it was not affected.
+
+### Added
+
+- **Pace of spending and runway, under Analyses.** Once the vault has three complete months in its
+  book, the screen shows how much leaves it per month on average, how many months the free funds last
+  at that pace, and a six-month line of what would be left. It is arithmetic over the book, a
+  projection and not a promise, and says so: a payment counts in the month it was proposed, the
+  network fee is not included, and incoming money is not read, so the line only goes down. Below
+  three months it says there is not enough history and draws nothing. With amounts hidden it shows
+  the runway in months and the month the free funds run out, and no chart. When nothing is free to
+  spend, it says so rather than naming next month.
+- **Analyses, a new screen opened from the Ledger.** It shows the vault's balance in its parts: what
+  is in the vault, what is free, what open proposals hold and what is still confirming, split the way
+  the payment screen splits it, and it warns when open proposals hold more than the vault can spend.
+  It is computed on this device from the book and the balance the vault reports, and moves no money.
+  A balance that could not be read draws no figure and says why: the vault busy with a send, no
+  wallet connected, or a failed read.
+- **A payroll has a name on the web (#296).** The period and description typed on the payroll
+  screen were dropped on the web, so every payroll showed as "Payroll" on the desk, the proposal,
+  the ledger and the exported book. They now travel as the payroll's own name and are shown in all
+  of those places, including the Document column of the CSV and XLSX export. It is never put in a
+  memo: on a single payment the memo is the one written on the chain, and the desk no longer calls
+  the name of the proposal it leads with a memo. A name longer than 120 characters, or with a tab,
+  a line break or a text-direction mark (often carried in from a spreadsheet), is refused on the
+  screen before anything is sent, with words saying which. The name is a label, and no
+  signature covers it yet (#567), so read the lines, not the name, before you approve. A payroll
+  created before this version, or on a coordinator that does not accept the name yet, still shows
+  "Payroll".
+
+### Changed
+
+- **The dashboard no longer shows the network-upgrade notice.** It told of the pause around NU7
+  ("The Zcash network has upgraded. If a payment is refused for a while..."). NU7 activated at block
+  3,543,405 and payments after it are proven on mainnet, so the notice is gone with its text. The
+  rule that decides when such a notice applies stays in the code for the next upgrade, and a payment
+  refused during an upgrade pause still says why.
+- On a proposal, the vote block says "Enough approvals." ("Aprovações suficientes.") where it said "Quorum reached." ("Quórum atingido."), in plain words rather than the term (#309).
+- **A device accepts the lower network fee from block 3,590,000 (ZIP 2009, #847).** ZIP 2009
+  (Proposed) lowers the fee per action from 5,000 to 1,000 zatoshis at mainnet block 3,590,000. A
+  device on this version accepts a payment at either rate once its clock says the chain may have
+  reached that block, and only at 5,000 before it. Any other fee is still refused, and so is padding
+  that raises it. A payment at 1,000 that reaches a device whose clock is behind is refused with a
+  message to check the date and time, not one about tampering. Nothing changes for a payment today:
+  the coordinator still builds at 5,000, which stays valid after the switch.
+- **One network fee estimate on every screen (#692).** The payment screen reserved 0.00015 ZEC for a
+  payment while the proposal page and the signing panel showed 0.0001 for the same payment. The four
+  screens now read one estimate from the rule the device signs by: 0.00015 ZEC for a payment to one
+  person, and one more action for each payroll line beyond two. If the device cannot work it out (the
+  app did not finish loading, or the device's clock is set before July 2026), Propose stays closed
+  and says why.
+- Settings is easier to read: the section index beside the page is gone, and the table of who sees what, with its known limits, now opens under one line ("Who sees what, and the known limits") instead of filling the screen. The status badge, a one-line summary and the link to the security page stay in view. The note that the passkey shortcut works only on this device is no longer repeated under the synced-passkey notice, which already says it.
+- The signing screen and the proposal page now show proposals through one shared reading, and the confirmation lists every
+  line of a payroll.
+- A vault saved on this device under an older, weaker key setting is re-saved at the current one the next time its
+  passphrase is typed. The first unlock after this takes a moment longer. A passkey unlock does not do it.
+- **A new passphrase has to be harder to guess.** Creating or joining a vault, and changing a passphrase, now ask for at
+  least 12 characters and refuse common passwords and repetition. Below 20 characters they also refuse the most common
+  patterns of a word with numbers or a year. The generator and random passwords from a password manager pass: all of them from 20 characters, and most shorter ones that mix upper and lower case. A passphrase you
+  already have still opens your vault and your backups, and you can change it at any time. The check reads the shape of the
+  text and knows only a short list of seasons, months and common names, so a passphrase it accepts is not proof
+  of a strong one.
+- A vault card on the list now shows what this device last read as three short badges, always in the same order: open proposals, last proposal, and ZEC free, then one line saying when it was read on this device ("over a day ago" when it is). Each badge explains itself on hover, on keyboard focus and on a tap. A vault never read here says "not read here". The Private and Open tags explain themselves the same way, and "Enter" is the card's button, named for the vault.
+
+### Fixed
+
+- On a phone, the "We compared it. Show the address" button on the viewing-code card no longer runs past the card's edge: its label wraps inside the card.
+- **The dashboard shows amounts exactly, not rounded to four decimals.** Every figure on it rounded
+  to four decimals, so a payment of 0.00015 ZEC was listed as 0.0001, an amount the vault never paid.
+  The balance, its free, reserved and confirming parts, the readiness line, the desk, the movements,
+  the reserved and paid figures and the monthly spend now all show the exact figure, as the book and
+  the proposal do since #777: four decimals when that is all the figure has (0.0120), more only when
+  it has them (0.00015). One amount reads the same everywhere on the screen. A balance or figure with
+  more than four decimals is set smaller so it stays inside its card on a computer.
+- **The signing sheet now behaves like the dialog it says it is.** It announced itself as modal but
+  left focus on the button behind it, let Tab walk the page underneath, and had no Escape or focus
+  return. Focus now moves into the sheet, Tab stays inside, and closing returns you to the button that
+  opened it. Escape closes it only while this device is not signing or waiting on a signature: closing stops the signer.
+- **The confirm can no longer change from "Sign" to "Send" in silence.** If another member signed while
+  the confirm was open, its wording became "Send" without a word to a screen reader. It now closes and
+  says the signatures changed, so you read it again.
+- **Waiting, ready and "checking whether the payment went out" are now announced** by a screen reader.
+- **The monthly spend on the dashboard can be read without a mouse.** Each month's amount was only
+  in a tooltip, which never shows on a keyboard or a phone. A "Show figures" button under the chart
+  now opens the same amounts as a table, and a screen reader no longer hears the month labels read
+  twice. On a narrow phone the bars now shrink to fit the panel instead of running past its edge.
+- The viewing code on a vault card no longer breaks in the middle of a group of five on a narrow screen: a line breaks only between groups, so the code reads out the way it is compared.
+
+### Known limits
+
+- **Until the coordinator switches, every vault payment pays 5,000 zatoshis per action, and can be
+  told apart.** After block 3,590,000 (expected around 19 November 2026), wallets that follow ZIP 2009
+  pay 1,000; the fee is public, so a vault transaction paying five times that stands out from theirs.
+  The plan is for the coordinator to build at 1,000 in a later release, only for a vault whose every
+  device accepts that rate; that is not built yet. A vault with one device that is never updated (a
+  desktop install has no updater, #606) would keep paying 5,000.
+- **The estimate stays at 5,000 per action after the switch**, because a device still accepts 5,000.
+  Once the coordinator pays 1,000, the screens reserve more than a payment costs.
+- **5,000 per action stays accepted with no end date**, so a coordinator can still choose the higher
+  fee after the switch: the fee every vault pays today.
+- **A device starts accepting 1,000 about 30 hours before its clock expects block 3,590,000.** It
+  judges the height by its own clock, which cannot place the chain closer than that.
+- **A proposal's reservation holds its amount, not its fee.** So a proposal can fit in the free
+  balance the vault shows and still not fit once the fee is added. When open proposals add up to
+  more than the vault can spend, the dashboard says so.
+
 ## [0.18.0] 2026-11-08
 
 ### Security

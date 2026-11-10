@@ -66,9 +66,14 @@ describe('the Dashboard no longer shows the network-upgrade notice', () => {
 
   it('the removal names the upgrade by its block, not by a calendar date (M1)', () => {
     // A calendar date for an activation is an estimate from the block time; the height is the fact.
-    // Only the changelog fragment is pinned: the code says it in comments, and no test reads source
-    // raw (source-scan.test.ts), so a comment cannot satisfy a pin.
-    const entry = readFileSync(new URL('../changelog.d/changed/dashboard-upgrade-notice-removed.md', import.meta.url), 'utf8')
+    // Only the changelog entry is pinned: the code says it in comments, and no test reads source
+    // raw (source-scan.test.ts), so a comment cannot satisfy a pin. The entry is read from the app's
+    // CHANGELOG, where a release folds the fragment it started as, so the pin outlives the cut.
+    const log = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8')
+    const start = log.indexOf('- **The dashboard no longer shows the network-upgrade notice.**')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const next = log.slice(start + 2).search(/\n(- |#)/)
+    const entry = next < 0 ? log.slice(start) : log.slice(start, start + 2 + next)
     expect(entry).toMatch(/^- \*\*The dashboard no longer shows the network-upgrade notice\.\*\*/)
     expect(entry).toMatch(/block\s+3,543,405/)
     expect(entry).not.toMatch(/2026-11-05|November 2026/)

@@ -18,4 +18,9 @@ const SIG_B64 = 'LgxxtjJcPE7J9M0y0ffiAGXZ+xjLCcIX2FgspJZ4UjZiqEaL2+YeVx4T9TJxvzO
 
 const b64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 export const dkgProvenPczt = (): Uint8Array => b64(PROVEN_B64)
+// The group key of the vault this vector was built for (its spends' keys are this key under their
+// randomizers): what a reader of the vector passes, as the lab screens do. The vector records no
+// vault id; this was computed once, offline, and konclave-seal's tests pin it as a literal.
+export const DKG_VAULT_KEY = '0a05787d30adc74909647d026a9034bf86399363ba230189cd187869d2935e1b'
+export const dkgVaultKeyBytes = (): Uint8Array => Uint8Array.from(DKG_VAULT_KEY.match(/../g)!, (h) => parseInt(h, 16))
 export const dkgBroadcastSig = (): Uint8Array => b64(SIG_B64)
