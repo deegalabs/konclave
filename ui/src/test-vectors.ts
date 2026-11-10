@@ -28,10 +28,10 @@ export function honestExpiry(nowMs = Date.now()): number {
   return ANCHOR_HEIGHT + Math.floor((nowMs / 1000 - ANCHOR_UNIX) / 75) + 40
 }
 
-/** `pczt` with its expiry moved to `expiry` (default: an honest one now). The field is found by its
+/** `pczt` with its expiry (`was`, the demo vector's by default) moved to `expiry` (default: an honest one now). The field is found by its
  *  encoding and must occur exactly once, or this throws rather than patch the wrong bytes. */
-export function withExpiry(pczt: Uint8Array, expiry = honestExpiry()): Uint8Array {
-  const from = leb128(VECTOR_EXPIRY)
+export function withExpiry(pczt: Uint8Array, expiry = honestExpiry(), was = VECTOR_EXPIRY): Uint8Array {
+  const from = leb128(was)
   const to = leb128(expiry)
   if (from.length !== to.length) throw new Error('expiry encodings differ in length')
   const at: number[] = []

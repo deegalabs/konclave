@@ -115,6 +115,63 @@ trailing dot in the variable would refuse every send.
 Production lists both names of the same relay because an installed PWA keeps calling the URL it was
 built with until it updates (see the paragraph on service names below).
 
+**Which address the limits count a request under (`KONCLAVE_TRUSTED_PROXY_HOPS`).** Both servers,
+the coordinator and the relay, take the client's address from `X-Forwarded-For`. Unset, they take
+the first hop, as they always have. Set to a whole number from 0 to 8, they trust that many proxies:
+`n` takes the `n`th value from the right of the chain, across every header line, and `0` ignores the
+header and uses the socket. A value they do not understand stops the server at boot (exit code 2),
+and the boot log says which rule is in force; so does the health answer (`trusted_proxy_hops`,
+`null` for the default), at `/health` on the relay and `/api/health` on the coordinator.
+
+Set it from what the platform is seen to do, never from a guess. Each server logs, once per length
+and per process, the first request whose header carried that many values (`forwarding: first request
+with N X-Forwarded-For value(s)`, with "9 or more" as the last bucket), as a count and never an
+address. Measure **every hostname that reaches the service** (the custom domain and the platform's own
+name are separate paths), right after a deploy:
+
+1. Send one request with no `X-Forwarded-For`.
+2. Send one with exactly 5 values (`-H 'X-Forwarded-For: 192.0.2.1, 192.0.2.2, 192.0.2.3, 192.0.2.4, 192.0.2.5'`).
+3. Send one with the same 5 values split over two header lines (`-H 'X-Forwarded-For: 192.0.2.1, 192.0.2.2'
+   -H 'X-Forwarded-For: 192.0.2.3, 192.0.2.4, 192.0.2.5'`).
+4. Read the service's log for the new `forwarding:` lines. A request that adds no line arrived with a
+   length already seen; the smallest length ever logged is a floor (nothing arrives with fewer values
+   than the platform adds). Once the number is set, read the boot line, or the health
+   answer's `trusted_proxy_hops`, to confirm it.
+
+What the counts mean, per hostname:
+- **0, 5+k, 5+k (k at least 1): the platform appends k values** to what the client sent. Set the
+  setting to `k`. This is the case the setting is for. Then confirm it before relying on it: from
+  one machine, within ten seconds, send more requests than the per-address limit (300 on either
+  server) to a route the limits count (on the coordinator `GET /api/vault?vault=` followed by 64
+  zeros, on the relay `GET /api/relay/probe?since=0&from=probe`; never a health route, which is never
+  counted), each with a different made-up LAST `X-Forwarded-For` value taken from `192.0.2.0/24` or
+  `198.51.100.0/24`, first as one header line and then as two. Since they all come from your
+  address, they must start answering `429` at the limit (on the relay a single `from` tag reaches its
+  own limit of 150 first). If they never do, or answer `429` well before it, unset the setting and
+  stop: the platform did not add its values where the count suggested.
+- **c, c, c (the same count, c at least 1): the platform does not pass the client's list through.** A
+  count alone does not say which address comes first: a platform that rebuilds the header and one
+  that keeps the client's first value and appends its own both give the same count. So run the
+  content step before deciding. Wait ten seconds after any other request from your machine, then,
+  within ten seconds, send 302 requests to a route the limits count (the routes named above), all
+  with the same made-up `X-Forwarded-For` value from `198.51.100.0/24` (on the relay, a different
+  `from` tag on each), then one request with no header. Read only the status codes. The run counts
+  only if exactly 2 of the 302 answered `429`; otherwise wait ten seconds and run it again.
+  If the last request answers `429`, the made-up value was not used and the setting stays unset. If
+  it answers anything else (`200` on the relay, `404` on the coordinator), the made-up value was
+  used: set `1`, which takes the value the platform wrote last, restart, and run the content step
+  again. If it now answers `429`, keep `1`; if it does not, unset the setting and stop.
+- **0, 0, 0: the platform strips the header.** Every request counts under the socket address, which is
+  the proxy's, whether the setting is unset or `0`, so all clients share one budget. Report it: the
+  address would have to come from another header, which this release does not read.
+- **0, 5, 5: the client's header arrives as it was sent.** If clients reach the server directly, with
+  no proxy, the socket is the client: set `0`. If there is a proxy, it passes the client's header and
+  adds nothing, the socket is the proxy, and no setting makes it safe: put a proxy in front that
+  rebuilds or appends, and measure again.
+- **Anything else** (a "9 or more" line, a count that differs between steps 2 and 3, or two hostnames
+  of one service that disagree): stop. No single number serves two paths that add different counts,
+  and counts cannot show whether the platform appends to the first header line or the last.
+
 ## Blind relay → Railway (by hand)
 
 **https://konclave-relay-production.up.railway.app**, service `konclave-relay`. It carries only

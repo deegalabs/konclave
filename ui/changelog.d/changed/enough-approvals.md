@@ -1,1 +1,0 @@
-- On a proposal, the vote block says "Enough approvals." ("Aprovações suficientes.") where it said "Quorum reached." ("Quórum atingido."), in plain words rather than the term (#309).

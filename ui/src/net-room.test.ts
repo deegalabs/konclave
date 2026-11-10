@@ -24,13 +24,26 @@ import { deriveRoom, newInviteCode, parseInvite, inviteLink, joinParam, INVITE_L
 //    vectors above prove, and leaves the file greppable.
 
 describe('deriveRoom', () => {
+  // Computed apart from this code (node crypto over the canonical PIN written by hand), so the vectors
+  // do not prove deriveRoom by itself.
   it.each([
-    // Version 3 (konclave-room-v3): a device on the previous version derives another room.
-    ['ABCD1234', '1234', 'ebd79390ce4368a4a92d79fc530ad564'],
-    ['ROOM-X', 'hunter2', 'f07bddafb5b250a0dd11cdc62474e79e'],
-    ['a', '  spaced  ', 'ef79eeba60f4af9e6173034adec36fb3'],
-  ])('code %s + pin %s derives its version-3 room', async (code, pin, want) => {
+    // Version 4 (konclave-room-v4): a device on an earlier version derives another room.
+    ['ABCD1234', '482193', 'b65a06a5fee406812f7f148d32f6267f'],
+    ['ROOM-X', 'hunter2', 'c48f8891481bed71659e90b6f5870d70'],
+    ['a', '  spaced  ', '0902624d034290279b6f4dd9140ecd74'],
+    // The app-made PIN: bare, grouped and in full-width digits are one room.
+    ['K7Q2', '5872041001097', '290c2655f3c409012c9e59e1199385b5'],
+    ['K7Q2', '5872 0410 0109 7', '290c2655f3c409012c9e59e1199385b5'],
+    ['K7Q2', '\uFF15\uFF18\uFF17\uFF12\uFF10\uFF14\uFF11\uFF10\uFF10\uFF11\uFF10\uFF19\uFF17', '290c2655f3c409012c9e59e1199385b5'],
+    // A member's own PIN outside ASCII.
+    ['K7Q2', '\u00F1and\u00FA-42', 'eb87d6326d2da9a0e4cd25ec7f66d5f0'],
+  ])('code %s + pin %s derives its version-4 room', async (code, pin, want) => {
     expect(await deriveRoom(code, pin)).toBe(want)
+  })
+
+  it('a version-3 room is another room', async () => {
+    // konclave-room-v3 for the same code and PIN, computed apart.
+    expect(await deriveRoom('ABCD1234', '482193')).not.toBe('bfdcf3d11e5205a5d9009bca51795e81')
   })
 
   it('refuses to derive a room without a PIN', async () => {
@@ -39,13 +52,13 @@ describe('deriveRoom', () => {
   })
 
   it('the pin actually separates rooms', async () => {
-    expect(await deriveRoom('SAME', '1')).not.toBe(await deriveRoom('SAME', '2'))
+    expect(await deriveRoom('SAME', '111111')).not.toBe(await deriveRoom('SAME', '222222'))
   })
 
   // The separator is what stops ("ab","c") and ("a","bc") colliding. Worth an assertion rather than
   // trust, since the escaping change touched exactly those two bytes.
   it('the domain separator prevents a code/pin boundary collision', async () => {
-    expect(await deriveRoom('ab', 'c')).not.toBe(await deriveRoom('a', 'bc'))
+    expect(await deriveRoom('ab', 'cdefgh')).not.toBe(await deriveRoom('a', 'bcdefgh'))
   })
 })
 

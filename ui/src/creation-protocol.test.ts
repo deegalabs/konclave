@@ -31,8 +31,8 @@ const { CREATION_PROTOCOL, creationAllowed, creationVerdict, isUpdateRequired, r
 const { DKG_VERSION } = await import('./dkg-ceremony')
 
 describe('every registration names its creation protocol', () => {
-  it('the number is 2, the v0.12.0 creation core, and the ceremony speaks the same one', () => {
-    expect(CREATION_PROTOCOL).toBe(3)
+  it('the number is 4, the one canonical room PIN, and the ceremony speaks the same one', () => {
+    expect(CREATION_PROTOCOL).toBe(4)
     expect(DKG_VERSION).toBe(CREATION_PROTOCOL)
     expect(codeOf('./dkg-ceremony.ts')).toMatch(/export const DKG_VERSION = CREATION_PROTOCOL/)
     expect(codeOf('./net.ts')).toMatch(/`konclave-room-v\$\{CREATION_PROTOCOL\}\\u0000\$\{code\}\\u0000\$\{p\}`/)

@@ -45,3 +45,43 @@ pub fn spends_to_sign(bundle: &orchard::pczt::Bundle) -> Result<Vec<(usize, [u8;
     }
     Ok(out)
 }
+
+/// The spends this vault signs (`spends_to_sign`), each checked against the vault's own key
+/// before a device takes part. Refuses the WHOLE bundle (a transaction with one bad spend cannot
+/// be sent, so a partial answer would only hand out signatures for nothing) if any of them has a
+/// zero randomizer or shares one with another spend (`[alpha]`), or if its `rk` is not the vault's
+/// key under its own randomizer (`[rk]`). `vault_ak` is the vault's group verifying key; one that
+/// is not a usable key refuses too (`[vaultkey]`, which is about the device's own record, not the
+/// transaction).
+///
+/// This is a consistency check, not a proof of how a randomizer was chosen. It deliberately does
+/// not use orchard's `Spend::verify_rk`: for a zero-value spend that takes the key from the PCZT's
+/// own `fvk` field, which is the value being checked.
+pub fn spends_to_sign_for(
+    bundle: &orchard::pczt::Bundle,
+    vault_ak: &[u8; 32],
+) -> Result<Vec<(usize, [u8; 32])>, String> {
+    let spends = spends_to_sign(bundle)?;
+    let ak = orchard::keys::SpendValidatingKey::from_bytes(vault_ak)
+        .ok_or("[vaultkey] the vault's key is not a usable verifying key")?;
+    let mut seen: Vec<(usize, [u8; 32])> = vec![];
+    for (idx, bytes) in &spends {
+        let spend = bundle.actions()[*idx].spend();
+        let alpha = spend.alpha().as_ref().expect("a selected spend has one");
+        if *bytes == [0u8; 32] {
+            return Err(format!("[alpha] action {idx} has no usable randomizer"));
+        }
+        if let Some((first, _)) = seen.iter().find(|(_, b)| b == bytes) {
+            return Err(format!(
+                "[alpha] actions {first} and {idx} share a randomizer"
+            ));
+        }
+        seen.push((*idx, *bytes));
+        if <[u8; 32]>::from(spend.rk()) != <[u8; 32]>::from(&ak.randomize(alpha)) {
+            return Err(format!(
+                "[rk] action {idx}: its key is not this vault's key under its randomizer"
+            ));
+        }
+    }
+    Ok(spends)
+}

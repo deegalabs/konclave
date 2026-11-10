@@ -82,6 +82,11 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Changed
 
+- **The relay can be told how many proxies in front of it to trust** (`KONCLAVE_TRUSTED_PROXY_HOPS`,
+  a whole number from 0 to 8; `DEPLOY.md`). Unset, which is how the hosted relay runs, nothing
+  changes. A value it does not understand stops the relay at boot, and the boot log and `/health`
+  (`trusted_proxy_hops`) say which rule is in force. The log also says, once per length, how many values a request's header carried (a
+  count, never an address), which is how the operator sets the number.
 - **The message cap is now read from `konclave-http`, the crate the coordinator reads it from
   (#821).** No change in what the relay accepts (128 KiB per message). The coordinator sizes the
   largest payment it lets a vault propose from this number, so the two can no longer drift apart.
@@ -89,11 +94,9 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Known limits
 
-- **The address the relay and the coordinator count a request under is only as good as the
-  forwarding header they are given.** Both take it from the first hop of `X-Forwarded-For`. Where the
-  platform in front of one of them keeps a value the client sent, a client can still choose which
-  address its requests count under, and the fix under Security reaches no further than that. Tracked
-  in #400.
+- **The address the relay counts a request under is only as good as the forwarding header and the
+  setting.** Unset, `KONCLAVE_TRUSTED_PROXY_HOPS` keeps the first hop of `X-Forwarded-For`, which is
+  right only where the platform rebuilds the header. Set it from a measurement (`DEPLOY.md`).
 - **An active room is protected down to 384 KiB, not whole.** When the relay's 256 MiB are held,
   an active room that holds more than 384 KiB loses its oldest messages first. This reopens the
   rule that an active room is never touched. A device that joins or rejoins such a room reads a

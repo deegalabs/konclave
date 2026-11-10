@@ -3,21 +3,31 @@
 //
 // It adds no number of its own. The balance band is `balanceParts`, the same split the payment
 // screen gates on, and the balance is read the way the Dashboard reads it (`readBalance`, with
-// `nextBalanceView` keeping the last one through a busy read).
+// `nextBalanceView` keeping the last one through a busy read). The pace, the runway and the
+// projection are `treasury-metrics.ts`; the chart is `FundsLine`, which follows the chart rule in
+// STYLE.md. Every reading says its limits in the words the metrics module states them: month by
+// proposal date, network fee not included, incoming money not shown. Below three complete months it
+// says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
 import { getLedger, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
-import { balanceParts, reservedZatOf } from '../balance-parts'
+import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
+import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
 import { fmtZatExact } from '../format'
-import { useI18n, type TFn } from '../i18n'
+import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
+import { monthLong, monthShort } from '../period'
 import ReadState from '../ReadState'
+import { useReveal } from '../reveal'
+import { burnRate, projection, runway } from '../treasury-metrics'
 import { nextBalanceView, type BalanceView } from '../useVaultBalance'
 import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
+/** A month on the axis, from its unix time: the one short-month rule, in period.ts. */
+const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000), locale)
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
  *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
@@ -53,10 +63,76 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
   )
 }
 
+/** Pace, runway and the projection of free funds, or the plain reason they are not shown. */
+export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
+  bal: Balance | null
+  rows: readonly Proposal[] | null
+  now: Date
+  revealed: boolean
+  t: TFn
+  locale: Locale
+}) {
+  // An unread book is "unknown", not "not enough history": burnRate tells the two apart.
+  const burn = burnRate(rows, now)
+  if (burn.kind === 'unknown') return <p className="hint">{t('analyses.unknown')}</p>
+  if (burn.kind === 'not-enough-history') return <p className="hint">{t('analyses.notEnough')}</p>
+  const run = runway(bal, rows, burn)
+  const proj = projection(bal, rows, burn, now)
+  const free = freeZatOf(bal, rows)
+  const runsOut = proj && proj.runsOutIndex !== null ? monthLong(new Date(proj.points[proj.runsOutIndex]!.from * 1000), locale) : null
+  return (
+    <>
+      <dl className="an-figs">
+        <div>
+          <dt className="klab">{t('analyses.pace')}</dt>
+          <dd><Secret sm label={t('analyses.pace')}><b className="mono">{t('analyses.paceValue', { zec: fmtZatExact(burn.zatPerMonth) })}</b></Secret></dd>
+          <dd className="by">{t('analyses.paceHow')}</dd>
+        </div>
+        <div>
+          <dt className="klab">{t('analyses.runway')}</dt>
+          <dd>
+            <b className="mono">
+              {run.kind === 'months'
+                ? t('analyses.runwayMonths', { n: (run.tenths / 10).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
+                : <><span aria-hidden="true">-</span><span className="visually-hidden">{t('analyses.na')}</span></>}
+            </b>
+          </dd>
+          <dd className="by">
+            {t(run.kind === 'months' ? 'analyses.runwayHow' : run.kind === 'no-spend' ? 'analyses.noSpend' : run.kind === 'none-free' ? 'analyses.noFreeNow' : 'analyses.runwayAwaitsBalance')}
+          </dd>
+        </div>
+      </dl>
+      {burn.undated > 0 && <p className="hint">{t(burn.undated === 1 ? 'analyses.undatedOne' : 'analyses.undated', { n: burn.undated })}</p>}
+      {run.kind === 'months' && proj && free !== null && (revealed
+        ? (
+          <FundsLine
+            now={{ label: month(Math.floor(now.getTime() / 1000), locale), zat: free }}
+            ahead={proj.points.map((p) => ({ label: month(p.from, locale), zat: p.balanceZat }))}
+            nowLabel={t('analyses.now')}
+            projectedLabel={t('analyses.projected')}
+            title={t('analyses.chartTitle')}
+            source={t('analyses.source')}
+            tooShort={t('analyses.notEnough')}
+            runsOut={runsOut && proj.runsOutIndex !== null ? { index: proj.runsOutIndex, words: t('analyses.runsOut', { month: runsOut }) } : null}
+          />
+        )
+        : (
+          <>
+            {runsOut && <p className="chart-warn">{t('analyses.runsOut', { month: runsOut })}</p>}
+            <p className="hint">{t('analyses.hiddenChart')}</p>
+            <p className="chart-src">{t('analyses.source')}</p>
+          </>
+        ))}
+      {run.kind !== 'months' && <p className="chart-src">{t('analyses.source')}</p>}
+    </>
+  )
+}
+
 export default function Analyses() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
+  const { revealed } = useReveal()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [view, setView] = useState<BalanceView>({ bal: null, busy: false })
   const [unwired, setUnwired] = useState(false)
@@ -99,6 +175,12 @@ export default function Analyses() {
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
       {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} t={t} />}
+      {loaded && (
+        <section className="an-sec mt" aria-labelledby="an-runway">
+          <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
+          <RunwayPanel bal={view.bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />
+        </section>
+      )}
       <PageFooter>
         <span className="dim pushr">{t('analyses.foot')}</span>
       </PageFooter>

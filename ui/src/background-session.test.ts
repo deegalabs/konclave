@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init, { DkgSession, identifierBytes, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
-import { dkgProvenPczt } from './demo-vector'
+import { dkgProvenPczt, dkgVaultKey, fixtureVault } from './rekeyed-vault'
 import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { OwnerSigning } from './owner-signing'
 import { recordSigned, type RecordStore } from './signed-record'
@@ -32,12 +32,22 @@ beforeAll(async () => {
 
 function dkg2of3() {
   const { shares, groupVk, pubkeys } = dkg(2, 3)
-  const [s0, s1] = shares as [DkgSession, DkgSession, DkgSession]
+  const [s0, s1] = shares as [Share, Share, Share]
   return { s0, s1, groupVk, pubkeys }
 }
 
-/** A real DKG of any shape, for the sender rules that depend on t and n (#626). */
-function dkg(T: number, N: number) {
+type Share = { keyPackage(): Uint8Array }
+
+/** A DKG of any shape, for the sender rules that depend on t and n (#626). The shapes that sign a
+ *  real PCZT are the committed seeded vaults (a spend is checked against the vault's key, so the
+ *  PCZT has to be built for it); the others are made fresh and never sign one. */
+function dkg(T: number, N: number): { shares: Share[]; groupVk: Uint8Array; pubkeys: Uint8Array } {
+  const seeded = fixtureVault(T, N)
+  if (seeded) return seeded
+  return freshDkg(T, N)
+}
+
+function freshDkg(T: number, N: number) {
   const ids = Array.from({ length: N }, (_, i) => identifierBytes(i + 1))
   const sessions = ids.map((id) => new DkgSession(id, N, T))
   const r1 = sessions.map((s) => s.round1Package())
@@ -92,8 +102,8 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
   return dev
 }
 
-function requestFor(pczt: Uint8Array): string {
-  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+function requestFor(pczt: Uint8Array, groupVk: Uint8Array = dkgVaultKey()): string {
+  const spends = parseAlphas(pczt, groupVk).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
   return JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) })
 }
 
@@ -1326,6 +1336,7 @@ describe('any t of n seats complete a send, whichever they are', () => {
 
   it('3-of-4: seat 1 signs first, seat 4 completes the quorum, and seat 4 coordinates', async () => {
     const { shares, groupVk, pubkeys } = dkg(3, 4)
+    const pczt = fixtureVault(3, 4)!.pczt()
     const bus = new Bus()
     const ds = shares.map((s, i) => seated(['a', 'b', 'c', 'd'][i]! + '-tag', i + 1, bus, () => ({ keyPackage: s.keyPackage(), groupVk, pubkeys }), 3))
     const all = ds.map((d) => d.dev)
@@ -1333,7 +1344,7 @@ describe('any t of n seats complete a send, whichever they are', () => {
     await run(all, bus)
     for (const i of [0, 1, 3]) { NOW += 1000; await ds[i]!.sign(); await run(all, bus) }
     for (const d of all) expect(d.session.coordinatorTag(), d.tag).toBe('d-tag')
-    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    bus.post('helper', requestFor(withExpiry(pczt), groupVk))
     await run(all, bus)
     expect(from(bus, 'd-tag', 'sp'), 'the package comes from the device that completed').toBeGreaterThan(0)
     expect(from(bus, 'a-tag', 'sp'), 'not from seat 1').toBe(0)

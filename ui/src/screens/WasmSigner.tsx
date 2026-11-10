@@ -16,6 +16,7 @@ import {
   dkgProvenPczt,
   dkgBroadcastSig,
   DKG_SIGHASH,
+  DKG_VAULT_KEY,
   DKG_TXID,
   DKG_SPEND_INDEX,
 } from '../demo-vector'
@@ -84,7 +85,7 @@ export default function WasmSigner() {
       const outs = JSON.parse(describeOutputs(proven)) as { address: string | null; value: number | null }[]
       const recipient = outs.find((o) => o.address !== null)
       if (!recipient || recipient.value == null || recipient.address == null) throw new Error('no addressed recipient')
-      const rands = extractRandomizers(proven)
+      const rands = extractRandomizers(proven, hexToBytes(DKG_VAULT_KEY))
       const index = new DataView(rands.buffer, rands.byteOffset, 4).getUint32(0, true)
       const alpha = toHex(rands.slice(4, 36))
       const sigs = new Uint8Array(68)

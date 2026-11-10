@@ -94,7 +94,9 @@ describe('runway', () => {
   it('is the free funds over the pace, in tenths of a month, rounded down', () => {
     expect(runway(bal(1000), [], rate(300))).toEqual({ kind: 'months', tenths: 33 })
     expect(runway(bal(299), [], rate(300))).toEqual({ kind: 'months', tenths: 9 })
-    expect(runway(bal(0), [], rate(300))).toEqual({ kind: 'months', tenths: 0 })
+    expect(runway(bal(0), [], rate(300))).toEqual({ kind: 'none-free' })
+    // open proposals holding more than can be spent: nothing is free now
+    expect(runway(bal(100), [p('ready', 200, at(2026, 10, 1))], rate(300))).toEqual({ kind: 'none-free' })
   })
   it('counts only the free funds: what an open proposal holds is not there to last', () => {
     expect(runway(bal(1000), [p('awaiting', 400, at(2026, 10, 1))], rate(300))).toEqual({ kind: 'months', tenths: 20 })
