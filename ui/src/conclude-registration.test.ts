@@ -55,6 +55,7 @@ beforeEach(() => {
   h.adopt.mockImplementation(async () => ({ state: 'verified', address: 'u1served' }))
   h.served = { vault_id: GK, address: 'u1served', threshold: 2, total: 2, state: 'pinned', pkp_digest: 'd1' }
   h.getVault.mockResolvedValue(null)
+  recordRead('/api/vault', null)
   h.registerVault.mockImplementation(async () => h.served)
   h.listVaults.mockResolvedValue([rec()])
   h.getUnlockedShare.mockReturnValue(session())
@@ -337,16 +338,36 @@ describe('a vault of protocol 3', () => {
     h.registerVault.mockResolvedValue(null)
     h.failure = { status: 403, updateRequired: true }
     h.getVault.mockResolvedValue(null)
-    for (const reason of ['offline', 'timeout', 'unavailable', 'malformed'] as const) {
+    for (const reason of ['offline', 'timeout', 'unavailable', 'malformed', 'denied'] as const) {
       recordRead('/api/vault', reason)
       expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
     }
+  })
+
+  // One read decides it: the vault this device just saw pinned to its package is the answer, and a second
+  // read that fails (or a failure some earlier post left behind) does not turn it into "do not fund".
+  it('without a bundle, the vault it saw pinned is the answer, whatever a second read or an old post says', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.failure = { status: 403, updateRequired: true } // left by an earlier post
+    h.getVault.mockResolvedValueOnce(h.served).mockResolvedValueOnce(null)
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.getVault).toHaveBeenCalledTimes(1)
+  })
+
+  it('without a bundle, a read that got no answer is the network, and only a 404 is "not pinned"', async () => {
+    h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
+    h.getVault.mockResolvedValue(null)
+    recordRead('/api/vault', 'unavailable')
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
+    recordRead('/api/vault', 'missing')
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
   })
 
   it('without a bundle stays refused on a vault not pinned, or pinned to another package', async () => {
     h.listVaults.mockResolvedValue([rec3({ pinBundle: undefined })])
     for (const answer of [null, { ...(h.served as object), state: 'closed' }, { ...(h.served as object), pkp_digest: 'other' }]) {
       h.getVault.mockResolvedValue(answer)
+      recordRead('/api/vault', answer ? null : 'missing') // the coordinator answers 404 for a vault it does not hold
       expect(await concludeRegistration(GK)).toEqual({ refused: 'nobundle' })
     }
     expect(h.registerVault).not.toHaveBeenCalled()

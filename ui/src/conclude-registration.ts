@@ -104,14 +104,17 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   const protocol3 = cp >= FIRST_PINNING_PROTOCOL
   const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
   const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
-  // A device with no bundle never posts. It finishes only on a vault others pinned to its package.
+  // A device with no bundle never posts. It finishes only on a vault others pinned to its package, read
+  // once: that answer is the vault. No answer is not "not pinned": only a 404 says the coordinator holds none.
+  let v: HelperVault | null
   if (protocol3 && !rec.pinBundle) {
     const known = await getVault(rec.groupKey)
+    if (!known && lastReadFailure('/api/vault')?.reason !== 'missing') return { refused: 'unreachable' }
     if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
+    v = known
+  } else {
+    v = await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
   }
-  let v = protocol3 && !rec.pinBundle
-    ? await getVault(rec.groupKey)
-    : await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
   if (!v) {
     const failure = lastHelperPostFailure()
     // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
