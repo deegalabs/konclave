@@ -8,7 +8,7 @@
 // enough history and carries no pace, no runway and no projection, as the screen does.
 import type { Workbook } from 'exceljs'
 import type { Balance, Proposal } from './api'
-import { balanceParts, freeZatOf, reservedZatOf } from './balance-parts'
+import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from './balance-parts'
 import { downloadBlob } from './download'
 import { zatToZec } from './format'
 import type { Locale, TFn } from './i18n'
@@ -30,6 +30,10 @@ const monthAt = (unix: number, locale: Locale) => monthLong(new Date(unix * 1000
 
 export function analysesReport(input: {
   bal: Balance | null
+  /** The vault was busy with a send at the last read, and whether it reports no wallet: the same
+   *  two facts the screen's balance band is given, so the file names the same cause. */
+  busy?: boolean
+  unwired?: boolean
   rows: readonly Proposal[]
   vaultName: string
   now: Date
@@ -41,16 +45,20 @@ export function analysesReport(input: {
   const sections: ReportSection[] = []
 
   const reserved = reservedZatOf(rows)
+  const balNote = balanceNoteKey(!!bal && bal.total_zat != null, input.busy ?? false, input.unwired ?? false)
   if (bal && bal.total_zat != null && reserved !== null) {
     const p = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
-    sections.push({ title: t('analyses.secBalance'), rows: [
+    // The reserved figure is capped at what can be spent; when proposals hold more, the file says
+    // so, as the screen does.
+    const notes = [p.overCommitted ? t('dashboard.overCommitted') : '', balNote ? t(balNote) : ''].filter(Boolean)
+    sections.push({ title: t('analyses.secBalance'), note: notes.length ? notes.join(' ') : undefined, rows: [
       zec(p.totalZat, t('analyses.inVault'), t('analyses.srcInVault')),
       zec(p.freeZat, t('analyses.free'), t('analyses.srcFree')),
       zec(p.reservedZat, t('analyses.reserved'), t('analyses.srcReserved')),
       zec(p.confirmingZat, t('analyses.confirming'), t('analyses.srcConfirming')),
     ] })
   } else {
-    sections.push({ title: t('analyses.secBalance'), rows: [], note: t('analyses.balanceUnread') })
+    sections.push({ title: t('analyses.secBalance'), rows: [], note: t(balNote ?? 'analyses.balanceUnread') })
   }
 
   const burn = burnRate(rows, now)
@@ -97,6 +105,13 @@ export function analysesReport(input: {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/** The runway in the reader's language ("3,7" in Portuguese, as the screen writes it). An amount
+ *  keeps its digits as they are, the way the screen writes ZEC. */
+const pageValue = (x: ReportRow, locale: Locale) =>
+  (x.unit !== 'ZEC' && /^\d+\.\d$/.test(x.value)
+    ? Number(x.value).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    : x.value)
+
 /** A standalone page: no script, no outside resource, readable offline and printable to PDF. */
 export function analysesHtml(r: AnalysesReport, locale: Locale): string {
   const L = r.labels
@@ -104,7 +119,7 @@ export function analysesHtml(r: AnalysesReport, locale: Locale): string {
     `<h2>${esc(s.title)}</h2>`,
     s.rows.length
       ? `<table><colgroup><col style="width:30%"><col style="width:16%"><col style="width:9%"><col></colgroup><thead><tr><th>${esc(L.figure)}</th><th class="n">${esc(L.value)}</th><th>${esc(L.unit)}</th><th>${esc(L.source)}</th></tr></thead><tbody>` +
-        s.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${esc(x.value)}</td><td>${esc(x.unit)}</td><td class="src">${esc(x.source)}</td></tr>`).join('') +
+        s.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${esc(pageValue(x, locale))}</td><td>${esc(x.unit)}</td><td class="src">${esc(x.source)}</td></tr>`).join('') +
         '</tbody></table>'
       : '',
     s.note ? `<p class="note">${esc(s.note)}</p>` : '',

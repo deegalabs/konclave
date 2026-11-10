@@ -1224,7 +1224,7 @@ export const en: Record<string, string> = {
   'analyses.secProjection': 'Projection',
   'analyses.srcInVault': 'The balance the vault read when this file was made.',
   'analyses.srcFree': 'In the vault, less what is confirming and what open proposals hold.',
-  'analyses.srcReserved': 'The sum of the proposals still awaiting approval or ready to send.',
+  'analyses.srcReserved': 'The sum of the proposals still awaiting approval or ready to send, capped at what can be spent.',
   'analyses.srcConfirming': 'Received, not yet spendable.',
   'analyses.srcMonth': 'Payments sent or confirmed, placed by the date they were proposed.',
   'analyses.srcProjected': 'Free funds less the pace for each month ahead. Projected, not recorded.',

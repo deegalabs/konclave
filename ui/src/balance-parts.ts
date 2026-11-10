@@ -129,6 +129,17 @@ export function freeZatOf(
   return balanceParts(total, spendable, reserved).freeZat
 }
 
+/**
+ * What is said about the balance besides its figures, or null. With no figures it names the cause:
+ * the vault busy with a send, no wallet connected, or a read that failed. With figures kept through
+ * a send, it says they are the last ones read. The Analyses screen and its export both ask here, so
+ * the file never names a different cause from the screen.
+ */
+export function balanceNoteKey(read: boolean, busy: boolean, unwired: boolean): string | null {
+  if (!read) return busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
+  return busy ? 'wallet.busyKept' : null
+}
+
 // ---- funds that are only confirming ----
 //
 // #352: both propose screens said "exceeds the vault balance" and nothing else, even when the vault

@@ -1220,7 +1220,7 @@ export const ptBR: Record<string, string> = {
   'analyses.secProjection': 'Projeção',
   'analyses.srcInVault': 'O saldo que o cofre leu quando este arquivo foi gerado.',
   'analyses.srcFree': 'No cofre, menos o que está confirmando e o que as propostas abertas reservam.',
-  'analyses.srcReserved': 'A soma das propostas ainda aguardando aprovação ou prontas para envio.',
+  'analyses.srcReserved': 'A soma das propostas ainda aguardando aprovação ou prontas para envio, limitada ao que pode ser gasto.',
   'analyses.srcConfirming': 'Recebido, ainda não disponível para gastar.',
   'analyses.srcMonth': 'Pagamentos enviados ou confirmados, pela data em que foram propostos.',
   'analyses.srcProjected': 'O disponível menos o ritmo a cada mês à frente. Projetado, não registrado.',
