@@ -168,6 +168,9 @@ describe('the screen', () => {
     expect(src).toMatch(/from '\.\.\/balance-parts'/)
     expect(src).toMatch(/nextBalanceView/)
     expect(src).not.toMatch(/'sent'|'confirmed'/)
+    // the run-out month is written by the Ledger's own month formatter, not a second copy
+    expect(src).toMatch(/import \{ monthLong \} from '\.\.\/period'/)
+    expect(src).not.toMatch(/month: 'long'/)
   })
   it('says nothing about the balance or the book until the first read has answered', () => {
     expect(src).toMatch(/\{loaded && <BalanceBand /)

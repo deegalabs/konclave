@@ -37,6 +37,9 @@ export function periodWindow(kind: PeriodKind, offset: number, now: Date = new D
 }
 
 /** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
+/** A month written long ("November 2026"): the Ledger's period and the Analyses run-out month. */
+export const monthLong = (d: Date, locale: string): string => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+
 export function periodLabel(
   kind: PeriodKind,
   offset: number,
@@ -47,7 +50,7 @@ export function periodLabel(
   const w = periodWindow(kind, offset, now)
   if (!w) return ''
   const start = new Date(w.from * 1000)
-  if (kind === 'month') return start.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+  if (kind === 'month') return monthLong(start, locale)
   if (kind === 'quarter') return quarter(Math.floor(start.getMonth() / 3) + 1, start.getFullYear())
   return String(start.getFullYear())
 }

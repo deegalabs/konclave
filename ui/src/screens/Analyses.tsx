@@ -17,6 +17,7 @@ import { fmtZatExact } from '../format'
 import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
+import { monthLong } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
 import { burnRate, projection, runway } from '../treasury-metrics'
@@ -25,11 +26,10 @@ import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
-/** A month as the axis and the warning write it. Short months lose the period some locales add
- *  ("nov."), and January carries its two-digit year, so an axis that crosses a year says so. */
-const month = (unix: number, locale: Locale, long = false) => {
+/** A month as the axis writes it. Short months lose the period some locales add ("nov."), and
+ *  January carries its two-digit year, so an axis that crosses a year says so. */
+const month = (unix: number, locale: Locale) => {
   const d = new Date(unix * 1000)
-  if (long) return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
   const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
   return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
 }
@@ -84,7 +84,7 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
   const run = runway(bal, rows, burn)
   const proj = projection(bal, rows, burn, now)
   const free = freeZatOf(bal, rows)
-  const runsOut = proj && proj.runsOutIndex !== null ? month(proj.points[proj.runsOutIndex]!.from, locale, true) : null
+  const runsOut = proj && proj.runsOutIndex !== null ? monthLong(new Date(proj.points[proj.runsOutIndex]!.from * 1000), locale) : null
   return (
     <>
       <dl className="an-figs">
