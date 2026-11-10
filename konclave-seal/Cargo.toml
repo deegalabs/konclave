@@ -37,3 +37,7 @@ receivers = ["dep:orchard", "dep:zcash_address", "dep:zcash_protocol"]
 [dev-dependencies]
 # A real dealer's package, to test the package check on what the library produces.
 reddsa = { version = "0.5.2", features = ["frost"] }
+# Test-only: real PCZT vectors parsed to exercise the spend rule on whole bundles.
+pczt = { version = "0.10.0", default-features = false, features = ["orchard"] }
+# Seeded dealer keys for the committed signing fixture (deterministic, so it can be regenerated).
+rand_chacha = "0.3"

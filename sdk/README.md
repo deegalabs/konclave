@@ -194,7 +194,8 @@ const { outputs, feeZat } = JSON.parse(readPayment(pczt)) as {
 const sighash = pcztSighash(pczt)
 
 // 3) Each real Orchard spend has its own (index, alpha). One ceremony per record.
-const rand = extractRandomizers(pczt) // flat 36-byte records: u32-LE index + 32-byte alpha
+const rand = extractRandomizers(pczt, groupVk) // flat 36-byte records: u32-LE index + 32-byte alpha;
+// groupVk is the vault's group key as YOUR device holds it, never a value from the request; every spend is checked against it
 for (let off = 0; off + 36 <= rand.length; off += 36) {
   const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
   const alpha = rand.slice(off + 4, off + 36)

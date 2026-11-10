@@ -1,0 +1,1 @@
+- **Each spend is now checked against the vault's key before the device takes part.** A transaction with a spend that is not under this vault's key is refused whole, with a message that says the transaction was not built for the vault's key.

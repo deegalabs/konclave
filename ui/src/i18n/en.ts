@@ -1338,6 +1338,8 @@ export const en: Record<string, string> = {
   'net.err.network': 'Refused to sign: this transaction is for another network or network version than the one this app signs for. Nothing was signed. Update the app; if it is up to date, do not try again, and tell the other members.',
   'net.err.locktime': 'Refused to sign: this transaction could only be sent at a later time, which a vault payment never asks. Nothing was signed. This can mean the request was tampered with: do not try again, and tell the other members.',
   'net.err.recordFailed': 'Not signed: this device could not write down that it signed this payment, which it needs to do first. Nothing was signed. Check that this browser can store data for this site, then try again.',
+  'net.err.notBuiltForVault': "This transaction was not built for this vault's key. This device did not sign it. Tell the other members before anyone signs.",
+  'net.err.vaultRecordMismatch': "This device's copy of the vault does not match its key. This device did not sign. Restore the vault from its backup, then try again.",
   'net.err.recordUnreadable': 'Not signed: this device could not read its own record of what it signed, and does not sign without it. Nothing was signed. Check that this browser can store data for this site, then reload the page.',
   'net.err.sighashMismatch': 'This device ignored a signing message it could not match with the transaction it read. It signs only what matches.',
   'net.err.badShare': 'A signature part from a signer listed below did not check out and was left out. If a valid one arrives, signing goes on. If not, tell the other signers and start this payment again. Signer(s):',

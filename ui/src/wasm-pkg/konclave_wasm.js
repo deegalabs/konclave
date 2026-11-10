@@ -1102,12 +1102,33 @@ export function estimatedFeeZat(destinations) {
  * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
  * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
  * @param {Uint8Array} pczt
+ * @param {Uint8Array} group_vk
  * @returns {Uint8Array}
  */
-export function extractRandomizers(pczt) {
+export function extractRandomizers(pczt, group_vk) {
     const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.extractRandomizers(ptr0, len0);
+    const ptr1 = passArray8ToWasm0(group_vk, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.extractRandomizers(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
+ * The 32-byte group verifying key of a saved `PublicKeyPackage` (the key the device signs
+ * under), for confirming the key on record before it is used to read a transaction.
+ * @param {Uint8Array} pubkeys
+ * @returns {Uint8Array}
+ */
+export function groupKeyOfPackage(pubkeys) {
+    const ptr0 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.groupKeyOfPackage(ptr0, len0);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
