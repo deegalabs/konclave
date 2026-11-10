@@ -112,6 +112,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   reads the vaults, and the boot log and `/api/health` (`trusted_proxy_hops`) say which rule is in
   force. The log also says, once per length, how many values a request's header carried (a count,
   never an address).
+- **A registration whose members' proofs do not count is answered before anything else.** The
+  coordinator checks a new vault's proofs once, before the sender's allowance and the vault's lock, and
+  answers a set that does not count right there, with the same answer as before. At most four such
+  checks run at once across the service; past that it answers `503` with `busy: service`, which the app
+  retries. Registrations that count are unchanged. This takes effect when the coordinator is next built
+  and deployed.
 - **How long a send waits for the devices is the operator's setting.** The coordinator waits for
   `KONCLAVE_SEND_MAX_POLLS` polls (one a second when the relay answers at once, longer when it does not): default 300, from 120 to 600. Below 120,
   zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log
