@@ -149,13 +149,25 @@ What the counts mean, per hostname:
   address, they must start answering `429` at the limit (on the relay a single `from` tag reaches its
   own limit of 150 first). If they never do, or answer `429` well before it, unset the setting and
   stop: the platform did not add its values where the count suggested.
-- **c, c, c (the same count, c at least 1): the platform rebuilds the header** and the client's values
-  never reach the server. Leave the setting unset (or set `c`, which picks the same value when c is 1).
+- **c, c, c (the same count, c at least 1): the platform does not pass the client's list through.** A
+  count alone does not say which address comes first: a platform that rebuilds the header and one
+  that keeps the client's first value and appends its own both give the same count. So run the
+  content step before deciding. Wait ten seconds after any other request from your machine, then,
+  within ten seconds, send 302 requests to a route the limits count (the routes named above), all
+  with the same made-up `X-Forwarded-For` value from `198.51.100.0/24` (on the relay, a different
+  `from` tag on each), then one request with no header. Read only the status codes. The run counts
+  only if exactly 2 of the 302 answered `429`; otherwise wait ten seconds and run it again.
+  If the last request answers `429`, the made-up value was not used and the setting stays unset. If
+  it answers anything else (`200` on the relay, `404` on the coordinator), the made-up value was
+  used: set `1`, which takes the value the platform wrote last, restart, and run the content step
+  again. If it now answers `429`, keep `1`; if it does not, unset the setting and stop.
 - **0, 0, 0: the platform strips the header.** Every request counts under the socket address, which is
-  the proxy's, so all clients would share one budget under `0`. Do NOT set `0`; leave it unset and
-  report it: the address would have to come from another header, which this release does not read.
-- **0, 5, 5: the platform passes the client's header and adds nothing.** No value of the header can be
-  trusted and the socket is the proxy: no setting makes it safe. Stop and report.
+  the proxy's, whether the setting is unset or `0`, so all clients share one budget. Report it: the
+  address would have to come from another header, which this release does not read.
+- **0, 5, 5: the client's header arrives as it was sent.** If clients reach the server directly, with
+  no proxy, the socket is the client: set `0`. If there is a proxy, it passes the client's header and
+  adds nothing, the socket is the proxy, and no setting makes it safe: put a proxy in front that
+  rebuilds or appends, and measure again.
 - **Anything else** (a "9 or more" line, a count that differs between steps 2 and 3, or two hostnames
   of one service that disagree): stop. No single number serves two paths that add different counts,
   and counts cannot show whether the platform appends to the first header line or the last.

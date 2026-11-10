@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { offsetFor, periodWindow } from './period'
+import { monthShort, offsetFor, periodWindow } from './period'
+import { codeOf } from './source-scan'
 
 // The ledger's period picker: a window by month, quarter or year, walked with an offset from now.
 // Pure, so the arithmetic is tested without a browser; the screen places each entry by creation date.
@@ -29,5 +30,19 @@ describe('the ledger period window', () => {
     expect(offsetFor('year', march, now)).toBe(1)
     expect(offsetFor('month', march, now)).toBe(4)
     expect(offsetFor('all', march, now)).toBe(0)
+  })
+})
+
+describe('the short month on a chart axis', () => {
+  it('drops the period some locales add, and gives January its year', () => {
+    expect(monthShort(new Date(2026, 10, 15), 'pt-BR')).toBe('nov')
+    expect(monthShort(new Date(2027, 0, 15), 'pt-BR')).toBe("jan '27")
+    expect(monthShort(new Date(2026, 10, 15), 'en')).toBe('Nov')
+    expect(monthShort(new Date(2027, 0, 15), 'en')).toBe("Jan '27")
+  })
+  it("is what the Dashboard writes under its month bars, in the app's language", () => {
+    const src = codeOf('screens/Dashboard.tsx')
+    expect(src).toMatch(/const label = monthShort\(d, locale\)/)
+    expect(src).not.toMatch(/month: 'short'/)
   })
 })

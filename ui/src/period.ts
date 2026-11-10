@@ -36,10 +36,17 @@ export function periodWindow(kind: PeriodKind, offset: number, now: Date = new D
   return { from: unix(start), to: unix(end) }
 }
 
-/** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
+/** A month written short for a chart axis: no trailing period ("nov." becomes "nov"), and January
+ *  carries its year with an apostrophe ("jan '27"), so it does not read as a day of the month. */
+export const monthShort = (d: Date, locale: string): string => {
+  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
+  return d.getMonth() === 0 ? `${short} '${String(d.getFullYear()).slice(2)}` : short
+}
+
 /** A month written long ("November 2026"): the Ledger's period and the Analyses run-out month. */
 export const monthLong = (d: Date, locale: string): string => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 
+/** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
 export function periodLabel(
   kind: PeriodKind,
   offset: number,

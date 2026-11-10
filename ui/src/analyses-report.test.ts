@@ -70,6 +70,34 @@ describe('analysesReport', () => {
     expect(r.sections.map((s) => s.title)).not.toContain('Projection')
   })
 
+  it('writes the balance in its parts, and projects from the free funds, not the total', () => {
+    // 5 in the vault, 4 spendable, 1 held by a ready proposal: free 3, held 1, confirming 1
+    const r = report({ bal: bal(5 * ZEC, 4 * ZEC), rows: [...book, p('ready', ZEC, at(2026, 10, 1))] })
+    expect(r.sections[0]!.rows.map((x) => [x.label, x.value])).toEqual([
+      ['In the vault', '5.00000000'], ['Free', '3.00000000'], ['Held by open proposals', '1.00000000'], ['Confirming', '1.00000000'],
+    ])
+    expect(r.sections[0]!.note).toBeUndefined()
+    // 3 free at 1.33333334 a month: 2 whole months and two tenths
+    expect(r.sections[2]!.rows[1]!).toMatchObject({ label: 'Runway', value: '2.2' })
+    expect(r.sections[3]!.rows[0]!).toMatchObject({ label: 'now (November 2026)', value: '3.00000000' })
+  })
+
+  it('says when open proposals hold more than the vault can spend, as the screen does', () => {
+    const r = report({ bal: bal(2 * ZEC), rows: [...book, p('awaiting', 3 * ZEC, at(2026, 10, 1))] })
+    expect(r.sections[0]!.rows.map((x) => x.value)).toEqual(['2.00000000', '0.00000000', '2.00000000', '0.00000000'])
+    expect(r.sections[0]!.note).toBe(t('dashboard.overCommitted'))
+    expect(r.sections[0]!.rows[2]!.source).toContain('capped at what can be spent')
+  })
+
+  it('names the same cause as the screen when there is no balance, and says when it is the last one kept', () => {
+    expect(report({ bal: null, busy: true }).sections[0]!.note).toBe(t('wallet.busyFirst'))
+    expect(report({ bal: null, unwired: true }).sections[0]!.note).toBe(t('dashboard.walletNotConnected'))
+    expect(report({ bal: null }).sections[0]!.note).toBe(t('analyses.balanceUnread'))
+    const kept = report({ busy: true })
+    expect(kept.sections[0]!.rows[0]!.value).toBe('5.00000000')
+    expect(kept.sections[0]!.note).toBe(t('wallet.busyKept'))
+  })
+
   it('writes one undated payment in the singular', () => {
     const one = report({ rows: [...book, p('sent', ZEC, undefined)] })
     expect(one.sections[1]!.note).toBe(t('analyses.undatedOne', { n: 1 }))
@@ -93,6 +121,13 @@ describe('the two files say the same thing', () => {
     expect(html).toContain('Caixa &lt;da&gt; comunidade')
     expect(html).not.toContain('<da>')
     expect(html).not.toMatch(/<script|<link|src=|https?:\/\//)
+  })
+
+  it("the page writes the runway the way the screen does in the reader's language", () => {
+    const tp: TFn = (k, v) => translateStatic(k, v, 'pt-BR')
+    const html = analysesHtml(report({ t: tp, locale: 'pt-BR' }), 'pt-BR')
+    expect(html).toContain('<td class="n">3,7</td>')
+    expect(html).not.toContain('<td class="n">3.7</td>')
   })
 
   it('the spreadsheet holds the same rows, amounts as exact numbers', async () => {
@@ -122,4 +157,8 @@ it('adds no rule of its own', () => {
   expect(codeOf('screens/Analyses.tsx')).toMatch(/t\(runwayNoteKey\(run\)\)/)
   expect(src).toMatch(/import \{ monthLong \} from '\.\/period'/)
   expect(src).not.toMatch(/month: 'long'|analyses\.balanceUnread'\) \}$/m)
+  // the cause of a missing balance too: one choice, which the screen makes as well
+  expect(src).toMatch(/balanceNoteKey\(/)
+  expect(codeOf('screens/Analyses.tsx')).toMatch(/balanceNoteKey\(/)
+  expect(codeOf('screens/Analyses.tsx')).not.toMatch(/'wallet\.busyFirst'|'wallet\.busyKept'/)
 })

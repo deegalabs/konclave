@@ -11,14 +11,14 @@
 import { useEffect, useState } from 'react'
 import { getLedger, getVault, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
 import { analysesReport, exportAnalyses } from '../analysesReport'
-import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
+import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
 import { fmtZatExact } from '../format'
 import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
-import { monthLong } from '../period'
+import { monthLong, monthShort } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
 import { burnRate, projection, runway, runwayNoteKey } from '../treasury-metrics'
@@ -27,23 +27,16 @@ import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
-/** A month as the axis writes it. Short months lose the period some locales add ("nov."), and
- *  January carries its two-digit year, so an axis that crosses a year says so. */
-const month = (unix: number, locale: Locale) => {
-  const d = new Date(unix * 1000)
-  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
-  return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
-}
+/** A month on the axis, from its unix time: the one short-month rule, in period.ts. */
+const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000), locale)
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
  *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
 export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
   bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
 }) {
-  if (!bal || bal.total_zat == null) {
-    const why = busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
-    return <p className="hint" role="status">{t(why)}</p>
-  }
+  const note = balanceNoteKey(!!bal && bal.total_zat != null, busy, unwired)
+  if (!bal || bal.total_zat == null) return <p className="hint" role="status">{t(note!)}</p>
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
   if (reserved === null) return null
@@ -64,7 +57,7 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
       </div>
       {/* The held amount is capped at what can be spent; when proposals hold more, say so. */}
       {parts.overCommitted && <p className="hint warn sm" role="status">{t('dashboard.overCommitted')}</p>}
-      {busy && <p className="hint sm" role="status">{t('wallet.busyKept')}</p>}
+      {note && <p className="hint sm" role="status">{t(note)}</p>}
     </div>
   )
 }
@@ -157,17 +150,20 @@ export default function Analyses() {
     if (!readable) return
     let on = true
     let inFlight = false
+    let named = false
     const load = async (first: boolean) => {
       if (inFlight) return
       inFlight = true
       if (first) begin()
       try {
-        const [l, b, v] = await Promise.all([getLedger(), readBalance(), first ? getVault() : Promise.resolve(null)])
+        // The vault's name is asked for until one read answers, so a failed first read does not
+        // leave the files saying "Konclave" until the page is reopened.
+        const [l, b, v] = await Promise.all([getLedger(), readBalance(), named ? Promise.resolve(null) : getVault()])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
         setView((x) => nextBalanceView(x, b))
         if (b && typeof b === 'object') setUnwired(!b.configured)
-        if (v) setVaultName(v.name)
+        if (v) { named = true; setVaultName(v.name) }
       } finally {
         inFlight = false
         if (first) { end(); if (on) setLoaded(true) }
@@ -187,7 +183,9 @@ export default function Analyses() {
     setExportFailed(false)
     setExported(false)
     try {
-      const report = analysesReport({ bal: view.bal, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale })
+      const report = analysesReport({
+        bal: view.bal, busy: view.busy, unwired, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale,
+      })
       if (await exportAnalyses(report, kind, locale)) setExported(true)
       else setExportFailed(true)
     } catch {

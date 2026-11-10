@@ -2138,13 +2138,15 @@ struct Registration {
 /// the number is published in `/api/health` (`client.creation`), which is what a deploy reads to
 /// confirm the build it is looking at.
 ///
-/// It is `3`: a new vault must be created under protocol 3, whose seats' certificates the coordinator
-/// counts before anything of the vault opens (the seat certificates). A registration declaring less, or nothing, is
-/// refused with `update_required`, which an app from 0.13.0 on shows as "update the app" (an older one
-/// shows a failed registration). Vaults already
-/// registered are not registrations and are not touched by this number. Raised in the same deploy that
-/// turns on the pin, so no vault created after it can be one the coordinator cannot pin.
-const MIN_CREATION: u32 = 3;
+/// It is `4`: a new vault must be created by an app that speaks creation protocol 4, the current
+/// one, which keeps protocol 3's seat certificates (the coordinator counts them before anything of
+/// the vault opens; `orchestrator::helper::holds_pinned_forms` is `cp >= 3`). A registration
+/// declaring less, or nothing, is refused with `update_required`, which an app from 0.13.0 on shows
+/// as "update the app" (an older one shows a failed registration). Vaults already registered keep
+/// working; a device of one that registers it again with an older number hears the same refusal,
+/// before any lock, allowance or write. Deployed only together with the web that speaks 4: between
+/// the two, the web that speaks 3 is told to update.
+const MIN_CREATION: u32 = 4;
 
 /// The minimum in force for THIS call. Production reads the constant. Under test it is `0` unless
 /// the test sets it for its own THREAD (`with_creation_min`; a thread a test spawns starts at `0`
@@ -9702,23 +9704,23 @@ mod tests {
         format!(r#"{{"group_key":"{n:064x}","name":"v","threshold":2,"total":3{cp}}}"#).into_bytes()
     }
 
-    /// The constant ships at `3`: this is the one test that changes when the number does. Everything
+    /// The constant ships at `4`: this is the one test that changes when the number does. Everything
     /// else here sets its own minimum (tests start at `0`), so the suite says the same thing at any
     /// number.
     #[test]
-    fn the_shipped_minimum_is_protocol_3() {
+    fn the_shipped_minimum_is_protocol_4() {
         assert_eq!(
-            MIN_CREATION, 3,
-            "lowering it reopens creation without certificates: a deliberate, separate change"
+            MIN_CREATION, 4,
+            "lowering it lets an older app create a vault again: a deliberate, separate change"
         );
     }
 
     /// At the shipped minimum, the earlier creations are refused with the typed answer an older app
-    /// words as "update the app", and protocol 3 goes on to ask for its proofs.
+    /// words as "update the app", and protocol 4 goes on to ask for its proofs.
     #[test]
     fn at_the_shipped_minimum_an_older_creation_is_told_to_update() {
         with_creation_min(MIN_CREATION, || {
-            for cp in [None, Some("0"), Some("1"), Some("2")] {
+            for cp in [None, Some("0"), Some("1"), Some("2"), Some("3")] {
                 let refused = match parse_registration(&body_with_cp(1, cp)) {
                     Err(r) => r,
                     Ok(_) => panic!("cp {cp:?} must be refused"),
@@ -9726,11 +9728,11 @@ mod tests {
                 assert_eq!(refused.status, 403, "{}", refused.body);
                 let j: serde_json::Value = serde_json::from_str(&refused.body).unwrap();
                 assert_eq!(j["update_required"], true, "{}", refused.body);
-                assert_eq!(j["min_creation"], 3);
+                assert_eq!(j["min_creation"], 4);
             }
-            let more = match parse_registration(&body_with_cp(3, Some("3"))) {
+            let more = match parse_registration(&body_with_cp(3, Some("4"))) {
                 Err(r) => r,
-                Ok(_) => panic!("protocol 3 with no bundle"),
+                Ok(_) => panic!("protocol 4 with no bundle"),
             };
             assert_eq!(more.status, 401, "{}", more.body);
         });

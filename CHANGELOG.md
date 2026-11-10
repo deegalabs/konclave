@@ -83,6 +83,16 @@ explicitly accepted.
   was used. At the fix, none of the vaults we checked on the hosted coordinator was without a read
   key; one, belonging to a user outside the project, was not opened for the check. Vaults created
   before keep their rules.
+- **The relay and the coordinator can be told how many proxies in front of them to trust
+  ([GHSA-vjxm-73xh-mppm](https://github.com/deegalabs/konclave/security/advisories/GHSA-vjxm-73xh-mppm)).**
+  Both counted a client by the first value of `X-Forwarded-For`, which a client writes wherever the
+  header reaches the server as it was sent (behind a proxy that appends to it or passes it through,
+  or with no proxy), so a client could choose the address its requests counted under and step around
+  the per-address limits. `KONCLAVE_TRUSTED_PROXY_HOPS` (0 to 8, `DEPLOY.md`) now names the value to
+  believe; unset, nothing changes, so a self-hosted server has to be measured and set. The hosted
+  servers run with it unset: tested on 2026-11-10, their platform does not pass the client's value
+  through (the coordinator's hosts were not tested before that date). It did not affect reading a
+  vault or moving funds. Reported by hokvo.
 
 ### Added
 
