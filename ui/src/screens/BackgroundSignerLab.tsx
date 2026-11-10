@@ -13,14 +13,14 @@ import { getUnlockedShare } from '../session'
 import { unlockOnDevice } from '../unlock'
 import { parseAlphas } from '../signing'
 import { bytesToHex } from '../net-sign'
-import { dkgProvenPczt } from '../demo-vector'
+import { dkgProvenPczt, dkgVaultKeyBytes } from '../demo-vector'
 import { useBackgroundSigner } from '../useBackgroundSigner'
 import { makeSigningGate, type SigningMode } from '../signing-gate'
 import { fmtZecExact, shortAddr } from '../format'
 
 function testRequest(): string {
   const pczt = dkgProvenPczt()
-  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+  const spends = parseAlphas(pczt, dkgVaultKeyBytes()).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
   return JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) })
 }
 
@@ -38,6 +38,9 @@ export default function BackgroundSignerLab() {
   // #281: the lab has no proposal, so it cannot know what was approved, and answers `unknown`: the
   // device reads the injected request and refuses it before any share moves. It never answers
   // `match`, because this route joins the vault's real signing room.
+  // The injected request is built over the demo vector, which belongs to another vault. A device
+  // now checks each spend against its own vault's key first, so a real vault of this device
+  // refuses it for that reason before the gate above is asked; the lab shows that refusal.
   const bg = useBackgroundSigner(unlocked, gate, () => 'unknown', () => false, async () => { throw new Error('the lab never signs') }, () => {})
 
   useEffect(() => {

@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init, {
   Coordinator,
-  DkgSession,
   identifierBytes,
   participantRound1,
   participantRound2WithRandomizer,
@@ -19,7 +18,7 @@ import init, {
   readPayment,
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
-import { dkgProvenPczt } from './demo-vector'
+import { dkg2of3, dkgFirstSpendKey, dkgOtherPczt, OTHER_EXPIRY, dkgProvenPczt, dkgVaultKey, fixtureVault } from './rekeyed-vault'
 import { VECTOR_EXPIRY, honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
@@ -33,26 +32,6 @@ afterAll(unpinClock)
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
 })
-
-// A real 2-of-3 DKG in one process (same as net-flow), returning the two quorum sessions.
-function dkg2of3() {
-  const N = 3
-  const T = 2
-  const ids = [1, 2, 3].map((i) => identifierBytes(i))
-  const sessions = ids.map((id) => new DkgSession(id, N, T))
-  const r1 = sessions.map((s) => s.round1Package())
-  sessions.forEach((s, i) => r1.forEach((pkg, j) => { if (i !== j) s.addRound1(ids[j]!, pkg) }))
-  sessions.forEach((s) => s.part2())
-  sessions.forEach((s, i) => {
-    for (let k = 0; k < s.round2Count(); k++) {
-      const j = ids.findIndex((id) => bytesEqual(id, s.round2Recipient(k)))
-      sessions[j]!.addRound2(ids[i]!, s.round2Package(k))
-    }
-  })
-  sessions.forEach((s) => s.part3())
-  const [s0, s1, s2] = sessions as [DkgSession, DkgSession, DkgSession]
-  return { s0, s1, s2, groupVk: s0.groupVk(), pubkeys: s0.pubkeys() }
-}
 
 // An in-memory relay room: opaque messages, each tagged with its sender. A device receives EVERY
 // message (its own included) exactly as the mailbox echoes to the poller - the coordinator needs
@@ -167,9 +146,9 @@ vi.mock('./signing', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./signing')>()
   return {
     ...actual,
-    parseAlphas: (pczt: Uint8Array) => {
+    parseAlphas: (pczt: Uint8Array, groupVk: Uint8Array) => {
       if (alphaFault.message) throw new Error(alphaFault.message)
-      return actual.parseAlphas(pczt)
+      return actual.parseAlphas(pczt, groupVk)
     },
   }
 })
@@ -190,6 +169,7 @@ function makeDevice(
   // How many shares complete a signature on this device. Two for every ceremony test but the one
   // that needs a third signer.
   threshold = 2,
+  logs: string[] = [],
 ): Device {
   const dev: Device = { claims: [], claimAnswer: true, records: [], recordFails: false, claimExpiries: [], tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
@@ -205,7 +185,7 @@ function makeDevice(
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
     rawSend: async (data) => { dev.bus.post(tag, data); return true },
-    onLog: () => {},
+    onLog: (l) => { logs.push(l) },
     onError: (msg) => dev.errors.push(msg),
     onPhase: () => {},
     onWhat: (w) => { dev.what = w },
@@ -259,8 +239,8 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
 
 // A helper's Architecture-B sign-request over the vault's proven PCZT (sighash = the PCZT's real
 // sighash, so each device's on-device H1 check passes by construction).
-function signRequestFor(pczt: Uint8Array): { json: string; spendCount: number } {
-  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+function signRequestFor(pczt: Uint8Array, spendsOf: Uint8Array = pczt, listedUnder: Uint8Array = dkgVaultKey()): { json: string; spendCount: number } {
+  const spends = parseAlphas(spendsOf, listedUnder).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
   return {
     json: JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) }),
     spendCount: spends.length,
@@ -311,7 +291,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // A helper (Architecture B) publishes a sign-request over the vault's own proven PCZT. Its
     // sighash is the PCZT's real sighash, so each device's on-device H1 check passes by construction.
     const pczt = withExpiry(dkgProvenPczt())
-    const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+    const spends = parseAlphas(pczt, dkgVaultKey()).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
     const requestJson = JSON.stringify({
       kind: 'net-sign-request',
       sighash: bytesToHex(pcztSighash(pczt)),
@@ -351,7 +331,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
     const pczt = withExpiry(dkgProvenPczt())
-    const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+    const spends = parseAlphas(pczt, dkgVaultKey()).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
     // `sealed: true` is what unsealSignRequest marks on a request it opened from a box.
     bus.post('helper', JSON.stringify({
       kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt), sealed: true,
@@ -608,7 +588,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const local = Array.from(pcztSighash(pczt), (b) => b.toString(16).padStart(2, '0')).join('')
     // One ask per share, so one per spend: the ask is also where a withdrawn consent stops the next
     // share. The store keeps one entry per transaction however often it is asked.
-    expect(A.records.length).toBe(parseAlphas(pczt).length)
+    expect(A.records.length).toBe(parseAlphas(pczt, dkgVaultKey()).length)
     expect(A.records.length).toBeGreaterThan(1)
     for (const r of A.records) expect(r).toEqual([local, expiry, NU63])
     expect(A.claimExpiries).toEqual([expiry])
@@ -678,7 +658,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
     const pczt = withExpiry(dkgProvenPczt())
-    expect(parseAlphas(pczt).length).toBeGreaterThan(1)
+    expect(parseAlphas(pczt, dkgVaultKey()).length).toBeGreaterThan(1)
     A.withdrawAfter = 1
     bus.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus)
@@ -891,6 +871,125 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
       expect(B.sig).toBeNull()
     })
   }
+
+  // Each spend is checked against THIS vault's key before the device takes part. The transaction
+  // below is the fixture with the randomizer of its first spend changed to another valid value: its
+  // sighash does not cover the randomizer, so the sighash check passes and only this check refuses.
+  const alpha0 = hexb('63267dad44b3621cd5246056295def55bd012cb053de4ba7af406e35d4ba4734')
+  const notThisKey = () => patchOnce(withExpiry(dkgProvenPczt()), alpha0, [5, ...Array(31).fill(0)])
+
+  it('a spend that is not under this vault\'s key is refused before round one, in neutral words', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    // The device read an earlier payment: its reading must be gone when this refusal shows.
+    A.what = { outputs: [{ zat: 1, addr: null, recipient: null }], feeZat: 1 }
+    bus.post('helper', signRequestFor(notThisKey(), withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual(['net.err.notBuiltForVault'])
+    expect(A.what, 'no earlier reading is left under the refusal').toBeNull()
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+    expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  it('and a valid package that follows does not make the device sign it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(notThisKey(), withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    const refusedAt = bus.msgs.length
+    // The honest transaction, under the same tag, arrives afterwards.
+    const honest = withExpiry(dkgProvenPczt())
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(honest)), pczt: b64(honest) }))
+    await runCeremony(A, B, bus)
+    const after = bus.msgs.slice(refusedAt).filter((m) => m.from === 'A' || m.from === 'B')
+    expect(after.filter((m) => m.data.includes('"s1"') || m.data.includes('"s2"')), 'no commitment or share leaves').toEqual([])
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+  })
+
+  it('the engine sentence goes to the log, not to the screen', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const logs: string[] = []
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), undefined, 2, logs)
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(notThisKey(), withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors.join(' ')).not.toMatch(/\[rk\]|\[alpha\]/)
+    expect(logs.some((l) => l.includes('[rk]'))).toBe(true)
+  })
+
+  it('a device whose record of the vault key is not its package\'s key refuses everything', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const wrong = groupVk.slice()
+    wrong[0] = wrong[0]! ^ 1
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk: wrong, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual(['net.err.vaultRecordMismatch'])
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  // The comparison of the record with the package is the only thing that refuses here: the record
+  // names ANOTHER vault (the seeded 3-of-4) and the transaction is built for THAT vault, so every
+  // spend is under the key the record gives. A device that took the record's word would read it.
+  it('a record that names another vault, with a transaction built for that vault, is refused by the comparison alone', async () => {
+    const other = fixtureVault(3, 4)!
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk: other.groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const pczt = withExpiry(other.pczt())
+    expect(parseAlphas(pczt, other.groupVk).length, 'the transaction is readable under the key on record').toBeGreaterThan(0)
+    bus.post('helper', signRequestFor(pczt, pczt, other.groupVk).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual(['net.err.vaultRecordMismatch'])
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  // The refusal is the end of that transaction on this device. The first request arrives inline
+  // (no stored helper request to read again), and a different, valid one follows with another
+  // sighash: nothing may leave.
+  it('after the refusal, a valid request with another sighash does not make the device sign', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const bad = notThisKey()
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(bad)), pczt: b64(bad) }))
+    await runCeremony(A, B, bus)
+    expect(B.errors).toEqual(['net.err.notBuiltForVault'])
+    const refusedAt = bus.msgs.length
+    const honest = withExpiry(dkgProvenPczt(), honestExpiry() + 1)
+    expect(bytesEqual(pcztSighash(honest), pcztSighash(bad))).toBe(false)
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(honest)), pczt: b64(honest) }))
+    await runCeremony(A, B, bus)
+    const after = bus.msgs.slice(refusedAt).filter((m) => m.from === 'A' || m.from === 'B')
+    expect(after.filter((m) => m.data.includes('"s1"') || m.data.includes('"s2"')), 'no commitment or share leaves').toEqual([])
+    expect(B.sig).toBeNull()
+  })
+
+  it('a spend with an empty randomizer is refused as well', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const logs: string[] = []
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), undefined, 2, logs)
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    // Its key is the vault's own (consistent with the empty value), so only that check sees it.
+    const empty = patchOnce(patchOnce(withExpiry(dkgProvenPczt()), alpha0, Array(32).fill(0)), Array.from(dkgFirstSpendKey()), Array.from(groupVk))
+    bus.post('helper', signRequestFor(empty, withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual(['net.err.notBuiltForVault'])
+    expect(logs.some((l) => l.includes('[alpha]')), 'refused for the randomizer, not for the key').toBe(true)
+    expect(A.sig).toBeNull()
+  })
 
   // Final review of #610. After a final refusal the device has nothing left to say about that
   // transaction: a forged package posted afterwards under another seat's tag used to make it report
@@ -1283,7 +1382,8 @@ describe('the coordinator is fixed for a ceremony once it starts (SIGNER-SEAT1)'
 // transaction inline), so each test hands the two different transactions with a message that matches
 // the one the signature would be made over. The gate answers `match` only for the approved payment.
 describe('a device signs the transaction it checked', () => {
-  const otherPczt = () => new Uint8Array(readFileSync(new URL('../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt', import.meta.url)))
+  // Another payment, built for the same vault, so a device that reads it reaches the content gate.
+  const otherPczt = () => withExpiry(dkgOtherPczt(), honestExpiry(), OTHER_EXPIRY)
   const tagOf = (p: Uint8Array) => bytesToHex(pcztSighash(p)).slice(0, 16)
   const outputsOf = (p: Uint8Array) => JSON.stringify((JSON.parse(readPayment(p)) as { outputs: unknown[] }).outputs)
 
@@ -1296,7 +1396,7 @@ describe('a device signs the transaction it checked', () => {
     const approvedOutputs = outputsOf(approved)
     for (const d of [A, B]) d.gate = (o) => (JSON.stringify(o) === approvedOutputs ? 'match' : 'mismatch')
     // Sealed, so the coordinator adds no message of its own and the one below is the only one.
-    const spends = parseAlphas(helperPczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+    const spends = parseAlphas(helperPczt, dkgVaultKey()).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
     bus.post('helper', JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(helperPczt)), spends, pczt_hex: bytesToHex(helperPczt), sealed: true }))
     bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(msgOf), pczt: b64(inlinePczt) }))
     await runCeremony(A, B, bus)
@@ -1325,6 +1425,10 @@ describe('a device signs the transaction it checked', () => {
     const other = otherPczt()
     const r = await run(other, approved, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
+    // By the content gate, not by anything earlier: the transaction is the vault's own, only not
+    // the one that was approved.
+    expect(r.A.errors).toContain('net.err.notApproved')
+    expect(r.B.errors).toContain('net.err.notApproved')
     expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
     expect(r.A.sig).toBeNull()
     expect(r.B.sig).toBeNull()
@@ -1602,7 +1706,8 @@ describe('a signing request is the coordinator\'s', () => {
       await pump(B, bus)
     }
     // The package is out, the ceremony is under way. Another raw request lands in the room.
-    bus.post('helper', signRequestFor(otherPczt()).json)
+    // (Another vault's vector: its spends are listed from this vault's, which a device only counts.)
+    bus.post('helper', signRequestFor(otherPczt(), withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus)
     expect(bus.msgs.filter((m) => m.from === 'A' && typeOf(m) === 'sreq'), 'the coordinator asked once').toHaveLength(1)
     expect(A.sig?.ok).toBe(true)

@@ -1334,6 +1334,8 @@ export const ptBR: Record<string, string> = {
   'net.err.network': 'Assinatura recusada: esta transação é de outra rede ou de outra versão da rede que não a deste app. Nada foi assinado. Atualize o app; se ele já estiver atualizado, não tente de novo e avise os outros membros.',
   'net.err.locktime': 'Assinatura recusada: esta transação só poderia ser enviada mais tarde, o que um pagamento do cofre nunca pede. Nada foi assinado. Isso pode significar um pedido adulterado: não tente de novo e avise os outros membros.',
   'net.err.recordFailed': 'Não assinado: este aparelho não conseguiu anotar que assinou este pagamento, o que precisa fazer antes. Nada foi assinado. Confira se este navegador pode guardar dados deste site e tente de novo.',
+  'net.err.notBuiltForVault': 'Esta transação não foi montada para a chave deste cofre. Este aparelho não a assinou. Avise os outros membros antes que alguém assine.',
+  'net.err.vaultRecordMismatch': 'A cópia do cofre neste aparelho não confere com a chave dele. Este aparelho não assinou. Restaure o cofre a partir do backup e tente de novo.',
   'net.err.recordUnreadable': 'Não assinado: este aparelho não conseguiu ler o próprio registro do que assinou, e não assina sem ele. Nada foi assinado. Confira se este navegador pode guardar dados deste site e recarregue a página.',
   'net.err.sighashMismatch': 'Este aparelho ignorou uma mensagem de assinatura que não conseguiu casar com a transação que leu. Ele só assina o que casa.',
   'net.err.badShare': 'Uma parte da assinatura de um signatário listado abaixo não conferiu e foi deixada de fora. Se uma parte válida chegar, a assinatura segue. Se não, avise os outros signatários e comece este pagamento de novo. Signatário(s):',

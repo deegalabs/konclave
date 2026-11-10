@@ -1,0 +1,1 @@
+- **`konclave-seal` reads the spends of a transaction a device signs through the vault's own key.** Each spend is checked against that key before the device takes part, and one that is not under it refuses the whole transaction.
