@@ -147,6 +147,8 @@ mod room {
     /// and `\b \f \n \r \t` take two bytes, any other control character below 0x20 takes six
     /// (`\u00XX`), everything else (DEL and every byte of UTF-8 included) takes one.
     pub fn escaped_len(s: &str) -> usize {
+        #[cfg(test)]
+        ESCAPES.with(|c| c.set(c.get() + 1));
         s.bytes()
             .map(|b| match b {
                 b'"' | b'\\' | 0x08 | 0x0c | b'\n' | b'\r' | b'\t' => 2,
@@ -154,6 +156,18 @@ mod room {
                 _ => 1,
             })
             .sum()
+    }
+
+    #[cfg(test)]
+    thread_local! {
+        /// How many times `escaped_len` has read a string on this thread. Only a test reads it: it
+        /// is how a test says "this question must not read a message's bytes again".
+        static ESCAPES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[cfg(test)]
+    pub fn escapes_on_this_thread() -> usize {
+        ESCAPES.with(|c| c.get())
     }
 
     /// What one message counts for against a byte ceiling: the bytes it takes in a poll answer,
@@ -441,6 +455,9 @@ impl RelayState {
             "source_digest": env!("KONCLAVE_SOURCE_DIGEST"),
             "relay_full": self.relay_full.load(Ordering::Relaxed),
             "fill": self.fill_level(now),
+            // How many proxies in front of it this relay trusts (`DEPLOY.md`); `null` is the
+            // default rule. What a deploy reads to see the setting arrived.
+            "trusted_proxy_hops": konclave_http::forwarding_rule().trusted_hops(),
         })
         .to_string()
     }
@@ -734,12 +751,13 @@ fn query(raw: &str, key: &str) -> Option<String> {
     })
 }
 
-/// The client's IP for rate limiting. Behind Railway's proxy `remote_addr` is the proxy, so prefer
-/// the first hop of `X-Forwarded-For` (the real client); fall back to `remote_addr` for a direct
-/// connection. An attacker can spoof XFF only if they bypass the proxy, which the platform prevents.
+/// The client's IP for rate limiting. Behind Railway's proxy `remote_addr` is the proxy, so the
+/// address comes from `X-Forwarded-For`, and which value of it to believe is the rule booted from
+/// `KONCLAVE_TRUSTED_PROXY_HOPS` (unset is the first hop). That is only as good as what the platform
+/// does with the header, which this code cannot make true: see `konclave_http::ForwardingRule`.
 fn client_ip(req: &tiny_http::Request) -> ClientAddress {
     let remote = req.remote_addr().map(|a| a.ip().to_string());
-    konclave_http::client_address(
+    konclave_http::request_client_address(
         req.headers()
             .iter()
             .filter(|h| h.field.equiv("X-Forwarded-For"))
@@ -781,6 +799,10 @@ fn main() {
         println!("{}", env!("KONCLAVE_SOURCE_DIGEST"));
         return;
     }
+    // Which value of `X-Forwarded-For` names the client. A setting that is not understood stops the
+    // relay here, before it binds: quietly falling back to the first hop would be the unsafe way to
+    // get a typo wrong.
+    konclave_http::boot_forwarding_rule("konclave relay");
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
@@ -1674,6 +1696,16 @@ mod tests {
         assert_eq!(held_seqs(&st, "b"), vec![1, 2, 3, 4, 5]);
         // The refusal is counted, and /health says how full the relay is.
         let h = health_at(&st, b + 100);
+        // And which forwarding rule is in force, so a deploy can see the setting arrived.
+        assert!(h.get("trusted_proxy_hops").is_some(), "{h}");
+        assert!(
+            h["trusted_proxy_hops"].is_null(),
+            "the default rule is reported as null: {h}"
+        );
+        assert_eq!(
+            h["trusted_proxy_hops"].as_u64().map(|n| n as usize),
+            konclave_http::forwarding_rule().trusted_hops()
+        );
         assert_eq!(h["relay_full"].as_u64(), Some(1));
         assert_eq!(h["fill"].as_u64(), Some(100));
     }
@@ -1796,7 +1828,14 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            ["fill", "relay_full", "service", "source_digest", "status"]
+            [
+                "fill",
+                "relay_full",
+                "service",
+                "source_digest",
+                "status",
+                "trusted_proxy_hops"
+            ]
         );
         assert_eq!(h["status"], "ok");
         assert_eq!(h["service"], "konclave-relay");
@@ -2505,6 +2544,34 @@ mod tests {
         assert!(
             took < std::time::Duration::from_millis(100),
             "40 questions to a full room took {took:?}"
+        );
+    }
+
+    /// The same rule as the test above, counted instead of timed, so it holds in the release profile
+    /// too (the timed bound only bites in debug: a recomputing walk over 31 messages takes 0.07 s
+    /// in release). `escaped_len` is the only place that reads a message's bytes to cost it; asking
+    /// a full room what it keeps must not call it at all.
+    #[test]
+    fn asking_what_a_full_room_keeps_reads_no_message_bytes_at_all() {
+        let mut room = Room::new(0);
+        let data = "d".repeat(MAX_DATA);
+        for _ in 0..40 {
+            room.push("t".into(), data.clone(), 4 * 1024 * 1024);
+        }
+        assert!(room.bytes() > 4_000_000, "the room is full");
+        let before = super::room::escapes_on_this_thread();
+        assert!(
+            before >= 40,
+            "making the messages is what reads them: {before}"
+        );
+        for _ in 0..20 {
+            assert!(room.kept_at_floor(384 * 1024) <= 384 * 1024);
+            assert!(room.would_drop(MAX_DATA, 4 * 1024 * 1024) > 0);
+        }
+        assert_eq!(
+            super::room::escapes_on_this_thread(),
+            before,
+            "a question to a full room read a message's bytes again"
         );
     }
 
