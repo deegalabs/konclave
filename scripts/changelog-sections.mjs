@@ -242,21 +242,21 @@ export function taggedVersions(root = ROOT) {
   }
 }
 
-/** The tags; with none here (a shallow clone, Vercel), their names are listed from the remote, nothing written. */
-export function tagsForPages(root = ROOT, run = execFileSync, env = process.env) {
-  const have = taggedVersions(root)
-  if (have?.size) return have
-  const { VERCEL_GIT_REPO_OWNER: owner, VERCEL_GIT_REPO_SLUG: slug } = env
-  const remote = owner && slug ? `https://github.com/${owner}/${slug}.git` : 'origin'
-  let out
-  try { out = run('git', ['ls-remote', '--tags', '--refs', remote], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return have }
-  return new Set(String(out).split('\n').map((l) => l.split('refs/tags/')[1]?.trim().replace(/^v/, '')).filter(Boolean))
+/** Sections cut and then superseded before they were published: their entries shipped in the next
+ *  release, whose GitHub body carries them (versionsToReport). The tags say this on a full clone; a
+ *  build with no tags (CI, Vercel) reads it here. Add a version when a cut is superseded. */
+export const SUPERSEDED = ['0.5.0', '0.9.0']
+
+/** The released versions, from the changelog headings: every numbered section but the superseded
+ *  ones. Needs no git, so a laptop, CI and Vercel build the same pages. */
+export function releasedVersions(mds) {
+  return new Set(mds.flatMap(versionsIn).filter((v) => !SUPERSEDED.includes(v)))
 }
 
 /** The pages, or an error: a releases page with nothing on it must stop the build, not ship. */
-export function releasePagesOrFail(mds, tagged) {
-  const pages = releasePages(mds, tagged)
-  if (!pages.length) throw new Error('release pages: no tagged version found (git tag is empty and listing the tags from the remote failed)')
+export function releasePagesOrFail(mds) {
+  const pages = releasePages(mds, releasedVersions(mds))
+  if (!pages.length) throw new Error('release pages: no released version found in the changelog headings')
   return pages
 }
 

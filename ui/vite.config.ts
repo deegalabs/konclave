@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
-import { RELEASE_SOURCES, releasePagesOrFail, tagsForPages } from '../scripts/changelog-sections.mjs'
+import { RELEASE_SOURCES, releasePagesOrFail } from '../scripts/changelog-sections.mjs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
 // fall back to git; never fail the build if neither is present.
@@ -37,7 +37,8 @@ export default defineConfig({
     // One docs page per released version, built from the changelogs with the function that writes
     // the GitHub release body, so a release is never written twice. Only the converted pages reach
     // the bundle, in their own chunk (Docs imports this module when a release page is opened).
-    // A shallow clone has no tags, so their names are listed from the remote; zero pages stops the build.
+    // The versions come from the changelog headings, not git tags (a shallow clone has none); zero
+    // pages stops the build.
     {
       name: 'konclave-release-pages',
       resolveId: (id) => (id === 'virtual:konclave-releases' ? '\0virtual:konclave-releases' : undefined),
@@ -48,7 +49,7 @@ export default defineConfig({
           this.addWatchFile(path)
           return readFileSync(path, 'utf8')
         })
-        return `export default ${JSON.stringify(releasePagesOrFail(mds, tagsForPages()))}`
+        return `export default ${JSON.stringify(releasePagesOrFail(mds))}`
       },
     },
     // The waiting build names itself to the running one: the update banner reads this file (not
