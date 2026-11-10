@@ -193,6 +193,11 @@ describe('the chart rule in the styles', () => {
   const rules = (sel: RegExp) => (css.match(new RegExp(`${sel.source}[^{]*\\{[^}]*\\}`, 'g')) ?? []).join('\n')
   const chartCss = rules(/\.(funds|chart|spend)[\w-]*/)
 
+  it('sizes the month axis with its text, so at 200% the labels do not spill onto the tags', () => {
+    expect(rules(/\.funds-axis(?![\w-])/)).toMatch(/height:1\.4em/)
+    expect(rules(/\.funds-axis(?![\w-])/)).not.toMatch(/height:\d+px/)
+  })
+
   it('draws the zero line at 3:1 against the background (the strong line), not the soft one', () => {
     expect(rules(/\.funds-zero(?!-)/)).toContain('stroke:var(--line-strong)')
   })
