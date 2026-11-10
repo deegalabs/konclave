@@ -7,6 +7,7 @@
 // It reads the PERSISTED record (name, group key, quorum, roster, protocol), never the in-session
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.
 // The session copy is used for one thing, to sign this device's own registration.
+import { lastReadFailure } from './read-failure'
 import { getVault, helperConfigured, registerVault, setMembers, lastHelperPostFailure, type HelperVault } from './helper'
 import { ownPkpDigest } from './pin-digest'
 import { adoptVaultReceivers } from './vault-receivers'
@@ -15,7 +16,7 @@ import { getUnlockedShare, setUnlockedShare } from './session'
 import { registerThisDevice } from './device-registration'
 import { depositAddress } from './api'
 import { addressText } from './approved-payment'
-import { CREATION_PROTOCOL, isCurrentFlow, isUpdateRequired, protocolOfRecord } from './creation-protocol'
+import { CREATION_PROTOCOL, FIRST_PINNING_PROTOCOL, isCurrentFlow, isUpdateRequired, protocolOfRecord } from './creation-protocol'
 
 /** Why a registration was not finished. Every one keeps the record exactly as it was.
  *  - `old`: a record of the earlier creation flow, which this never registers (no network was used).
@@ -100,17 +101,37 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
 
   // The vault's name as every member confirmed it; the fallback lives here, once.
   const name = rec.name || `net-${rec.groupKey.slice(0, 8)}`
-  const protocol3 = cp >= 3
+  const protocol3 = cp >= FIRST_PINNING_PROTOCOL
   const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
   const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
-  // A device with no bundle never posts. It finishes only on a vault others pinned to its package.
+  // Only a 404 says the coordinator holds no such vault; any other empty read is the network's case.
+  const readSaysMissing = () => lastReadFailure('/api/vault')?.reason === 'missing'
+  // A device with no bundle never posts. It finishes only on a vault others pinned to its package, read
+  // once: that answer is the vault. No answer is not "not pinned": only a 404 says the coordinator holds none.
+  let v: HelperVault | null
   if (protocol3 && !rec.pinBundle) {
     const known = await getVault(rec.groupKey)
+    if (!known && !readSaysMissing()) return { refused: 'unreachable' }
     if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
+    v = known
+  } else {
+    v = await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
   }
-  const v = protocol3 && !rec.pinBundle
-    ? await getVault(rec.groupKey)
-    : await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+  if (!v) {
+    const failure = lastHelperPostFailure()
+    // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
+    // the vault exists and is pinned to this device's package, so it finishes the way a device with no
+    // bundle does, by reading it. Only a vault not pinned here is told it was made by an older app.
+    // Only after this device posted (a bundle): a device with no bundle never posted, and a failure
+    // left from an earlier post is not this one's.
+    if (isUpdateRequired(failure) && protocol3 && rec.pinBundle && cp < CREATION_PROTOCOL) {
+      const known = await getVault(rec.groupKey)
+      if (known && pinnedHere(known)) v = known
+      // No answer is not "no such vault": only a 404 says the coordinator holds none.
+      else if (!known && !readSaysMissing()) return { refused: 'unreachable' }
+      else return { refused: 'update', older: true }
+    }
+  }
   if (!v) {
     const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
