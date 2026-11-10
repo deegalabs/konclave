@@ -17,7 +17,7 @@ import { fmtZatExact } from '../format'
 import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
-import { monthLong } from '../period'
+import { monthLong, monthShort } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
 import { burnRate, projection, runway } from '../treasury-metrics'
@@ -26,13 +26,8 @@ import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
-/** A month as the axis writes it. Short months lose the period some locales add ("nov."), and
- *  January carries its two-digit year, so an axis that crosses a year says so. */
-const month = (unix: number, locale: Locale) => {
-  const d = new Date(unix * 1000)
-  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
-  return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
-}
+/** A month on the axis, from its unix time: the one short-month rule, in period.ts. */
+const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000), locale)
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
  *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
