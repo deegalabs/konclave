@@ -1218,6 +1218,7 @@ export const en: Record<string, string> = {
   'analyses.runsOut': 'At this pace the free funds would run out by {month}.',
   'analyses.hiddenChart': 'Amounts are hidden. Reveal them to see the projection.',
   'analyses.na': 'Not available',
+  'analyses.exported': 'The file is ready.',
   'analyses.source': "From the vault's book. Month by proposal date. Network fee not included. Incoming money not shown.",
   'analyses.secBalance': 'Balance',
   'analyses.secMonths': 'What left the vault, by month',
@@ -1233,6 +1234,11 @@ export const en: Record<string, string> = {
   'analyses.colValue': 'Value',
   'analyses.colUnit': 'Unit',
   'analyses.colSource': 'Where it came from',
+  'analyses.exportXlsx': 'Spreadsheet',
+  'analyses.exportHtml': 'Web page',
+  'analyses.exporting': 'Preparing…',
+  'analyses.exportHint': 'Both files say where each number came from. For a PDF, open the page and print it.',
+  'analyses.exportFailed': 'This browser did not save the file. Try again, or use another browser.',
 
   // Members
   'members.eyebrow': 'Vault signers · quorum {t}-of-{n}',

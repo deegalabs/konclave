@@ -1214,6 +1214,7 @@ export const ptBR: Record<string, string> = {
   'analyses.runsOut': 'Neste ritmo, o disponível acabaria até {month}.',
   'analyses.hiddenChart': 'Os valores estão ocultos. Revele-os para ver a projeção.',
   'analyses.na': 'Indisponível',
+  'analyses.exported': 'O arquivo está pronto.',
   'analyses.source': 'Do livro do cofre. Mês pela data da proposta. Taxa da rede não incluída. Entradas não aparecem.',
   'analyses.secBalance': 'Saldo',
   'analyses.secMonths': 'O que saiu do cofre, por mês',
@@ -1229,6 +1230,11 @@ export const ptBR: Record<string, string> = {
   'analyses.colValue': 'Valor',
   'analyses.colUnit': 'Unidade',
   'analyses.colSource': 'De onde veio',
+  'analyses.exportXlsx': 'Planilha',
+  'analyses.exportHtml': 'Página web',
+  'analyses.exporting': 'Preparando…',
+  'analyses.exportHint': 'Os dois arquivos dizem de onde veio cada número. Para ter um PDF, abra a página e imprima.',
+  'analyses.exportFailed': 'Este navegador não salvou o arquivo. Tente de novo, ou use outro navegador.',
 
   // Members
   'members.eyebrow': 'Signatários do cofre · quórum {t}-de-{n}',

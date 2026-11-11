@@ -9,7 +9,8 @@
 // proposal date, network fee not included, incoming money not shown. Below three complete months it
 // says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
-import { getLedger, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
+import { getLedger, getVault, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
+import { analysesReport, exportAnalyses } from '../analysesReport'
 import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
@@ -139,22 +140,30 @@ export default function Analyses() {
   // Nothing is said about the balance or the book until the first read answers: before it, both
   // are null, and "could not be read" would report a failure that has not happened.
   const [loaded, setLoaded] = useState(false)
+  const [vaultName, setVaultName] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'html'>(null)
+  const [exportFailed, setExportFailed] = useState(false)
+  const [exported, setExported] = useState(false)
 
   useEffect(() => {
     // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
     if (!readable) return
     let on = true
     let inFlight = false
+    let named = false
     const load = async (first: boolean) => {
       if (inFlight) return
       inFlight = true
       if (first) begin()
       try {
-        const [l, b] = await Promise.all([getLedger(), readBalance()])
+        // The vault's name is asked for until one read answers, so a failed first read does not
+        // leave the files saying "Konclave" until the page is reopened.
+        const [l, b, v] = await Promise.all([getLedger(), readBalance(), named ? Promise.resolve(null) : getVault()])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
-        setView((v) => nextBalanceView(v, b))
+        setView((x) => nextBalanceView(x, b))
         if (b && typeof b === 'object') setUnwired(!b.configured)
+        if (v) { named = true; setVaultName(v.name) }
       } finally {
         inFlight = false
         if (first) { end(); if (on) setLoaded(true) }
@@ -166,9 +175,47 @@ export default function Analyses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, readable])
 
+  // Both files come from one list of rows (analysesReport), each row saying where its number came
+  // from. Built from what this screen has read; nothing to export until the book was read.
+  async function exportAs(kind: 'xlsx' | 'html') {
+    if (exporting || rows === null) return
+    setExporting(kind)
+    setExportFailed(false)
+    setExported(false)
+    try {
+      const report = analysesReport({
+        bal: view.bal, busy: view.busy, unwired, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale,
+      })
+      if (await exportAnalyses(report, kind, locale)) setExported(true)
+      else setExportFailed(true)
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(null)
+    }
+  }
+  // While a file is being made the buttons are aria-disabled, not disabled: a disabled button
+  // drops keyboard focus to the top of the page. They are disabled only while there is no book.
+  const why = rows === null ? 'an-export-why' : undefined
+  const exportButton = (kind: 'xlsx' | 'html', label: string) => (
+    <button className="btn ghost sm-btn" disabled={rows === null} aria-disabled={exporting !== null} aria-describedby={why} onClick={() => void exportAs(kind)}>
+      {exporting === kind ? t('analyses.exporting') : label}
+    </button>
+  )
+  const actions = (
+    <>
+      {exportButton('xlsx', t('analyses.exportXlsx'))}
+      {exportButton('html', t('analyses.exportHtml'))}
+      {why && <span id={why} className="visually-hidden">{t('analyses.unknown')}</span>}
+    </>
+  )
+
   return (
     <main className="page">
-      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} />
+      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} actions={actions} />
+      <p className="cap">{t('analyses.exportHint')}</p>
+      {exportFailed && <p className="hint warn" role="alert">{t('analyses.exportFailed')}</p>}
+      <p className="visually-hidden" role="status">{exporting ? t('analyses.exporting') : exported ? t('analyses.exported') : ''}</p>
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}

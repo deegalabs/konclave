@@ -176,6 +176,14 @@ describe('the screen', () => {
     expect(src).toMatch(/import \{ monthLong, monthShort \} from '\.\.\/period'/)
     expect(src).not.toMatch(/month: 'long'|month: 'short'/)
   })
+  it('keeps focus on an export button while it works, and says so to a screen reader', () => {
+    // disabled would drop focus to the top of the page; aria-disabled keeps it where it was
+    expect(src).toMatch(/aria-disabled=\{exporting !== null\}/)
+    expect(src).not.toMatch(/(?<!aria-)disabled=\{exporting !== null/)
+    expect(src).toMatch(/role="status"/)
+    // the hint is said once, on the page, not again as a tooltip on each button
+    expect(src).not.toMatch(/title=\{t\('analyses\.exportHint'\)\}/)
+  })
   it('says nothing about the balance or the book until the first read has answered', () => {
     expect(src).toMatch(/\{loaded && <BalanceBand /)
     expect(src).toMatch(/\{loaded && \(\s*<section className="an-sec mt"/)
