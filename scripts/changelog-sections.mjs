@@ -260,6 +260,17 @@ export function releasePagesOrFail(mds) {
   return pages
 }
 
+/** The versions the release body of `version` would fold in that SUPERSEDED does not list. The body
+ *  folds by tags (versionsToReport) and the pages by this list, so a fold the list misses is a
+ *  version with its own page on the site and inside another's body on GitHub. Read at the cut, before
+ *  `version` has a heading: the cut is simulated so the same walk answers. Empty with no tags. */
+export function unlistedFolds(version, tagged, md) {
+  const cut = hasSection(md, version) ? md : replaceUnreleasedHeading(md, `## [Unreleased]
+
+## [${version}]`)
+  return versionsToReport(version, tagged, cut).slice(1).filter((v) => !SUPERSEDED.includes(v))
+}
+
 // The root changelog has every version's heading, so the walk below reads it.
 const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG.md')
 
