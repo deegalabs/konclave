@@ -56,6 +56,23 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.20.0] 2026-11-11
+
+> **Services deployed when this was cut (2026-11-11):** coordinator `39b5059a`, relay `68c687b62bc3d547`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Changed
+
+- Creating a vault needs the newest app; vaults that already exist keep working.
+
+### Known limits
+
+- **The coordinator still pays 5,000 zatoshis per action after block 3,590,000 (ZIP 2009), so vault
+  transactions can be told apart until the fee release.** Building at 1,000 for vaults whose every device
+  accepts it is planned for its own release.
+
 ## [0.19.0] 2026-11-10
 
 > **Services deployed when this was cut (2026-11-10):** coordinator `670a1683`, relay `68c687b62bc3d547`.
