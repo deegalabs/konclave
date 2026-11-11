@@ -92,11 +92,21 @@ export function runway(bal: Bal, proposals: readonly Proposal[] | null, burn: Bu
   return { kind: 'months', tenths: whole * 10 + Math.floor((rest * 10) / burn.zatPerMonth) }
 }
 
+/** The sentence that goes with a runway, on the screen and in the export: one choice, so the two
+ *  cannot say different things about the same vault. */
+export function runwayNoteKey(run: Runway): string {
+  if (run.kind === 'months') return 'analyses.runwayHow'
+  if (run.kind === 'no-spend') return 'analyses.noSpend'
+  if (run.kind === 'none-free') return 'analyses.noFreeNow'
+  return 'analyses.runwayAwaitsBalance'
+}
+
 export type ProjectionPoint = { from: number; balanceZat: number }
 
 /** The free funds one, two, ... `horizon` months from now (each point dated by the month it falls
  *  in) if the pace holds and nothing comes in; `runsOutIndex` is the first point at or below zero.
- *  Null when there is no pace or the free funds are unknown. */
+ *  Null when there is no pace or the free funds are unknown. Zero free funds puts `runsOutIndex` at
+ *  0, but that vault is out now, not next month: read `runway()`'s `none-free` first. */
 export function projection(
   bal: Bal,
   proposals: readonly Proposal[] | null,

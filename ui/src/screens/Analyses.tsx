@@ -10,7 +10,7 @@
 // says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
 import { getLedger, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
-import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
+import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
 import { fmtZatExact } from '../format'
@@ -20,7 +20,7 @@ import { PageFooter, PageHeader } from '../page'
 import { monthLong, monthShort } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
-import { burnRate, projection, runway } from '../treasury-metrics'
+import { burnRate, projection, runway, runwayNoteKey } from '../treasury-metrics'
 import { nextBalanceView, type BalanceView } from '../useVaultBalance'
 import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
@@ -34,10 +34,8 @@ const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000)
 export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
   bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
 }) {
-  if (!bal || bal.total_zat == null) {
-    const why = busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
-    return <p className="hint" role="status">{t(why)}</p>
-  }
+  const note = balanceNoteKey(!!bal && bal.total_zat != null, busy, unwired)
+  if (!bal || bal.total_zat == null) return <p className="hint" role="status">{t(note!)}</p>
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
   if (reserved === null) return null
@@ -58,7 +56,7 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
       </div>
       {/* The held amount is capped at what can be spent; when proposals hold more, say so. */}
       {parts.overCommitted && <p className="hint warn sm" role="status">{t('dashboard.overCommitted')}</p>}
-      {busy && <p className="hint sm" role="status">{t('wallet.busyKept')}</p>}
+      {note && <p className="hint sm" role="status">{t(note)}</p>}
     </div>
   )
 }
@@ -98,7 +96,7 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             </b>
           </dd>
           <dd className="by">
-            {t(run.kind === 'months' ? 'analyses.runwayHow' : run.kind === 'no-spend' ? 'analyses.noSpend' : run.kind === 'none-free' ? 'analyses.noFreeNow' : 'analyses.runwayAwaitsBalance')}
+            {t(runwayNoteKey(run))}
           </dd>
         </div>
       </dl>
