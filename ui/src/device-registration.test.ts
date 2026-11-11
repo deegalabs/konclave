@@ -41,14 +41,14 @@ const codeOf = codeAt
 
 describe('a seat registers on unlock, not on an open proposal', () => {
   it('nothing but device-registration.ts registers a vault\'s read key, and only for a vault made by the current creation', () => {
-    const offenders = sources(SRC).filter((p) => /\bregisterReadKey\s*\(/.test(codeOf(p)))
+    const offenders = sources(SRC).filter((p) => /\bregisterReadKey(?:Result)?\s*\(/.test(codeOf(p)))
       .map((p) => relative(SRC, p)).filter((p) => p !== 'device-registration.ts' && p !== DEFINES)
     expect(offenders).toEqual([])
     expect(codeOf(join(SRC, 'device-registration.ts'))).toMatch(/if \(share\.accessSecret && share\.threshold !== undefined\)/)
   })
 
   it('nothing but device-registration.ts calls registerDeviceKey', () => {
-    const offenders = sources(SRC).filter((p) => /\bregisterDeviceKey\s*\(/.test(codeOf(p)))
+    const offenders = sources(SRC).filter((p) => /\bregisterDeviceKey(?:Result)?\s*\(/.test(codeOf(p)))
     expect(
       offenders.map((p) => p.replace(SRC, '')),
       'registers a seat somewhere other than the one place that is reached on every unlock',
@@ -56,7 +56,7 @@ describe('a seat registers on unlock, not on an open proposal', () => {
   })
 
   it('the background signer does not register, since it only runs with a proposal open', () => {
-    expect(/\bregisterDeviceKey\s*\(/.test(codeOf(join(SRC, 'useBackgroundSigner.ts'))))
+    expect(/\bregisterDeviceKey(?:Result)?\s*\(/.test(codeOf(join(SRC, 'useBackgroundSigner.ts'))))
       .toBe(false)
   })
 
