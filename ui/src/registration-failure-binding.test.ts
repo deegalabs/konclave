@@ -7,7 +7,7 @@ const A = 'ab'.repeat(32)
 const B = 'cd'.repeat(32)
 const BUNDLE = JSON.stringify({ pkp: 'aa', proofs: [] })
 
-const h = vi.hoisted(() => ({ finished: vi.fn(), adopt: vi.fn() }))
+const h = vi.hoisted(() => ({ finished: vi.fn(async (..._a: unknown[]) => {}), adopt: vi.fn() }))
 vi.mock('./storage', async (orig) => ({
   ...(await orig<typeof import('./storage')>()),
   listVaults: async () => [{
