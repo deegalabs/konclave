@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+import { RELEASE_SOURCES, releasePagesOrFail } from '../scripts/changelog-sections.mjs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
 // fall back to git; never fail the build if neither is present.
@@ -31,6 +34,24 @@ const desktopBuild = desktopFlag === '1'
 // (`konclave serve`, ADR-0004) and by a future packaged webview.
 export default defineConfig({
   plugins: [
+    // One docs page per released version, built from the changelogs with the function that writes
+    // the GitHub release body, so a release is never written twice. Only the converted pages reach
+    // the bundle, in their own chunk (Docs imports this module when a release page is opened).
+    // The versions come from the changelog headings, not git tags (a shallow clone has none); zero
+    // pages stops the build.
+    {
+      name: 'konclave-release-pages',
+      resolveId: (id) => (id === 'virtual:konclave-releases' ? '\0virtual:konclave-releases' : undefined),
+      load(id) {
+        if (id !== '\0virtual:konclave-releases') return
+        const mds = (RELEASE_SOURCES as [string, string][]).map(([file]) => {
+          const path = fileURLToPath(new URL(`../${file}`, import.meta.url))
+          this.addWatchFile(path)
+          return readFileSync(path, 'utf8')
+        })
+        return `export default ${JSON.stringify(releasePagesOrFail(mds))}`
+      },
+    },
     // The waiting build names itself to the running one: the update banner reads this file (not
     // precached: workbox only takes js, css, html, images, fonts and wasm) to say which version is
     // arriving, not only which one is running.
@@ -75,6 +96,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,wasm}'],
+        // The release pages (konclave-release-pages) are every release's notes and grow with each one;
+        // they load when a release page is opened, so they are not precached.
+        globIgnores: ['**/*konclave-releases*'],
         // The Orchard/Ironwood WASM core + a couple of large chunks; raise the per-file cap so they
         // are precached (offline + a consistent snapshot).
         // Headroom over the wasm, which is the only file near this ceiling. Workbox drops an

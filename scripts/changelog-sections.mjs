@@ -242,6 +242,24 @@ export function taggedVersions(root = ROOT) {
   }
 }
 
+/** Sections cut and then superseded before they were published: their entries shipped in the next
+ *  release, whose GitHub body carries them (versionsToReport). The tags say this on a full clone; a
+ *  build with no tags (CI, Vercel) reads it here. Add a version when a cut is superseded. */
+export const SUPERSEDED = ['0.5.0', '0.9.0']
+
+/** The released versions, from the changelog headings: every numbered section but the superseded
+ *  ones. Needs no git, so a laptop, CI and Vercel build the same pages. */
+export function releasedVersions(mds) {
+  return new Set(mds.flatMap(versionsIn).filter((v) => !SUPERSEDED.includes(v)))
+}
+
+/** The pages, or an error: a releases page with nothing on it must stop the build, not ship. */
+export function releasePagesOrFail(mds) {
+  const pages = releasePages(mds, releasedVersions(mds))
+  if (!pages.length) throw new Error('release pages: no released version found in the changelog headings')
+  return pages
+}
+
 // The root changelog has every version's heading, so the walk below reads it.
 const ROOT_CHANGELOG = RELEASE_SOURCES.findIndex(([file]) => file === 'CHANGELOG.md')
 
