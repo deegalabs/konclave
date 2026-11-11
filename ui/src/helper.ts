@@ -229,10 +229,22 @@ export function lastHelperPostFailure(): HelperPostFailure | null {
   return lastPostFailure
 }
 
+/** One POST's own answer: the value, or the failure THIS call produced (null when nothing answered).
+ *  The failure travels with the call, so a registration never reads another call's failure out of
+ *  the module slot while two of them are in flight. */
+export type PostResult<T> = { ok: T } | { failure: HelperPostFailure | null }
+
 async function postJson<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<T | null> {
-  const base = helperBase()
   lastPostFailure = null
-  if (!base) return null
+  const r = await postJsonResult<T>(path, body, extra)
+  if ('ok' in r) return r.ok
+  lastPostFailure = r.failure
+  return null
+}
+
+async function postJsonResult<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<PostResult<T>> {
+  const base = helperBase()
+  if (!base) return { failure: null }
   try {
     const sent = JSON.stringify(body)
     const { res, body: answer } = await fetchRetryingBusy(() => fetch(`${base}${path}`, {
@@ -245,14 +257,13 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
       // Still busy after the retries: `vault busy` is the code `humanError` words, so no caller
       // shows the coordinator's English sentence or reads it as "unreachable".
       const stillBusy = busyWrite(busyOf(res.status, answer))
-      lastPostFailure = stillBusy
+      return { failure: stillBusy
         ? { status: res.status, error: 'vault busy', busy: true }
-        : { status: res.status, error: j?.error, code: typeof j?.code === 'string' ? j.code : undefined, updateRequired: j?.update_required === true, tooLarge: tooLargeOf(answer) }
-      return null
+        : { status: res.status, error: j?.error, code: typeof j?.code === 'string' ? j.code : undefined, updateRequired: j?.update_required === true, tooLarge: tooLargeOf(answer) } }
     }
-    return answer as T
+    return { ok: answer as T }
   } catch {
-    return null
+    return { failure: null }
   }
 }
 
@@ -320,7 +331,7 @@ export async function coordinatorCreationMin(): Promise<number | null> {
  * public view, or `null` if no helper is configured or the call fails. threshold/total come from
  * the DKG so proposals inherit the quorum (a proposer cannot spoof a lower one).
  */
-export async function registerVault(
+export async function registerVaultResult(
   groupKeyHex: string,
   name: string,
   threshold: number,
@@ -328,12 +339,12 @@ export async function registerVault(
   cp: number,
   /** Protocol 3: the package and the seats' certificates, as the creation built them. */
   pinBundle?: string,
-): Promise<HelperVault | null> {
+): Promise<PostResult<HelperVault>> {
   // `cp`: the creation protocol this vault was made with, REQUIRED and never defaulted to the
   // app's own number: a registration that stamped today's protocol on an older vault would be a
   // false statement. The coordinator refuses a registration without it, so an outdated app's vault
   // never gets an address. Its only caller reads it from the device's record (conclude-registration.ts).
-  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp, ...(pinBundle ? JSON.parse(pinBundle) : {}) })
+  return postJsonResult<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp, ...(pinBundle ? JSON.parse(pinBundle) : {}) })
 }
 
 /** A payment proposal on a browser-native vault, as the helper stores it. All public. */
@@ -394,18 +405,27 @@ export async function createProposal(args: {
  *  keeping recipient + amount off the relay. Idempotent, so it is safe to call on every unlock.
  *  Best-effort: returns null on any failure (a device still signs even if registration did not land;
  *  an unsealed request is the compat fallback until every device has registered). */
-export async function registerDeviceKey(
+export async function registerDeviceKey(...args: Parameters<typeof registerDeviceKeyResult>): Promise<boolean | null> {
+  lastPostFailure = null
+  const r = await registerDeviceKeyResult(...args)
+  if ('ok' in r) return r.ok
+  lastPostFailure = r.failure
+  return null
+}
+
+/** `registerDeviceKey`, with the failure of THIS call returned beside it (device-registration reads it). */
+export async function registerDeviceKeyResult(
   groupKeyHex: string,
   devicePubHex: string,
   write?: { seat: number; pub: string },
   /** A seat's certificate, as JSON, which a pinned vault asks of a seat it does not hold. */
   proof?: string,
-): Promise<boolean | null> {
+): Promise<PostResult<boolean>> {
   // The vault's readKey rides along: claiming a seat now requires it, because an unclaimed seat
   // used to be free to anyone holding the vault id. This device has `S` - registration runs on
   // unlock, right after the share is seated - so the token is derivable here. A vault with no
   // readKey registered stays open, exactly as its reads do.
-  const r = await postJson<{ ok: boolean; added: boolean }>('/api/vault/devicekey', {
+  const r = await postJsonResult<{ ok: boolean; added: boolean }>('/api/vault/devicekey', {
     group_key: groupKeyHex,
     device_pub: devicePubHex,
     // #288: the seat and its Ed25519 write key travel together or not at all. Sending them turns
@@ -414,22 +434,31 @@ export async function registerDeviceKey(
     ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
     ...(proof ? { proof: JSON.parse(proof) } : {}),
   }, await readAuthFor(groupKeyHex))
-  return r ? r.added : null
+  return 'ok' in r ? { ok: r.ok.added } : r
 }
 
 /** Register the vault's #388 readKey (hex of HKDF(S, "read")) with the helper, turning on the read
  *  gate for this vault. Idempotent (same S -> same readKey). Best-effort: returns false on any
  *  failure (a helper without the endpoint just 404s, and the vault stays open until it lands). */
 export async function registerReadKey(groupKeyHex: string, readKeyHex: string): Promise<boolean> {
+  lastPostFailure = null
+  const r = await registerReadKeyResult(groupKeyHex, readKeyHex)
+  if ('ok' in r) return r.ok
+  lastPostFailure = r.failure
+  return false
+}
+
+/** `registerReadKey`, with the failure of THIS call returned beside it (device-registration reads it). */
+export async function registerReadKeyResult(groupKeyHex: string, readKeyHex: string): Promise<PostResult<boolean>> {
   // The current key rides along, so ROTATING one works: the coordinator accepts the first
   // registration from anyone (a new vault has no key to prove) and a change only from whoever holds
   // the present one. At the DKG, where this is called today, there is nothing to send and nothing
   // to prove - the header is simply absent.
-  const r = await postJson<{ ok: boolean }>('/api/vault/readkey', {
+  const r = await postJsonResult<{ ok: boolean }>('/api/vault/readkey', {
     group_key: groupKeyHex,
     read_key: readKeyHex,
   }, await readAuthFor(groupKeyHex))
-  return r?.ok ?? false
+  return 'ok' in r ? { ok: r.ok?.ok ?? false } : r
 }
 
 export async function listMembers(groupKeyHex: string): Promise<string[] | null> {
@@ -449,11 +478,23 @@ export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] 
  *  Used once at DKG completion, where every device writes the same self-declared roster. For later
  *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
+  lastPostFailure = null
+  const r = await setMembersResult(groupKeyHex, names)
+  if ('ok' in r) return r.ok
+  lastPostFailure = r.failure
+  return null
+}
+
+/** `setMembers`, with the failure of THIS call returned beside it (conclude-registration reads it). */
+export async function setMembersResult(groupKeyHex: string, names: string[]): Promise<PostResult<string[]>> {
   // The read key rides along for the same reason it does on the other writes: once a vault has
   // one, changing its roster needs it. At the DKG there is none yet - the roster is claimed before
   // the creator registers the key - so the header is simply absent and the first claim goes
   // through, which is what keeps vault creation working.
-  return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }, await readAuthFor(groupKeyHex)))?.members ?? null
+  const r = await postJsonResult<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }, await readAuthFor(groupKeyHex))
+  if ('failure' in r) return r
+  // An answer without a list is no answer (the old `?? null`), and carries no failure code.
+  return Array.isArray(r.ok?.members) ? { ok: r.ok.members } : { failure: null }
 }
 
 /** Rename ONE seat (`old` -> `new`) and migrate that member's votes across every proposal, so a

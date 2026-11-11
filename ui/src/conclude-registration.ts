@@ -8,7 +8,7 @@
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.
 // The session copy is used for one thing, to sign this device's own registration.
 import { lastReadFailure } from './read-failure'
-import { getVault, helperConfigured, registerVault, setMembers, lastHelperPostFailure, type HelperVault } from './helper'
+import { getVault, helperConfigured, registerVaultResult, setMembersResult, type HelperPostFailure, type HelperVault } from './helper'
 import { ownPkpDigest } from './pin-digest'
 import { adoptVaultReceivers } from './vault-receivers'
 import { listVaults, updateVaultMeta } from './storage'
@@ -109,16 +109,20 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   // A device with no bundle never posts. It finishes only on a vault others pinned to its package, read
   // once: that answer is the vault. No answer is not "not pinned": only a 404 says the coordinator holds none.
   let v: HelperVault | null
+  // The failure of the registration call itself, taken from ITS answer: another registration in the
+  // same document must never be able to put its own failure here (F-2).
+  let failure: HelperPostFailure | null = null
   if (protocol3 && !rec.pinBundle) {
     const known = await getVault(rec.groupKey)
     if (!known && !readSaysMissing()) return { refused: 'unreachable' }
     if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
     v = known
   } else {
-    v = await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+    const r = await registerVaultResult(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+    if ('ok' in r) v = r.ok
+    else { v = null; failure = r.failure }
   }
   if (!v) {
-    const failure = lastHelperPostFailure()
     // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
     // the vault exists and is pinned to this device's package, so it finishes the way a device with no
     // bundle does, by reading it. Only a vault not pinned here is told it was made by an older app.
@@ -133,7 +137,6 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
     }
   }
   if (!v) {
-    const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
     if (failure?.busy) return { refused: 'busy' }
     const code = coordinatorCode(failure?.code)
@@ -159,13 +162,14 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
 
   // Each member's name (seat order) exactly as bound into the code; idempotent.
   if (rec.roster.length) {
-    const roster = await setMembers(rec.groupKey, rec.roster).catch(() => null)
-    if (protocol3 && !roster) {
+    const roster = await setMembersResult(rec.groupKey, rec.roster).catch(() => null)
+    if (protocol3 && (!roster || 'failure' in roster)) {
       // On protocol 3 the roster decides who can vote. A list already there (409) is not a refusal:
       // the Members screen says when it differs. Anything else leaves this vault unfinished.
-      const failure = lastHelperPostFailure()
-      if (failure?.status !== 409) {
-        const code = coordinatorCode(failure?.code)
+      // The failure is this call's own answer, never a slot another post wrote (F-2).
+      const rosterFailure = roster ? roster.failure : null
+      if (rosterFailure?.status !== 409) {
+        const code = coordinatorCode(rosterFailure?.code)
         return code ? { refused: 'coded', code } : { refused: 'unreachable' }
       }
     }

@@ -22,10 +22,17 @@ const h = vi.hoisted(() => ({
 vi.mock('./helper', async (orig) => ({
   ...(await orig<typeof import('./helper')>()),
   helperConfigured: () => h.configured,
-  registerVault: h.registerVault,
+  // The failure travels with the call: the mocks keep their old shape (a value or null, plus the
+  // failure the scenario sets) and are turned into the bound result here, once.
+  registerVaultResult: async (...a: unknown[]) => {
+    const v = await h.registerVault(...a)
+    return v ? { ok: v } : { failure: h.failure }
+  },
   getVault: h.getVault,
-  setMembers: h.setMembers,
-  lastHelperPostFailure: () => h.failure,
+  setMembersResult: async (...a: unknown[]) => {
+    const v = await (h.setMembers as (...x: unknown[]) => Promise<string[] | null>)(...a)
+    return v ? { ok: v } : { failure: h.failure }
+  },
 }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: h.listVaults, updateVaultMeta: h.updateVaultMeta }))
 vi.mock('./session', async (orig) => ({ ...(await orig<typeof import('./session')>()), getUnlockedShare: h.getUnlockedShare, setUnlockedShare: h.setUnlockedShare }))
@@ -282,15 +289,15 @@ describe('the pins', () => {
     walk('')
     return out.sort()
   }
-  it('registerVault is called in conclude-registration.ts and nowhere else', () => {
-    expect(mentions(/\bregisterVault\b/, /export async function registerVault\(/)).toEqual(['conclude-registration.ts'])
+  it('registerVaultResult is called in conclude-registration.ts and nowhere else', () => {
+    expect(mentions(/\bregisterVaultResult\b/, /export async function registerVaultResult\(/)).toEqual(['conclude-registration.ts'])
   })
   it('concludeRegistration is called only from NetVault.tsx and Vaults.tsx', () => {
     expect(mentions(/\bconcludeRegistration\b/)).toEqual(['conclude-registration.ts', 'screens/NetVault.tsx', 'screens/Vaults.tsx'])
   })
-  it('registerVault has no default for cp (or for anything): the caller names the protocol', () => {
+  it('registerVaultResult has no default for cp (or for anything): the caller names the protocol', () => {
     const src = codeOf('./helper.ts')
-    const sig = src.slice(src.indexOf('export async function registerVault('), src.indexOf('): Promise<HelperVault | null>'))
+    const sig = src.slice(src.indexOf('export async function registerVaultResult('), src.indexOf('): Promise<PostResult<HelperVault>>'))
     expect(sig).toMatch(/cp: number/)
     expect(sig).not.toMatch(/=/)
     expect(sig).not.toMatch(/CREATION_PROTOCOL/)

@@ -37,9 +37,9 @@ describe('every registration names its creation protocol', () => {
     expect(codeOf('./dkg-ceremony.ts')).toMatch(/export const DKG_VERSION = CREATION_PROTOCOL/)
     expect(codeOf('./net.ts')).toMatch(/`konclave-room-v\$\{CREATION_PROTOCOL\}\\u0000\$\{code\}\\u0000\$\{p\}`/)
   })
-  it('registerVault sends cp itself', async () => {
+  it('registerVaultResult sends cp itself', async () => {
     sent.length = 0
-    await helper.registerVault('aa'.repeat(32), 'v', 2, 2, CREATION_PROTOCOL)
+    await helper.registerVaultResult('aa'.repeat(32), 'v', 2, 2, CREATION_PROTOCOL)
     const reg = sent.find((s) => s.url.endsWith('/api/vault'))
     expect(reg?.body).toMatchObject({ cp: CREATION_PROTOCOL })
     expect(reg?.body).not.toHaveProperty('cv')
@@ -52,9 +52,9 @@ describe('every registration names its creation protocol', () => {
     expect(codeOf('./screens/NetVault.tsx')).toMatch(/saveVault\(vaultId, \{[^}]*cp: CREATION_PROTOCOL[^}]*\}, savePass\)/)
   })
   // The single-caller pin moved to conclude-registration.test.ts, where the one caller now lives.
-  it('registerVault sends the protocol it is GIVEN, not the app\'s', async () => {
+  it('registerVaultResult sends the protocol it is GIVEN, not the app\'s', async () => {
     sent.length = 0
-    await helper.registerVault('dd'.repeat(32), 'v', 2, 2, 1)
+    await helper.registerVaultResult('dd'.repeat(32), 'v', 2, 2, 1)
     expect(sent.find((s) => s.url.endsWith('/api/vault'))?.body).toMatchObject({ cp: 1 })
   })
 })
@@ -117,12 +117,10 @@ describe('an outdated client says so, before it starts and if it is refused', ()
   })
   it('the registration failure keeps the update flag', async () => {
     registerAnswer = () => new Response(JSON.stringify({ error: 'update the app', update_required: true, min_creation: 3 }), { status: 409 })
-    expect(await helper.registerVault('bb'.repeat(32), 'v', 2, 2, 2)).toBeNull()
-    expect(helper.lastHelperPostFailure()).toMatchObject({ status: 409, updateRequired: true })
+    expect(await helper.registerVaultResult('bb'.repeat(32), 'v', 2, 2, 2)).toMatchObject({ failure: { status: 409, updateRequired: true } })
     // Only a real `true` asks for an update; anything else is an ordinary failure.
     registerAnswer = () => new Response(JSON.stringify({ error: 'no', update_required: 'yes' }), { status: 409 })
-    await helper.registerVault('cc'.repeat(32), 'v', 2, 2, 2)
-    expect(helper.lastHelperPostFailure()?.updateRequired).toBe(false)
+    expect(await helper.registerVaultResult('cc'.repeat(32), 'v', 2, 2, 2)).toMatchObject({ failure: { updateRequired: false } })
   })
   it('creating and joining ask before starting, and a refused registration says update instead of hanging', () => {
     const src = codeOf('./screens/NetVault.tsx')

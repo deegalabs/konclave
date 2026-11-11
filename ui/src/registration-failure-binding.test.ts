@@ -62,3 +62,12 @@ describe('a registration reads the failure of its own call', () => {
     expect(h.finished).not.toHaveBeenCalledWith(A, expect.objectContaining({ pending: false }))
   })
 })
+
+describe('the registration paths do not go back to the shared slot', () => {
+  it('neither file that finishes a registration reads lastHelperPostFailure', async () => {
+    const { codeOf } = await import('./source-scan')
+    for (const f of ['./conclude-registration.ts', './device-registration.ts']) {
+      expect(codeOf(f), f).not.toMatch(/lastHelperPostFailure/)
+    }
+  })
+})

@@ -13,8 +13,8 @@ vi.mock('./signing', () => ({ decodeBundle: () => ({ keyPackage: {}, seat: 1 }) 
 vi.mock('./device-key', () => ({ devicePubHex: () => 'aa', deviceWriteKeyHex: () => 'bb' }))
 vi.mock('./vault-secret', () => ({ deriveReadKey: async () => new Uint8Array([1]) }))
 vi.mock('./helper', () => ({
-  registerReadKey: () => new Promise<boolean>((res) => { releaseRead = () => { order.push('read'); res(true) } }),
-  registerDeviceKey: async () => { order.push('device'); return { added: true } },
+  registerReadKeyResult: () => new Promise((res) => { releaseRead = () => { order.push('read'); res({ ok: true }) } }),
+  registerDeviceKeyResult: async () => { order.push('device'); return { ok: true } },
 }))
 
 describe('registering this device', () => {
