@@ -13,7 +13,7 @@ import { explorerTxUrl, fmtDate, fmtZatExact, fmtZecExact, sumZat, zatToZec } fr
 import { exportLedgerXlsx, type LedgerXlsxData, type LedgerXlsxItem } from '../ledgerXlsx'
 import { exportLedgerCsv } from '../ledgerCsv'
 import { isOpen } from '../desk'
-import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
+import { dateRange, periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
 import { useLoading } from '../loading'
 import ReadState from '../ReadState'
 import { useT, useI18n } from '../i18n'
@@ -260,9 +260,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // from the rows it carries (#302).
   const periodOf = (list: Proposal[]) => {
     const dates = list.map((p) => p.created_at).filter(Boolean) as number[]
-    if (!dates.length) return '-'
-    const lo = Math.min(...dates)
-    const hi = Math.max(...dates)
+    const range = dateRange(dates)
+    if (!range) return '-'
+    const { lo, hi } = range
     return lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
   }
   const period = win ? winLabel : periodOf(ledger)

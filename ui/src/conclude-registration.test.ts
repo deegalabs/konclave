@@ -28,7 +28,12 @@ vi.mock('./helper', async (orig) => ({
     const v = await h.registerVault(...a)
     return v ? { ok: v } : { failure: h.failure }
   },
-  getVault: h.getVault,
+  // The reason of the read travels with it: the scenarios still set it with recordRead, and the
+  // mock reads it back at once, from this call's own turn.
+  getVaultResult: async (...a: unknown[]) => {
+    const v = await h.getVault(...a)
+    return v ? { ok: v } : { failure: lastReadFailure('/api/vault')?.reason ?? 'unavailable' }
+  },
   setMembersResult: async (...a: unknown[]) => {
     const v = await (h.setMembers as (...x: unknown[]) => Promise<string[] | null>)(...a)
     return v ? { ok: v } : { failure: h.failure }
@@ -41,7 +46,7 @@ vi.mock('./pin-digest', () => ({ ownPkpDigest: async () => h.digest }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
 const { concludeRegistration, refusalKey } = await import('./conclude-registration')
-const { recordRead } = await import('./read-failure')
+const { recordRead, lastReadFailure } = await import('./read-failure')
 const { isCurrentFlow, sameCoordinator, CREATION_PROTOCOL } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)

@@ -79,3 +79,16 @@ export function inPeriod(w: PeriodWindow | null, createdAt?: number): boolean {
   if (!w) return true
   return createdAt !== undefined && createdAt >= w.from && createdAt < w.to
 }
+
+/** The oldest and newest of `values`, or null when there are none. A loop, never `Math.min(...values)`:
+ *  a spread passes every entry as an argument, and a long history is past what a call can take. */
+export function dateRange(values: readonly number[]): { lo: number; hi: number } | null {
+  if (values.length === 0) return null
+  let lo = values[0]!
+  let hi = lo
+  for (const v of values) {
+    if (v < lo) lo = v
+    if (v > hi) hi = v
+  }
+  return { lo, hi }
+}

@@ -68,6 +68,11 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Two vaults finishing at the same time on one device could leave one without its member list.**
+  When two vaults finished their setup together, one of them could read the other's "already there"
+  answer as its own and finish without the coordinator having its member list, so its proposals were
+  refused afterwards. Each setup now reads only the answer to its own request, and stays unfinished
+  when its own answer is missing.
 - The month labels under the Dashboard's spending bars follow the app's language rather than the browser's, lose the trailing period some languages add ("nov." now reads "nov"), and January carries its year ("jan '27").
 - **A vault finished on the server is no longer called unfinished after an update.** A member who had
   not finished a vault that the others had already registered, and then updated the app, was told not

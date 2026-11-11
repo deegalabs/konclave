@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { codeOf } from './source-scan'
 import { burnRate } from './treasury-metrics'
 import { dateRange } from './period'
 
@@ -37,7 +37,7 @@ describe('the oldest and newest date of a large, unordered history', () => {
   })
   it('no screen or metric spreads a history into Math.min or Math.max (Ledger and burnRate share dateRange)', () => {
     for (const f of ['./screens/Ledger.tsx', './treasury-metrics.ts']) {
-      const code = readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+      const code = codeOf(f)
       expect(code, f).not.toMatch(/Math\.(min|max)\(\.\.\./)
       expect(code, f).toMatch(/dateRange\(/)
     }

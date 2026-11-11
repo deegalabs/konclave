@@ -1,5 +1,5 @@
 import { asEnvelope, openEnvelope, type Opener } from './envelope'
-import { recordRead, classifyRead } from './read-failure'
+import { recordRead, classifyRead, type ReadFailure } from './read-failure'
 import { ensureWasm } from './wasm-ready'
 
 /** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
@@ -166,26 +166,38 @@ async function fetchRetryingBusy(
   }
 }
 
-async function getJsonOrBusy<T>(path: string): Promise<T | null | WalletBusy> {
+/** One read's own answer: the value, or the reason THIS read failed (null when no helper is configured,
+ *  so nothing was asked). `saturated` is set when a busy coordinator answered a read. Records the reason in the
+ *  per-route memory for the screens that ask for it (read-failure.ts), as every read always did. */
+type ReadResult<T> = { ok: T } | { failure: ReadFailure | null; saturated?: boolean }
+
+async function readJsonResult<T>(path: string): Promise<ReadResult<T>> {
   const base = helperBase()
-  if (!base) return null
+  if (!base) return { failure: null }
   try {
     const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
     if (res.status === 503) {
       // A saturated coordinator is read like a busy wallet: the screen keeps what it shows.
       const kind = busyOf(res.status, await res.json().catch(() => null))
       recordRead(path, 'unavailable', 'coordinator')
-      return kind === 'wallet' || kind === 'service' ? WALLET_BUSY : null
+      return { failure: 'unavailable', saturated: kind === 'wallet' || kind === 'service' }
     }
-    if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'coordinator'); return null }
+    if (!res.ok) { const failure = classifyRead({ status: res.status }); recordRead(path, failure, 'coordinator'); return { failure } }
     const data = (await res.json()) as T
     recordRead(path, null)
-    return data
+    return { ok: data }
   } catch (error) {
     // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
-    recordRead(path, classifyRead({ error }), 'coordinator')
-    return null
+    const failure = classifyRead({ error })
+    recordRead(path, failure, 'coordinator')
+    return { failure }
   }
+}
+
+async function getJsonOrBusy<T>(path: string): Promise<T | null | WalletBusy> {
+  const r = await readJsonResult<T>(path)
+  if ('ok' in r) return r.ok
+  return r.saturated ? WALLET_BUSY : null
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -201,9 +213,11 @@ async function getJson<T>(path: string): Promise<T | null> {
  *  the seat. Wrong on a money screen is worse than silent: it sends someone to look for a conflict
  *  that does not exist.
  *
- *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here
- *  and read by the one caller that needs it. Single-threaded and read immediately after the await,
- *  so there is no interleaving to worry about. */
+ *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here.
+ *  It is ONE slot for the whole document: any other POST that finishes between a call and the read
+ *  overwrites it. So it is only for a reader that turns a failure into wording and decides nothing
+ *  by it (the proposal, payroll and vote screens). A caller whose decision depends on WHY a call
+ *  failed uses the `...Result` variants, which return the failure of that call itself. */
 let lastPostFailure: HelperPostFailure | null = null
 
 /** The code of the coordinator's size refusal (#821): `TOO_MANY_ACTIONS` in `helper-server`, which
@@ -234,12 +248,18 @@ export function lastHelperPostFailure(): HelperPostFailure | null {
  *  the module slot while two of them are in flight. */
 export type PostResult<T> = { ok: T } | { failure: HelperPostFailure | null }
 
-async function postJson<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<T | null> {
+/** The one adapter from a bound result to the old shape (a value or null, the failure left in the
+ *  slot). Every slot-writing wrapper goes through it, so the slot has one writer. */
+async function viaSlot<T>(p: Promise<PostResult<T>>): Promise<T | null> {
   lastPostFailure = null
-  const r = await postJsonResult<T>(path, body, extra)
+  const r = await p
   if ('ok' in r) return r.ok
   lastPostFailure = r.failure
   return null
+}
+
+function postJson<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<T | null> {
+  return viaSlot(postJsonResult<T>(path, body, extra))
 }
 
 async function postJsonResult<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<PostResult<T>> {
@@ -405,15 +425,6 @@ export async function createProposal(args: {
  *  keeping recipient + amount off the relay. Idempotent, so it is safe to call on every unlock.
  *  Best-effort: returns null on any failure (a device still signs even if registration did not land;
  *  an unsealed request is the compat fallback until every device has registered). */
-export async function registerDeviceKey(...args: Parameters<typeof registerDeviceKeyResult>): Promise<boolean | null> {
-  lastPostFailure = null
-  const r = await registerDeviceKeyResult(...args)
-  if ('ok' in r) return r.ok
-  lastPostFailure = r.failure
-  return null
-}
-
-/** `registerDeviceKey`, with the failure of THIS call returned beside it (device-registration reads it). */
 export async function registerDeviceKeyResult(
   groupKeyHex: string,
   devicePubHex: string,
@@ -434,18 +445,16 @@ export async function registerDeviceKeyResult(
     ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
     ...(proof ? { proof: JSON.parse(proof) } : {}),
   }, await readAuthFor(groupKeyHex))
-  return 'ok' in r ? { ok: r.ok.added } : r
+  if ('failure' in r) return r
+  // An answer without a boolean `added` is no answer: it is not read blindly.
+  return typeof r.ok?.added === 'boolean' ? { ok: r.ok.added } : { failure: null }
 }
 
 /** Register the vault's #388 readKey (hex of HKDF(S, "read")) with the helper, turning on the read
  *  gate for this vault. Idempotent (same S -> same readKey). Best-effort: returns false on any
  *  failure (a helper without the endpoint just 404s, and the vault stays open until it lands). */
 export async function registerReadKey(groupKeyHex: string, readKeyHex: string): Promise<boolean> {
-  lastPostFailure = null
-  const r = await registerReadKeyResult(groupKeyHex, readKeyHex)
-  if ('ok' in r) return r.ok
-  lastPostFailure = r.failure
-  return false
+  return (await viaSlot(registerReadKeyResult(groupKeyHex, readKeyHex))) ?? false
 }
 
 /** `registerReadKey`, with the failure of THIS call returned beside it (device-registration reads it). */
@@ -478,11 +487,7 @@ export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] 
  *  Used once at DKG completion, where every device writes the same self-declared roster. For later
  *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
-  lastPostFailure = null
-  const r = await setMembersResult(groupKeyHex, names)
-  if ('ok' in r) return r.ok
-  lastPostFailure = r.failure
-  return null
+  return viaSlot(setMembersResult(groupKeyHex, names))
 }
 
 /** `setMembers`, with the failure of THIS call returned beside it (conclude-registration reads it). */
@@ -638,6 +643,14 @@ export function parseUfvkAnswer(body: unknown): { ufvk: string; birthday?: numbe
 /** Fetch a registered vault's public view (address + id), or `null`. */
 export async function getVault(groupKeyHex: string): Promise<HelperVault | null> {
   return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
+}
+
+/** `getVault`, with the reason of THIS read returned beside it (conclude-registration decides by it).
+ *  The reason is the one `classifyRead` gave this read, not the per-route memory every vault shares. */
+export async function getVaultResult(groupKeyHex: string): Promise<{ ok: HelperVault } | { failure: ReadFailure | null }> {
+  const r = await readJsonResult<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`)
+  if ('failure' in r) return { failure: r.failure }
+  return r.ok?.vault ? { ok: r.ok.vault } : { failure: 'malformed' }
 }
 
 /** A vault's shielded balance (zatoshis) as the helper reports it from its view-only wallet.
