@@ -187,7 +187,7 @@ async function readJsonResult<T>(path: string): Promise<ReadResult<T>> {
     recordRead(path, null)
     return { ok: data }
   } catch (error) {
-    // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
+    // The reason travels with this call (`{ failure }`), and is also recorded where a screen can ask for it (read-failure.ts).
     const failure = classifyRead({ error })
     recordRead(path, failure, 'coordinator')
     return { failure }
