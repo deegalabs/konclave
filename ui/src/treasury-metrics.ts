@@ -63,7 +63,10 @@ export function burnRate(proposals: readonly Proposal[] | null, now: Date = new 
   if (proposals === null) return { kind: 'unknown' }
   const dated = proposals.map(createdAt).filter((t): t is number => t !== null)
   if (dated.length === 0) return { kind: 'not-enough-history' }
-  if (Math.min(...dated) > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
+  // A loop, not `Math.min(...dated)`: a spread passes every entry as an argument, and a long history
+  // exceeds what a call can take (a RangeError that took the whole treasury view down).
+  const oldest = dated.reduce((a, b) => (b < a ? b : a), dated[0]!)
+  if (oldest > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
   const r = monthlyOutflows(proposals, now, BURN_MONTHS)
   const total = r.months.reduce((acc, m) => acc + m.outZat, 0)
   return { kind: 'rate', zatPerMonth: Math.ceil(total / BURN_MONTHS), undated: r.undated }
