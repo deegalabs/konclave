@@ -78,9 +78,9 @@ history to tidy it is how context gets lost.
 
 - **Creating a vault moves to a new creation version.** A creation still in progress when this
   version arrives has to start again, and a member on an older app is asked to update before they
-  can create or join. The vault's server moves first, so an updated app is not paired with an
-  outdated one in a new creation. An invite made before the update leads to an empty room: the creator
-  makes a new one.
+  can create or join. The app moves first and the vault's server right after; in the short time
+  between the two, an updated app says creation is not available and opens no room. An invite made
+  before the update leads to an empty room: the creator makes a new one.
 - **The coordinator still pays 5,000 zatoshis per action after block 3,590,000, so vault payments can
   be told apart until the fee release.** Wallets that follow ZIP 2009 pay 1,000 from that block (expected
   around 19 November 2026); the fee is public, so a vault transaction paying five times that stands out.
