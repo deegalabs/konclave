@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
 import { SECTIONS, type Block, type Locale } from '../docs/content'
-import IssueRef from '../docs/IssueRef'
+import IssueRef, { type IssueRefLabels } from '../docs/IssueRef'
 import type { StageStatus } from '../docs/roadmap'
 import '../docs.css'
 
@@ -37,14 +37,20 @@ const LABELS: Record<
   },
 }
 
-// Inline formatter: renders **bold** and `code` spans inside a plain string.
-function rich(s: string): ReactNode[] {
+// Inline formatter: renders **bold** and `code` spans inside a plain string. Given `refs` (the labels
+// IssueRef needs), it also turns each "#123" in the text into an IssueRef: the release notes cite issues
+// that way, and a number that cannot be followed is a dead end.
+function rich(s: string, refs?: IssueRefLabels): ReactNode[] {
+  const text = (t: string, key: number | string): ReactNode =>
+    refs
+      ? <span key={key}>{t.split(/(#\d+)\b/g).map((q, j) => (/^#\d+$/.test(q) ? <IssueRef key={j} r={{ kind: 'issue', n: Number(q.slice(1)) }} labels={refs} /> : q))}</span>
+      : <span key={key}>{t}</span>
   return s.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g).map((p, i) => {
-    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
+    if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{text(p.slice(2, -2), 0)}</strong>
     if (p.startsWith('`') && p.endsWith('`')) return <code key={i}>{p.slice(1, -1)}</code>
     const m = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p)
     if (m) return <a key={i} className="docs-link" href={m[2]}>{m[1]}</a>
-    return <span key={i}>{p}</span>
+    return text(p, i)
   })
 }
 
@@ -112,22 +118,24 @@ function DiagramLightbox({ src, alt, closeLabel, onClose }: {
   )
 }
 
-function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, alt: string) => void): ReactNode {
+function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, alt: string) => void, refs?: IssueRefLabels): ReactNode {
   switch (b.k) {
     case 'h':
-      return <h2 key={i} className="docs-h">{rich(b.t[loc])}</h2>
+      return <h2 key={i} className="docs-h">{rich(b.t[loc], refs)}</h2>
+    case 'h3':
+      return <h3 key={i} className="docs-h3">{rich(b.t[loc], refs)}</h3>
     case 'p':
-      return <p key={i} className="docs-p">{rich(b.t[loc])}</p>
+      return <p key={i} className="docs-p">{rich(b.t[loc], refs)}</p>
     case 'ul':
       return (
         <ul key={i} className="docs-ul">
-          {b.items.map((it, j) => <li key={j}>{rich(it[loc])}</li>)}
+          {b.items.map((it, j) => <li key={j}>{rich(it[loc], refs)}</li>)}
         </ul>
       )
     case 'code':
       return <pre key={i} className="docs-code"><code>{b.t}</code></pre>
     case 'note':
-      return <aside key={i} className="docs-note">{rich(b.t[loc])}</aside>
+      return <aside key={i} className="docs-note">{rich(b.t[loc], refs)}</aside>
     case 'stages': {
       const L = LABELS[loc]
       const items = b.items.map((st) => (
@@ -175,12 +183,78 @@ function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, a
   }
 }
 
+type ReleasePage = (typeof import('virtual:konclave-releases'))['default'][number]
+
+/** A release block as a docs block. The changelog is written in English only, so both locales carry
+ *  the same text and the page says it is English. */
+const asBlock = (b: ReleasePage['blocks'][number]): Block => {
+  const both = (t: string) => ({ en: t, 'pt-BR': t })
+  return b.k === 'ul' ? { k: 'ul', items: b.items.map(both) } : { k: b.k, t: both(b.t) }
+}
+
+/** A changelog date (`2026-11-08`) as words. The date has no time, so it is read and written in UTC:
+ *  read in the reader's own zone, a date west of Greenwich would show the day before. */
+const releaseDate = (d: string) =>
+  new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${d}T00:00:00Z`))
+
+/** One released version, as the GitHub release says it. Older and newer releases in the pager. */
+function ReleaseArticle({ version, pages }: { version: string; pages: ReleasePage[] }) {
+  const idx = pages.findIndex((p) => p.version === version)
+  const page = pages[idx]
+  if (!page) {
+    return (
+      <article className="docs-article" lang="en">
+        <h1 className="docs-title">No release {version}</h1>
+        <p className="docs-lead">No released version has this number.</p>
+      </article>
+    )
+  }
+  const newer = idx > 0 ? pages[idx - 1]! : null
+  const older = idx < pages.length - 1 ? pages[idx + 1]! : null
+  return (
+    <article className="docs-article" lang="en">
+      <span className="docs-eyebrow">Konclave · Release</span>
+      <h1 className="docs-title">Konclave {page.version}</h1>
+      <p className="docs-lead">
+        {page.date && <>Released <time dateTime={page.date}>{releaseDate(page.date)}</time>. </>}
+        These are the release notes, from the changelog.{' '}
+        <a className="docs-link" href={`https://github.com/deegalabs/konclave/releases/tag/v${page.version}`} target="_blank" rel="noreferrer">
+          The release on GitHub
+        </a>
+      </p>
+      {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}, LABELS.en.ref))}
+      <nav className="docs-pager" aria-label="Releases">
+        {older
+          ? <Link className="docs-pager-link prev" to={`/docs/releases/${older.version}`}><small>Older</small><span>{older.version}</span></Link>
+          : <span />}
+        {newer
+          ? <Link className="docs-pager-link next" to={`/docs/releases/${newer.version}`}><small>Newer</small><span>{newer.version}</span></Link>
+          : <span />}
+      </nav>
+    </article>
+  )
+}
+
 /** The in-app documentation site: a sidebar of sections plus a rendered page,
  *  bilingual via the language toggle in the shared Letterhead. */
 export default function Docs() {
   const { locale } = useI18n()
   const loc = locale as Locale
-  const { section } = useParams<{ section?: string }>()
+  const { section, version } = useParams<{ section?: string; version?: string }>()
+  // The release pages are their own chunk, fetched the first time one is opened.
+  const [releases, setReleases] = useState<ReleasePage[] | null>(null)
+  const [releasesFailed, setReleasesFailed] = useState(false)
+  useEffect(() => {
+    if (!version || releases) return
+    setReleasesFailed(false)
+    let on = true
+    // Not precached, so offline the import fails: the page says so rather than staying blank.
+    import('virtual:konclave-releases').then(
+      (m) => { if (on) setReleases(m.default) },
+      () => { if (on) setReleasesFailed(true) },
+    )
+    return () => { on = false }
+  }, [version, releases])
   const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === section))
   const cur = SECTIONS[idx]!
   const prev = idx > 0 ? SECTIONS[idx - 1]! : null
@@ -211,8 +285,8 @@ export default function Docs() {
               <Link
                 key={s.id}
                 to={`/docs/${s.id}`}
-                className={'docs-navlink' + (s.id === cur.id ? ' active' : '')}
-                aria-current={s.id === cur.id ? 'page' : undefined}
+                className={'docs-navlink' + (!version && s.id === cur.id ? ' active' : '')}
+                aria-current={!version && s.id === cur.id ? 'page' : undefined}
               >
                 {s.nav[loc]}
               </Link>
@@ -221,6 +295,16 @@ export default function Docs() {
         </aside>
 
         <main className="docs-main">
+          {version ? (
+            releases
+              ? <ReleaseArticle version={version} pages={releases} />
+              : releasesFailed && (
+                <article className="docs-article" lang="en">
+                  <h1 className="docs-title">Konclave {version}</h1>
+                  <p className="docs-lead" role="alert">The release notes could not be loaded. They are not kept for offline use, so they need a connection.</p>
+                </article>
+              )
+          ) : (
           <article className="docs-article">
             <span className="docs-eyebrow">Konclave · {isPT ? 'Documentação' : 'Docs'}</span>
             <h1 className="docs-title">{cur.title[loc]}</h1>
@@ -242,6 +326,7 @@ export default function Docs() {
                 : <span />}
             </nav>
           </article>
+          )}
         </main>
       </div>
 

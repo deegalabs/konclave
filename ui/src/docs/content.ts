@@ -20,6 +20,7 @@ const PROOF_ORIGINS = proofOriginCounts()
 export type Block =
   | { k: 'p'; t: L }
   | { k: 'h'; t: L }
+  | { k: 'h3'; t: L }
   | { k: 'ul'; items: L[] }
   | { k: 'code'; t: string }
   | { k: 'note'; t: L }
