@@ -121,6 +121,7 @@ describe('stripComments', () => {
       'changelog-sections.test.ts': 'CHANGELOG files',
       'changelog-fragments.test.ts': 'CHANGELOG files',
       'release-notes-shared.test.ts': 'CHANGELOG files',
+      'release-pages.dom.test.tsx': 'CHANGELOG files',
       'net-room.test.ts': 'raw bytes, for control characters',
       'wasm-pkg-freshness.test.ts': 'Rust source and generated declarations',
       'wasm-write-actions.test.ts': 'the WASM binary and Rust source',

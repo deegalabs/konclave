@@ -16,9 +16,8 @@ vi.mock('./device-key', () => ({ devicePubHex: () => 'aa', deviceWriteKeyHex: ()
 vi.mock('./vault-secret', () => ({ deriveReadKey: async () => new Uint8Array([1]) }))
 vi.mock('./wasm-pkg/konclave_wasm.js', () => ({ seatCertificateFromBundle: () => 'cert' }))
 vi.mock('./helper', () => ({
-  registerReadKey: async () => true,
-  registerDeviceKey: async () => answer.added,
-  lastHelperPostFailure: () => answer.failure,
+  registerReadKeyResult: async () => ({ ok: true }),
+  registerDeviceKeyResult: async () => (answer.added === null ? { failure: answer.failure } : { ok: answer.added }),
 }))
 
 const { registerThisDevice } = await import('./device-registration')

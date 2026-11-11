@@ -63,6 +63,19 @@ export default function IssueRef({ r, labels }: { r: Ref; labels: IssueRefLabels
     if ((e.target as HTMLElement).matches(':focus-visible')) show()
   }
 
+  // A number with no local title (the release notes cite many) is the number alone: no card, which
+  // would have nothing to say, and nothing invented in its place.
+  if (!title) {
+    return (
+      <span className="docs-ref">
+        <a className="docs-ref-chip" href={refUrl(r)} target="_blank" rel="noopener noreferrer">
+          <span className="docs-ref-num">#{r.n}</span>
+          <span className="visually-hidden"> ({labels.newTab})</span>
+        </a>
+      </span>
+    )
+  }
+
   return (
     <span
       className="docs-ref"

@@ -985,6 +985,26 @@ mod tests {
             konclave_seal::share_sig::read_key_hash(&read_key())
         }
 
+        /// A later creation protocol is pinned by the same path: the coordinator's minimum is a number,
+        /// and every pinning rule reads `cp >= 3`. Certificates signed for another protocol than the
+        /// one registered do not count.
+        #[test]
+        fn a_protocol_4_vault_is_pinned_and_certificates_for_3_do_not_count_for_it() {
+            let (cfg, dir) = coordinator("cp4", false);
+            let v = vault(2, 3);
+            answer_for(&dir, &v);
+            let id = hex(&v.id);
+            let stale = [proof_at(&v, 1, hash(), 3), proof_at(&v, 2, hash(), 3)];
+            assert!(register_and_pin(&cfg, &id, "v", 4, &v.pkp, &stale).is_err());
+            let proofs = [proof_at(&v, 1, hash(), 4), proof_at(&v, 2, hash(), 4)];
+            let reg = register_and_pin(&cfg, &id, "v", 4, &v.pkp, &proofs).unwrap();
+            assert_eq!(reg.cp, Some(4));
+            assert_eq!(
+                read_key_state(&cfg.vaults_dir, &reg),
+                ReadKey::Pinned(hash())
+            );
+        }
+
         #[test]
         fn t_proofs_register_and_pin_a_vault_born_readable() {
             let (cfg, dir) = coordinator("ok", false);

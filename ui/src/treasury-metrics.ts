@@ -22,7 +22,7 @@ import type { Proposal } from './api'
 import { freeZatOf } from './balance-parts'
 import { sumZat } from './format'
 import { SETTLED } from './ledger-state'
-import { createdAt, periodWindow } from './period'
+import { createdAt, dateRange, periodWindow } from './period'
 
 /** Complete months a pace is averaged over, and the least history that may speak of one. */
 export const BURN_MONTHS = 3
@@ -62,8 +62,8 @@ export type Burn =
 export function burnRate(proposals: readonly Proposal[] | null, now: Date = new Date()): Burn {
   if (proposals === null) return { kind: 'unknown' }
   const dated = proposals.map(createdAt).filter((t): t is number => t !== null)
-  if (dated.length === 0) return { kind: 'not-enough-history' }
-  if (Math.min(...dated) > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
+  const range = dateRange(dated)
+  if (!range || range.lo > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
   const r = monthlyOutflows(proposals, now, BURN_MONTHS)
   const total = r.months.reduce((acc, m) => acc + m.outZat, 0)
   return { kind: 'rate', zatPerMonth: Math.ceil(total / BURN_MONTHS), undated: r.undated }
@@ -92,11 +92,21 @@ export function runway(bal: Bal, proposals: readonly Proposal[] | null, burn: Bu
   return { kind: 'months', tenths: whole * 10 + Math.floor((rest * 10) / burn.zatPerMonth) }
 }
 
+/** The sentence that goes with a runway, on the screen and in the export: one choice, so the two
+ *  cannot say different things about the same vault. */
+export function runwayNoteKey(run: Runway): string {
+  if (run.kind === 'months') return 'analyses.runwayHow'
+  if (run.kind === 'no-spend') return 'analyses.noSpend'
+  if (run.kind === 'none-free') return 'analyses.noFreeNow'
+  return 'analyses.runwayAwaitsBalance'
+}
+
 export type ProjectionPoint = { from: number; balanceZat: number }
 
 /** The free funds one, two, ... `horizon` months from now (each point dated by the month it falls
  *  in) if the pace holds and nothing comes in; `runsOutIndex` is the first point at or below zero.
- *  Null when there is no pace or the free funds are unknown. */
+ *  Null when there is no pace or the free funds are unknown. Zero free funds puts `runsOutIndex` at
+ *  0, but that vault is out now, not next month: read `runway()`'s `none-free` first. */
 export function projection(
   bal: Bal,
   proposals: readonly Proposal[] | null,

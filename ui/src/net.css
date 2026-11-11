@@ -79,6 +79,7 @@
 .net-card p { margin: 0; color: var(--text-muted, var(--text-muted)); font-size: 14px; line-height: 1.55; }
 .net-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -319,7 +320,7 @@
 .cv-num{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:22px; font-weight:700; color:var(--silver); text-align:center}
 .cv-num em{font-style:normal; font-size:13px; color:var(--text-muted); font-weight:400}
 .cv-primary{width:100%; margin-top:2px}
-.cv-linkbtn{display:block; width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-family:var(--font-mono); font-size:12.5px; cursor:pointer; text-align:center}
+.cv-linkbtn{display:block; width:100%; min-height:24px; margin-top:14px; background:none; border:none; color:var(--text-muted); font-family:var(--font-mono); font-size:12.5px; cursor:pointer; text-align:center}
 .cv-linkbtn:hover{color:var(--accent)}
 /* stepped create flow (2 steps: name -> rule) */
 .cv-steps{display:flex; gap:6px; margin-bottom:16px}
@@ -387,6 +388,13 @@
 .cv-warn { border: 1px solid var(--warn-strong); border-radius: 10px; padding: 10px 12px; font-size: 14px; color: var(--text); background: var(--surface-1); }
 .cv-pin { display: block; margin-top: 6px; font-family: var(--font-mono); }
 .cv-pin-value { letter-spacing: 0.12em; }
+.cv-pin-value.lg { font-family: var(--font-mono); font-size: clamp(1rem, 4.6vw, 1.25rem); letter-spacing: .12em; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text); }
+@media (max-width: 359px) { .cv-pin-value.lg { letter-spacing: .08em; } }
+.cv-pin-made { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.cv-pin-made .cv-linkbtn { display: inline; width: auto; margin: 0; padding: 6px 8px; min-height: 32px; font-size: 13px; text-decoration: underline; }
+.cv-err { display: block; margin-top: 9px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; color: var(--warn-strong); }
+.cv-err:empty { margin: 0; }
+.cv-pin-value .sr-only { user-select: none; -webkit-user-select: none; }
 .cv-pin .cv-linkbtn { display: inline; width: auto; margin: 0 0 0 6px; padding: 6px 8px; min-height: 32px; font-size: 13px; text-decoration: underline; }
 .cv-invite-qr { align-self: center; width: min(220px, 60vw); background: #fff; padding: 10px; border-radius: 10px; border: 1px solid var(--line-strong); }
 .cv-invite-qr svg { display: block; width: 100%; height: auto; }

@@ -4,7 +4,7 @@
 // place.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import encodeQR from '@paulmillr/qr'
-import { formatInvite, inviteLink } from '../net'
+import { formatInvite, formatRoomPin, spokenRoomPin, inviteLink, MIN_PIN_LENGTH } from '../net'
 
 type Pe = (pt: string, en: string) => string
 
@@ -65,6 +65,7 @@ export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: P
   const link = inviteLink(code)
   const [status, setStatus] = useState('')
   const [showPin, setShowPin] = useState(false)
+  const [pinNote, setPinNote] = useState('') // the spoken PIN, for a screen reader only
   const act = async (what: 'share' | 'link' | 'code') => {
     if (what === 'share' && navigator.share) {
       try { await navigator.share({ url: link }); return } catch { /* cancelled: nothing to say */ return }
@@ -91,13 +92,18 @@ export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: P
         <button type="button" className="net-btn" onClick={() => void act('code')}>{pe('Copiar só o código', 'Copy the code only')}</button>
       </div>
       <p className="cv-status" role="status">{status}</p>
+      <span className="sr-only" role="status">{pinNote}</span>
       <div className="cv-warn" role="note">
         <strong>{pe('O PIN vai por outro caminho.', 'The PIN goes another way.')}</strong>{' '}
         {pe('Diga o PIN numa ligação, nunca na mesma mensagem do convite.', 'Say the PIN on a call, never in the same message as the invite.')}
         <span className="cv-pin">
-          {pe('PIN da sala', 'Room PIN')}: <span className="cv-pin-value">{showPin ? pin : '•'.repeat(Math.max(4, pin.length))}</span>{' '}
-          <button type="button" className="cv-linkbtn" aria-pressed={showPin} onClick={() => setShowPin((v) => !v)}>
-            {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}
+          {pe('PIN da sala', 'Room PIN')}: {showPin
+            ? <span className="cv-pin-value"><span aria-hidden="true">{formatRoomPin(pin)}</span><span className="sr-only">{spokenRoomPin(pin)}</span></span>
+            : <><span className="cv-pin-value" aria-hidden="true">{'•'.repeat(Math.max(MIN_PIN_LENGTH, pin.length))}</span><span className="sr-only">{pe('oculto', 'hidden')}</span></>}{' '}
+          {/* The label says what a press does; a pressed state on top of a flipping label reads as
+              the opposite ("hide, pressed"). */}
+          <button type="button" className="cv-linkbtn" onClick={() => { setShowPin((v) => !v); setPinNote(showPin ? '' : pe(`PIN da sala: ${spokenRoomPin(pin)}`, `Room PIN: ${spokenRoomPin(pin)}`)) }}>
+            {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}<span className="sr-only">{pe(' o PIN da sala', ' the room PIN')}</span>
           </button>
         </span>
       </div>

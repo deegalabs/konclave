@@ -91,7 +91,7 @@ describe('RunwayPanel', () => {
   it('writes months without a trailing period, and says the year where the axis crosses into one', () => {
     const tp: TFn = (k, v) => translateStatic(k, v, 'pt-BR')
     const html = wrap(<RunwayPanel bal={bal(10 * ZEC)} rows={book} now={NOW} revealed t={tp} locale="pt-BR" />)
-    expect(html).toMatch(/>nov<\/span><span style="left:[\d.]+%">dez<\/span><span style="left:[\d.]+%">jan 27<\/span>/)
+    expect(html).toMatch(/>nov<\/span><span style="left:[\d.]+%">dez<\/span><span style="left:[\d.]+%">jan &#x27;27<\/span>/)
     expect(html).not.toMatch(/>[a-z]+\.<\/span>/)
   })
 
@@ -173,8 +173,16 @@ describe('the screen', () => {
     expect(src).toMatch(/setUnwired\(!b\.configured\)/)
     expect(src).not.toMatch(/'sent'|'confirmed'/)
     // the run-out month is written by the Ledger's own month formatter, not a second copy
-    expect(src).toMatch(/import \{ monthLong \} from '\.\.\/period'/)
-    expect(src).not.toMatch(/month: 'long'/)
+    expect(src).toMatch(/import \{ monthLong, monthShort \} from '\.\.\/period'/)
+    expect(src).not.toMatch(/month: 'long'|month: 'short'/)
+  })
+  it('keeps focus on an export button while it works, and says so to a screen reader', () => {
+    // disabled would drop focus to the top of the page; aria-disabled keeps it where it was
+    expect(src).toMatch(/aria-disabled=\{exporting !== null\}/)
+    expect(src).not.toMatch(/(?<!aria-)disabled=\{exporting !== null/)
+    expect(src).toMatch(/role="status"/)
+    // the hint is said once, on the page, not again as a tooltip on each button
+    expect(src).not.toMatch(/title=\{t\('analyses\.exportHint'\)\}/)
   })
   it('says nothing about the balance or the book until the first read has answered', () => {
     expect(src).toMatch(/\{loaded && <BalanceBand /)

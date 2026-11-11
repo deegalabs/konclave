@@ -11,10 +11,10 @@ describe('deriveRoom - PIN-gated admission', () => {
   })
 
   it('with a PIN, the room is a deterministic 128-bit hex id (not the code)', async () => {
-    const r = await deriveRoom('GRQ2QWCT', '1234')
+    const r = await deriveRoom('GRQ2QWCT', '482193')
     expect(r).toMatch(/^[0-9a-f]{32}$/)
     expect(r).not.toBe('GRQ2QWCT')
-    expect(await deriveRoom('GRQ2QWCT', '1234')).toBe(r) // deterministic: same code+PIN -> same room
+    expect(await deriveRoom('GRQ2QWCT', '482193')).toBe(r) // deterministic: same code+PIN -> same room
   })
 
   it('a wrong PIN yields a DIFFERENT room (a code-only attacker never meets the members)', async () => {
@@ -24,6 +24,6 @@ describe('deriveRoom - PIN-gated admission', () => {
   })
 
   it('a PIN is trimmed (leading/trailing space does not change the room)', async () => {
-    expect(await deriveRoom('GRQ2QWCT', ' 1234 ')).toBe(await deriveRoom('GRQ2QWCT', '1234'))
+    expect(await deriveRoom('GRQ2QWCT', ' 482193 ')).toBe(await deriveRoom('GRQ2QWCT', '482193'))
   })
 })

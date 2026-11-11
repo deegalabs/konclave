@@ -9,40 +9,34 @@
 // proposal date, network fee not included, incoming money not shown. Below three complete months it
 // says there is not enough history and draws nothing.
 import { useEffect, useState } from 'react'
-import { getLedger, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
-import { balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
+import { getLedger, getVault, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
+import { analysesReport, exportAnalyses } from '../analysesReport'
+import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
 import { fmtZatExact } from '../format'
 import { useI18n, type Locale, type TFn } from '../i18n'
 import { useLoading } from '../loading'
 import { PageFooter, PageHeader } from '../page'
-import { monthLong } from '../period'
+import { monthLong, monthShort } from '../period'
 import ReadState from '../ReadState'
 import { useReveal } from '../reveal'
-import { burnRate, projection, runway } from '../treasury-metrics'
+import { burnRate, projection, runway, runwayNoteKey } from '../treasury-metrics'
 import { nextBalanceView, type BalanceView } from '../useVaultBalance'
 import { startVisiblePoll } from '../usePoll'
 import { useVaultReadable } from '../vault-readable'
 
 const zec = (zat: number) => `${fmtZatExact(zat)} ZEC`
-/** A month as the axis writes it. Short months lose the period some locales add ("nov."), and
- *  January carries its two-digit year, so an axis that crosses a year says so. */
-const month = (unix: number, locale: Locale) => {
-  const d = new Date(unix * 1000)
-  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
-  return d.getMonth() === 0 ? `${short} ${String(d.getFullYear()).slice(2)}` : short
-}
+/** A month on the axis, from its unix time: the one short-month rule, in period.ts. */
+const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000), locale)
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
  *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
 export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
   bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
 }) {
-  if (!bal || bal.total_zat == null) {
-    const why = busy ? 'wallet.busyFirst' : unwired ? 'dashboard.walletNotConnected' : 'analyses.balanceUnread'
-    return <p className="hint" role="status">{t(why)}</p>
-  }
+  const note = balanceNoteKey(!!bal && bal.total_zat != null, busy, unwired)
+  if (!bal || bal.total_zat == null) return <p className="hint" role="status">{t(note!)}</p>
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows)
   if (reserved === null) return null
@@ -63,7 +57,7 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
       </div>
       {/* The held amount is capped at what can be spent; when proposals hold more, say so. */}
       {parts.overCommitted && <p className="hint warn sm" role="status">{t('dashboard.overCommitted')}</p>}
-      {busy && <p className="hint sm" role="status">{t('wallet.busyKept')}</p>}
+      {note && <p className="hint sm" role="status">{t(note)}</p>}
     </div>
   )
 }
@@ -103,7 +97,7 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
             </b>
           </dd>
           <dd className="by">
-            {t(run.kind === 'months' ? 'analyses.runwayHow' : run.kind === 'no-spend' ? 'analyses.noSpend' : run.kind === 'none-free' ? 'analyses.noFreeNow' : 'analyses.runwayAwaitsBalance')}
+            {t(runwayNoteKey(run))}
           </dd>
         </div>
       </dl>
@@ -146,22 +140,30 @@ export default function Analyses() {
   // Nothing is said about the balance or the book until the first read answers: before it, both
   // are null, and "could not be read" would report a failure that has not happened.
   const [loaded, setLoaded] = useState(false)
+  const [vaultName, setVaultName] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'html'>(null)
+  const [exportFailed, setExportFailed] = useState(false)
+  const [exported, setExported] = useState(false)
 
   useEffect(() => {
     // Locked: a 401 would read as an empty book, so nothing is read until the vault is unlocked.
     if (!readable) return
     let on = true
     let inFlight = false
+    let named = false
     const load = async (first: boolean) => {
       if (inFlight) return
       inFlight = true
       if (first) begin()
       try {
-        const [l, b] = await Promise.all([getLedger(), readBalance()])
+        // The vault's name is asked for until one read answers, so a failed first read does not
+        // leave the files saying "Konclave" until the page is reopened.
+        const [l, b, v] = await Promise.all([getLedger(), readBalance(), named ? Promise.resolve(null) : getVault()])
         if (!on) return
         if (l) { setRows(l); setUnread(false) } else if (first) setUnread(true)
-        setView((v) => nextBalanceView(v, b))
+        setView((x) => nextBalanceView(x, b))
         if (b && typeof b === 'object') setUnwired(!b.configured)
+        if (v) { named = true; setVaultName(v.name) }
       } finally {
         inFlight = false
         if (first) { end(); if (on) setLoaded(true) }
@@ -173,9 +175,47 @@ export default function Analyses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, readable])
 
+  // Both files come from one list of rows (analysesReport), each row saying where its number came
+  // from. Built from what this screen has read; nothing to export until the book was read.
+  async function exportAs(kind: 'xlsx' | 'html') {
+    if (exporting || rows === null) return
+    setExporting(kind)
+    setExportFailed(false)
+    setExported(false)
+    try {
+      const report = analysesReport({
+        bal: view.bal, busy: view.busy, unwired, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale,
+      })
+      if (await exportAnalyses(report, kind, locale)) setExported(true)
+      else setExportFailed(true)
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(null)
+    }
+  }
+  // While a file is being made the buttons are aria-disabled, not disabled: a disabled button
+  // drops keyboard focus to the top of the page. They are disabled only while there is no book.
+  const why = rows === null ? 'an-export-why' : undefined
+  const exportButton = (kind: 'xlsx' | 'html', label: string) => (
+    <button className="btn ghost sm-btn" disabled={rows === null} aria-disabled={exporting !== null} aria-describedby={why} onClick={() => void exportAs(kind)}>
+      {exporting === kind ? t('analyses.exporting') : label}
+    </button>
+  )
+  const actions = (
+    <>
+      {exportButton('xlsx', t('analyses.exportXlsx'))}
+      {exportButton('html', t('analyses.exportHtml'))}
+      {why && <span id={why} className="visually-hidden">{t('analyses.unknown')}</span>}
+    </>
+  )
+
   return (
     <main className="page">
-      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} />
+      <PageHeader title={t('analyses.title')} subtitle={t('analyses.sub')} back={{ to: '/ledger', label: t('ledger.title') }} actions={actions} />
+      <p className="cap">{t('analyses.exportHint')}</p>
+      {exportFailed && <p className="hint warn" role="alert">{t('analyses.exportFailed')}</p>}
+      <p className="visually-hidden" role="status">{exporting ? t('analyses.exporting') : exported ? t('analyses.exported') : ''}</p>
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}

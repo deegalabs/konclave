@@ -15,7 +15,7 @@ import {
 import { quorumIsPossible, DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
 import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
-import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
@@ -119,6 +119,36 @@ function hex(bytes: Uint8Array): string {
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
+/** The PIN as the screen shows it: the grouped digits for the eye, the digit-by-digit form for a
+ *  screen reader (a leading zero is not lost). */
+function PinDigits({ value }: { value: string }) {
+  return (
+    <>
+      <span aria-hidden="true">{formatRoomPin(value)}</span>
+      <span className="sr-only">{spokenRoomPin(value)}</span>
+    </>
+  )
+}
+
+/** The PIN the app made, shown to be read out: grouped, with Copy (the digits alone) and a new one.
+ *  A new one is announced through a status that is empty until then. */
+function MadePin({ id, labelledBy, value, onNew, newRef, pe }: { id: string; labelledBy?: string; value: string; onNew: () => string; newRef: React.Ref<HTMLButtonElement>; pe: (pt: string, en: string) => string }) {
+  const [note, setNote] = useState('')
+  return (
+    <div className="cv-pin-made">
+      <output id={id} aria-labelledby={labelledBy} className="cv-pin-value lg"><PinDigits value={value} /></output>
+      <CopyButton value={value} label={pe('Copiar (para mandar separado do convite)', 'Copy (to send apart from the invite)')} />
+      <button type="button" className="cv-linkbtn" ref={newRef} onClick={() => { const v = onNew(); setNote(pe(`Novo PIN: ${spokenRoomPin(v)}`, `New PIN: ${spokenRoomPin(v)}`)) }}>{pe('Novo PIN', 'New PIN')}</button>
+      <span className="sr-only" role="status">{note}</span>
+    </div>
+  )
+}
+
+/** An error line for a PIN field: always in the page, so a reader hears it appear. */
+function PinErr({ id, text, pe }: { id: string; text: string; pe: (pt: string, en: string) => string }) {
+  return <span className="cv-err" id={id} role="status">{text ? `${pe('Erro:', 'Error:')} ${text}` : ''}</span>
+}
+
 function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
   const t = useT()
   // Embedded (inside the /vaults create modal): render just the content, no full-page wrap /
@@ -198,7 +228,27 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [myName, setMyName] = useState('') // this participant's own name (create/join)
-  const [pin, setPin] = useState('') // admission PIN (ADR-0007 I4): required, shared apart from the invite
+  const [pin, setPin] = useState('') // admission PIN (ADR-0007 I4): required, shared apart from the invite (join, and the creator's own)
+  // The PIN the app made for the creator: new on each visit to the create step, never stored. The
+  // member's own PIN, when they choose one, is `pin`.
+  const [madePin, setMadePin] = useState(generateRoomPin)
+  const [ownPin, setOwnPin] = useState(false)
+  const [ownText, setOwnText] = useState('') // the creator's own PIN, apart from the join field's `pin`
+  const createPin = ownPin ? ownText : madePin
+  const createProblem = ownPin ? pinProblem(ownText, true) : null
+  const createPinOk = pinIsLongEnough(createPin) && !createProblem
+  const joinProblem = pinProblem(pin, false)
+  const joinNote = pinLengthNote(pin)
+  const newPinRef = useRef<HTMLButtonElement>(null)
+  const ownInputRef = useRef<HTMLInputElement>(null)
+  const focusAfterToggle = useRef(false)
+  const newMadePin = () => { const v = generateRoomPin(); setMadePin(v); return v }
+  const toggleOwn = () => { focusAfterToggle.current = true; setOwnPin((v) => !v) }
+  useEffect(() => {
+    if (!focusAfterToggle.current) return
+    focusAfterToggle.current = false
+    ;(ownPin ? ownInputRef.current : newPinRef.current)?.focus()
+  }, [ownPin])
   // The code the members compare before anything secret is sent, and the names it was computed over.
   const [code, setCode] = useState<{ code: string; names: string[]; mySeat: number; vaultName: string } | null>(null)
   // After round 3: the members who have not yet proven they finished, and whether it is taking long.
@@ -1171,7 +1221,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         <div className="cv-field cv-name">
           <label className="cv-k" htmlFor="cv-join-invite">{pe('Convite (link ou código)', 'Invite (link or code)')}</label>
           <input id="cv-join-invite" ref={joinInviteRef} required aria-invalid={!!joinCode.trim() && !parseInvite(joinCode)} className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }}
-            autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-describedby="cv-join-invite-hint"
+            autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-describedby={inviteFromLink ? "cv-join-invite-hint cv-join-from-link" : "cv-join-invite-hint"}
             placeholder={pe('cole o link ou o código', 'paste the link or the code')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
           <span className="cv-govnote" id="cv-join-invite-hint" role="status">
             {joinCode.trim() && !parseInvite(joinCode) ? pe('Isso não parece um convite completo: confira se colou tudo.', 'That does not look like a whole invite: check you pasted all of it.') : ''}
@@ -1181,15 +1231,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           )}
         </div>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-pin">{pe('PIN da sala (veio separado do convite)', 'Room PIN (it came apart from the invite)')}</label>
-          <input id="cv-join-pin" ref={joinPinRef} aria-describedby={inviteFromLink ? 'cv-join-from-link' : undefined} className="cv-nameinput" type="text" maxLength={20} required autoComplete="off" autoCorrect="off" spellCheck={false}
+          <label className="cv-k" htmlFor="cv-join-pin">{pe('PIN da sala (você recebeu separado, numa ligação)', 'Room PIN (you got it separately, on a call)')}</label>
+          <input id="cv-join-pin" ref={joinPinRef} aria-invalid={joinProblem ? true : undefined} aria-describedby="cv-join-pin-hint cv-join-pin-note cv-join-pin-err" className="cv-nameinput" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
             value={pin} onChange={(e) => setPin(e.target.value)} />
+          <span className="cv-govnote" id="cv-join-pin-hint">{pe('Normalmente 13 dígitos, como quem criou disse. Os espaços não importam.', "Usually 13 digits, as the creator said them. Spaces don't matter.")}</span>
+          <span className="cv-govnote" id="cv-join-pin-note">{joinNote ? pe(`Este PIN tem ${joinNote} dígitos. O que o app gera tem 13: confira se ouviu todos.`, `This PIN has ${joinNote} digits. The one the app makes has 13: check you heard them all.`) : ''}</span>
+          <PinErr id="cv-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
         </div>
         {(() => {
           const missing = [
             !myName.trim() && pe('o seu nome', 'your name'),
             !parseInvite(joinCode) && pe('o convite', 'the invite'),
-            !pin.trim() && pe('o PIN', 'the PIN'),
+            !pinIsLongEnough(pin) && pe('o PIN da sala', 'the room PIN'),
           ].filter(Boolean) as string[]
           // Always in the page, emptied when nothing is missing: a live region inserted together with
           // its text is often not announced.
@@ -1199,7 +1252,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             </p>
           )
         })()}
-        <button className="rd-enter primary cv-primary" aria-describedby="cv-join-why" disabled={!myName.trim() || !parseInvite(joinCode) || !pin.trim()}
+        <button className="rd-enter primary cv-primary" aria-describedby="cv-join-why" disabled={!myName.trim() || !parseInvite(joinCode) || !pinIsLongEnough(pin) || joinProblem !== null}
           onClick={() => { setRole('join'); void begin('join', parseInvite(joinCode)!, n, t, pin) }}>
           {pe('Entrar no cofre', 'Join the vault')}
         </button>
@@ -1245,7 +1298,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p className="cv-govnote" id="cv-create-why" role="status">
               {!myName.trim() ? pe('Para seguir, diga o seu nome: os outros membros vão vê-lo.', 'To go on, fill in your name: the other members will see it.') : ''}
             </p>
-            <button className="rd-enter primary cv-primary" disabled={!myName.trim()} aria-describedby="cv-create-why" onClick={() => setCreateStep(2)}>
+            <button className="rd-enter primary cv-primary" disabled={!myName.trim()} aria-describedby="cv-create-why" onClick={() => { setMadePin(generateRoomPin()); setCreateStep(2) }}>
               {pe('Continuar →', 'Continue →')}
             </button>
             <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
@@ -1325,16 +1378,24 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             )}
 
             <div className="cv-field cv-gov">
-              <label className="cv-k" htmlFor="cv-create-pin">{pe('PIN da sala', 'Room PIN')}</label>
-              <input id="cv-create-pin" className="cv-nameinput" type="text" maxLength={20} required autoComplete="off" autoCorrect="off" spellCheck={false}
-                aria-describedby="cv-create-pin-help" value={pin} onChange={(e) => setPin(e.target.value)} />
-              <span className="cv-govnote" id="cv-create-pin-help">{pe(
-                'Invente um PIN (por exemplo, de 4 a 6 dígitos). Você vai dizê-lo a cada membro numa ligação, nunca junto com o convite. Sem o PIN, quem só tem o convite não acha a sala.',
-                'Make up a PIN (for example, 4 to 6 digits). You will tell it to each member on a call, never together with the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
+              <label className="cv-k" htmlFor={ownPin ? 'cv-create-pin' : 'cv-create-pin-made'}>{pe('PIN da sala', 'Room PIN')}</label>
+              {ownPin ? (
+                <input id="cv-create-pin" ref={ownInputRef} className="cv-nameinput" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
+                  aria-invalid={createProblem ? true : undefined} aria-describedby="cv-create-pin-help cv-create-pin-err" value={ownText} onChange={(e) => setOwnText(e.target.value)} />
+              ) : (
+                <MadePin id="cv-create-pin-made" value={madePin} onNew={newMadePin} newRef={newPinRef} pe={pe} />
+              )}
+              <span className="cv-govnote" id="cv-create-pin-help">{ownPin
+                ? pe('Escolha pelo menos 6 caracteres, de preferência mais, e nada de datas ou palavras. Um PIN inventado é mais fácil de adivinhar que o do app. Diga-o a cada membro numa ligação, nunca junto com o convite.', 'Choose at least 6 characters, ideally longer and not a date or a word. A PIN you make up is easier to guess than the one the app made. Say it to each member on a call, never with the invite.')
+                : pe('Diga este PIN a cada membro numa ligação. Nunca mande junto com o convite: quem tiver os dois pode ocupar um lugar neste cofre. Os espaços não importam.', "Say this PIN to each member on a call. Never send it with the invite: whoever has both can take a seat in this vault. Spaces don't matter.")}</span>
+              <PinErr id="cv-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
+              <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
+                {ownPin ? pe('Usar o PIN que o app gerou', 'Use the PIN the app made') : pe('Escolher meu próprio PIN', 'Choose my own PIN instead')}
+              </button>
             </div>
 
-            <button className="rd-enter primary cv-primary" disabled={!pin.trim()}
-              onClick={() => { setRole('create'); void begin('create', newInviteCode(), n, t, pin) }}>
+            <button className="rd-enter primary cv-primary" aria-describedby="cv-create-pin-help" disabled={!createPinOk}
+              onClick={() => { setRole('create'); setPin(createPin); void begin('create', newInviteCode(), n, t, createPin) }}>
               {pe('Gerar convite', 'Generate invite')}
             </button>
           </>
@@ -1370,14 +1431,27 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 ))}
               </select>
             </label>
-            <label className="net-row">
-              {pe('PIN de admissão', 'Admission PIN')}
-              <input className="net-input" type="text" maxLength={20} required value={pin} onChange={(e) => setPin(e.target.value)} />
-            </label>
+            <div className="net-row">
+              <span id="net-create-pin-label">{pe('PIN da sala', 'Room PIN')}</span>
+              {ownPin ? (
+                <input ref={ownInputRef} className="net-input" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
+                  aria-labelledby="net-create-pin-label" aria-invalid={createProblem ? true : undefined} aria-describedby="net-create-pin-hint net-create-pin-err" value={ownText} onChange={(e) => setOwnText(e.target.value)} />
+              ) : (
+                <MadePin id="net-create-pin-made" labelledBy="net-create-pin-label" value={madePin} onNew={newMadePin} newRef={newPinRef} pe={pe} />
+              )}
+            </div>
+            <p id="net-create-pin-hint">{ownPin
+              ? pe('Escolha pelo menos 6 caracteres, de preferência mais, e nada de datas ou palavras. Um PIN inventado é mais fácil de adivinhar que o do app. Diga-o a cada membro numa ligação, nunca junto com o convite.', 'Choose at least 6 characters, ideally longer and not a date or a word. A PIN you make up is easier to guess than the one the app made. Say it to each member on a call, never with the invite.')
+              : pe('Diga este PIN a cada membro numa ligação. Nunca mande junto com o convite: quem tiver os dois pode ocupar um lugar neste cofre. Os espaços não importam.', "Say this PIN to each member on a call. Never send it with the invite: whoever has both can take a seat in this vault. Spaces don't matter.")}</p>
+            <PinErr id="net-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
+            <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
+              {ownPin ? pe('Usar o PIN que o app gerou', 'Use the PIN the app made') : pe('Escolher meu próprio PIN', 'Choose my own PIN instead')}
+            </button>
             <button
               className="net-btn primary"
-              disabled={!pin.trim()}
-              onClick={() => { setRole('create'); void begin('create', newInviteCode(), n, t, pin) }}
+              aria-describedby="net-create-pin-hint"
+              disabled={!createPinOk}
+              onClick={() => { setRole('create'); setPin(createPin); void begin('create', newInviteCode(), n, t, createPin) }}
             >
               {tt('net.idle.generateInvite')}
             </button>
@@ -1394,12 +1468,16 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <input className="net-input" type="text" maxLength={20} required placeholder={pe('PIN', 'PIN')}
-              aria-label={pe('PIN da sala', 'Room PIN')} autoComplete="off" autoCorrect="off" spellCheck={false}
+            <input className="net-input" type="text" maxLength={24} required placeholder={pe('PIN', 'PIN')}
+              aria-label={pe('PIN da sala', 'Room PIN')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
               value={pin} onChange={(e) => setPin(e.target.value)} />
+            <p id="net-join-pin-hint">{pe('Normalmente 13 dígitos, como quem criou disse. Os espaços não importam.', "Usually 13 digits, as the creator said them. Spaces don't matter.")}</p>
+            <p id="net-join-pin-note">{joinNote ? pe(`Este PIN tem ${joinNote} dígitos. O que o app gera tem 13: confira se ouviu todos.`, `This PIN has ${joinNote} digits. The one the app makes has 13: check you heard them all.`) : ''}</p>
+            <PinErr id="net-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
             <button
               className="net-btn"
-              disabled={!parseInvite(joinCode) || !pin.trim()}
+              aria-describedby="net-join-pin-hint"
+              disabled={!parseInvite(joinCode) || !pinIsLongEnough(pin) || joinProblem !== null}
               onClick={() => { setRole('join'); void begin('join', parseInvite(joinCode)!, n, t, pin) }}
             >
               {tt('net.idle.joinBtn')}

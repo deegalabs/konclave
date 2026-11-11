@@ -36,10 +36,17 @@ export function periodWindow(kind: PeriodKind, offset: number, now: Date = new D
   return { from: unix(start), to: unix(end) }
 }
 
-/** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
+/** A month written short for a chart axis: no trailing period ("nov." becomes "nov"), and January
+ *  carries its year with an apostrophe ("jan '27"), so it does not read as a day of the month. */
+export const monthShort = (d: Date, locale: string): string => {
+  const short = d.toLocaleDateString(locale, { month: 'short' }).replace(/\.$/, '')
+  return d.getMonth() === 0 ? `${short} '${String(d.getFullYear()).slice(2)}` : short
+}
+
 /** A month written long ("November 2026"): the Ledger's period and the Analyses run-out month. */
 export const monthLong = (d: Date, locale: string): string => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 
+/** The window's name in the member's language: "October 2025", "Q4 2025" (via `quarter`), "2025". */
 export function periodLabel(
   kind: PeriodKind,
   offset: number,
@@ -71,4 +78,17 @@ export function offsetFor(kind: PeriodKind, anchor: Date, now: Date = new Date()
 export function inPeriod(w: PeriodWindow | null, createdAt?: number): boolean {
   if (!w) return true
   return createdAt !== undefined && createdAt >= w.from && createdAt < w.to
+}
+
+/** The oldest and newest of `values`, or null when there are none. A loop, never `Math.min(...values)`:
+ *  a spread passes every entry as an argument, and a long history is past what a call can take. */
+export function dateRange(values: readonly number[]): { lo: number; hi: number } | null {
+  if (values.length === 0) return null
+  let lo = values[0]!
+  let hi = lo
+  for (const v of values) {
+    if (v < lo) lo = v
+    if (v > hi) hi = v
+  }
+  return { lo, hi }
 }

@@ -449,3 +449,6 @@
   .docs-main { padding: 26px 20px 60px; }
   .docs-title { font-size: 27px; }
 }
+
+/* A subheading inside a section: a release's categories (Security, Added...) under its part. */
+.docs-h3 { font-size: 16px; font-weight: 700; margin: 26px 0 2px; color: var(--text); }
