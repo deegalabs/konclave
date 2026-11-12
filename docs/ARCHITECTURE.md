@@ -112,7 +112,7 @@ vault id included (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 | Module | Responsibility |
 |---|---|
 | `ceremony` / `dkg` | Real DKG (and trusted-dealer in the slice) via `frost-client` + `frostd` |
-| `send` | Ready→Sent flow: chains the tested wrappers (pczt create/prove/send · signer extract/inject · frostd) |
+| `send` | Ready→Sent flow: chains the tested wrappers (signer build-payroll · pczt prove/send · signer extract/inject · frostd) |
 | `wallet` | Sync via UFVK, balance/history, plan construction (PCZT), `zcash_client_backend` linked |
 | `proposal` | **State machine** (LOGICA §6), balance reservation, expiry |
 | `validation` / `address` | Address/amount/memo/fee (ZIP 317), authoritative recipient decode; explicit failures at every boundary |
@@ -123,7 +123,7 @@ vault id included (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 | `net_send` / `relay_client` | Architecture B: publish the sign request into the vault's relay room and collect the browsers' aggregate signature |
 | `money` | Zatoshi arithmetic - money is never summed in floating point |
 | `reconcile` | On-chain wins: promote a `sent` proposal whose txid confirmed, invalidate reservations a fresh sync can no longer fund |
-| `payroll` / `pczt` / `signer` / `tools` / `inheritance` | Payroll plan validation · PCZT create/prove/send · the `konclave-signer` bridge · subprocess running · the inheritance switch |
+| `payroll` / `pczt` / `signer` / `tools` / `inheritance` | Payroll plan validation · PCZT prove/send · the `konclave-signer` bridge · subprocess running · the inheritance switch |
 
 > This table lists every module in `orchestrator/src/lib.rs`. It fell five behind once; if you add
 > one, add its row.
@@ -146,7 +146,7 @@ draft ──propose──> awaiting ──quorum──> ready ──broadcast─
 ## 7. Transaction flow (the FROST↔PCZT bridge)
 
 ```
-pczt create ─> prove (Halo2) ─> EXTRACT ─> FROST ceremony ─> INJECT ─> send
+build (signer) ─> prove (Halo2) ─> EXTRACT ─> FROST ceremony ─> INJECT ─> send
                                   │                            │
                           sighash + randomizers          apply sigs, VERIFY
 ```

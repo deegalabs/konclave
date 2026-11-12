@@ -4,7 +4,9 @@
 // two read routines (api.ts for the bridge, helper.ts for the coordinator), and a screen asks for it
 // right after its read, the same way `lastHelperPostFailure` already works for writes.
 //
-// Single-threaded and read immediately after the await, so there is no interleaving to worry about.
+// One memory per route, shared by every vault and every caller in the document: another read of the
+// same route can overwrite it between a read and its reader. It is for a screen's wording. A decision
+// that depends on why one read failed uses that read's own result (`getVaultResult` in helper.ts).
 
 export type ReadFailure =
   /** The browser reports no network. */

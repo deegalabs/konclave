@@ -40,6 +40,58 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.20.0] 2026-11-11
+
+### Added
+
+- **The analyses as a spreadsheet or a web page.** Analyses can be saved as a spreadsheet or as a
+  page that opens in any browser without Konclave; print the page for a PDF. Both carry the same
+  figures, each with a line saying where it came from, and the same sentence about the limits as
+  the screen. Below three months of history the file says so and carries no pace or projection.
+- **Each release has its own page in the docs.** It opens at `/#/docs/releases/<version>` and says
+  what the GitHub release says, because both are written from the changelog by the same function:
+  the app's part and the desktop shell's, each under its categories, dated in UTC, with every issue
+  it cites linked to GitHub. The pages are in English, as the changelog is. They load when one is
+  opened and are not kept for offline use.
+
+### Changed
+
+- **The app now makes the room PIN when you create a vault.** It shows 13 digits in groups
+  (`1234 5678 9012 3`), the last one a check digit, with a Copy button and a "New PIN" button. Say
+  it to each member on a call, apart from the invite; the spaces do not matter when they type it.
+  A member who mistypes a digit or swaps two neighbours is told "Check the PIN: a digit looks
+  wrong." before anything happens, and a PIN of 10 to 16 digits that is not 13 says how many digits
+  it has. The PIN is typed in plain digits: digits in another script, or split by hyphens or dots,
+  are asked to be retyped. You can still choose your own PIN ("Choose my own PIN instead"): it needs
+  at least six characters, a PIN of 13 digits must end in its check digit, and a PIN you make up is
+  easier to guess than the one the app made.
+
+### Fixed
+
+- **Two vaults finishing at the same time on one device could leave one without its member list.**
+  When two vaults finished their setup together, one of them could read the other's "already there"
+  answer as its own and finish without the coordinator having its member list, so its proposals were
+  refused afterwards. Each setup now reads only the answer to its own request, and stays unfinished
+  when its own answer is missing.
+- The month labels under the Dashboard's spending bars follow the app's language rather than the browser's, lose the trailing period some languages add ("nov." now reads "nov"), and January carries its year ("jan '27").
+- **A vault finished on the server is no longer called unfinished after an update.** A member who had
+  not finished a vault that the others had already registered, and then updated the app, was told not
+  to fund it and to make a new one. The app now reads the vault from the server and finishes it when it
+  is registered to this member's part of the key.
+
+### Known limits
+
+- **Creating a vault moves to a new creation version.** A creation still in progress when this
+  version arrives has to start again, and a member on an older app is asked to update before they
+  can create or join. The app moves first and the vault's server right after; in the short time
+  between the two, an updated app says creation is not available and opens no room. An invite made
+  before the update leads to an empty room: the creator makes a new one.
+- **The coordinator still pays 5,000 zatoshis per action after block 3,590,000, so vault payments can
+  be told apart until the fee release.** Wallets that follow ZIP 2009 pay 1,000 from that block (expected
+  around 19 November 2026); the fee is public, so a vault transaction paying five times that stands out.
+  Building at 1,000, only for a vault whose every device accepts it, is planned for its own release and
+  is not in this one.
+
 ## [0.19.0] 2026-11-10
 
 ### Security

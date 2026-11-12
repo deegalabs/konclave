@@ -22,7 +22,7 @@ import type { Proposal } from './api'
 import { freeZatOf } from './balance-parts'
 import { sumZat } from './format'
 import { SETTLED } from './ledger-state'
-import { createdAt, periodWindow } from './period'
+import { createdAt, dateRange, periodWindow } from './period'
 
 /** Complete months a pace is averaged over, and the least history that may speak of one. */
 export const BURN_MONTHS = 3
@@ -62,8 +62,8 @@ export type Burn =
 export function burnRate(proposals: readonly Proposal[] | null, now: Date = new Date()): Burn {
   if (proposals === null) return { kind: 'unknown' }
   const dated = proposals.map(createdAt).filter((t): t is number => t !== null)
-  if (dated.length === 0) return { kind: 'not-enough-history' }
-  if (Math.min(...dated) > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
+  const range = dateRange(dated)
+  if (!range || range.lo > month(now, -BURN_MONTHS).from) return { kind: 'not-enough-history' }
   const r = monthlyOutflows(proposals, now, BURN_MONTHS)
   const total = r.months.reduce((acc, m) => acc + m.outZat, 0)
   return { kind: 'rate', zatPerMonth: Math.ceil(total / BURN_MONTHS), undated: r.undated }

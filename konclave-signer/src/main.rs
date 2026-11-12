@@ -210,9 +210,9 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
     Ok(())
 }
 
-/// Build an unproven Orchard PCZT paying N recipients in one transaction. Mirrors
-/// `zcash-devtool pczt create` (which only pays one), extended to a multi-payment ZIP 321
-/// request - the multi-output engine the CLI lacks (roadmap 5-B.2, §2).
+/// Build an unproven Orchard PCZT paying N recipients in one transaction: the one builder, for a
+/// payroll and for a single payment (a payroll of one line). It mirrors what `zcash-devtool pczt
+/// create` did (which only pays one) and extends it to a multi-payment ZIP 321 request.
 fn build_payroll(
     wallet: &str,
     account_uuid: &str,

@@ -1,1 +1,0 @@
-- Creating a vault needs the newest app; vaults that already exist keep working.

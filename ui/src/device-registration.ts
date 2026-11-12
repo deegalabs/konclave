@@ -27,7 +27,7 @@
 // share - and to nothing else.
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
-import { lastHelperPostFailure, registerDeviceKey, registerReadKey } from './helper'
+import { registerDeviceKeyResult, registerReadKeyResult } from './helper'
 import { noteSeatRefused, noteSeatRegistered, seatRefusalKey } from './seat-registration'
 import { deriveReadKey } from './vault-secret'
 import { seatCertificateFromBundle } from './wasm-pkg/konclave_wasm.js'
@@ -59,14 +59,15 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
     // and a caller (the creation's backup) asks for it right after this resolves.
     if (share.accessSecret && share.threshold !== undefined) {
       const taken = await deriveReadKey(share.accessSecret)
-        .then((rk) => registerReadKey(hex(share.groupKey), hex(rk)))
+        .then((rk) => registerReadKeyResult(hex(share.groupKey), hex(rk)))
         .catch((error) => {
           console.error('[konclave] could not register this vault\'s read key', { vault: vaultId.slice(0, 8), error })
           return null
         })
-      if (taken === false) {
+      // The refusal is the answer of THIS call; no other post can stand in for it.
+      if (taken && (('failure' in taken) || !taken.ok)) {
         console.error('[konclave] the coordinator did not take this vault\'s read key', { vault: vaultId.slice(0, 8) })
-        const code = lastHelperPostFailure()?.code
+        const code = 'failure' in taken ? taken.failure?.code : undefined
         // A pinned vault's key either is this one or this device does not belong: not a thing to go on from.
         if (share.cp !== undefined && share.cp >= 3 && code) {
           noteSeatRefused(vaultId, 'registration.seatRefused', code)
@@ -78,12 +79,12 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
     const proof = share.cp !== undefined && share.cp >= 3 && share.accessSecret
       ? seatCertificateFromBundle(b.keyPackage, b.pubkeys, b.seat, b.t, b.n, share.cp, await deriveReadKey(share.accessSecret))
       : undefined
-    const ok = await registerDeviceKey(hex(share.groupKey), devicePubHex(b.keyPackage), {
+    const sent = await registerDeviceKeyResult(hex(share.groupKey), devicePubHex(b.keyPackage), {
       seat: b.seat,
       pub: deviceWriteKeyHex(b.keyPackage),
     }, proof)
-    if (ok === null) {
-      const code = lastHelperPostFailure()?.code
+    if ('failure' in sent) {
+      const code = sent.failure?.code
       if (share.cp !== undefined && share.cp >= 3 && code) {
         noteSeatRefused(vaultId, 'registration.seatRefused', code)
         return { refused: code }
@@ -93,7 +94,7 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
       })
       // #821: a REFUSAL is shown, not only logged. The seat is then without a device on record, so
       // this device cannot sign or vote until it is. A coordinator that did not answer is not one.
-      const f = lastHelperPostFailure()
+      const f = sent.failure
       if (f && f.status >= 400 && f.status < 500) noteSeatRefused(vaultId, seatRefusalKey(f.error))
       return false
     }

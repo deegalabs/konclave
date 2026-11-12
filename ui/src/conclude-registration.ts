@@ -7,8 +7,7 @@
 // It reads the PERSISTED record (name, group key, quorum, roster, protocol), never the in-session
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.
 // The session copy is used for one thing, to sign this device's own registration.
-import { lastReadFailure } from './read-failure'
-import { getVault, helperConfigured, registerVault, setMembers, lastHelperPostFailure, type HelperVault } from './helper'
+import { getVaultResult, helperConfigured, registerVaultResult, setMembersResult, type HelperPostFailure, type HelperVault } from './helper'
 import { ownPkpDigest } from './pin-digest'
 import { adoptVaultReceivers } from './vault-receivers'
 import { listVaults, updateVaultMeta } from './storage'
@@ -104,36 +103,45 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   const protocol3 = cp >= FIRST_PINNING_PROTOCOL
   const digest = protocol3 ? await ownPkpDigest(session, threshold, total) : null
   const pinnedHere = (a: HelperVault | null) => !!a && a.state === 'pinned' && a.pkp_digest === digest
-  // Only a 404 says the coordinator holds no such vault; any other empty read is the network's case.
-  const readSaysMissing = () => lastReadFailure('/api/vault')?.reason === 'missing'
+  // This vault's own read, with the reason of THAT read: only a 404 says the coordinator holds no
+  // such vault; any other empty read is the network's case. The reason is never taken from a memory
+  // other vaults write to.
+  type Read = { vault: HelperVault } | { missing: boolean }
+  const readVault = async (): Promise<Read> => {
+    const r = await getVaultResult(rec.groupKey)
+    return 'ok' in r ? { vault: r.ok } : { missing: r.failure === 'missing' }
+  }
   // A device with no bundle never posts. It finishes only on a vault others pinned to its package, read
   // once: that answer is the vault. No answer is not "not pinned": only a 404 says the coordinator holds none.
   let v: HelperVault | null
+  // The failure of the registration call itself, taken from ITS answer: another registration in the
+  // same document must never be able to put its own failure here (F-2).
+  let failure: HelperPostFailure | null = null
   if (protocol3 && !rec.pinBundle) {
-    const known = await getVault(rec.groupKey)
-    if (!known && !readSaysMissing()) return { refused: 'unreachable' }
-    if (!known || !pinnedHere(known)) return { refused: 'nobundle' }
-    v = known
+    const read = await readVault()
+    if (!('vault' in read) && !read.missing) return { refused: 'unreachable' }
+    if (!('vault' in read) || !pinnedHere(read.vault)) return { refused: 'nobundle' }
+    v = read.vault
   } else {
-    v = await registerVault(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+    const r = await registerVaultResult(rec.groupKey, name, threshold, total, cp, rec.pinBundle)
+    if ('ok' in r) v = r.ok
+    else { v = null; failure = r.failure }
   }
   if (!v) {
-    const failure = lastHelperPostFailure()
     // A pinned vault of an earlier protocol, refused because the coordinator now asks for a newer app:
     // the vault exists and is pinned to this device's package, so it finishes the way a device with no
     // bundle does, by reading it. Only a vault not pinned here is told it was made by an older app.
     // Only after this device posted (a bundle): a device with no bundle never posted, and a failure
     // left from an earlier post is not this one's.
     if (isUpdateRequired(failure) && protocol3 && rec.pinBundle && cp < CREATION_PROTOCOL) {
-      const known = await getVault(rec.groupKey)
-      if (known && pinnedHere(known)) v = known
+      const read = await readVault()
+      if ('vault' in read && pinnedHere(read.vault)) v = read.vault
       // No answer is not "no such vault": only a 404 says the coordinator holds none.
-      else if (!known && !readSaysMissing()) return { refused: 'unreachable' }
+      else if (!('vault' in read) && !read.missing) return { refused: 'unreachable' }
       else return { refused: 'update', older: true }
     }
   }
   if (!v) {
-    const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
     if (failure?.busy) return { refused: 'busy' }
     const code = coordinatorCode(failure?.code)
@@ -159,13 +167,14 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
 
   // Each member's name (seat order) exactly as bound into the code; idempotent.
   if (rec.roster.length) {
-    const roster = await setMembers(rec.groupKey, rec.roster).catch(() => null)
-    if (protocol3 && !roster) {
+    const roster = await setMembersResult(rec.groupKey, rec.roster).catch(() => null)
+    if (protocol3 && (!roster || 'failure' in roster)) {
       // On protocol 3 the roster decides who can vote. A list already there (409) is not a refusal:
       // the Members screen says when it differs. Anything else leaves this vault unfinished.
-      const failure = lastHelperPostFailure()
-      if (failure?.status !== 409) {
-        const code = coordinatorCode(failure?.code)
+      // The failure is this call's own answer, never a slot another post wrote (F-2).
+      const rosterFailure = roster ? roster.failure : null
+      if (rosterFailure?.status !== 409) {
+        const code = coordinatorCode(rosterFailure?.code)
         return code ? { refused: 'coded', code } : { refused: 'unreachable' }
       }
     }
