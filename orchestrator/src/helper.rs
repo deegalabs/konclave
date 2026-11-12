@@ -137,6 +137,7 @@ pub fn send_config_for(
         sealing_keychain_id: None,
         zcash_sign: Some(cfg.zcash_sign.clone()),
         vaults_dir: Some(cfg.vaults_dir.display().to_string()),
+        network: cfg.network.clone(),
     }
 }
 
@@ -5269,6 +5270,10 @@ mod tests {
         assert_eq!(sc.lightwalletd, "zec.rocks:443");
         assert_eq!(sc.konclave_signer, PathBuf::from("/bin/konclave-signer"));
         assert_eq!(sc.work_dir, "/tmp/work-abcd");
+        // The builder is told the coordinator's configured network, not left to its mainnet default.
+        assert_eq!(sc.network, "main");
+        let on_testnet = send_config_for(&send_cfg("test"), &r, "/tmp/work-abcd".into());
+        assert_eq!(on_testnet.network, "test");
         // Architecture B: the browsers sign, so the helper carries no ceremony material.
         assert!(sc.members.is_empty());
         assert_eq!(sc.threshold, 0);

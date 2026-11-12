@@ -248,7 +248,7 @@ classDiagram
 | `Tools`, `ToolError` | `tools.rs` | Subprocess driver for the official binaries; non-zero exit → error with stderr. |
 | `Balance`, `ChainInfo`, `list_confirmed_txids` | `wallet.rs` | Read-side wallet: parse `zcash-devtool` JSON (balance / get-info / list-tx). |
 | `SigningInput`, `Randomizer`, `inject` | `signer.rs` | Bridge to `konclave-signer`: extract sighash + randomizers, inject FROST sigs. |
-| `pczt::create/prove/send` | `pczt.rs` | Drive `zcash-devtool pczt`; validate broadcast output (reject expired even on exit 0). |
+| `pczt::prove/send` | `pczt.rs` | Drive `zcash-devtool pczt` (building is `konclave-signer build-payroll`, for a payment as one line); validate broadcast output (reject expired even on exit 0). |
 | `Frostd`, `run_coordinator`, `run_participant` | `ceremony.rs` | `frostd` lifecycle (killed on drop) + coordinator/participant FROST roles. |
 | `SendConfig`, `SpendPlan`, `SendOutcome`, `orchestrate_send` | `send.rs` | End-to-end Ready→Sent: build/prove PCZT → ceremony → inject → broadcast (dry-run capable). |
 | `DkgVault`, `create_vault_dkg` | `dkg.rs` | Create a vault by real DKG through the app; shares sealed, key never reconstituted. |
@@ -474,7 +474,7 @@ sequenceDiagram
     U->>S: POST /api/proposals/{id}/send {dry_run}
     Note over S: guards - ceremony configured, state Ready, vault group matches
     S->>O: orchestrate_send (signers are who approved, shares unsealed to tmpfs 0600)
-    O->>DT: pczt create --address --value
+    O->>KS: build-payroll --spec (one line for a payment)
     O->>DT: pczt prove (local ZK proofs)
     O->>KS: extract yields SIGHASH and a RANDOMIZER per real spend
     O->>FD: start frostd (readiness handshake)

@@ -1,4 +1,4 @@
-//! PCZT orchestration: drives `zcash-devtool pczt` (create → prove → send). PCZT
+//! PCZT orchestration: drives `zcash-devtool pczt` (prove → send; building is `konclave-signer build-payroll`). PCZT
 //! bytes are piped between steps; the final `send` returns the broadcast txid.
 //!
 //! `parse_txid` validates the tool's output rather than trusting the exit code - a
@@ -8,35 +8,6 @@
 use std::path::Path;
 
 use crate::tools::{run, run_text, ToolError};
-
-/// `zcash-devtool pczt -w <dir> create --address <a> --value <zat> [--memo <m>] <account>`
-/// Returns the (unproven) PCZT bytes.
-pub fn create(
-    devtool: &Path,
-    wallet_dir: &str,
-    address: &str,
-    value_zat: u64,
-    account: &str,
-    memo: Option<&str>,
-) -> Result<Vec<u8>, ToolError> {
-    let value_s = value_zat.to_string();
-    let mut args: Vec<&str> = vec![
-        "pczt",
-        "-w",
-        wallet_dir,
-        "create",
-        "--address",
-        address,
-        "--value",
-        value_s.as_str(),
-    ];
-    if let Some(m) = memo {
-        args.push("--memo");
-        args.push(m);
-    }
-    args.push(account);
-    run(devtool, &args, None)
-}
 
 /// `zcash-devtool pczt -w <dir> prove` - reads a PCZT on stdin, returns the proven PCZT.
 pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, ToolError> {
