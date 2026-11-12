@@ -106,6 +106,13 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **A payment is built the same way as a payroll line.** The coordinator builds a single payment
+  with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
+  line, so the two share one set of rules. Nothing changes in what a payment pays: the same
+  recipient, amount and memo, the same network fee and the same shielded pool for the change. The
+  payee's address and the memo are no longer passed to a helper program on its command line, where
+  another process on the same machine could read them. The deployed `konclave-signer` already has
+  this command, so no new binary is needed.
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep

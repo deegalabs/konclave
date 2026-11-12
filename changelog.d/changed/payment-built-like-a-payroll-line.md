@@ -1,4 +1,4 @@
-- **A payment is now built the same way as a payroll line.** The coordinator and the desktop app
+- **A payment is now built the same way as a payroll line.** The coordinator and the local bridge
   build a single payment with the same builder that builds a payroll, as a payroll of one line, so a
   payment and a payroll share one set of rules. Nothing changes in what a payment pays: the same
   recipient, amount and memo, the same network fee, and the same shielded pool for the change. The

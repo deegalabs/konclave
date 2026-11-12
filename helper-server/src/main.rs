@@ -9009,8 +9009,7 @@ mod tests {
             .contains("list-tx"));
     }
 
-    /// A devtool that reports `balance` after `pause` seconds and takes `pause` seconds to start
-    /// building: a send that has passed every gate is in it for that long.
+    /// A devtool that reports `balance` after `pause` seconds: the funding gate is in it for that long.
     #[cfg(unix)]
     fn devtool_that_pauses(dir: &std::path::Path, balance: u64, pause: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -9018,8 +9017,23 @@ mod tests {
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then sleep {pause}; exit 1; fi\n"
+                "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\n"
             ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    /// A `konclave-signer` that takes `pause` seconds to build and then fails: a send that has passed
+    /// every gate is in it for that long (the build is the signer's, for a payment as for a payroll).
+    #[cfg(unix)]
+    fn signer_that_pauses(dir: &std::path::Path, pause: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("pausing-signer");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nif [ \"$1\" = build-payroll ]; then sleep {pause}; exit 1; fi\n"),
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -9091,11 +9105,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_send_is_shown_as_sending_only_while_it_runs() {
-        // A funded vault: the send passes every gate, then waits in `pczt create` and fails.
+        // A funded vault: the send passes every gate, then waits in the signer's build and fails.
         let st = HelperState::new();
         seed(&st, "relayv");
         let mut c = cfg();
         c.devtool = devtool_that_pauses(&c.vaults_dir, 5_000_000, "1.2");
+        c.konclave_signer = signer_that_pauses(&c.vaults_dir, "1.2");
         a_ready_proposal(&c.vaults_dir, "relayv");
         every_seat_has_a_device(&c.vaults_dir, "relayv");
         let locks = concurrency::VaultLocks::new();
@@ -9397,14 +9412,21 @@ mod tests {
             .collect()
     }
 
-    /// A `konclave-signer` stand-in whose `build-payroll` writes an empty PCZT to its `--out`.
+    /// A `konclave-signer` stand-in whose `build-payroll` writes an empty PCZT to its `--out`. The
+    /// build opens the same wallet database the devtool does, so it joins the devtool's detector: it
+    /// logs `build-payroll` in `calls.log` and takes the `in-engine` slot, writing `overlap.log` if it
+    /// finds it taken (two engine processes on one wallet). It holds the slot for a moment so that a
+    /// build running beside a sync is caught.
     #[cfg(unix)]
     fn counting_signer(dir: &std::path::Path) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let fake = dir.join("counting-signer");
         std::fs::write(
             &fake,
-            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\n[ \"$1\" = build-payroll ] && : > \"$out\"\nexit 0\n",
+            format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then\necho build-payroll >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nsleep 0.5\n: > \"$out\"\nrmdir \"{d}/in-engine\" 2>/dev/null\nfi\nexit 0\n",
+                d = dir.display()
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -9426,8 +9448,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut c = cfg();
         c.devtool = counting_devtool(&dir, sync_secs);
-        // A payment is built by the signer (B3a), not by `pczt create`: this one writes an empty
-        // PCZT to its `--out`, which is what the devtool stand-in used to print for `create`.
+        // A payment is built by the signer (B3a): this one writes an empty PCZT to its `--out` and is
+        // watched by the same overlap detector as the devtool, so the build is still under guard.
         c.konclave_signer = counting_signer(&dir);
         c.vaults_dir = dir.join("vaults");
         std::fs::create_dir_all(&c.vaults_dir).unwrap();

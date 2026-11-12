@@ -79,6 +79,14 @@ pub struct SendConfig {
     /// 5-F: directory under which new DKG vaults (configs + wallet) are created.
     #[serde(default)]
     pub vaults_dir: Option<String>,
+    /// Consensus network the wallet lives on, `"main"` or `"test"`: handed to the builder, which has
+    /// no wallet configuration to read it from (the devtool it replaced read it from `keys.toml`).
+    #[serde(default = "default_network")]
+    pub network: String,
+}
+
+fn default_network() -> String {
+    "main".into()
 }
 
 fn default_ip() -> String {
@@ -333,8 +341,11 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
     // It now goes through the same guard the unsealed shares use: a 0600 file on tmpfs when
     // /dev/shm exists (so on the helper it never reaches a disk), removed when the guard
     // drops - including on panic and on any error path below.
-    let spec = serde_json::to_string(lines)
-        .map_err(|e| ToolError::parse("payroll spec", e.to_string()))?;
+    let what = match plan {
+        SpendPlan::Payment { .. } => "payment spec",
+        SpendPlan::Payroll { .. } => "payroll spec",
+    };
+    let spec = serde_json::to_string(lines).map_err(|e| ToolError::parse(what, e.to_string()))?;
     let out_path = format!("{}/payroll.pczt", sc.work_dir);
     crate::secrets::with_private_file(spec.as_bytes(), |spec_path| {
         crate::tools::run(
@@ -349,11 +360,13 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
                 &spec_path.to_string_lossy(),
                 "--out",
                 &out_path,
+                "--network",
+                &sc.network,
             ],
             None,
         )
     })
-    .map_err(|e| ToolError::parse("payroll spec", e.to_string()))??;
+    .map_err(|e| ToolError::parse(what, e.to_string()))??;
     let built = std::fs::read(&out_path).map_err(ToolError::Io);
     // The unproven PCZT names the payee and the amount; a payment used to pipe it through stdout and
     // leave nothing behind, so it is not left in the work directory now either.
@@ -437,7 +450,7 @@ pub fn orchestrate_send(
     let coordinator_config = configs[0].clone();
     let participant_configs = configs;
 
-    // 1) build the (unproven) PCZT (single payment via CLI, payroll via our builder).
+    // 1) build the (unproven) PCZT: a payment or a payroll, both by `konclave-signer build-payroll`.
     let tx1 = build_unproven(sc, plan)?;
 
     // 2) prove it (ZK proofs, local).
@@ -1850,14 +1863,22 @@ mod tests {
         out
     }
 
-    /// B3a. A single payment is built by `konclave-signer build-payroll` as a payroll of ONE line, and
-    /// the payee's address and the memo reach it through the spec file, never the command line (which
-    /// any process on the host can read). `zcash-devtool` is not asked to build anything.
+    /// What `build_unproven` did for `plan` against stand-in tools: the signer's argument line, the
+    /// spec file it was handed (copied while it existed), whether the devtool ran, and whether the
+    /// unproven PCZT was left in the work directory.
     #[cfg(unix)]
-    #[test]
-    fn a_single_payment_is_a_one_line_payroll_and_its_text_stays_off_the_command_line() {
+    struct BuildSeen {
+        built: Vec<u8>,
+        argv: String,
+        spec: serde_json::Value,
+        devtool_ran: bool,
+        pczt_left: bool,
+    }
+
+    #[cfg(unix)]
+    fn build_seen(tag: &str, plan: &SpendPlan, network: Option<&str>) -> BuildSeen {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("konclave-b3a-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("konclave-b3a-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let script = |name: &str, body: String| {
@@ -1895,48 +1916,150 @@ mod tests {
         }
         let _ = std::fs::remove_file(&argv);
         let _ = std::fs::remove_file(&devtool_ran);
-        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+        let mut cfg = serde_json::json!({
             "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
             "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
             "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
             "server_url": "s", "work_dir": dir.join("work"),
-        }))
-        .unwrap();
+        });
+        if let Some(n) = network {
+            cfg["network"] = n.into();
+        }
+        let sc: SendConfig = serde_json::from_value(cfg).unwrap();
         std::fs::create_dir_all(&sc.work_dir).unwrap();
+        let built = build_unproven(&sc, plan).unwrap();
+        let seen = BuildSeen {
+            built,
+            argv: std::fs::read_to_string(&argv).unwrap(),
+            spec: serde_json::from_str(&std::fs::read_to_string(&spec_seen).unwrap()).unwrap(),
+            devtool_ran: devtool_ran.exists(),
+            pczt_left: std::path::Path::new(&sc.work_dir)
+                .join("payroll.pczt")
+                .exists(),
+        };
+        std::fs::remove_dir_all(&dir).ok();
+        seen
+    }
+
+    /// B3a. A single payment is built by `konclave-signer build-payroll` as a payroll of ONE line, and
+    /// the payee's address and the memo reach it through the spec file, never the command line (which
+    /// any process on the host can read). `zcash-devtool` is not asked to build anything.
+    #[cfg(unix)]
+    #[test]
+    fn a_single_payment_is_a_one_line_payroll_and_its_text_stays_off_the_command_line() {
         let plan = SpendPlan::Payment {
             to: "u1payeeaddress".into(),
             value_zat: 12_345,
             memo: Some("rent for march".into()),
         };
-        assert_eq!(build_unproven(&sc, &plan).unwrap(), b"built");
-        let args = std::fs::read_to_string(&argv).unwrap();
+        let seen = build_seen("payment", &plan, None);
+        assert_eq!(seen.built, b"built");
         assert!(
-            args.starts_with("build-payroll "),
-            "the signer builds it: {args}"
+            seen.argv.starts_with("build-payroll "),
+            "the signer builds it: {}",
+            seen.argv
         );
         for secret in ["u1payeeaddress", "12345", "rent for march"] {
-            assert!(!args.contains(secret), "{secret} is on the command line");
+            assert!(
+                !seen.argv.contains(secret),
+                "{secret} is on the command line"
+            );
         }
-        let spec: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&spec_seen).unwrap()).unwrap();
         assert_eq!(
-            spec,
+            seen.spec,
             serde_json::json!([{"address": "u1payeeaddress", "value_zat": 12_345, "memo": "rent for march"}]),
             "one line, as the approved payment says"
         );
-        assert!(!devtool_ran.exists(), "the devtool built nothing");
+        assert!(!seen.devtool_ran, "the devtool built nothing");
         assert!(
-            !std::path::Path::new(&sc.work_dir)
-                .join("payroll.pczt")
-                .exists(),
+            !seen.pczt_left,
             "the unproven PCZT, which names the payee, is not left behind"
         );
-        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The builder is told which network the wallet is on: a testnet coordinator builds with testnet
+    /// parameters, and the default is mainnet. A payment and a payroll alike.
+    #[cfg(unix)]
+    #[test]
+    fn the_builder_is_told_the_configured_network_for_a_payment_and_a_payroll() {
+        let payment = SpendPlan::Payment {
+            to: "a".into(),
+            value_zat: 1,
+            memo: None,
+        };
+        let payroll = SpendPlan::Payroll {
+            lines: vec![PayrollDest {
+                address: "a".into(),
+                value_zat: 1,
+                memo: None,
+            }],
+        };
+        for (tag, plan) in [("net-pay", &payment), ("net-roll", &payroll)] {
+            let on_test = build_seen(&format!("{tag}-t"), plan, Some("test")).argv;
+            let on_test = on_test.trim_end();
+            assert!(on_test.ends_with("--network test"), "{on_test}");
+            let default = build_seen(&format!("{tag}-d"), plan, None).argv;
+            let default = default.trim_end();
+            assert!(default.ends_with("--network main"), "{default}");
+        }
+    }
+
+    /// A payment and a payroll of one line are the SAME build: one argument shape, one spec, the memo
+    /// carried, nothing left behind. Two plans that reach one arm by construction are not a promise
+    /// that stays true, so this pins it from the outside.
+    #[cfg(unix)]
+    #[test]
+    fn a_payment_and_a_one_line_payroll_make_the_same_signer_call() {
+        let line = |memo: Option<&str>| PayrollDest {
+            address: "u1same".into(),
+            value_zat: 777,
+            memo: memo.map(str::to_string),
+        };
+        for memo in [Some("with memo"), None] {
+            let tag = if memo.is_some() { "memo" } else { "nomemo" };
+            let pay = build_seen(
+                &format!("same-pay-{tag}"),
+                &SpendPlan::Payment {
+                    to: "u1same".into(),
+                    value_zat: 777,
+                    memo: memo.map(str::to_string),
+                },
+                None,
+            );
+            let roll = build_seen(
+                &format!("same-roll-{tag}"),
+                &SpendPlan::Payroll {
+                    lines: vec![line(memo)],
+                },
+                None,
+            );
+            // The argument line carries per-run temp paths: compare its shape, flag by flag.
+            let shape = |argv: &str| {
+                argv.split_whitespace()
+                    .map(|w| if w.starts_with('/') { "<path>" } else { w })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            assert_eq!(shape(&pay.argv), shape(&roll.argv));
+            assert_eq!(pay.spec, roll.spec, "memo {memo:?}");
+            assert_eq!(pay.spec[0]["memo"], serde_json::json!(memo));
+            assert_eq!(pay.built, roll.built);
+            assert_eq!((pay.devtool_ran, pay.pczt_left), (false, false));
+            assert_eq!((roll.devtool_ran, roll.pczt_left), (false, false));
+            for secret in ["u1same", "777", "with memo"] {
+                assert!(!pay.argv.contains(secret) && !roll.argv.contains(secret));
+            }
+        }
     }
 
     /// B3a, part F2.4 of the fee drift test. No payment path asks `zcash-devtool` to BUILD a
-    /// transaction: nothing outside the test modules names its `pczt create` (the argv word or the
-    /// wrapper that was removed). Two builders is how the two eras of the fee would disagree.
+    /// transaction: no source file names its `create` or `create-max` subcommand as an argument, or the
+    /// wrapper that was removed. Two builders is how the two eras of the fee would disagree.
+    ///
+    /// WHOLE files are read, test modules included: a file can carry production code after its first
+    /// test module (`helper.rs` does, thousands of lines of it), and a scan that stops at the first
+    /// `cfg(test)` module never sees it. The needles are assembled from parts, so this file does not
+    /// match its own scan, and no stand-in in a test names the subcommand as a quoted literal either.
     #[test]
     fn no_payment_path_builds_with_pczt_create() {
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -1950,8 +2073,11 @@ mod tests {
             }
         }
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let word = ["\"", "create", "\""].concat();
-        let wrapper = ["pczt", "::create"].concat();
+        let needles = [
+            ["\"", "cre", "ate", "\""].concat(),
+            ["\"", "cre", "ate-max", "\""].concat(),
+            ["pczt", "::cre", "ate"].concat(),
+        ];
         let mut files = Vec::new();
         for crate_src in ["orchestrator/src", "helper-server/src", "src-tauri/src"] {
             let d = root.join(crate_src);
@@ -1963,10 +2089,8 @@ mod tests {
         let mut found = Vec::new();
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();
-            // Production code only: the test module is the tail of the file.
-            let production = text.split("\n#[cfg(test)]\nmod ").next().unwrap();
-            for needle in [&word, &wrapper] {
-                if production.contains(needle.as_str()) {
+            for needle in &needles {
+                if text.contains(needle.as_str()) {
                     found.push((f.display().to_string(), needle.clone()));
                 }
             }

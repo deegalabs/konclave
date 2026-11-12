@@ -63,7 +63,8 @@ ciphersuite = "redpallas"                                         # pass `-C red
 # (2026-10-01): konclave-signer 9, konclave-wasm 30, orchestrator 304, helper-server 69, ui 741
 # (vitest) and 64 (Playwright), all passing.
 #
-# NOT covered by any byte-exact fixture: the multi-output payroll builder
+# NOT covered by any byte-exact fixture: the payroll builder, which since B3a also builds every
+# single payment as a payroll of one line
 # (`create_pczt_from_proposal` in konclave-signer). It is compile-verified and its call signature is
 # unchanged, but no fixture pins its OUTPUT bytes, so a fee / padding / anchor behavior shift between
 # the rc and released backend would be invisible here. Do a live dry-run against the reference
@@ -89,8 +90,8 @@ patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e
 # Upstream rev 539ae81d does NOT build against the released crate line unmodified: its `migration`
 # subcommand calls a zcash_pool_migration API that is ahead of the published 0.1.0. The patch above
 # re-pins the manifest and Cargo.lock to the released versions and puts that subcommand behind an
-# off-by-default `pool-migration` feature. Konclave never invokes it (only `pczt create`, `pczt
-# prove`, `pczt send`), so the gate does not touch our path. The build is upstream rev PLUS this
+# off-by-default `pool-migration` feature. Konclave never invokes it (only `pczt prove` and
+# `pczt send`; building is konclave-signer's), so the gate does not touch our path. The build is upstream rev PLUS this
 # patch; upstreaming it would let the patch go.
 # With the patch, the manifest and Cargo.lock resolve orchard 0.15.5, pczt 0.9.3,
 # zcash_client_backend 0.24.0, zcash_primitives 0.30.1, zcash_protocol 0.10.5, zcash_client_sqlite
@@ -249,7 +250,7 @@ role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key,
 name   = "zcash-devtool"
 sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
 bytes  = 103881728
-role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238); wallet commands for sync, upgrade, balance and list-tx"
+role   = "PCZT suite: `pczt prove` / `send` only (building is konclave-signer's) (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238); wallet commands for sync, upgrade, balance and list-tx"
 
 [[deploy_binary]]
 name   = "zcash-sign"
@@ -377,7 +378,7 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 #   name   = "zcash-devtool"
 #   sha256 = "8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153"
 #   bytes  = 98152456
-#   role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
+#   role   = "PCZT suite: `pczt prove` / `send` only (building is konclave-signer's) (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
 #
 #   [[deploy_binary]]
 #   name   = "zcash-sign"
