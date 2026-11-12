@@ -2087,11 +2087,14 @@ mod tests {
         let mut files = Vec::new();
         for crate_src in ["orchestrator/src", "helper-server/src", "src-tauri/src"] {
             let d = root.join(crate_src);
-            if d.exists() {
-                walk(&d, &mut files);
-            }
+            // Each root must be there and hold sources: a scan of a vanished root passes vacuously.
+            let before = files.len();
+            walk(&d, &mut files);
+            assert!(
+                files.len() > before,
+                "the scan found sources under {crate_src}"
+            );
         }
-        assert!(files.len() > 10, "the scan found the sources: {files:?}");
         let mut found = Vec::new();
         for f in files {
             let text = std::fs::read_to_string(&f).unwrap();

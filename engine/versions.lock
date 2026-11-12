@@ -250,7 +250,7 @@ role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key,
 name   = "zcash-devtool"
 sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
 bytes  = 103881728
-role   = "PCZT suite: `pczt prove` / `send` only (building is konclave-signer's) (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238); wallet commands for sync, upgrade, balance and list-tx"
+role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238); wallet commands for sync, upgrade, balance and list-tx"
 
 [[deploy_binary]]
 name   = "zcash-sign"
@@ -378,7 +378,7 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 #   name   = "zcash-devtool"
 #   sha256 = "8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153"
 #   bytes  = 98152456
-#   role   = "PCZT suite: `pczt prove` / `send` only (building is konclave-signer's) (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
+#   role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
 #
 #   [[deploy_binary]]
 #   name   = "zcash-sign"

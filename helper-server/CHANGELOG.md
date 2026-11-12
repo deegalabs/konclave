@@ -112,7 +112,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   recipient, amount and memo, the same network fee and the same shielded pool for the change. The
   payee's address and the memo are no longer passed to a helper program on its command line, where
   another process on the same machine could read them. The deployed `konclave-signer` already has
-  this command, so no new binary is needed.
+  this command, so it needs no new build; the coordinator does. Not yet on the hosted coordinator.
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep

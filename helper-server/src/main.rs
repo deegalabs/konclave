@@ -9719,6 +9719,12 @@ mod tests {
                 "history_first={history_first}: {:?}",
                 engine_calls(&dir)
             );
+            // The build ran too, so the overlap check above watched it and not only the sync.
+            assert!(
+                engine_calls(&dir).iter().any(|l| l == "build-payroll"),
+                "history_first={history_first}: the funding check built: {:?}",
+                engine_calls(&dir)
+            );
             assert!(
                 !dir.join("overlap.log").exists(),
                 "history_first={history_first}: two engine processes on one wallet"
