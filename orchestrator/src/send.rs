@@ -1959,11 +1959,15 @@ mod tests {
             "the signer builds it: {}",
             seen.argv
         );
+        // Per-run temp paths are masked first: a random file name can contain "12345" by chance.
+        let masked: String = seen
+            .argv
+            .split_whitespace()
+            .map(|w| if w.starts_with('/') { "<path>" } else { w })
+            .collect::<Vec<_>>()
+            .join(" ");
         for secret in ["u1payeeaddress", "12345", "rent for march"] {
-            assert!(
-                !seen.argv.contains(secret),
-                "{secret} is on the command line"
-            );
+            assert!(!masked.contains(secret), "{secret} is on the command line");
         }
         assert_eq!(
             seen.spec,
@@ -2046,8 +2050,10 @@ mod tests {
             assert_eq!(pay.built, roll.built);
             assert_eq!((pay.devtool_ran, pay.pczt_left), (false, false));
             assert_eq!((roll.devtool_ran, roll.pczt_left), (false, false));
+            // Read the argument line with its per-run temp paths masked: a random file name can
+            // contain "777" by chance, which is not the amount leaking.
             for secret in ["u1same", "777", "with memo"] {
-                assert!(!pay.argv.contains(secret) && !roll.argv.contains(secret));
+                assert!(!shape(&pay.argv).contains(secret) && !shape(&roll.argv).contains(secret));
             }
         }
     }
