@@ -14,7 +14,11 @@ whenever authentication, key custody, or fund-movement paths change.
 ## Reporting a vulnerability
 
 **Do not open a public issue for security problems.** Report privately via
-[GitHub Security Advisories](https://github.com/deegalabs/konclave/security/advisories/new).
+[GitHub Security Advisories](https://github.com/deegalabs/konclave/security/advisories/new),
+or by email to [security@deegalabs.com](mailto:security@deegalabs.com). No PGP key is published for
+that address yet, so for a report that carries exploit details, prefer the advisory form. The same
+two channels are listed in
+[www.deegalabs.com/.well-known/security.txt](https://www.deegalabs.com/.well-known/security.txt).
 
 Please include: affected component (FROST signer, PCZT bridge, the local HTTP bridge,
 key sealing, etc.), reproduction steps, and impact. We aim to acknowledge within a few
