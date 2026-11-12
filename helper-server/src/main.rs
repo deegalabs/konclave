@@ -3218,9 +3218,8 @@ mod tests {
         assert_eq!(r.status, 502);
     }
 
-    /// Stand-ins for the engine a funding check runs, in `dir`: the devtool answers a balance and
-    /// prints `unproven` for `pczt create`; `konclave-signer build-payroll` writes it to its `--out`
-    /// (the ninth argument); everything else succeeds silently.
+    /// Stand-ins for the engine a funding check runs, in `dir`: the devtool answers a balance;
+    /// `konclave-signer build-payroll` writes `unproven` to its `--out` (found by name); everything else succeeds silently.
     #[cfg(unix)]
     fn funding_engine(dir: &std::path::Path, unproven: &[u8]) -> HelperConfig {
         use std::os::unix::fs::PermissionsExt;
@@ -3245,15 +3244,12 @@ mod tests {
         let mut c = cfg();
         c.devtool = script(
             "devtool",
-            format!(
-                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then cat {p}; fi",
-                p = pczt.display()
-            ),
+            "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}'; fi".to_string(),
         );
         c.konclave_signer = script(
             "signer",
             format!(
-                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$1\" = build-payroll ]; then cp {p} \"$9\"; fi",
+                "[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {p} \"$out\"; fi",
                 p = pczt.display()
             ),
         );
@@ -9401,6 +9397,28 @@ mod tests {
             .collect()
     }
 
+    /// A `konclave-signer` stand-in whose `build-payroll` writes an empty PCZT to its `--out`.
+    #[cfg(unix)]
+    fn counting_signer(dir: &std::path::Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("counting-signer");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\n[ \"$1\" = build-payroll ] && : > \"$out\"\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&fake).arg("--probe").output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => break,
+            }
+        }
+        fake
+    }
+
     #[cfg(unix)]
     fn counting_cfg(name: &str, sync_secs: u32) -> (HelperConfig, PathBuf) {
         let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
@@ -9408,6 +9426,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut c = cfg();
         c.devtool = counting_devtool(&dir, sync_secs);
+        // A payment is built by the signer (B3a), not by `pczt create`: this one writes an empty
+        // PCZT to its `--out`, which is what the devtool stand-in used to print for `create`.
+        c.konclave_signer = counting_signer(&dir);
         c.vaults_dir = dir.join("vaults");
         std::fs::create_dir_all(&c.vaults_dir).unwrap();
         (c, dir)
