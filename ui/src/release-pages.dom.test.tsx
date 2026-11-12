@@ -62,7 +62,7 @@ describe('a release page', () => {
   it('opens a file the notes cite by its path on GitHub, in a new tab', async () => {
     open('0.19.0')
     await screen.findByRole('heading', { level: 1 })
-    const file = document.querySelector('a[href="https://github.com/deegalabs/konclave/blob/main/helper-server/CHANGELOG.md"]')!
+    const file = document.querySelector('a[href="https://github.com/deegalabs/konclave/blob/v0.19.0/helper-server/CHANGELOG.md"]')!
     expect(file.getAttribute('target')).toBe('_blank')
     expect(file.getAttribute('rel')).toBe('noopener noreferrer')
     // no link is left pointing at a path this site would open as a route

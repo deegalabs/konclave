@@ -207,8 +207,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // page of its own while the GitHub body carries it inside this one. Checked before anything is written.
   const unlisted = unlistedFolds(version, taggedVersions(), readFileSync(CHANGELOG, 'utf8'))
   if (unlisted.length) {
-    console.error(`v${version} folds in ${unlisted.join(', ')}, which was cut and never tagged.`)
-    console.error('Add it to SUPERSEDED in scripts/changelog-sections.mjs, or tag it, then cut again.')
+    console.error(`v${version} folds in ${unlisted.join(', ')}, which has no tag in this clone.`)
+    console.error('If it was published, fetch its tag (git fetch --tags) and cut again; if it was never')
+    console.error('published, add it to SUPERSEDED in scripts/changelog-sections.mjs.')
     process.exit(1)
   }
 

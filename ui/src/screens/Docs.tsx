@@ -240,7 +240,7 @@ function ReleaseArticle({ version, pages }: { version: string; pages: ReleasePag
         </a>
       </p>
       <div lang="en">
-        {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}, LABELS.en.ref, releaseLink))}
+        {page.blocks.map((b, i) => renderBlock(asBlock(b), 'en', i, () => {}, LABELS.en.ref, (h) => releaseLink(h, page.version)))}
       </div>
       <nav className="docs-pager" aria-label={t('releases.pager')}>
         {older
