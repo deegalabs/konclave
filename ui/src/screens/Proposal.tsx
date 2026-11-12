@@ -22,6 +22,8 @@ import { readPlan } from '../approved-payment'
 import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
+import { UnusualNote } from '../UnusualNote'
+import { useUnusual } from '../useUnusual'
 
 export default function Proposal() {
   const t = useT()
@@ -62,6 +64,7 @@ export default function Proposal() {
   // Locked: the reads would 401 and the proposal would read as not there. Nothing is read until the
   // passphrase lands, and then the screen reads once (#439).
   const readable = useVaultReadable()
+  const unusual = useUnusual(readable ? p : null, lines)
 
   useEffect(() => {
     if (!readable) return
@@ -348,6 +351,8 @@ export default function Proposal() {
             </tbody>
           </table>
         )}
+
+        {(isAwaiting || isReady) && <UnusualNote reading={unusual} lines={lines} />}
 
         <div className="who-head">
           <span className="klab">{t('proposal.approvals')}</span>

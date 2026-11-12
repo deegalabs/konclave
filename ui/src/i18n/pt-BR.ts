@@ -1577,4 +1577,12 @@ export const ptBR: Record<string, string> = {
   'receive.unreadTitle': 'Não foi possível ler o cofre',
   'receive.holds': 'O endereço do cofre está gravado neste aparelho.',
   'ceremonies.unreadTitle': 'Não foi possível ler a evidência de assinatura',
+  'unusual.title': 'Vale olhar duas vezes',
+  'unusual.first': 'Primeiro pagamento para {who}.',
+  'unusual.above': '{who} recebe mais que o dobro do que costuma receber.',
+  'unusual.added': '{who} não estava na folha anterior.',
+  'unusual.removed': '{who} estava na folha anterior e não está nesta.',
+  'unusual.amount': '{who} recebe um valor diferente do da folha anterior.',
+  'unusual.incomplete': 'Parte do livro não pôde ser lida, então a comparação usa só a parte que pôde.',
+  'unusual.aid': 'Comparado com o que este cofre já pagou, como o coordenador informa. É ajuda de leitura, não verificação: nada aqui torna um pagamento seguro ou errado, e o que conta é o que o seu aparelho lê da transação antes de assinar.',
 }

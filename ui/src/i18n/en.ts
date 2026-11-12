@@ -1581,4 +1581,12 @@ export const en: Record<string, string> = {
   'receive.unreadTitle': 'Could not read the vault',
   'receive.holds': 'The vault’s address is recorded on this device.',
   'ceremonies.unreadTitle': 'Could not read the signing evidence',
+  'unusual.title': 'Worth a second look',
+  'unusual.first': 'First payment to {who}.',
+  'unusual.above': '{who} receives more than twice what it usually does.',
+  'unusual.added': '{who} was not on the previous payroll.',
+  'unusual.removed': '{who} was on the previous payroll and is not on this one.',
+  'unusual.amount': '{who} receives a different amount from the previous payroll.',
+  'unusual.incomplete': 'Part of the book could not be read, so this compares only the part that could.',
+  'unusual.aid': 'Compared with what this vault has paid before, as its coordinator reports it. A reading aid, not a check: nothing here makes a payment safe or wrong, and what your device reads from the transaction before it signs is what counts.',
 }
