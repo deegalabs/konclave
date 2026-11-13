@@ -351,13 +351,7 @@ pub fn offer_device(
                 claim.seat,
                 claim.write_pub,
             )?;
-            record_fee_report(
-                vaults_dir,
-                &reg.vault_id,
-                claim.comms,
-                claim.seat,
-                claim.fee_from,
-            )?;
+            record_fee_report(vaults_dir, &reg.vault_id, claim.seat, claim.fee_from)?;
             return Ok(DeviceOutcome::Recorded { added });
         }
         ReadKey::Pinned(hash) => hash,
@@ -388,7 +382,7 @@ pub fn offer_device(
         {
             // Still answered by reading as to WHO holds the seat; only the report is written, under
             // the same lock, and only when it changed. `added` keeps meaning "a new record".
-            record_fee_report(vaults_dir, &reg.vault_id, comms, Some(seat), claim.fee_from)?;
+            record_fee_report(vaults_dir, &reg.vault_id, Some(seat), claim.fee_from)?;
             Ok(DeviceOutcome::Recorded { added: false })
         }
         Some(_) => Ok(DeviceOutcome::SeatBound),
@@ -396,7 +390,7 @@ pub fn offer_device(
         None => {
             let added =
                 register_proven_seat(vaults_dir, &reg.vault_id, reg.total, comms, seat, write_pub)?;
-            record_fee_report(vaults_dir, &reg.vault_id, comms, Some(seat), claim.fee_from)?;
+            record_fee_report(vaults_dir, &reg.vault_id, Some(seat), claim.fee_from)?;
             Ok(DeviceOutcome::Recorded { added })
         }
     }
@@ -1469,7 +1463,7 @@ mod tests {
                 assert!(seats.iter().any(|r| r.seat == Some(3)));
             }
 
-            /// B2 (audit F7): on a pinned vault the exact registered triple is answered by reading, and
+            /// #847: on a pinned vault the exact registered triple is answered by reading, and
             /// the seat's fee report is still written, under the same door, without moving the seat.
             #[test]
             fn a_pinned_seat_reports_and_a_registration_without_it_clears_the_report() {
@@ -1485,7 +1479,7 @@ mod tests {
                 let before =
                     std::fs::read(cfg.vaults_dir.join(&id).join("device-keys.json")).unwrap();
                 assert_eq!(
-                    seat_fee_reports(&cfg.vaults_dir, &id, 3),
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
                     vec![None, None, None]
                 );
                 assert_eq!(
@@ -1495,7 +1489,7 @@ mod tests {
                     "`added` still means a new record"
                 );
                 assert_eq!(
-                    seat_fee_reports(&cfg.vaults_dir, &id, 3),
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
                     vec![Some(3_590_000), None, None]
                 );
                 // Same claim again: nothing to write.
@@ -1519,7 +1513,7 @@ mod tests {
                 assert_ne!(before, once);
                 offer_device(&cfg.vaults_dir, &reg, Some(&tok), &with(None)).unwrap();
                 assert_eq!(
-                    seat_fee_reports(&cfg.vaults_dir, &id, 3),
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
                     vec![None, None, None]
                 );
                 // Another seat's keys under seat 1 are still bound, and report nothing.
@@ -1532,7 +1526,28 @@ mod tests {
                     offer_device(&cfg.vaults_dir, &reg, Some(&tok), &other).unwrap(),
                     DeviceOutcome::SeatBound
                 );
-                assert_eq!(seat_fee_reports(&cfg.vaults_dir, &id, 3)[0], None);
+                assert_eq!(seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap()[0], None);
+            }
+
+            /// #847: a seat entering a pinned vault with its own proof is recorded WITH its report.
+            #[test]
+            fn a_new_pinned_seat_is_recorded_with_its_report() {
+                use crate::helper::seat_fee_reports;
+                let (cfg, v, id, reg) = pinned("offer-new-report");
+                let p = proof(&v, 3, hash());
+                let (c, w) = (hex(&p.comms_pub), hex(&p.write_pub));
+                let claim = DeviceClaim {
+                    fee_from: Some(3_590_000),
+                    ..claim_of(&c, &w, 3, Some(&p))
+                };
+                assert_eq!(
+                    offer_device(&cfg.vaults_dir, &reg, None, &claim).unwrap(),
+                    DeviceOutcome::Recorded { added: true }
+                );
+                assert_eq!(
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3),
+                    Some(vec![None, None, Some(3_590_000)])
+                );
             }
 
             #[test]

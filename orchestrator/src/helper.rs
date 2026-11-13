@@ -887,10 +887,11 @@ pub struct DeviceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write: Option<String>,
     /// The height from which the build this seat last registered from accepts the lower network fee
-    /// (ZIP 2009), as that build reported it. `None` = it reported nothing: an older build, or no
-    /// seat to report for. Never part of the device's identity: [`apply_device_claim`] does not read
-    /// it, so a new report cannot turn a registered seat into a conflict. It is a report a member's
-    /// device made about itself, not a proof: the seat certificate does not cover it.
+    /// (ZIP 2009), as that build reported it (#847). `None` = it reported nothing. Never part of the
+    /// device's identity: [`apply_device_claim`] does not read it, so a new report cannot turn a
+    /// registered seat into a conflict. NOT authenticated: the seat certificate does not cover it, so
+    /// whoever may register that seat's keys (any holder of the read key; anyone with the id on a
+    /// vault with none) can set or clear it. It is a hint about availability, never a guarantee.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fee_from: Option<u32>,
 }
@@ -1860,37 +1861,43 @@ fn apply_device_claim(
     Ok(changed)
 }
 
+/// The record that speaks for `seat`: the first one naming it. ONE selector, used by the writer
+/// ([`record_fee_report`]) and the reader ([`seat_fee_reports`]), so a registry that names a seat
+/// twice (one written before the seat was bound once) cannot send the report to one record and read
+/// it from the other.
+fn seat_record(recs: &[DeviceRecord], seat: u16) -> Option<usize> {
+    recs.iter().position(|r| r.seat == Some(seat))
+}
+
 /// Record what the registering seat reports about the fees its build accepts (`fee_from`), on the
-/// record of that seat. A registration WITHOUT the field clears the report: the last device that
-/// registered speaks for the seat, and an older build that never reports must not leave a newer
-/// device's answer standing (two devices of one seat share one record, so there is no other way to
-/// tell them apart). Returns whether the record changed.
+/// record of THAT seat (#847). Only a request that names its seat writes: a registration without one
+/// (comms key only) writes and clears nothing, because it cannot say which seat it speaks for and a
+/// comms key is public among the members. A registration WITHOUT the field clears the report: the
+/// last device that registered speaks for the seat, and an older build that never reports must not
+/// leave a newer device's answer standing (two devices of one seat share one record, so there is no
+/// other way to tell them apart). Returns whether the record changed.
 ///
-/// Called by [`crate::seat_registry::offer_device`] AFTER the claim was accepted, from the one door
-/// that runs under the vault's write lock (`POST /api/vault/devicekey` is `LockClass::Write`). It
-/// touches nothing but `fee_from`, so it cannot move a seat or a key, and it is a second write only
-/// when the report actually changed. The record is the seat's own (`seat` when given, else the
-/// comms key); a record with no seat reports nothing.
+/// Called by [`crate::seat_registry::offer_device`] AFTER the claim passed that door's seat checks,
+/// under the vault's write lock (`POST /api/vault/devicekey` is `LockClass::Write`). It touches
+/// nothing but `fee_from`, so it cannot move a seat or a key, and it is a second write only when the
+/// report actually changed.
 pub(crate) fn record_fee_report(
     vaults_dir: &Path,
     vault: &str,
-    comms: &str,
     seat: Option<u16>,
     fee_from: Option<u32>,
 ) -> Result<bool, DeviceError> {
-    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
-    let comms = comms.trim();
-    let Some(record) = recs.iter_mut().find(|r| match seat {
-        Some(seat) => r.seat == Some(seat),
-        None => same_key(&r.comms, comms),
-    }) else {
+    let Some(seat) = seat else {
         return Ok(false);
     };
-    let report = record.seat.and(fee_from);
-    if record.fee_from == report {
+    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
+    let Some(at) = seat_record(&recs, seat) else {
+        return Ok(false);
+    };
+    if recs[at].fee_from == fee_from {
         return Ok(false);
     }
-    record.fee_from = report;
+    recs[at].fee_from = fee_from;
     let dir = vaults_dir.join(vault);
     let json = serde_json::to_string(&recs)
         .map_err(|e| DeviceError::Io(ToolError::parse("device-keys", e.to_string())))?;
@@ -1900,19 +1907,21 @@ pub(crate) fn record_fee_report(
 }
 
 /// What each seat `1..=total` reports as the height from which it accepts the lower network fee, in
-/// seat order (index 0 is seat 1). `None` = that seat reported nothing, or has no record. An
-/// unreadable registry reports nothing for every seat: the caller reads "nobody reported" as the
-/// legacy fee, which is the safe side. Where two records name one seat (only a registry written
-/// before the seat was bound once), the later one speaks.
-pub fn seat_fee_reports(vaults_dir: &Path, vault: &str, total: u16) -> Vec<Option<u32>> {
+/// seat order (index 0 is seat 1). Inside, `None` = that seat reported nothing or has no record. An
+/// unreadable registry reports nothing for every seat: "nobody reported" reads as the legacy fee,
+/// the safe side. The WHOLE answer is `None` when the vault records no seat count (`total == 0`, a
+/// legacy vault): there is no set of seats to have reported, and an empty list would make "every seat
+/// reported" true. A caller must read `None` as "do not decide".
+pub fn seat_fee_reports(vaults_dir: &Path, vault: &str, total: u16) -> Option<Vec<Option<u32>>> {
+    if total == 0 {
+        return None;
+    }
     let recs = load_device_records(vaults_dir, vault).unwrap_or_default();
-    (1..=total)
-        .map(|seat| {
-            recs.iter()
-                .rfind(|r| r.seat == Some(seat))
-                .and_then(|r| r.fee_from)
-        })
-        .collect()
+    Some(
+        (1..=total)
+            .map(|seat| seat_record(&recs, seat).and_then(|at| recs[at].fee_from))
+            .collect(),
+    )
 }
 
 /// The registry is replaced whole or not at all ([`replace_file`]): a write cut half way must not
@@ -3769,6 +3778,90 @@ mod tests {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect()
+    }
+
+    fn report_dir(tag: &str) -> (PathBuf, String) {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-feerep-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "d".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        (dir, v)
+    }
+
+    /// #847: the report is indexed by SEAT NUMBER, not by position in the registry.
+    #[test]
+    fn a_seat_reports_by_its_number_whatever_order_the_seats_registered_in() {
+        let (dir, v) = report_dir("order");
+        for seat in [3u16, 1] {
+            register_device(
+                &dir,
+                &v,
+                3,
+                &comms_key(seat),
+                Some(seat),
+                Some(&write_key(seat)),
+            )
+            .unwrap();
+        }
+        assert!(record_fee_report(&dir, &v, Some(3), Some(3_590_000)).unwrap());
+        assert_eq!(
+            seat_fee_reports(&dir, &v, 3),
+            Some(vec![None, None, Some(3_590_000)])
+        );
+        assert!(record_fee_report(&dir, &v, Some(1), Some(7)).unwrap());
+        assert_eq!(
+            seat_fee_reports(&dir, &v, 3),
+            Some(vec![Some(7), None, Some(3_590_000)])
+        );
+    }
+
+    /// A request that names no seat writes and clears nothing.
+    #[test]
+    fn a_report_with_no_seat_changes_nothing() {
+        let (dir, v) = report_dir("noseat");
+        register_device(&dir, &v, 3, &comms_key(1), Some(1), Some(&write_key(1))).unwrap();
+        record_fee_report(&dir, &v, Some(1), Some(5)).unwrap();
+        let before = std::fs::read(device_keys_path(&dir, &v)).unwrap();
+        assert!(!record_fee_report(&dir, &v, None, Some(9)).unwrap());
+        assert!(!record_fee_report(&dir, &v, None, None).unwrap());
+        assert_eq!(std::fs::read(device_keys_path(&dir, &v)).unwrap(), before);
+    }
+
+    /// One selector for the writer and the reader: a legacy registry naming a seat twice sends the
+    /// report to the record the reader reads.
+    #[test]
+    fn a_seat_named_twice_reports_to_the_record_the_reader_reads() {
+        let (dir, v) = report_dir("twice");
+        let rec = |c: &str| DeviceRecord {
+            comms: c.to_string(),
+            seat: Some(1),
+            write: Some(write_key(1)),
+            fee_from: None,
+        };
+        let both = [rec(&comms_key(1)), rec(&comms_key(1))];
+        std::fs::write(
+            device_keys_path(&dir, &v),
+            serde_json::to_string(&both).unwrap(),
+        )
+        .unwrap();
+        assert!(record_fee_report(&dir, &v, Some(1), Some(3_590_000)).unwrap());
+        assert_eq!(
+            seat_fee_reports(&dir, &v, 3),
+            Some(vec![Some(3_590_000), None, None])
+        );
+        assert!(record_fee_report(&dir, &v, Some(1), None).unwrap());
+        assert_eq!(seat_fee_reports(&dir, &v, 3), Some(vec![None, None, None]));
+    }
+
+    /// A vault with no recorded seat count has no set of seats to have reported: unknown, never an
+    /// empty list that "every seat reported" would be true of.
+    #[test]
+    fn a_vault_with_no_seat_count_has_no_reports_to_read() {
+        let (dir, v) = report_dir("total0");
+        register_device(&dir, &v, 0, &comms_key(1), Some(1), Some(&write_key(1))).unwrap();
+        record_fee_report(&dir, &v, Some(1), Some(5)).unwrap();
+        assert_eq!(seat_fee_reports(&dir, &v, 0), None);
     }
 
     /// A registry already holding MAX_SEATS seated records takes no device without a seat, even

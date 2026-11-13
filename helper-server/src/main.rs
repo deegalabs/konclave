@@ -6316,7 +6316,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ---- B2: the seat's fee report, and the version matrix of the release (v0.20 <-> v0.21) ----
+    // ---- #847: the seat's fee report, and the version matrix of the release (v0.20 <-> v0.21) ----
 
     fn seat_body(gk: &str, comms: &str, seat: u16, extra: &str) -> Vec<u8> {
         format!(
@@ -6335,7 +6335,7 @@ mod tests {
         let c = cfg();
         let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
         let call = |b: Vec<u8>| handle(&st, &c, &Method::Post, "/api/vault/devicekey", &b);
-        let reports = || orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3);
+        let reports = || orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap();
         let (a, b) = ("aa".repeat(32), "bb".repeat(32));
 
         assert_eq!(
@@ -6365,6 +6365,15 @@ mod tests {
             assert_eq!(r.status, 400, "fee_from {bad}: {}", r.body);
         }
         assert_eq!(reports()[0], Some(3_600_000));
+        // A registration that names no seat (comms key only) writes and clears nothing: it cannot say
+        // which seat it speaks for, and a comms key is public among the members.
+        let no_seat = |extra: &str| {
+            format!(r#"{{"group_key":"{gk}","device_pub":"{a}"{extra}}}"#).into_bytes()
+        };
+        assert_eq!(call(no_seat(r#","fee_from":7"#)).status, 200);
+        assert_eq!(reports()[0], Some(3_600_000), "no seat, no write");
+        assert_eq!(call(no_seat("")).status, 200);
+        assert_eq!(reports()[0], Some(3_600_000), "no seat, no clear");
         // An explicit null is the same as absent.
         assert_eq!(
             call(seat_body(&gk, &a, 1, r#","fee_from":null"#)).status,
@@ -6399,35 +6408,133 @@ mod tests {
         );
         let parsed: FrozenV020Req = serde_json::from_slice(&body).expect("a v0.20 route parses it");
         assert_eq!((parsed.seat, parsed.device_pub.len()), (Some(1), 64));
-        // Neither signed payload mentions the field: the seat certificate (konclave-seal share_sig)
-        // and the write signature's canonical message (konclave-seal lib.rs / orchestrator).
+        // Neither signed payload carries it. Read as FIELD LISTS, not only as a name: a renamed field
+        // (`fee_height`) or one added to the signed statement fails here too.
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        for file in [
-            "konclave-seal/src/share_sig.rs",
-            "konclave-seal/src/lib.rs",
-            "orchestrator/src/seat_registry.rs",
+        let read = |f: &str| std::fs::read_to_string(root.join(f)).unwrap();
+        let production = |text: &str| text.split("\n#[cfg(test)]").next().unwrap().to_string();
+        let seal = production(&read("konclave-seal/src/share_sig.rs"));
+        let fields = seal
+            .split("pub struct SeatStatement {")
+            .nth(1)
+            .and_then(|r| r.split('}').next())
+            .unwrap()
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("pub "))
+            .map(|l| l.split(':').next().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fields,
+            [
+                "vault_id",
+                "cp",
+                "t",
+                "n",
+                "seat",
+                "pkp_digest",
+                "read_key_hash",
+                "comms_pub",
+                "write_pub"
+            ],
+            "the seat certificate signs exactly these"
+        );
+        let message = seal
+            .split("pub fn seat_message")
+            .nth(1)
+            .and_then(|r| r.split("\n}\n").next())
+            .unwrap();
+        for f in &fields {
+            assert!(
+                message.contains(&format!("st.{f}")),
+                "seat_message lacks {f}"
+            );
+        }
+        assert_eq!(
+            message.matches("st.").count(),
+            fields.len(),
+            "seat_message reads nothing but the statement's fields"
+        );
+        let lib = production(&read("konclave-seal/src/lib.rs"));
+        let write_sig = lib
+            .split("pub fn write_message(")
+            .nth(1)
+            .and_then(|r| r.split(") -> Vec<u8>").next())
+            .unwrap();
+        let params = write_sig
+            .split(',')
+            .filter_map(|p| p.split(':').next())
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            params,
+            ["vault_id", "action", "target", "seat", "ts", "nonce"],
+            "the write signature covers exactly these"
+        );
+        // The device builds the statement in the wasm and the coordinator checks it here: neither
+        // construction site names the report.
+        for (file, text) in [
+            ("konclave-wasm/src/lib.rs", read("konclave-wasm/src/lib.rs")),
+            (
+                "seat_registry.rs",
+                read("orchestrator/src/seat_registry.rs"),
+            ),
         ] {
-            let text = std::fs::read_to_string(root.join(file)).unwrap();
-            let code: String = text
-                .lines()
-                .filter(|l| !l.trim_start().starts_with("//"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let at = code.find("#[cfg(test)]").unwrap_or(code.len());
-            let production = &code[..at];
-            // seat_registry.rs carries the claim, which does name it; the signed statement does not.
-            if file.ends_with("seat_registry.rs") {
-                let stmt = production.split("SeatStatement {").skip(1);
-                for chunk in stmt {
-                    assert!(
-                        !chunk.split('}').next().unwrap().contains("fee_from"),
-                        "{file}"
-                    );
-                }
-            } else {
-                assert!(!production.contains("fee_from"), "{file} signs fee_from");
+            for chunk in text.split("SeatStatement {").skip(1) {
+                let body = chunk.split("};").next().unwrap();
+                assert!(
+                    !body.contains("fee"),
+                    "{file}: a SeatStatement carries a fee field"
+                );
             }
         }
+        assert!(!seal.contains("fee_from") && !lib.contains("fee_from"));
+    }
+
+    /// VERSION MATRIX (c): a rollback. A v0.20 coordinator reads the `device-keys.json` a v0.21 one
+    /// wrote, with `fee_from` in it. This is the `DeviceRecord` of f5bb899a (v0.20.0), frozen, and
+    /// `load_device_records` there tries a list of records first: no `deny_unknown_fields`, so the
+    /// field is ignored. If it were not, the registry would read as unreadable and every write on
+    /// the vault would be refused.
+    #[test]
+    fn version_matrix_c_a_v020_coordinator_reads_the_registry_a_v021_wrote() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct FrozenV020Record {
+            comms: String,
+            #[serde(default)]
+            seat: Option<u16>,
+            #[serde(default)]
+            write: Option<String>,
+        }
+        let gk = "57".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let a = "aa".repeat(32);
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, r#","fee_from":3590000"#),
+        );
+        assert_eq!(r.status, 200);
+        let file =
+            std::fs::read_to_string(c.vaults_dir.join(&gk).join("device-keys.json")).unwrap();
+        assert!(
+            file.contains("fee_from"),
+            "the v0.21 file carries the report: {file}"
+        );
+        let read: Vec<FrozenV020Record> = serde_json::from_str(&file).expect("a v0.20 reads it");
+        assert_eq!(
+            read,
+            vec![FrozenV020Record {
+                comms: a,
+                seat: Some(1),
+                write: Some("cc".repeat(32)),
+            }]
+        );
     }
 
     /// VERSION MATRIX (b): a v0.21 coordinator takes a v0.20 web that sends no `fee_from`: the seat's
@@ -6448,6 +6555,11 @@ mod tests {
             &seat_body(&gk, &a, 1, r#","fee_from":3590000"#),
         );
         assert_eq!(v021.status, 200);
+        assert_eq!(
+            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap(),
+            vec![Some(3_590_000), None, None],
+            "the v0.21 report was stored before the v0.20 body clears it"
+        );
         let v020 = handle(
             &st,
             &c,
@@ -6457,7 +6569,7 @@ mod tests {
         );
         assert_eq!(v020.status, 200, "{}", v020.body);
         assert_eq!(
-            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3),
+            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap(),
             vec![None, None, None]
         );
     }
