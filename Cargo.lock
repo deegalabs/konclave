@@ -2194,6 +2194,7 @@ dependencies = [
  "ed25519-dalek",
  "konclave-http",
  "konclave-seal",
+ "libc",
  "orchard",
  "orchestrator",
  "rand 0.8.7",
