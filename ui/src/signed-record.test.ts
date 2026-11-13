@@ -215,3 +215,12 @@ describe('the record refuses an entry it cannot read, the new fields included', 
     }
   })
 })
+
+describe('a payment key with no time', () => {
+  it('counts as recent: a damaged record asks, it does not pass a payment as a first signature', async () => {
+    const { readByOutputs } = await import('./signed-record')
+    const data = new Map([['konclave.signed.v1', JSON.stringify({ p1: [{ h: 'x', e: 1, b: 1, o: 'k' }] })]])
+    const store = { getItem: (k: string) => data.get(k) ?? null, setItem: () => {} }
+    expect(readByOutputs(store, 'v1', 'k', Date.now())).toHaveLength(1)
+  })
+})

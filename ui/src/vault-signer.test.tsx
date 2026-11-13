@@ -108,6 +108,9 @@ describe("the owner's claim and record reach the signer", () => {
     const panel = codeOf('./screens/SigningPanel.tsx')
     expect(panel).toMatch(/lapsedAt=\{signedBefore\?\.lapsedAt \?\? null\}/)
     expect(panel).toMatch(/lapsedTxid=\{signedBefore\?\.lapsedTxid \?\? null\}/)
+    expect(panel).toMatch(/sameOutputs=\{signedBefore\?\.sameOutputs \?\? false\}/)
+    expect(src).toMatch(/lapsedAt: null, sameOutputs: !!last\.sameOutputs, sameAt: last\.sameAt \}/)
+    expect(src).toMatch(/lapsedOf: \{ k: ours \? 1 : 0, n: lapsed\.earlier\.length \}, sameOutputs: !!lapsed\.sameOutputs, sameAt: lapsed\.sameAt \}/)
   })
   it('the hook hands them to the session unchanged', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s*claim,\s*record,\s/)

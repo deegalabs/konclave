@@ -93,7 +93,9 @@ export function readByOutputs(store: RecordStore, vault: string, outputs: string
   const out: SignedTx[] = []
   for (const list of Object.values(all)) {
     if (!Array.isArray(list) || list.some(malformed)) throw new Error('signed record: unreadable')
-    for (const t of list) if (t.o === outputs && (t.t ?? 0) >= since) out.push(t)
+    // An entry with a payment key and no time is not one this code writes (it writes both): it counts
+    // as recent, so a damaged record asks rather than letting a payment through as a first signature.
+    for (const t of list) if (t.o === outputs && (t.t ?? Number.POSITIVE_INFINITY) >= since) out.push(t)
   }
   return out
 }
