@@ -127,8 +127,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   transaction with the reader the devices use and refuses its own build unless it pays exactly the fee
   the builder's rule gives for that target (1,000 per action once the lower fee was in force for the
   build's target, 5,000 otherwise). That is a consistency check on the coordinator's own build, not a
-  defence: from block 3,590,000 the devices accept either fee. The proof of funds at creation is always built at 5,000, so a proposal that only fits at
-  a lower fee is not accepted. A ceremony file cannot grant the permission. A vault is permitted
+  defence: from block 3,590,000 the devices accept either fee. The proof of funds at creation is
+  always built at 5,000, so a proposal that only fits at a lower fee is not accepted. A ceremony file cannot grant the permission. A vault is permitted
   only with the switch set to `per-vault` AND every seat `1..=total` having reported the height from
   which its device accepts the lower fee; the permission then holds from the highest of those reports
   and the height the fee table starts the era at (a seat cannot report it earlier than the table has
