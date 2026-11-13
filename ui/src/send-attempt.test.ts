@@ -64,12 +64,10 @@ describe('the panel goes through the send memory', () => {
   })
 })
 
-describe('/net reads a send reply by the same rule', () => {
-  it('NetVault goes through readReply, never the reply\'s fields by hand', () => {
-    const net = codeOf('./screens/NetVault.tsx')
-    const at = net.indexOf('const r = await executeProposal(')
-    const block = net.slice(at, net.indexOf('} finally {', at))
-    expect(block).toMatch(/const said = netReplyText\(readReply\(r\)\)\s*setPropMsg\(pe\(said\.pt, said\.en\)\)\s*if \(said\.stop\) return/)
-    expect(block).not.toMatch(/'error' in r|'unknown' in r|r\.txid|end\./)
+describe('/net sends nothing of its own', () => {
+  // It used to execute a ready proposal and read the reply here; that driver kept no record and
+  // checked no approval, so a proposal is now signed and sent from its signing panel (net-execute.test.ts).
+  it('NetVault never calls executeProposal', () => {
+    expect(codeOf('./screens/NetVault.tsx')).not.toMatch(/\bexecuteProposal\b/)
   })
 })
