@@ -387,10 +387,27 @@ fn handle_request(
                 /// The seat's own certificate, which a pinned vault asks of a seat it does not hold.
                 #[serde(default)]
                 proof: Option<orchestrator::seat_registry::ProofJson>,
+                /// The height from which the device's build accepts the lower network fee (ZIP
+                /// 2009). Outside every signed payload: it is a report, and an older coordinator
+                /// ignores it. Absent clears the seat's report.
+                #[serde(default)]
+                fee_from: Option<serde_json::Value>,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
                 Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            let fee_from = match &req.fee_from {
+                None | Some(serde_json::Value::Null) => None,
+                Some(v) => match v.as_u64().and_then(|h| u32::try_from(h).ok()) {
+                    Some(h) => Some(h),
+                    None => {
+                        return resp(
+                            400,
+                            json!({ "error": "fee_from must be a block height" }).to_string(),
+                        )
+                    }
+                },
             };
             if !is_valid_group_key(&req.group_key) {
                 return resp(
@@ -444,6 +461,7 @@ fn handle_request(
                         seat: req.seat,
                         write_pub: req.write_pub.as_deref(),
                         proof: proof.as_ref(),
+                        fee_from,
                     };
                     match seats::offer_device(&cfg.vaults_dir, &reg, read_token, &claim) {
                         Ok(seats::DeviceOutcome::NeedsReadKey) => resp(
@@ -6296,6 +6314,152 @@ mod tests {
             "the pubkey is persisted in the vault's seal-set",
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- B2: the seat's fee report, and the version matrix of the release (v0.20 <-> v0.21) ----
+
+    fn seat_body(gk: &str, comms: &str, seat: u16, extra: &str) -> Vec<u8> {
+        format!(
+            r#"{{"group_key":"{gk}","device_pub":"{comms}","seat":{seat},"write_pub":"{}"{extra}}}"#,
+            "cc".repeat(32)
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn fee_report_is_stored_per_seat_cleared_by_a_registration_without_it_and_refused_when_malformed(
+    ) {
+        let gk = "55".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let call = |b: Vec<u8>| handle(&st, &c, &Method::Post, "/api/vault/devicekey", &b);
+        let reports = || orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3);
+        let (a, b) = ("aa".repeat(32), "bb".repeat(32));
+
+        assert_eq!(
+            call(seat_body(&gk, &a, 1, r#","fee_from":3590000"#)).status,
+            200
+        );
+        assert_eq!(call(seat_body(&gk, &b, 2, "")).status, 200);
+        assert_eq!(
+            reports(),
+            vec![Some(3_590_000), None, None],
+            "seat 2 reported nothing, seat 3 has no record"
+        );
+
+        // The same seat registering again WITHOUT the field clears its report, and says it is not new.
+        let again = call(seat_body(&gk, &a, 1, ""));
+        assert!(again.body.contains("\"added\":false"), "{}", again.body);
+        assert_eq!(reports(), vec![None, None, None]);
+
+        // A newer report from the same seat (same registration: two devices of one seat) speaks.
+        call(seat_body(&gk, &a, 1, r#","fee_from":3590000"#));
+        call(seat_body(&gk, &a, 1, r#","fee_from":3600000"#));
+        assert_eq!(reports()[0], Some(3_600_000));
+
+        // A malformed value is refused and changes nothing.
+        for bad in [r#""3590000""#, "-1", "1.5", "4294967296", "true", "[1]"] {
+            let r = call(seat_body(&gk, &a, 1, &format!(r#","fee_from":{bad}"#)));
+            assert_eq!(r.status, 400, "fee_from {bad}: {}", r.body);
+        }
+        assert_eq!(reports()[0], Some(3_600_000));
+        // An explicit null is the same as absent.
+        assert_eq!(
+            call(seat_body(&gk, &a, 1, r#","fee_from":null"#)).status,
+            200
+        );
+        assert_eq!(reports()[0], None);
+    }
+
+    /// VERSION MATRIX (a): a v0.20 coordinator takes a v0.21 registration that carries `fee_from`.
+    /// This is the request struct of `POST /api/vault/devicekey` as it was at f5bb899a (v0.20.0), frozen:
+    /// no `deny_unknown_fields`, so an unknown field is ignored. And `fee_from` sits in no signed
+    /// payload (seat certificate, write signature), so the old verification path cannot see it.
+    #[test]
+    fn version_matrix_a_v020_coordinator_ignores_fee_from_and_it_is_in_no_signed_payload() {
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct FrozenV020Req {
+            group_key: String,
+            device_pub: String,
+            #[serde(default)]
+            seat: Option<u16>,
+            #[serde(default)]
+            write_pub: Option<String>,
+            #[serde(default)]
+            proof: Option<orchestrator::seat_registry::ProofJson>,
+        }
+        let body = seat_body(
+            &"55".repeat(32),
+            &"aa".repeat(32),
+            1,
+            r#","fee_from":3590000"#,
+        );
+        let parsed: FrozenV020Req = serde_json::from_slice(&body).expect("a v0.20 route parses it");
+        assert_eq!((parsed.seat, parsed.device_pub.len()), (Some(1), 64));
+        // Neither signed payload mentions the field: the seat certificate (konclave-seal share_sig)
+        // and the write signature's canonical message (konclave-seal lib.rs / orchestrator).
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for file in [
+            "konclave-seal/src/share_sig.rs",
+            "konclave-seal/src/lib.rs",
+            "orchestrator/src/seat_registry.rs",
+        ] {
+            let text = std::fs::read_to_string(root.join(file)).unwrap();
+            let code: String = text
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let at = code.find("#[cfg(test)]").unwrap_or(code.len());
+            let production = &code[..at];
+            // seat_registry.rs carries the claim, which does name it; the signed statement does not.
+            if file.ends_with("seat_registry.rs") {
+                let stmt = production.split("SeatStatement {").skip(1);
+                for chunk in stmt {
+                    assert!(
+                        !chunk.split('}').next().unwrap().contains("fee_from"),
+                        "{file}"
+                    );
+                }
+            } else {
+                assert!(!production.contains("fee_from"), "{file} signs fee_from");
+            }
+        }
+    }
+
+    /// VERSION MATRIX (b): a v0.21 coordinator takes a v0.20 web that sends no `fee_from`: the seat's
+    /// report is cleared, which reads as 5,000 only (the safe side).
+    #[test]
+    fn version_matrix_b_v021_coordinator_takes_a_registration_without_fee_from_as_no_report() {
+        let gk = "56".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let a = "aa".repeat(32);
+        let v021 = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, r#","fee_from":3590000"#),
+        );
+        assert_eq!(v021.status, 200);
+        let v020 = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, ""),
+        );
+        assert_eq!(v020.status, 200, "{}", v020.body);
+        assert_eq!(
+            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3),
+            vec![None, None, None]
+        );
     }
 
     #[test]

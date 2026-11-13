@@ -886,6 +886,13 @@ pub struct DeviceRecord {
     /// Ed25519 write-verifying key, hex (#288 / ADR-0011). `None` until registered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write: Option<String>,
+    /// The height from which the build this seat last registered from accepts the lower network fee
+    /// (ZIP 2009), as that build reported it. `None` = it reported nothing: an older build, or no
+    /// seat to report for. Never part of the device's identity: [`apply_device_claim`] does not read
+    /// it, so a new report cannot turn a registered seat into a conflict. It is a report a member's
+    /// device made about itself, not a proof: the seat certificate does not cover it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fee_from: Option<u32>,
 }
 
 /// The device registry exists but cannot be read: not "no devices", which would leave the vault open
@@ -931,6 +938,7 @@ pub fn load_device_records(
                     comms,
                     seat: None,
                     write: None,
+                    fee_from: None,
                 })
                 .collect()
         })
@@ -1844,11 +1852,67 @@ fn apply_device_claim(
                 comms: comms.to_string(),
                 seat: write.map(|(s, _)| s),
                 write: write.map(|(_, w)| w.trim().to_string()),
+                fee_from: None,
             });
             changed = true;
         }
     }
     Ok(changed)
+}
+
+/// Record what the registering seat reports about the fees its build accepts (`fee_from`), on the
+/// record of that seat. A registration WITHOUT the field clears the report: the last device that
+/// registered speaks for the seat, and an older build that never reports must not leave a newer
+/// device's answer standing (two devices of one seat share one record, so there is no other way to
+/// tell them apart). Returns whether the record changed.
+///
+/// Called by [`crate::seat_registry::offer_device`] AFTER the claim was accepted, from the one door
+/// that runs under the vault's write lock (`POST /api/vault/devicekey` is `LockClass::Write`). It
+/// touches nothing but `fee_from`, so it cannot move a seat or a key, and it is a second write only
+/// when the report actually changed. The record is the seat's own (`seat` when given, else the
+/// comms key); a record with no seat reports nothing.
+pub(crate) fn record_fee_report(
+    vaults_dir: &Path,
+    vault: &str,
+    comms: &str,
+    seat: Option<u16>,
+    fee_from: Option<u32>,
+) -> Result<bool, DeviceError> {
+    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
+    let comms = comms.trim();
+    let Some(record) = recs.iter_mut().find(|r| match seat {
+        Some(seat) => r.seat == Some(seat),
+        None => same_key(&r.comms, comms),
+    }) else {
+        return Ok(false);
+    };
+    let report = record.seat.and(fee_from);
+    if record.fee_from == report {
+        return Ok(false);
+    }
+    record.fee_from = report;
+    let dir = vaults_dir.join(vault);
+    let json = serde_json::to_string(&recs)
+        .map_err(|e| DeviceError::Io(ToolError::parse("device-keys", e.to_string())))?;
+    write_device_registry(&device_keys_path(vaults_dir, vault), &dir, json.as_bytes())
+        .map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
+    Ok(true)
+}
+
+/// What each seat `1..=total` reports as the height from which it accepts the lower network fee, in
+/// seat order (index 0 is seat 1). `None` = that seat reported nothing, or has no record. An
+/// unreadable registry reports nothing for every seat: the caller reads "nobody reported" as the
+/// legacy fee, which is the safe side. Where two records name one seat (only a registry written
+/// before the seat was bound once), the later one speaks.
+pub fn seat_fee_reports(vaults_dir: &Path, vault: &str, total: u16) -> Vec<Option<u32>> {
+    let recs = load_device_records(vaults_dir, vault).unwrap_or_default();
+    (1..=total)
+        .map(|seat| {
+            recs.iter()
+                .rfind(|r| r.seat == Some(seat))
+                .and_then(|r| r.fee_from)
+        })
+        .collect()
 }
 
 /// The registry is replaced whole or not at all ([`replace_file`]): a write cut half way must not
@@ -3720,6 +3784,7 @@ mod tests {
                 comms: comms_key(seat),
                 seat: Some(seat),
                 write: Some(write_key(seat)),
+                fee_from: None,
             })
             .collect();
         std::fs::write(
