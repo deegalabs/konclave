@@ -4,10 +4,10 @@
 
 use crate::helper::{
     holds_pinned_forms, is_lower_hex_32, load_device_records, pin_path, read_authorized,
-    read_key_state, record_pinned_seats, register_device, register_proven_seat, register_vault,
-    replace_file, same_key, state_with_protocol, stored_registration, write_read_key, write_synced,
-    DeviceError, HelperConfig, ReadKey, ReadKeyForm, RegisterError, StoredRegistration,
-    VaultRegistration,
+    read_key_state, record_fee_report, record_pinned_seats, register_device, register_proven_seat,
+    register_vault, replace_file, same_key, state_with_protocol, stored_registration,
+    write_read_key, write_synced, DeviceError, HelperConfig, ReadKey, ReadKeyForm, RegisterError,
+    StoredRegistration, VaultRegistration,
 };
 use crate::tools::ToolError;
 use konclave_seal::share_sig::{
@@ -309,6 +309,9 @@ pub struct DeviceClaim<'a> {
     pub seat: Option<u16>,
     pub write_pub: Option<&'a str>,
     pub proof: Option<&'a SeatProof>,
+    /// The height from which the device's build accepts the lower network fee (ZIP 2009). Absent
+    /// clears the seat's report; see [`crate::helper::record_fee_report`].
+    pub fee_from: Option<u32>,
 }
 
 /// What a device's claim came to. The route maps this and decides nothing.
@@ -348,6 +351,7 @@ pub fn offer_device(
                 claim.seat,
                 claim.write_pub,
             )?;
+            record_fee_report(vaults_dir, &reg.vault_id, claim.seat, claim.fee_from)?;
             return Ok(DeviceOutcome::Recorded { added });
         }
         ReadKey::Pinned(hash) => hash,
@@ -365,7 +369,8 @@ pub fn offer_device(
     let records =
         load_device_records(vaults_dir, &reg.vault_id).map_err(DeviceError::Unreadable)?;
     // Answered by reading: on a shared comms key a writer would see a conflict that is not one.
-    match records.iter().find(|r| r.seat == Some(seat)) {
+    // The one seat selector the fee report uses too (#847), so the two never pick different records.
+    match crate::helper::seat_record(&records, seat).map(|i| &records[i]) {
         Some(_) if !proven && !read_authorized(vaults_dir, reg, read_token) => {
             Ok(DeviceOutcome::SeatNeedsProof)
         }
@@ -376,6 +381,9 @@ pub fn offer_device(
                     .as_deref()
                     .is_some_and(|w| same_key(w, write_pub)) =>
         {
+            // Still answered by reading as to WHO holds the seat; only the report is written, under
+            // the same lock, and only when it changed. `added` keeps meaning "a new record".
+            record_fee_report(vaults_dir, &reg.vault_id, Some(seat), claim.fee_from)?;
             Ok(DeviceOutcome::Recorded { added: false })
         }
         Some(_) => Ok(DeviceOutcome::SeatBound),
@@ -383,6 +391,7 @@ pub fn offer_device(
         None => {
             let added =
                 register_proven_seat(vaults_dir, &reg.vault_id, reg.total, comms, seat, write_pub)?;
+            record_fee_report(vaults_dir, &reg.vault_id, Some(seat), claim.fee_from)?;
             Ok(DeviceOutcome::Recorded { added })
         }
     }
@@ -1434,6 +1443,7 @@ mod tests {
                     seat: Some(seat),
                     write_pub: Some(w),
                     proof: p,
+                    fee_from: None,
                 }
             }
             fn token() -> String {
@@ -1452,6 +1462,93 @@ mod tests {
                 );
                 let seats = load_device_records(&cfg.vaults_dir, &id).unwrap();
                 assert!(seats.iter().any(|r| r.seat == Some(3)));
+            }
+
+            /// #847: on a pinned vault the exact registered triple is answered by reading, and
+            /// the seat's fee report is still written, under the same door, without moving the seat.
+            #[test]
+            fn a_pinned_seat_reports_and_a_registration_without_it_clears_the_report() {
+                use crate::helper::seat_fee_reports;
+                let (cfg, v, id, reg) = pinned("offer-report");
+                let p = proof(&v, 1, hash());
+                let (c, w) = (hex(&p.comms_pub), hex(&p.write_pub));
+                let with = |h: Option<u32>| DeviceClaim {
+                    fee_from: h,
+                    ..claim_of(&c, &w, 1, None)
+                };
+                let tok = token();
+                let before =
+                    std::fs::read(cfg.vaults_dir.join(&id).join("device-keys.json")).unwrap();
+                assert_eq!(
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
+                    vec![None, None, None]
+                );
+                assert_eq!(
+                    offer_device(&cfg.vaults_dir, &reg, Some(&tok), &with(Some(3_590_000)))
+                        .unwrap(),
+                    DeviceOutcome::Recorded { added: false },
+                    "`added` still means a new record"
+                );
+                assert_eq!(
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
+                    vec![Some(3_590_000), None, None]
+                );
+                // Same claim again: nothing to write.
+                let once =
+                    std::fs::read(cfg.vaults_dir.join(&id).join("device-keys.json")).unwrap();
+                offer_device(&cfg.vaults_dir, &reg, Some(&tok), &with(Some(3_590_000))).unwrap();
+                assert_eq!(
+                    std::fs::read(cfg.vaults_dir.join(&id).join("device-keys.json")).unwrap(),
+                    once
+                );
+                // The seat and keys are what they were: only the report differs from the first file.
+                let recs = load_device_records(&cfg.vaults_dir, &id).unwrap();
+                assert_eq!(
+                    recs.iter()
+                        .find(|r| r.seat == Some(1))
+                        .unwrap()
+                        .write
+                        .as_deref(),
+                    Some(w.as_str())
+                );
+                assert_ne!(before, once);
+                offer_device(&cfg.vaults_dir, &reg, Some(&tok), &with(None)).unwrap();
+                assert_eq!(
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap(),
+                    vec![None, None, None]
+                );
+                // Another seat's keys under seat 1 are still bound, and report nothing.
+                let (c7, w7) = (hex(&comms(7)), hex(&write(7)));
+                let other = DeviceClaim {
+                    fee_from: Some(1),
+                    ..claim_of(&c7, &w7, 1, None)
+                };
+                assert_eq!(
+                    offer_device(&cfg.vaults_dir, &reg, Some(&tok), &other).unwrap(),
+                    DeviceOutcome::SeatBound
+                );
+                assert_eq!(seat_fee_reports(&cfg.vaults_dir, &id, 3).unwrap()[0], None);
+            }
+
+            /// #847: a seat entering a pinned vault with its own proof is recorded WITH its report.
+            #[test]
+            fn a_new_pinned_seat_is_recorded_with_its_report() {
+                use crate::helper::seat_fee_reports;
+                let (cfg, v, id, reg) = pinned("offer-new-report");
+                let p = proof(&v, 3, hash());
+                let (c, w) = (hex(&p.comms_pub), hex(&p.write_pub));
+                let claim = DeviceClaim {
+                    fee_from: Some(3_590_000),
+                    ..claim_of(&c, &w, 3, Some(&p))
+                };
+                assert_eq!(
+                    offer_device(&cfg.vaults_dir, &reg, None, &claim).unwrap(),
+                    DeviceOutcome::Recorded { added: true }
+                );
+                assert_eq!(
+                    seat_fee_reports(&cfg.vaults_dir, &id, 3),
+                    Some(vec![None, None, Some(3_590_000)])
+                );
             }
 
             #[test]
@@ -1611,6 +1708,7 @@ mod tests {
                     seat: None,
                     write_pub: None,
                     proof: None,
+                    fee_from: None,
                 };
                 assert_eq!(
                     offer_device(&cfg.vaults_dir, &reg, Some(&token()), &only).unwrap(),
@@ -1696,6 +1794,7 @@ mod tests {
                     comms: c.to_string(),
                     seat,
                     write: seat.map(|_| "w".to_string()),
+                    fee_from: None,
                 };
                 let two_of_three = [rec("aa", Some(1)), rec("bb", Some(2))];
                 for signed in [true, false] {
@@ -1719,6 +1818,7 @@ mod tests {
                     comms: "bb".into(),
                     seat: Some(2),
                     write: None,
+                    fee_from: None,
                 };
                 assert!(recipients_for(&reg, &[rec("aa", Some(1)), no_write], true).is_err());
                 let outside = [rec("aa", Some(1)), rec("bb", Some(99))];
@@ -1755,6 +1855,7 @@ mod tests {
                     comms: c.to_string(),
                     seat: None,
                     write: None,
+                    fee_from: None,
                 };
                 assert_eq!(
                     recipients_for(&reg, &[rec("aa"), rec("bb")], false).unwrap(),

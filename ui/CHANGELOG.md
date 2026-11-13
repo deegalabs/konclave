@@ -40,6 +40,13 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **Each device tells the vault's server which network fees it accepts (#847).** When a device
+  unlocks, it now also reports from which block it accepts the lower network fee. Nothing changes in
+  what a payment pays yet; it only lets the server know, for each seat, which fees the device that
+  last unlocked it accepts.
+
 ## [0.20.0] 2026-11-11
 
 ### Added
