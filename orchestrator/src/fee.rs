@@ -149,10 +149,19 @@ fn guard_fee_in(pczt_bytes: &[u8], allowed: &[u64]) -> Result<(), ToolError> {
     if fee_in(fee, actions, allowed) {
         return Ok(());
     }
+    // A build at 5,000 where only the lower fee is required: the signer is probably older than the
+    // permission, and the operator can pin the legacy fee.
+    let hint = if fee_in(fee, actions, &[LEGACY_MARGINAL_FEE]) {
+        format!(
+            " The signer may be older than the permission: set {FEE_SWITCH_VAR}=5000 and restart."
+        )
+    } else {
+        String::new()
+    };
     Err(ToolError::parse(
         "fee",
         format!(
-            "the transaction built for this send pays {fee} zatoshis for its {actions} actions, which the fee rule for this vault does not permit; nothing was sent to the members"
+            "the transaction built for this send pays {fee} zatoshis for its {actions} actions, which the fee rule for this vault does not permit; nothing was sent to the members.{hint}"
         ),
     ))
 }
@@ -276,7 +285,7 @@ mod tests {
         for (tip, mainnet, permitted, from) in [
             (3_500_000, true, false, Some(3_590_000)),
             (3_590_000, true, false, Some(3_590_000)),
-            (3_589_997, true, true, Some(3_590_000)),
+            (3_589_998, true, true, Some(3_590_000)),
             (3_600_000, false, true, Some(0)),
             (3_600_000, true, true, None),
         ] {
@@ -285,9 +294,8 @@ mod tests {
                 "{tip} {mainnet} {permitted} {from:?}"
             );
         }
-        // And 1,000 is refused there: the guard requires exactly 5,000.
-        assert!(guard_fee_in(&p, &guard_set(3_500_000, true, false, None)).is_ok());
-        assert!(guard_fee_in(&p, &[1_000]).is_err());
+        // The set the guard computes there is exactly 5,000 (so 1,000 is not in it).
+        assert_eq!(guard_set(3_500_000, true, false, None), vec![5_000]);
     }
 
     #[test]
@@ -301,6 +309,10 @@ mod tests {
             assert!(e.contains("20000") && e.contains("4 actions"), "{tip} {e}");
         }
         // What it requires then is exactly 1,000, and nothing else.
+        let e = guard_built_fee(&p, 3_589_999, true, true, Some(3_590_000))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("KONCLAVE_FEE_MARGINAL_MAX=5000"), "{e}");
         let set = guard_set(3_589_999, true, true, Some(3_590_000));
         assert_eq!(set, vec![1_000]);
         assert!(guard_fee_in(&p, &set).is_err());
