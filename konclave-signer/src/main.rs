@@ -23,6 +23,7 @@ use pczt::{
     roles::signer::Signer as HlSigner,
     Pczt,
 };
+use zcash_primitives::transaction::fees::zip317 as prim_zip317;
 
 #[derive(Parser)]
 #[command(
@@ -69,7 +70,38 @@ enum Cmd {
         /// validation once the engine is rebuilt against it; production stays mainnet.
         #[arg(long, default_value = "main")]
         network: String,
+        /// The vault has permitted the ZIP 2009 fee (every seat reports it reads that rate and the
+        /// operator's switch is open). Without it the build pays the legacy 5,000 per action.
+        #[arg(long)]
+        zip2009_permitted: bool,
+        /// The height from which that permission holds (the highest `fee_from` the seats reported).
+        /// Without it the permission is not used, so a rolled-back caller is read as legacy.
+        #[arg(long)]
+        zip2009_from: Option<u32>,
     },
+}
+
+/// The ZIP 317 fee rule at a marginal fee: the one place a rule is constructed. Grace actions and the
+/// P2PKH sizes are ZIP 317's own (the vault has no transparent part), only the marginal moves.
+fn build_fee_rule(marginal: u64) -> Result<prim_zip317::FeeRule> {
+    prim_zip317::FeeRule::non_standard(
+        zcash_protocol::value::Zatoshis::from_u64(marginal)
+            .map_err(|_| anyhow!("marginal fee out of range"))?,
+        konclave_seal::epochs::GRACE_ACTIONS as usize,
+        prim_zip317::P2PKH_STANDARD_INPUT_SIZE,
+        prim_zip317::P2PKH_STANDARD_OUTPUT_SIZE,
+    )
+    .ok_or_else(|| anyhow!("fee rule"))
+}
+
+/// The marginal fee a build pays, decided ONCE from the facts, before the fee rule exists. The
+/// permission is used only on mainnet (the table is mainnet's; a testnet build stays legacy), only
+/// with a height to hold it from, and only when the wallet's target has reached that height; then
+/// `konclave_seal::epochs::fee_rule_for` says what the era at the target pays. Over facts alone, so
+/// every branch is testable without a wallet.
+fn marginal_for_build(mainnet: bool, target: u32, permitted: bool, from: Option<u32>) -> u64 {
+    let permitted = permitted && mainnet && from.is_some_and(|f| target >= f);
+    konclave_seal::epochs::fee_rule_for(target, permitted)
 }
 
 /// Error type for the low-level signing closure used to read per-spend randomizers.
@@ -219,6 +251,8 @@ fn build_payroll(
     spec_path: &str,
     out: &str,
     network: &str,
+    zip2009_permitted: bool,
+    zip2009_from: Option<u32>,
 ) -> Result<()> {
     use std::num::NonZeroUsize;
     use std::str::FromStr;
@@ -237,9 +271,7 @@ fn build_payroll(
             },
             Account as _, WalletRead,
         },
-        fees::{
-            standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule,
-        },
+        fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy},
         wallet::OvkPolicy,
     };
     use zcash_client_sqlite::{util::SystemClock, AccountUuid, WalletDb};
@@ -301,8 +333,25 @@ fn build_payroll(
     }
     let request = TransactionRequest::new(payments).map_err(|e| anyhow!("request: {e:?}"))?;
 
+    // The wallet's own target height is read BEFORE the rule is built (F5): the marginal fee is also
+    // the dust and split threshold of the change strategy, so a rule that looked at the height
+    // inside `fee_required` would disagree with its own threshold. The wallet's tip only rises, so
+    // the height the proposal uses is never below this one; at the switch the build pays the
+    // lower-height (legacy) fee, which a device accepts and the network relays.
+    let confirmations = ConfirmationsPolicy::default();
+    let (target, _anchor) = db
+        .get_target_and_anchor_heights(confirmations.trusted())
+        .map_err(|e| anyhow!("target height: {e:?}"))?
+        .ok_or_else(|| anyhow!("the wallet has no block data: sync it first"))?;
+    let marginal = marginal_for_build(
+        matches!(params, Network::MainNetwork),
+        u32::from(target),
+        zip2009_permitted,
+        zip2009_from,
+    );
+    let fee_rule = build_fee_rule(marginal)?;
     let change_strategy = MultiOutputChangeStrategy::new(
-        StandardFeeRule::Zip317,
+        fee_rule,
         None,
         ShieldedPool::Orchard,
         DustOutputPolicy::default(),
@@ -320,7 +369,7 @@ fn build_payroll(
         &input_selector,
         &change_strategy,
         request,
-        ConfirmationsPolicy::default(),
+        confirmations,
         &SpendPolicy::default(),
         None,
         // proposed_version: None -> build at the version implied by the target height (V6 from
@@ -370,7 +419,17 @@ fn main() -> Result<()> {
             spec,
             out,
             network,
-        } => build_payroll(&wallet, &account, &spec, &out, &network),
+            zip2009_permitted,
+            zip2009_from,
+        } => build_payroll(
+            &wallet,
+            &account,
+            &spec,
+            &out,
+            &network,
+            zip2009_permitted,
+            zip2009_from,
+        ),
     }
 }
 
@@ -607,5 +666,82 @@ mod tests {
             hex::encode(sighash),
             "e7002fa86ed26a033d10bbcb25dc19fd3daf0dd64c5b4028ac9af83092bd8392"
         );
+    }
+
+    // F2 part 1 for the builder. The oracle is written here: literal heights and `5_000 * max(2, n)` /
+    // `1_000 * max(2, n)`; nothing is read from the table or from the function under test.
+    #[test]
+    fn the_rule_a_build_gets_charges_the_literal_fee_at_each_side_of_the_switch() {
+        use zcash_primitives::transaction::fees::FeeRule as _;
+        use zcash_protocol::consensus::Network::MainNetwork as Main;
+        for n in 1..=8usize {
+            for (target, permitted, from, per_action) in [
+                (3_589_999u32, true, Some(3_590_000u32), 5_000u64),
+                (3_590_000, true, Some(3_590_000), 1_000),
+                (3_590_000, false, Some(3_590_000), 5_000),
+                (3_590_000, true, None, 5_000),
+                (3_599_999, true, Some(3_600_000), 5_000),
+                (3_600_000, true, Some(3_600_000), 1_000),
+            ] {
+                let rule =
+                    build_fee_rule(marginal_for_build(true, target, permitted, from)).unwrap();
+                let fee = rule
+                    .fee_required(&Main, target.into(), [], [], 0, 0, n, 0)
+                    .unwrap();
+                assert_eq!(
+                    u64::from(fee),
+                    per_action * (n.max(2) as u64),
+                    "n={n} target={target} permitted={permitted} from={from:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_testnet_build_never_uses_the_permission() {
+        assert_eq!(marginal_for_build(false, 3_600_000, true, Some(0)), 5_000);
+    }
+
+    #[test]
+    fn the_permission_arrives_on_the_command_line_and_defaults_to_legacy() {
+        let base = [
+            "konclave-signer",
+            "build-payroll",
+            "--wallet",
+            "w",
+            "--account",
+            "a",
+            "--spec",
+            "s",
+            "--out",
+            "o",
+        ];
+        let get = |extra: &[&str]| match Cli::try_parse_from(base.iter().chain(extra)).unwrap().cmd
+        {
+            Cmd::BuildPayroll {
+                zip2009_permitted,
+                zip2009_from,
+                network,
+                ..
+            } => (zip2009_permitted, zip2009_from, network),
+            _ => unreachable!(),
+        };
+        assert_eq!(get(&[]), (false, None, "main".into()));
+        assert_eq!(
+            get(&["--zip2009-permitted", "--zip2009-from", "3590000"]),
+            (true, Some(3_590_000), "main".into())
+        );
+        assert!(Cli::try_parse_from(base.iter().chain(&["--zip2009-from", "x"])).is_err());
+    }
+
+    #[test]
+    fn build_payroll_hands_the_permission_to_the_decision_and_nothing_else_decides() {
+        // Source scan: the wallet's marginal comes from `marginal_for_build` over the two flags, and
+        // the rule from `build_fee_rule`; no other path to a marginal exists in this file.
+        let src = include_str!("main.rs");
+        let body = &src[src.find("fn build_payroll(").unwrap()..src.find("fn main()").unwrap()];
+        let flat: String = body.split_whitespace().collect();
+        assert!(flat.contains("marginal_for_build(matches!(params,Network::MainNetwork),u32::from(target),zip2009_permitted,zip2009_from,)"));
+        assert!(flat.contains("build_fee_rule(marginal)"));
     }
 }

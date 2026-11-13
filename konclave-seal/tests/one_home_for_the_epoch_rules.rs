@@ -247,8 +247,14 @@ fn a_testnet_table_is_not_in_production_code() {
 const FEE_RULE_UNTIL_PR_B: &[(&str, &str)] = &[
     ("orchestrator/src/validation.rs", "constMARGINAL_FEE:"),
     ("orchestrator/src/validation.rs", "constGRACE_ACTIONS:"),
-    ("konclave-signer/src/main.rs", "StandardFeeRule::Zip317"),
 ];
+
+/// Added 2026-11-12 (#847, B3b). The ONE place a builder's fee rule is constructed: the signer's
+/// `build_payroll`, from the marginal `konclave_seal::epochs::fee_rule_for` gives it. Permanent, not
+/// an excuse: nothing else may construct a rule, and the entry must still match (a rule moved
+/// elsewhere, or a builder that stopped building one, fails here).
+const FEE_RULE_BUILDERS: &[(&str, &str)] =
+    &[("konclave-signer/src/main.rs", "FeeRule::non_standard(")];
 
 /// What a second fee rule looks like once whitespace is removed: a declaration, the crate's
 /// constants or fee rules used directly, a marginal fee multiplied, or the ZIP 2009 height.
@@ -294,9 +300,17 @@ fn the_fee_scan_would_find_a_planted_rule() {
 #[test]
 fn no_second_fee_rule_exists() {
     let mut excused_seen = vec![false; FEE_RULE_UNTIL_PR_B.len()];
+    let mut builder_seen = vec![false; FEE_RULE_BUILDERS.len()];
     for (path, text) in production_sources() {
         let code = code_only(&text);
         for needle in fee_needles_in(&code) {
+            if let Some(i) = FEE_RULE_BUILDERS
+                .iter()
+                .position(|(p, n)| path.ends_with(p) && *n == needle)
+            {
+                builder_seen[i] = true;
+                continue;
+            }
             let excused = FEE_RULE_UNTIL_PR_B
                 .iter()
                 .position(|(p, n)| path.ends_with(p) && *n == needle);
@@ -308,6 +322,10 @@ fn no_second_fee_rule_exists() {
             }
         }
     }
+    assert!(
+        builder_seen.iter().all(|s| *s),
+        "the builder's fee rule is no longer constructed where FEE_RULE_BUILDERS says"
+    );
     for (i, seen) in excused_seen.iter().enumerate() {
         assert!(
             seen,
