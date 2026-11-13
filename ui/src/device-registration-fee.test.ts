@@ -34,6 +34,13 @@ describe('the registration carries fee_from', () => {
     expect(sent.device.mock.calls[0]?.[4]).toBeUndefined()
   })
 
+  it('omits it, and still registers, when the export throws (new glue over an old .wasm)', async () => {
+    wasm.feeFrom = () => { throw new Error('unreachable export') }
+    const { registerThisDevice } = await import('./device-registration')
+    expect(await registerThisDevice('ab'.repeat(32), share)).toBe(true)
+    expect(sent.device.mock.calls[0]?.[4]).toBeUndefined()
+  })
+
   it('omits it when the export answers nothing usable', async () => {
     const { registerThisDevice } = await import('./device-registration')
     for (const bad of [undefined, -1, 1.5, Number.NaN]) {
