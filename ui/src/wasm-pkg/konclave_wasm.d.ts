@@ -256,6 +256,13 @@ export function estimatedFeeZat(destinations: number): number;
 export function extractRandomizers(pczt: Uint8Array, group_vk: Uint8Array): Uint8Array;
 
 /**
+ * The height from which this build accepts the lower marginal fee (ZIP 2009), read from the era
+ * table in `konclave_seal::epochs`; `undefined` when no era of the table does. What the device
+ * reports to its vault's coordinator as `fee_from`: never a number typed in the app.
+ */
+export function feeFrom(): number | undefined;
+
+/**
  * The 32-byte group verifying key of a saved `PublicKeyPackage` (the key the device signs
  * under), for confirming the key on record before it is used to read a transaction.
  */
@@ -520,6 +527,18 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
+    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly estimatedFeeZat: (a: number) => number;
+    readonly extractRandomizers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly feeFrom: () => number;
+    readonly groupKeyOfPackage: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly upgradeHeight: () => number;
     readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
     readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
     readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
@@ -533,17 +552,6 @@ export interface InitOutput {
     readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
-    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly estimatedFeeZat: (a: number) => number;
-    readonly extractRandomizers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly groupKeyOfPackage: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
-    readonly readPayment: (a: number, b: number) => [number, number, number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
-    readonly upgradeHeight: () => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

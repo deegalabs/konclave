@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import init, { estimatedFeeZat } from './wasm-pkg/konclave_wasm.js'
+import init, { estimatedFeeZat, feeFrom } from './wasm-pkg/konclave_wasm.js'
 import { readFeeEstimator } from './fee-estimate'
 import { codeAt, codeOf } from './source-scan'
 import { en as enDict } from './i18n/en'
@@ -139,5 +139,12 @@ describe('no fee arithmetic outside the rule', () => {
     ]) {
       expect(PATTERNS.some((p) => p.test(planted)), planted).toBe(true)
     }
+  })
+})
+
+describe('the fee era this build accepts, reported to the coordinator', () => {
+  it('feeFrom is the height ZIP 2009 switches on, read from the table in the wasm', () => {
+    // A literal on purpose: the number is the table's, and this fails the day it moves alone.
+    expect(feeFrom()).toBe(3_590_000)
   })
 })

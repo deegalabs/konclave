@@ -25,13 +25,13 @@ describe('the registration carries fee_from', () => {
     wasm.feeFrom = () => 3_590_000
     const { registerThisDevice } = await import('./device-registration')
     expect(await registerThisDevice('ab'.repeat(32), share)).toBe(true)
-    expect(sent.device.mock.calls[0][4]).toBe(3_590_000)
+    expect(sent.device.mock.calls[0]?.[4]).toBe(3_590_000)
   })
 
   it('omits it when the wasm has no such export (an older one)', async () => {
     const { registerThisDevice } = await import('./device-registration')
     expect(await registerThisDevice('ab'.repeat(32), share)).toBe(true)
-    expect(sent.device.mock.calls[0][4]).toBeUndefined()
+    expect(sent.device.mock.calls[0]?.[4]).toBeUndefined()
   })
 
   it('omits it when the export answers nothing usable', async () => {
@@ -40,7 +40,7 @@ describe('the registration carries fee_from', () => {
       sent.device.mockClear()
       wasm.feeFrom = () => bad
       await registerThisDevice('ab'.repeat(32), share)
-      expect(sent.device.mock.calls[0][4]).toBeUndefined()
+      expect(sent.device.mock.calls[0]?.[4]).toBeUndefined()
     }
   })
 })
