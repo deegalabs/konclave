@@ -58,7 +58,7 @@ explicitly accepted.
 
 ### Added
 
-- **Each seat's device reports the network fee era it accepts.** One function in the era table
+- **Each seat's device reports the network fee era it accepts (#847).** One function in the era table
   (`fee_from`) answers the height from which this build accepts the lower fee, the wasm exposes it,
   and the coordinator stores it per seat. No behaviour change in what a payment pays.
 
