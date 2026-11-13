@@ -1865,7 +1865,7 @@ fn apply_device_claim(
 /// ([`record_fee_report`]) and the reader ([`seat_fee_reports`]), so a registry that names a seat
 /// twice (one written before the seat was bound once) cannot send the report to one record and read
 /// it from the other.
-fn seat_record(recs: &[DeviceRecord], seat: u16) -> Option<usize> {
+pub(crate) fn seat_record(recs: &[DeviceRecord], seat: u16) -> Option<usize> {
     recs.iter().position(|r| r.seat == Some(seat))
 }
 

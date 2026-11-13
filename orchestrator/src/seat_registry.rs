@@ -369,7 +369,8 @@ pub fn offer_device(
     let records =
         load_device_records(vaults_dir, &reg.vault_id).map_err(DeviceError::Unreadable)?;
     // Answered by reading: on a shared comms key a writer would see a conflict that is not one.
-    match records.iter().find(|r| r.seat == Some(seat)) {
+    // The one seat selector the fee report uses too (#847), so the two never pick different records.
+    match crate::helper::seat_record(&records, seat).map(|i| &records[i]) {
         Some(_) if !proven && !read_authorized(vaults_dir, reg, read_token) => {
             Ok(DeviceOutcome::SeatNeedsProof)
         }

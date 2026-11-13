@@ -6438,6 +6438,11 @@ mod tests {
             ],
             "the seat certificate signs exactly these"
         );
+        // The signature too: a new parameter under any name would change what the seat signs.
+        assert!(
+            seal.contains("pub fn seat_message(st: &SeatStatement) -> Vec<u8> {"),
+            "seat_message takes the statement and nothing else"
+        );
         let message = seal
             .split("pub fn seat_message")
             .nth(1)
