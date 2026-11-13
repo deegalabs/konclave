@@ -8020,10 +8020,11 @@ mod tests {
         assert_eq!(with(Some("9999")).0.send_max_polls, 600);
     }
 
-    /// The operator's fee switch, from the environment: unset is OFF, exactly 5000 is ON, and any
-    /// other value refuses to boot (fail closed), with a message that names the variable.
+    /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly
+    /// `per-vault` is OFF, and any other value refuses to boot (fail closed), with a message that names
+    /// the variable.
     #[test]
-    fn the_fee_switch_has_three_cases_and_anything_else_refuses_to_boot() {
+    fn the_fee_switch_is_on_unless_per_vault_and_anything_else_refuses_to_boot() {
         use orchestrator::fee::FeeSwitch;
         let with = |value: Option<&str>| {
             let value = value.map(str::to_string);
@@ -8033,9 +8034,13 @@ mod tests {
                     .flatten()
             })
         };
-        assert_eq!(with(None).unwrap().0.fee_switch, FeeSwitch::Off);
+        assert_eq!(with(None).unwrap().0.fee_switch, FeeSwitch::On);
         assert_eq!(with(Some("5000")).unwrap().0.fee_switch, FeeSwitch::On);
-        for bad in ["", "1000", "garbage", "5000 ", "\u{FFFD}"] {
+        assert_eq!(
+            with(Some("per-vault")).unwrap().0.fee_switch,
+            FeeSwitch::Off
+        );
+        for bad in ["", "1000", "garbage", "5000 ", "\u{FFFD}", "Per-Vault"] {
             let why = with(Some(bad))
                 .err()
                 .unwrap_or_else(|| panic!("{bad:?} booted"));

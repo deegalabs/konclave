@@ -100,8 +100,11 @@ fn build_fee_rule(marginal: u64) -> Result<prim_zip317::FeeRule> {
 /// `konclave_seal::epochs::fee_rule_for` says what the era at the target pays. Over facts alone, so
 /// every branch is testable without a wallet.
 fn marginal_for_build(mainnet: bool, target: u32, permitted: bool, from: Option<u32>) -> u64 {
-    let permitted = permitted && mainnet && from.is_some_and(|f| target >= f);
-    konclave_seal::epochs::fee_rule_for(target, permitted)
+    // The predicate is konclave-seal's, the one the coordinator's guard asks too.
+    konclave_seal::epochs::fee_rule_for(
+        target,
+        konclave_seal::epochs::zip2009_in_force(mainnet, target, permitted, from),
+    )
 }
 
 /// Error type for the low-level signing closure used to read per-spend randomizers.
@@ -695,6 +698,20 @@ mod tests {
                 );
             }
         }
+    }
+
+    // M1: the dispatch in `main` hands the two flags to `build_payroll` as they were parsed, and not
+    // a constant: the flag a member's vault was permitted by must reach the decision.
+    #[test]
+    fn main_hands_the_parsed_flags_to_the_build() {
+        let src = include_str!("main.rs");
+        let body = &src[src.find("fn main() -> Result<()>").unwrap()
+            ..src.find("// Destructive tests").unwrap()];
+        let flat: String = body.split_whitespace().collect();
+        assert!(
+            flat.contains("zip2009_permitted,zip2009_from,}=>build_payroll(&wallet,&account,&spec,&out,&network,zip2009_permitted,zip2009_from,)"),
+            "{flat}"
+        );
     }
 
     #[test]

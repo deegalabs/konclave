@@ -142,7 +142,10 @@ pub fn send_config_for(
         vaults_dir: Some(cfg.vaults_dir.display().to_string()),
         network: cfg.network.clone(),
         // TODO(B2): `crate::fee::fee_permission(cfg.fee_switch, seat_fee_reports(..))`, wired when the
-        // seats' fee reports exist. Until then no vault is permitted, whatever the switch says.
+        // seats' fee reports exist. Until then no vault is permitted, whatever the switch says. When
+        // it is wired: `zip2009_from` = max(the table's F, the highest `fee_from` the seats reported),
+        // and the target the permission is judged at comes from the coordinator's OWN tip (the guard
+        // reads `gate.tip()`), never from anything a seat reported.
         zip2009_permitted: crate::fee::fee_permission(cfg.fee_switch, false),
         zip2009_from: None,
     }

@@ -86,11 +86,23 @@ pub struct SendConfig {
     /// The vault may be built at the ZIP 2009 fee (every seat reported it, and the operator's switch
     /// is not forcing the legacy one). False builds at 5,000. Handed to the builder as a permission,
     /// never as a number: the builder reads the table.
-    #[serde(default)]
+    ///
+    /// `serde(skip)`: only code sets it (`helper::send_config_for`), never a ceremony file. That is also
+    /// what makes `orchestrate_send` (the local bridge and the CLI, with no chain tip to guard against)
+    /// legacy-only BY CONSTRUCTION: a config read from JSON always carries `false`.
+    #[serde(skip)]
     pub zip2009_permitted: bool,
-    /// The height from which that permission holds (the highest `fee_from` the seats reported).
-    #[serde(default)]
+    /// The height from which that permission holds. `serde(skip)` for the same reason.
+    #[serde(skip)]
     pub zip2009_from: Option<u32>,
+}
+
+impl SendConfig {
+    /// Whether the wallet is on mainnet, the network the fee table is written for. The builder reads
+    /// `main` and `mainnet` the same way.
+    pub fn is_mainnet(&self) -> bool {
+        matches!(self.network.as_str(), "main" | "mainnet")
+    }
 }
 
 fn default_network() -> String {
@@ -759,8 +771,13 @@ fn prepare_capped<T: Transport>(
     // The guard: the coordinator reads the fee its own build pays, with the reader the devices judge
     // with, and refuses its own transaction if the rule for this vault at this height does not permit
     // it. The next block is the target the wallet builds for.
-    let target = u32::try_from(tip.saturating_add(1)).unwrap_or(u32::MAX);
-    crate::fee::guard_built_fee(&tx1, target, sc.zip2009_permitted)?;
+    crate::fee::guard_built_fee(
+        &tx1,
+        tip,
+        sc.is_mainnet(),
+        sc.zip2009_permitted,
+        sc.zip2009_from,
+    )?;
     // #821. Notes can change between the proposal and the send, so the count asked at proposal time is
     // asked again, before the prove spends a minute on a transaction nobody can sign. A PCZT this
     // cannot read goes on: the exact size check below is the guard.
@@ -1913,7 +1930,7 @@ mod tests {
         tag: &str,
         plan: &SpendPlan,
         network: Option<&str>,
-        tweak: impl FnOnce(&mut serde_json::Value),
+        tweak: impl FnOnce(&mut SendConfig),
     ) -> BuildSeen {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-b3a-{tag}-{}", std::process::id()));
@@ -1963,8 +1980,8 @@ mod tests {
         if let Some(n) = network {
             cfg["network"] = n.into();
         }
-        tweak(&mut cfg);
-        let sc: SendConfig = serde_json::from_value(cfg).unwrap();
+        let mut sc: SendConfig = serde_json::from_value(cfg).unwrap();
+        tweak(&mut sc);
         std::fs::create_dir_all(&sc.work_dir).unwrap();
         let built = build_unproven(&sc, plan).unwrap();
         let seen = BuildSeen {
@@ -2033,10 +2050,8 @@ mod tests {
         };
         let argv = |tag: &str, permitted: bool, from: Option<u32>| {
             build_seen_with(tag, &plan, None, |c| {
-                c["zip2009_permitted"] = permitted.into();
-                if let Some(f) = from {
-                    c["zip2009_from"] = f.into();
-                }
+                c.zip2009_permitted = permitted;
+                c.zip2009_from = from;
             })
             .argv
         };
@@ -2093,14 +2108,15 @@ mod tests {
             }
         }
         let _ = std::fs::remove_file(&log);
-        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+        let mut sc: SendConfig = serde_json::from_value(serde_json::json!({
             "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
             "account": "acc", "konclave_signer": path, "frostd": "/x", "frost_client": "/x",
             "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
             "server_url": "s", "work_dir": dir.join("work"),
-            "zip2009_permitted": true, "zip2009_from": 3_590_000,
         }))
         .unwrap();
+        sc.zip2009_permitted = true;
+        sc.zip2009_from = Some(3_590_000);
         let plan = SpendPlan::Payment {
             to: "utest1x".into(),
             value_zat: 1000,
@@ -2125,6 +2141,35 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// A ceremony file cannot turn the fee permission on: the fields are not read from JSON. So
+    /// `orchestrate_send` (no tip, no guard) can only ever build at the legacy fee, and nothing in
+    /// production code but the coordinator's own `send_config_for` assigns them.
+    #[test]
+    fn a_ceremony_file_cannot_grant_the_fee_permission() {
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "z:443", "account": "a",
+            "konclave_signer": "/ks", "frostd": "/fd", "frost_client": "/fc", "members": [],
+            "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": "/w",
+            "zip2009_permitted": true, "zip2009_from": 3_590_000,
+        }))
+        .unwrap();
+        assert!(!sc.zip2009_permitted && sc.zip2009_from.is_none());
+        // Nothing else in production code assigns them.
+        for (name, text) in [
+            ("server.rs", include_str!("server.rs")),
+            ("main.rs", include_str!("main.rs")),
+            ("net_send.rs", include_str!("net_send.rs")),
+            ("send_record.rs", include_str!("send_record.rs")),
+        ] {
+            let code = text.split("#[cfg(test)]").next().unwrap();
+            assert!(
+                !code.contains("zip2009_permitted"),
+                "{name} sets the fee permission"
+            );
+        }
+    }
+
     /// The guard sits between the build and everything after it: the coordinator reads the fee of its
     /// own transaction before the proof is made, the room opens or anyone is asked to sign.
     #[test]
@@ -2137,6 +2182,8 @@ mod tests {
         assert!(build < guard && guard < prove);
         // And the guard is told the vault's permission, not a constant.
         assert!(body[guard..prove].contains("sc.zip2009_permitted"));
+        assert!(body[guard..prove].contains("sc.zip2009_from"));
+        assert!(body[guard..prove].contains("sc.is_mainnet()"));
     }
 
     /// The builder is told which network the wallet is on: a testnet coordinator builds with testnet
