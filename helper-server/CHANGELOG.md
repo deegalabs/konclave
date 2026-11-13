@@ -40,6 +40,13 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **Each seat reports which network fees its device accepts.** `POST /api/vault/devicekey` takes an
+  optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
+  without it clears that seat's report, and the newest registration of a seat speaks. A malformed
+  value is refused with a 400. Nothing reads it yet: what a payment pays does not change.
+
 ### Security
 
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
