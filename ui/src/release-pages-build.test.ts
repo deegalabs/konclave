@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
-import { releaseBodyFor, releasedVersions, releasePagesOrFail, readReleaseSources, SUPERSEDED, versionsIn } from '../../scripts/changelog-sections.mjs'
+import { releaseBodyFor, releasedVersions, releasePagesOrFail, readReleaseSources, SUPERSEDED, unlistedFolds, versionsIn } from '../../scripts/changelog-sections.mjs'
 import { codeOf } from './source-scan'
 
 // The release pages take their versions from the changelog headings, not from git tags: CI's UI job
@@ -46,5 +46,24 @@ describe('releasePagesOrFail', () => {
     const cfg = codeOf('../vite.config.ts')
     expect(cfg).toMatch(/releasePagesOrFail\(mds\)/)
     expect(cfg).not.toMatch(/tagsForPages|taggedVersions/)
+  })
+})
+
+describe('unlistedFolds', () => {
+  const md = (top: string) => `# Changelog\n\n## [Unreleased]\n\n- next\n\n## [${top}] 2026-11-09\n\n- a\n\n## [0.4.0] 2026-11-01\n\n- b\n`
+  it('names a section the next cut would fold in that SUPERSEDED does not list', () => {
+    expect(unlistedFolds('0.20.0', new Set(['0.4.0']), md('0.19.0'))).toEqual(['0.19.0'])
+  })
+  it('names nothing when the section was tagged, is listed, or there are no tags to tell', () => {
+    expect(unlistedFolds('0.20.0', new Set(['0.4.0', '0.19.0']), md('0.19.0'))).toEqual([])
+    expect(unlistedFolds('0.6.0', new Set(['0.4.0']), md('0.5.0'))).toEqual([])
+    expect(unlistedFolds('0.20.0', null, md('0.19.0'))).toEqual([])
+  })
+  it('is checked by the cut before anything is written', () => {
+    const cli = codeOf('../../scripts/release.mjs')
+    const guard = cli.indexOf('unlistedFolds(version')
+    expect(guard).toBeGreaterThan(-1)
+    expect(guard).toBeLessThan(cli.indexOf('cutSection(version, buildsNote'))
+    expect(cli.slice(guard, cli.indexOf('cutSection(version, buildsNote'))).toMatch(/process\.exit\(1\)/)
   })
 })

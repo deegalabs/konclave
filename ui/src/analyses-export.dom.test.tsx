@@ -5,10 +5,11 @@ import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
 import type { AnalysesReport } from './analysesReport'
+import { WALLET_BUSY } from './helper'
 const en = (k: string): string => dict[k] ?? k
 
 // The export buttons on the Analyses screen, clicked. The file is built from what the screen read:
-// the balance it draws and the vault's name. A browser that refuses the save is told to the member.
+// the balance it draws, why it could not read one, and the vault's name. A browser that refuses the save is told to the member.
 
 const getLedger = vi.hoisted(() => vi.fn())
 const readBalance = vi.hoisted(() => vi.fn())
@@ -35,6 +36,14 @@ const ZEC = 100_000_000
 const sent = { id: 'p1', vault_id: 'v', kind: 'payment', state: 'sent', proposer: 'Ana', value_zat: ZEC, value_zec: '1', created_at: 1759300000, is_public: false, approvals: [], refusals: [], approvals_count: 0 }
 const show = () => render(<MemoryRouter><I18nProvider><Analyses /></I18nProvider></MemoryRouter>)
 const lastReport = () => exportAnalyses.mock.calls.at(-1)![0] as AnalysesReport
+const exportHtml = async () => {
+  show()
+  const button = await screen.findByRole('button', { name: en('analyses.exportHtml') })
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(button)
+  await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1))
+  return lastReport()
+}
 
 describe('exporting the Analyses', () => {
   beforeEach(() => {
@@ -79,5 +88,19 @@ describe('exporting the Analyses', () => {
     fireEvent.click(button)
     await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1))
     expect(lastReport().vaultName).toBe('Caixa da comunidade')
+  })
+
+  // The balance band says why there is no balance (a send holding the vault, no wallet); the file
+  // says the same, so the screen has to hand both to it.
+  it('says in the file that the vault was busy with a send, as the band does', async () => {
+    readBalance.mockResolvedValue(WALLET_BUSY)
+    const r = await exportHtml()
+    expect(r.sections[0]!.note).toBe(en('wallet.busyFirst'))
+  })
+
+  it('says in the file that no wallet is connected, as the band does', async () => {
+    readBalance.mockResolvedValue({ configured: false })
+    const r = await exportHtml()
+    expect(r.sections[0]!.note).toBe(en('dashboard.walletNotConnected'))
   })
 })
