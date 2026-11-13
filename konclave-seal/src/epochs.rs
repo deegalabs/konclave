@@ -275,10 +275,10 @@ pub fn fee_rule_for(target_height: u32, in_force: bool) -> u64 {
     }
 }
 
-/// The marginal fees a transaction built for `target_height` may carry, for the party that checks its
-/// OWN build (the coordinator's guard): only [`LEGACY_MARGINAL_FEE`] unless the ZIP 2009 rule is
-/// `in_force`; then what the era at the target accepts. The builder's choice is always one of them
-/// (`fee_rule_for`), so the guard refuses a build that did not follow its rule, and never one that did.
+/// The marginal fees the era at `target_height` accepts when the ZIP 2009 rule is `in_force`, else only
+/// [`LEGACY_MARGINAL_FEE`]. NOT the coordinator's guard: since #847 it requires exactly `fee_rule_for`.
+/// No caller is left; it stays only so this crate, built into the device, is unchanged in this release,
+/// and it is removed with the next rebuild of the device package. Do not add a caller.
 pub fn fee_marginals_permitted(target_height: u32, in_force: bool) -> Vec<u64> {
     if !in_force {
         return vec![LEGACY_MARGINAL_FEE];
@@ -1316,7 +1316,7 @@ mod tests {
     }
 
     #[test]
-    fn what_the_guard_permits_follows_the_same_rule() {
+    fn the_era_set_contains_what_the_builder_pays() {
         assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
         assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
         assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
