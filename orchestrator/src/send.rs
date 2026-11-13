@@ -771,6 +771,7 @@ fn prepare_capped<T: Transport>(
     // The guard: the coordinator reads the fee its own build pays, with the reader the devices judge
     // with, and refuses its own transaction if the rule for this vault at this height does not permit
     // it. The next block is the target the wallet builds for.
+
     crate::fee::guard_built_fee(
         &tx1,
         tip,
@@ -1566,6 +1567,29 @@ mod tests {
                 prepare_gated(&format!("open-{name}"), PROVEN, plan(), edge - 1_000);
             open.unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(log.contains("prove"), "{name}: built and proven: {log}");
+        }
+    }
+
+    /// M4, behaviourally: a send whose chain tip reads 0 (the coordinator does not know the chain) is
+    /// refused by the fee guard before the proof, the extraction or the room, for a payment and a
+    /// payroll alike. Removing the guard from `prepare_capped` makes this fail.
+    #[cfg(unix)]
+    #[test]
+    fn a_send_with_an_unknown_tip_is_refused_before_it_is_proven() {
+        for (name, plan) in [
+            ("payment", a_payment as fn() -> SpendPlan),
+            ("payroll", a_payroll),
+        ] {
+            let (r, seen, log) = prepare_gated(&format!("tip0-{name}"), PROVEN, plan(), 0);
+            let e = r
+                .err()
+                .unwrap_or_else(|| panic!("{name}: tip 0 must be refused"));
+            assert!(
+                e.to_string().contains("chain tip is unknown"),
+                "{name}: {e}"
+            );
+            assert!(seen.is_empty(), "{name}: nothing reached the room");
+            assert!(!log.contains("prove"), "{name}: nothing was proven: {log}");
         }
     }
 
