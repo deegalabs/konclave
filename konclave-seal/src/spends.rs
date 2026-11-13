@@ -85,3 +85,68 @@ pub fn spends_to_sign_for(
     }
     Ok(spends)
 }
+
+/// What the fee of one Orchard-shaped bundle is read from: how many actions it carries (padding
+/// included) and what it takes out of its pool, which the sighash covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BundleFee {
+    pub actions: usize,
+    /// Positive when the bundle takes value out of its pool (the fee, when nothing else moves value).
+    pub value_balance: i64,
+}
+
+/// The ONE reader of a PCZT's fee facts (B3b): the device reads them to judge the fee it is asked to
+/// sign, and the coordinator reads them to check its own build before it asks anyone. It used to be a
+/// count in each place (`action_count_of`, the device's bundle shape), and a fee rule whose two halves
+/// count differently is the repo's most repeated defect. Reads the PCZT's own fields, so it works on
+/// an unproven transaction too.
+pub fn bundle_fee(pczt: &::pczt::Pczt, ironwood: bool) -> Result<BundleFee, String> {
+    let (magnitude, negative) = if ironwood {
+        *pczt.ironwood().value_sum()
+    } else {
+        *pczt.orchard().value_sum()
+    };
+    let actions = actions_in(pczt, ironwood);
+    let pool = if ironwood { "ironwood" } else { "orchard" };
+    let magnitude = i64::try_from(magnitude)
+        .map_err(|_| format!("[fee] the {pool} bundle's value balance is out of range"))?;
+    Ok(BundleFee {
+        actions,
+        value_balance: if negative { -magnitude } else { magnitude },
+    })
+}
+
+/// The actions of one bundle, padding included: THE count, which the fee reads and the signing
+/// request's size is bounded by.
+fn actions_in(pczt: &::pczt::Pczt, ironwood: bool) -> usize {
+    if ironwood {
+        pczt.ironwood().actions().len()
+    } else {
+        pczt.orchard().actions().len()
+    }
+}
+
+/// The logical actions of a PCZT across both pools, for a caller that sizes a request and does not
+/// judge the balance. The same count `fee_and_actions` returns.
+pub fn action_count(pczt: &::pczt::Pczt) -> usize {
+    actions_in(pczt, false) + actions_in(pczt, true)
+}
+
+/// The fee a PCZT pays and the logical actions it carries, across BOTH shielded pools (a transaction
+/// can carry an Orchard and an Ironwood bundle). The fee is the sum of the bundles' value balances,
+/// which is the whole fee only when nothing else moves value (a vault transaction has no transparent
+/// or Sapling part). A negative total is not a fee and is refused.
+pub fn fee_and_actions(pczt: &::pczt::Pczt) -> Result<(u64, u64), String> {
+    let (o, i) = (bundle_fee(pczt, false)?, bundle_fee(pczt, true)?);
+    let fee = o
+        .value_balance
+        .checked_add(i.value_balance)
+        .ok_or("[fee] the transaction's value balance is out of range")?;
+    let fee = u64::try_from(fee).map_err(|_| {
+        format!(
+            "[fee] the transaction adds {} zatoshis to the shielded pools instead of paying a fee",
+            fee.unsigned_abs()
+        )
+    })?;
+    Ok((fee, (o.actions + i.actions) as u64))
+}

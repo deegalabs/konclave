@@ -217,6 +217,41 @@ const _: () = assert!(
     "the mainnet fee table is malformed"
 );
 
+/// The marginal fee of the era before ZIP 2009: what every builder paid until the switch, and what a
+/// builder pays whenever it has no permission to pay less. Read from the table, never written twice.
+pub const LEGACY_MARGINAL_FEE: u64 = MAINNET.fees[0].builds;
+
+/// THE builder's fee rule (B3b): the marginal fee per logical action a builder pays for a transaction
+/// targeting `target_height`. The ZIP 2009 era of [`MAINNET`] applies only when the vault has
+/// `permitted` it (every seat's device reported that it reads that rate, and the operator's switch is
+/// open) AND the target is inside the era; otherwise it is [`LEGACY_MARGINAL_FEE`]. It is a PERMISSION,
+/// not a marginal fee passed around: the builder cannot be told a number, only whether it may use the
+/// era's, so a wrong caller cannot name a fee the table does not hold.
+pub fn fee_rule_for(target_height: u32, permitted: bool) -> u64 {
+    if permitted {
+        MAINNET.builder_marginal_fee(target_height)
+    } else {
+        LEGACY_MARGINAL_FEE
+    }
+}
+
+/// The marginal fees a transaction built for `target_height` may carry, for the party that checks its
+/// OWN build (the coordinator's guard): without permission only [`LEGACY_MARGINAL_FEE`]; with it, what
+/// the era at the target accepts. The builder's choice is always one of them (`fee_rule_for`), so the
+/// guard refuses a build that did not follow its rule, and never a build that did.
+pub fn fee_marginals_permitted(target_height: u32, permitted: bool) -> Vec<u64> {
+    if !permitted {
+        return vec![LEGACY_MARGINAL_FEE];
+    }
+    MAINNET
+        .fees
+        .iter()
+        .rfind(|e| e.from_height <= target_height)
+        .unwrap_or(&MAINNET.fees[0])
+        .accepts
+        .to_vec()
+}
+
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeightBounds {
@@ -1147,5 +1182,54 @@ mod tests {
             anchor: MAINNET.anchor,
         };
         assert_eq!(LATER.estimated_fee(T_F + 30 * 86_400, 1), Some(3_000));
+    }
+
+    // F2 part 1: the builder's rule against LITERAL heights and values, written here and not read
+    // back from the table, so a table that moves alone, or a rule that stops reading the era, fails.
+    #[test]
+    fn the_builder_pays_1000_only_with_permission_and_only_inside_the_era() {
+        for (height, permitted, want) in [
+            (3_589_999, true, 5_000),
+            (3_590_000, true, 1_000),
+            (3_590_001, true, 1_000),
+            (u32::MAX, true, 1_000),
+            (3_589_999, false, 5_000),
+            (3_590_000, false, 5_000),
+            (u32::MAX, false, 5_000),
+            (0, true, 5_000),
+        ] {
+            assert_eq!(
+                fee_rule_for(height, permitted),
+                want,
+                "{height} {permitted}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_the_guard_permits_follows_the_same_rule() {
+        assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
+        // Whatever the builder pays for a target is among what the guard permits for it.
+        for h in [0, 3_589_999, 3_590_000, 4_000_000] {
+            for p in [false, true] {
+                assert!(fee_marginals_permitted(h, p).contains(&fee_rule_for(h, p)));
+            }
+        }
+    }
+
+    #[test]
+    fn the_fee_at_the_boundary_is_marginal_times_max_of_two_and_actions() {
+        for n in 1..=8u64 {
+            assert_eq!(
+                conventional_fee(fee_rule_for(3_589_999, true), n),
+                Some(5_000 * n.max(2))
+            );
+            assert_eq!(
+                conventional_fee(fee_rule_for(3_590_000, true), n),
+                Some(1_000 * n.max(2))
+            );
+        }
     }
 }

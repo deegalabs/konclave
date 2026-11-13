@@ -89,7 +89,15 @@ pub fn consensus_branch_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
 pub fn action_count_of(pczt_bytes: &[u8]) -> Result<usize, ToolError> {
     let pczt = ::pczt::Pczt::parse(pczt_bytes)
         .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
-    Ok(pczt.orchard().actions().len() + pczt.ironwood().actions().len())
+    // The count is `konclave_seal::spends`' (the device's fee check reads the same one), not a second one.
+    Ok(konclave_seal::spends::action_count(&pczt))
+}
+
+/// The fee the PCZT pays and its logical actions, by the reader the device judges the fee with.
+pub fn fee_and_actions_of(pczt_bytes: &[u8]) -> Result<(u64, u64), ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
+    konclave_seal::spends::fee_and_actions(&pczt).map_err(|e| ToolError::parse("pczt", e))
 }
 
 /// The copy of a proven PCZT that goes into the signing room: the same transaction without the

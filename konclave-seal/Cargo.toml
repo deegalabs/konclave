@@ -19,6 +19,9 @@ rand = "0.8"
 # viewing key derives, read by the device and the coordinator. The same orchard release both link.
 orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"], optional = true }
 ff = { version = "0.14", optional = true }
+# Only the `orchard` feature, and no defaults, so the wasm32 build stays free of sapling and the
+# transparent code (see konclave-wasm). It is what the one fee/action reader below reads.
+pczt = { version = "0.10.0", default-features = false, features = ["orchard"], optional = true }
 zcash_address = { version = "0.14.0", optional = true }
 zcash_protocol = { version = "0.11.0", default-features = false, optional = true }
 # Only for the `share-sig` feature: the 0.5.2 line konclave-wasm signs room messages with, without
@@ -30,7 +33,7 @@ ed25519-dalek = { version = "2", default-features = false, optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 
 [features]
-pczt = ["dep:orchard", "dep:ff"]
+pczt = ["dep:orchard", "dep:ff", "dep:pczt"]
 share-sig = ["dep:reddsa", "dep:pasta_curves", "dep:ed25519-dalek", "dep:serde"]
 receivers = ["dep:orchard", "dep:zcash_address", "dep:zcash_protocol"]
 
