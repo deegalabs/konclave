@@ -109,6 +109,7 @@ describe("the owner's claim and record reach the signer", () => {
     expect(panel).toMatch(/lapsedAt=\{signedBefore\?\.lapsedAt \?\? null\}/)
     expect(panel).toMatch(/lapsedTxid=\{signedBefore\?\.lapsedTxid \?\? null\}/)
     expect(panel).toMatch(/sameOutputs=\{signedBefore\?\.sameOutputs \?\? false\}/)
+    expect(panel).toMatch(/sameAt=\{signedBefore\?\.sameAt\}/)
     expect(src).toMatch(/lapsedAt: null, sameOutputs: !!last\.sameOutputs, sameAt: last\.sameAt \}/)
     expect(src).toMatch(/lapsedOf: \{ k: ours \? 1 : 0, n: lapsed\.earlier\.length \}, sameOutputs: !!lapsed\.sameOutputs, sameAt: lapsed\.sameAt \}/)
   })

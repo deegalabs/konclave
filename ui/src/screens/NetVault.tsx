@@ -640,6 +640,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
       // ---- signing over the relay (Marco 4): all bytes below are public. The ceremony state and
       // its sreq|s1|sp|s2|signed handlers live in the shared SigningMachine (issue #50). ----
+      // With a coordinator configured, a signing request is the app's to answer (the proposal's
+      // signing panel), never this page's: dropped, so it is not met with a refusal that does not apply.
+      if (parsed.type === 'sreq' && helperConfigured()) return true
       if (
         parsed.type === 'sreq' ||
         parsed.type === 's1' ||

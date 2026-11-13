@@ -22,4 +22,7 @@ describe('/net does not execute a proposal where a coordinator is configured', (
     expect(src).toMatch(/if \(parseSignRequest\(reqData\)\) return true/)
     expect(src).not.toMatch(/tryHelperRequest/)
   })
+  it('an inline signing request is dropped when a coordinator is configured', () => {
+    expect(src).toMatch(/if \(parsed\.type === 'sreq' && helperConfigured\(\)\) return true/)
+  })
 })

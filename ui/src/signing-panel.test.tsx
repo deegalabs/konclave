@@ -314,16 +314,32 @@ describe('the confirm for signing again', () => {
   })
   it('the same lines under another proposal ask whether this is a separate payment', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} sameOutputs sameAt={1_792_490_400_000} locale="en" />)
-    expect(html).toMatch(/signing\.againSameBody amt=1 when=\d{2}\/\d{2}\/2026/)
+    expect(html).toMatch(/signing\.againSameBody amt=1 whenPhrase=signing\.sameOn when=\d{2}\/\d{2}\/2026/)
     expect(html).toContain('signing.againSameChecked')
     expect(html).not.toContain('signing.againBody')
   })
   it('the same lines under another proposal, after a lapse, show no lapse txid line and no until line', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} sameOutputs sameAt={1_792_490_400_000} lapsedAt={9} lapsedTxid={'ab'.repeat(32)} lapsedOf={{ k: 1, n: 1 }} locale="en" />)
-    expect(html).toContain('signing.againSameBody')
+    expect(html).toContain('signing.againSameLapsedBody')
+    expect(html).toContain('signing.againSameLapsedChecked block=9')
     expect(html).not.toContain('signing.againLapsedTxid')
     expect(html).not.toContain('signing.againUntil')
     expect(html).not.toContain('sign-again-txid')
+  })
+  // R3-A: the same lines under another proposal while that signature can still go out: the screen says
+  // until when, and the only answer offered is "a separate payment" (not "it did not go out": an
+  // explorer cannot show a transaction the coordinator is still holding back).
+  it('the same lines, earlier signature still alive: shows until when, and offers only "a separate payment"', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} sameOutputs sameAt={1_792_490_400_000} lapsedAt={null} locale="en" />)
+    expect(html).toContain('signing.againSameBody')
+    expect(html).toContain('signing.againUntil')
+    expect(html).toContain('signing.againSameChecked')
+    expect(html).not.toContain('signing.againSameLapsedChecked')
+  })
+  it('the same lines with no time in the record: no date, never a "?"', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} sameOutputs locale="en" />)
+    expect(html).toContain('whenPhrase=signing.sameEarlier')
+    expect(html).not.toContain('when=?')
   })
   it('claims no time that has already passed', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_480_000} locale="en" />)

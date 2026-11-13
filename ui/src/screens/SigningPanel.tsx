@@ -150,9 +150,9 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   // device still asks (a lapse, below); nothing is said here when it is unknown or already past.
   // The epoch wording only when WASM named the block the upgrade cuts it at; an unknown time says so
   // instead of staying silent (a decision with no turning point is not "nothing to wait for").
-  // The "until" line is about an earlier attempt at THIS proposal: not shown for a lapse, nor for the
-  // same lines under another proposal (a separate payment there is expected to have gone out).
-  const until = lapsedAt !== null || sameOutputs ? '' : firstUntil * 1000 > now
+  // The "until" line: while an earlier signature (under this proposal or another with the same lines)
+  // may still go out, the screen says until when. Not shown once it lapsed.
+  const until = lapsedAt !== null ? '' : firstUntil * 1000 > now
     ? byEpoch && untilHeight !== null
       ? t('signing.againUntilEpoch', { when: fmtWhen(firstUntil, locale), block: untilHeight })
       : t('signing.againUntil', { when: fmtWhen(firstUntil, locale) })
@@ -182,7 +182,11 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
         <>
           <p id="sign-again-body" className="modal-p">
             {sameOutputs
-              ? t('signing.againSameBody', { amt, when: sameAt ? fmtWhen(Math.floor(sameAt / 1000), locale) : '?' })
+              ? t(lapsedAt !== null ? 'signing.againSameLapsedBody' : 'signing.againSameBody', {
+                  amt,
+                  // The device's own time of that signature; without one (a damaged record), no date.
+                  whenPhrase: sameAt ? t('signing.sameOn', { when: fmtWhen(Math.floor(sameAt / 1000), locale) }) : t('signing.sameEarlier'),
+                })
               : lapsedAt !== null
                 ? t((lapsedOf?.n ?? 1) > 1 ? 'signing.againLapsedBodyMany' : 'signing.againLapsedBody', { amt, block: lapsedAt, n: lapsedOf?.n ?? 1 })
                 : t('signing.againBody', { amt })}
@@ -201,7 +205,7 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
           )}
           <label className="check-row mt-sm">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-            <span>{sameOutputs ? t('signing.againSameChecked') : lapsedAt !== null ? t('signing.againLapsedChecked', { block: lapsedAt }) : t('signing.againChecked')}</span>
+            <span>{sameOutputs ? (lapsedAt !== null ? t('signing.againSameLapsedChecked', { block: lapsedAt }) : t('signing.againSameChecked')) : lapsedAt !== null ? t('signing.againLapsedChecked', { block: lapsedAt }) : t('signing.againChecked')}</span>
           </label>
         </>
       ) : (
