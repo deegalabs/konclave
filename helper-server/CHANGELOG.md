@@ -102,7 +102,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
   value is refused with a 400, and a registration that names no seat writes nothing. The report
   is not authenticated (whoever may register that seat's keys can set or clear it): a hint about
-  availability, never a guarantee. Nothing reads it yet: what a payment pays does not change.
+  availability, never a guarantee. The builder's permission reads it (a vault is permitted the lower
+  fee only when every seat reported it and the operator's switch is `per-vault`); with the switch at
+  its default, what a payment pays does not change.
 
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
@@ -219,10 +221,13 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 - **The lower fee ZIP 2009 allows is not in use yet (#847).** The coordinator pays 5,000 per action
   unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
   maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
-  pays it only when every seat has reported that its device accepts it. A seat's report is a hint,
-  not a proof: a member holding the vault's read key can change another seat's report, which can
-  withhold or delay the lower fee (availability), never lower the fee below what the table and the
-  devices accept.
+  pays it only when every seat has reported that its device accepts it. A seat's report is
+  self-declared and is not authenticated against the members: a member holding the vault's read key
+  can change another seat's report. And two devices of one seat share one registration, so the newest
+  one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
+  device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
+  (the payment does not go out at that fee), never funds: the device's own fee check stays the
+  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already

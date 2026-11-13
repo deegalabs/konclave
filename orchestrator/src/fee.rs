@@ -78,10 +78,13 @@ fn thousands(n: u64) -> String {
 /// table has it. Anything else is `(false, None)`: switch ON, no seat count (`None`), no seats (empty),
 /// or one seat that reported nothing.
 ///
-/// A report is a HINT, not a proof: a member holding the read key can change another seat's report,
-/// which can only withhold the lower fee or delay it (availability), never lower the fee below the
-/// table or below what a device accepts. The height the permission is judged at is the coordinator's
-/// own tip, never a report (`guard_built_fee`, the signer's own wallet target).
+/// A report is self-declared and NOT authenticated against the members: a member with the read key can
+/// change another seat's report, and two devices of one seat share one registration (the newest speaks
+/// for the seat). So the coordinator can build at the lower fee for a vault where a signing device
+/// still refuses it, and that device then refuses the ceremony: availability (the payment does not go
+/// out at that fee), never funds. The device's own fee check is the defence; the operator's switch
+/// (`KONCLAVE_FEE_MARGINAL_MAX=5000`) is the remedy. The height the permission is judged at is the
+/// coordinator's own tip, never a report (`guard_built_fee`, the signer's own wallet target).
 pub fn vault_fee_permission(
     switch: FeeSwitch,
     reports: Option<&[Option<u32>]>,
