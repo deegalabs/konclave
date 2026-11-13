@@ -289,7 +289,7 @@ describe('the confirm for signing again', () => {
   it('after a lapse, says it cannot tell whether the earlier attempt was mined, names the block, and holds the CTA', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={3_600_123} locale="en" />)
     expect(html).toContain('signing.againLapsedBody amt=1 block=3600123')
-    expect(html).toContain('signing.againLapsedChecked')
+    expect(html).toContain('signing.againLapsedChecked block=3600123')
     expect(html).not.toContain('signing.againBody')
     expect(html).not.toContain('signing.againUntil')
     expect(html).not.toContain('signing.againNoTime')
@@ -298,12 +298,25 @@ describe('the confirm for signing again', () => {
   })
   it('after a lapse, shows an earlier txid only as one this device checked, and says so when it cannot', () => {
     const tx = 'ab'.repeat(32)
-    const shown = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={tx} lapsedOf={{ k: 1, n: 2 }} locale="en" />)
-    expect(shown).toContain('signing.againLapsedTxid k=1 n=2')
+    const shown = renderToStaticMarkup(<I18nProvider><SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={tx} lapsedOf={{ k: 1, n: 2 }} locale="en" /></I18nProvider>)
+    expect(shown).toContain('signing.againLapsedTxid')
+    expect(shown).toContain('signing.againLapsedPartial k=1 n=2')
+    expect(shown).toMatch(/aria-describedby="[^"]*sign-again-txid/)
     expect(shown).toContain(tx)
     const none = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={null} lapsedOf={{ k: 0, n: 1 }} locale="en" />)
     expect(none).toContain('signing.againLapsedNoTxid')
     expect(none).not.toContain('signing.againLapsedTxid')
+    expect(none).not.toContain('signing.againLapsedPartial')
+  })
+  it('several earlier attempts are worded as several, and every one is shown as identified only when it is', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={null} lapsedOf={{ k: 0, n: 3 }} locale="en" />)
+    expect(html).toContain('signing.againLapsedBodyMany amt=1 block=9 n=3')
+  })
+  it('the same lines under another proposal ask whether this is a separate payment', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} sameOutputs locale="en" />)
+    expect(html).toContain('signing.againSameBody amt=1')
+    expect(html).toContain('signing.againSameChecked')
+    expect(html).not.toContain('signing.againBody')
   })
   it('claims no time that has already passed', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_480_000} locale="en" />)

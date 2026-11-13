@@ -16,7 +16,9 @@
 // A hash of the sighash, not the sighash. It is NOT a privacy boundary: the hash is unsalted and sits
 // beside the expiry, so whoever reads this storage can hash the public txids of each expiry window and
 // find which transactions this device signed (the txid is the sighash byte-reversed). It is kept as a
-// hash because the device only needs to compare. A keyed record is a separate item. The record lives in
+// hash because the device only needs to compare. The same holds for `o`, an unsalted hash of what a
+// payment paid (receivers, amounts, memos): it is a local record, readable by whoever reads this
+// storage. A keyed record is a separate item. The record lives in
 // the browser's own storage so it outlives a reload, which a record in memory did not.
 import { approvalDecision } from './wasm-pkg/konclave_wasm.js'
 

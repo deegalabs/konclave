@@ -10,6 +10,10 @@ describe('/net does not execute a proposal where a coordinator is configured', (
   it('the page has no way to execute a proposal: it never calls executeProposal', () => {
     expect(src).not.toMatch(/\bexecuteProposal\b/)
   })
+  it('its signer contributes to no coordinator request: the claim refuses, so no share leaves', () => {
+    expect(src).toMatch(/claim: \(\) => false,/)
+    expect(src).not.toMatch(/claim: \(\) => true/)
+  })
   it('the proposal row offers the signing panel, not a Sign & send button', () => {
     expect(src).not.toMatch(/'Sign & send'/)
     expect(src).toMatch(/nav\('\/proposal', \{ state: \{ id: p\.id \} \}\)/)

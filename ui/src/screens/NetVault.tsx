@@ -276,8 +276,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
   // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
-  // Proposals: proposing/voting lives in the PWA (Dashboard). /net only lists the READY ones and
-  // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
+  // Proposals: proposing, voting and signing live in the app (the proposal's signing panel). /net
+  // only lists the READY ones and opens each there.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
@@ -497,8 +497,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       // background signer have diverged three times (#424, #425, #363) because a rule lived in one
       // and not the other. It cannot silently miss this one - it has to say so, here.
       decideApproval: () => 'match',
-      // /net binds no consent to a transaction (Known limits, with its missing content gate).
-      claim: () => true,
+      // /net binds no consent to a transaction and keeps no record, so it contributes to no
+      // coordinator's signing request: a proposal is signed from its signing panel (VaultSigner),
+      // which does both. This is the only place a request reaches a share here, so /net signs none.
+      // (Creation does not go through it.)
+      claim: () => false,
       // Nor does it keep a record of what it signed: /net has no proposal to key it by (Known limits).
       record: async () => {},
       seatOf: (tag) => seatByTagRef.current.get(tag),
@@ -1615,7 +1618,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                         className="net-btn primary"
                         onClick={() => { setSelectedVault(groupVk); nav('/proposal', { state: { id: p.id } }) }}
                       >
-                        {pe('Abrir para assinar', 'Open to sign')}
+                        {tt('dashboard.goSign')}
                       </button>
                     </div>
                   </li>

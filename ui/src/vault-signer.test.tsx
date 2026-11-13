@@ -97,6 +97,18 @@ describe("the owner's claim and record reach the signer", () => {
     expect(src).toMatch(/\(sighashHex: string, expiry: number, branch: number\) => owner\.current\.record\(sighashHex, expiry, branch\)/)
     expect(src).toMatch(/return r === 'ok'/)
   })
+  // After a lapse: the screen is told, with the block, and an earlier txid only when this device
+  // checked it signed it (a coordinator's txid is never shown on its word).
+  it('a lapse reaches the screen, and a txid is shown only when the device confirmed it', () => {
+    const src = codeOf('./VaultSigner.tsx')
+    expect(src).toMatch(/if \(r === 'lapsed' && lapsed\)/)
+    expect(src).toMatch(/const ours = cand \? await txidIsOurs\(cand, lapsed\.hashes \?\? \[\]\) : false/)
+    expect(src).toMatch(/lapsedTxid: ours \? cand : null/)
+    expect(src).not.toMatch(/lapsedTxid: cand\b/)
+    const panel = codeOf('./screens/SigningPanel.tsx')
+    expect(panel).toMatch(/lapsedAt=\{signedBefore\?\.lapsedAt \?\? null\}/)
+    expect(panel).toMatch(/lapsedTxid=\{signedBefore\?\.lapsedTxid \?\? null\}/)
+  })
   it('the hook hands them to the session unchanged', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s*claim,\s*record,\s/)
   })

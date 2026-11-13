@@ -6,6 +6,8 @@ import { OwnerSigning } from './owner-signing'
 import { ARM_TTL_MS } from './signing-gate'
 import { readSigned, type RecordStore } from './signed-record'
 import { pinClock, unpinClock } from './test-vectors'
+import { readdirSync } from 'node:fs'
+import { codeOf } from './source-scan'
 
 // What the device did with an earlier transaction depends on the clock (WASM reads `Date.now()`), so
 // these tests run at a pinned instant. On the real clock they pass until the upgrade and fail after.
@@ -57,7 +59,7 @@ describe('the owner signing on this device', () => {
     reloaded.give('p1', Date.now())
     // ...does not cover another transaction for the same approval while the first is alive.
     expect(await reloaded.claim('v1', 'p1', B, ALIVE)).toEqual('second')
-    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), untilHeight: null, byEpoch: false, sighash: B })
+    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), untilHeight: null, byEpoch: false, sighash: B, sameOutputs: false })
     expect(reloaded.allows('p1'), 'the refused click is spent').toBe(false)
   })
 
@@ -215,8 +217,41 @@ describe('the owner signing on this device', () => {
     o.give('p1', now)
     await o.claim('v1', 'p1', A, DEAD, 'K')
     await o.record(A, DEAD, NU63)
-    now += 8 * 24 * 3600 * 1000
+    // Inside the horizon the same payment is recognised; past it, it is not.
+    now += 6 * 24 * 3600 * 1000
     o.give('p2', now)
-    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('ok')
+    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('lapsed')
+    now += 2 * 24 * 3600 * 1000
+    o.give('p3', now)
+    expect(await o.claim('v1', 'p3', B, ALIVE, 'K')).toBe('ok')
+  })
+
+  it('a decision from another proposal paying the same lines is marked, so the screen can ask whether it is a separate payment', async () => {
+    const store = memory()
+    const o = new OwnerSigning(store)
+    o.give('p1', Date.now())
+    await o.claim('v1', 'p1', A, ALIVE, 'K')
+    await o.record(A, ALIVE, NU63)
+    o.give('p2', Date.now())
+    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('second')
+    expect(o.lastSecond?.sameOutputs).toBe(true)
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', B, ALIVE, 'K')).toBe('second')
+    expect(o.lastSecond?.sameOutputs, 'under its own proposal it is not the bridge').toBe(false)
+  })
+})
+
+// The pin: one place handles what the WASM rule decides. No driver reads `afterExpiry` itself.
+describe('the pin: only OwnerSigning handles the decision', () => {
+  it('no source file but owner-signing.ts and signed-record.ts names afterExpiry', () => {
+    const hits: string[] = []
+    const walk = (sub: string) => {
+      for (const e of readdirSync(new URL(sub, new URL('./', import.meta.url)), { withFileTypes: true })) {
+        if (e.isDirectory()) { if (e.name !== 'wasm-pkg') walk(`${sub}${e.name}/`) }
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) && /afterExpiry/.test(codeOf(`./${sub}${e.name}`))) hits.push(`${sub}${e.name}`)
+      }
+    }
+    walk('')
+    expect(hits.sort()).toEqual(['owner-signing.ts', 'signed-record.ts'])
   })
 })

@@ -287,7 +287,7 @@ export function forgetPlansForTests(): void {
  *  device's signing record keeps it so the same payment is recognised under a new proposal id, until
  *  approvals are bound to content (#567). */
 export async function paidKey(lines: ApprovedLine[]): Promise<string> {
-  const rows = lines.map((l) => [norm(l.toReceiver), l.amountZat, l.memo]).map((r) => JSON.stringify(r)).sort()
+  const rows = lines.map((l) => [norm(l.toReceiver), l.amountZat, l.memo.normalize('NFC')]).map((r) => JSON.stringify(r)).sort()
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(rows))))
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('')
 }

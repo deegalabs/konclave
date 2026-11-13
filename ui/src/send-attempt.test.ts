@@ -63,11 +63,3 @@ describe('the panel goes through the send memory', () => {
     expect(button).not.toMatch(/doSend/)
   })
 })
-
-describe('/net sends nothing of its own', () => {
-  // It used to execute a ready proposal and read the reply here; that driver kept no record and
-  // checked no approval, so a proposal is now signed and sent from its signing panel (net-execute.test.ts).
-  it('NetVault never calls executeProposal', () => {
-    expect(codeOf('./screens/NetVault.tsx')).not.toMatch(/\bexecuteProposal\b/)
-  })
-})

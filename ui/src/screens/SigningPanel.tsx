@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom'
 import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useI18n, useT, type TFn } from '../i18n'
+import CopyButton from '../CopyButton'
 import { useToast } from '../toast'
 import { fmtZecExact, zatToZec } from '../format'
 import { useVaultSigner } from '../VaultSigner'
@@ -104,7 +105,7 @@ function PlanLines({ lines: rows }: { lines: ApprovedPlan['lines'] }) {
   )
 }
 
-export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, lapsedTxid = null, lapsedOf, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, lapsedTxid = null, lapsedOf, sameOutputs = false, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, from `approvalDecision`); 0 when unknown. */
   firstUntil: number
@@ -120,6 +121,9 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   lapsedTxid?: string | null
   /** How many earlier attempts there are, and how many of them the screen could identify. */
   lapsedOf?: { k: number; n: number }
+  /** The earlier signature was for ANOTHER proposal that paid exactly these lines: it may be a
+   *  separate payment, so the owner is asked whether this one is the same payment again. */
+  sameOutputs?: boolean
   locale: 'pt-BR' | 'en'
   amt: string
   usd?: string | null
@@ -140,8 +144,8 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
 }) {
   const [checked, setChecked] = useState(false)
   const title = again ? t('signing.againTitle') : iWouldBeLast ? t('signing.confirmTitle') : t('signing.confirmSignTitle')
-  // The rule's own turning point: after it, a new attempt is signed without this confirm. Nothing
-  // is said when it is unknown or already past (the confirm then no longer applies).
+  // The rule's own turning point: until then the earlier attempt may still go out. After it the
+  // device still asks (a lapse, below); nothing is said here when it is unknown or already past.
   // The epoch wording only when WASM named the block the upgrade cuts it at; an unknown time says so
   // instead of staying silent (a decision with no turning point is not "nothing to wait for").
   const until = lapsedAt !== null ? '' : firstUntil * 1000 > now
@@ -157,7 +161,7 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
       className="modal-overlay"
       cardClassName="modal-card danger sign-confirm"
       labelledBy="sign-confirm-title"
-      describedBy={again ? (until ? 'sign-again-body sign-again-until sign-confirm-what' : 'sign-again-body sign-confirm-what') : 'sign-confirm-what'}
+      describedBy={again ? ['sign-again-body', until && 'sign-again-until', lapsedAt !== null && 'sign-again-txid', 'sign-confirm-what'].filter(Boolean).join(' ') : 'sign-confirm-what'}
       focusCard={again}
       onClose={onCancel}
     >
@@ -173,20 +177,27 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
       {again ? (
         <>
           <p id="sign-again-body" className="modal-p">
-            {lapsedAt !== null ? t('signing.againLapsedBody', { amt, block: lapsedAt }) : t('signing.againBody', { amt })}
+            {sameOutputs
+              ? t('signing.againSameBody', { amt })
+              : lapsedAt !== null
+                ? t((lapsedOf?.n ?? 1) > 1 ? 'signing.againLapsedBodyMany' : 'signing.againLapsedBody', { amt, block: lapsedAt, n: lapsedOf?.n ?? 1 })
+                : t('signing.againBody', { amt })}
             {iWouldBeLast && <> {t('signing.confirmBody')}</>}
           </p>
           {until && <p id="sign-again-until" className="modal-p">{until}</p>}
           {lapsedAt !== null && (
-            <p className="modal-p">
-              {lapsedTxid
-                ? <>{t('signing.againLapsedTxid', { k: lapsedOf?.k ?? 1, n: lapsedOf?.n ?? 1 })} <code className="sign-txid">{lapsedTxid}</code></>
-                : t('signing.againLapsedNoTxid')}
-            </p>
+            <>
+              {/* Announced without the 64-character id itself; the id follows, with a copy button. */}
+              <p id="sign-again-txid" className="modal-p">
+                {lapsedTxid ? t('signing.againLapsedTxid') : t('signing.againLapsedNoTxid')}
+                {lapsedTxid && (lapsedOf?.k ?? 1) < (lapsedOf?.n ?? 1) && <> {t('signing.againLapsedPartial', { k: lapsedOf?.k ?? 1, n: lapsedOf?.n ?? 1 })}</>}
+              </p>
+              {lapsedTxid && <p className="modal-p"><code className="sign-txid">{lapsedTxid}</code> <CopyButton value={lapsedTxid} /></p>}
+            </>
           )}
           <label className="check-row mt-sm">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-            <span>{lapsedAt !== null ? t('signing.againLapsedChecked') : t('signing.againChecked')}</span>
+            <span>{sameOutputs ? t('signing.againSameChecked') : lapsedAt !== null ? t('signing.againLapsedChecked', { block: lapsedAt }) : t('signing.againChecked')}</span>
           </label>
         </>
       ) : (
@@ -992,6 +1003,7 @@ export default function SigningPanel() {
           lapsedAt={signedBefore?.lapsedAt ?? null}
           lapsedTxid={signedBefore?.lapsedTxid ?? null}
           lapsedOf={signedBefore?.lapsedOf}
+          sameOutputs={signedBefore?.sameOutputs ?? false}
           fee={amountZat !== null && feeKnown ? fmtZecExact(feeZat / 1e8) : undefined}
           total={amountZat !== null && feeKnown ? fmtZecExact((amountZat + feeZat) / 1e8) : undefined}
           locale={locale}

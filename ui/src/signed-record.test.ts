@@ -191,13 +191,27 @@ describe('what a new transaction is, by the rule in WASM', () => {
 describe('txidIsOurs', () => {
   it('matches a txid to the record entry of its sighash, and nothing else', async () => {
     const { txidIsOurs, hashSighash: hs } = await import('./signed-record')
-    const sighash = '01' + 'ab'.repeat(30) + 'ff'
-    const txid = sighash.match(/../g)!.reverse().join('')
+    // Oracle values from another implementation: the repo's Ironwood vector, sighash from
+    // `konclave-signer extract`, txid from `zcash-devtool pczt inspect` (orchestrator/src/pczt.rs).
+    const sighash = '332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0'
+    const txid = 'b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33'
     const h = await hs(sighash)
     expect(await txidIsOurs(txid, [h])).toBe(true)
     expect(await txidIsOurs(txid.toUpperCase(), [h])).toBe(true)
     expect(await txidIsOurs(sighash, [h]), 'not reversed').toBe(false)
     expect(await txidIsOurs(txid, [])).toBe(false)
     expect(await txidIsOurs('zz', [h])).toBe(false)
+  })
+})
+
+describe('the record refuses an entry it cannot read, the new fields included', () => {
+  it('a payment key that is not text, or a time that is not a whole number, is unreadable', async () => {
+    const { readSigned, readByOutputs } = await import('./signed-record')
+    for (const bad of [{ h: 'x', e: 1, o: 5 }, { h: 'x', e: 1, o: 'k', t: 'soon' }, { h: 'x', e: 1, t: 1.5 }]) {
+      const data = new Map([['konclave.signed.v1', JSON.stringify({ p1: [bad] })]])
+      const store = { getItem: (k: string) => data.get(k) ?? null, setItem: () => {} }
+      expect(() => readSigned(store, 'v1', 'p1')).toThrow('unreadable')
+      expect(() => readByOutputs(store, 'v1', 'k', 0)).toThrow('unreadable')
+    }
   })
 })

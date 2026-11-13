@@ -24,12 +24,12 @@ export class OwnerSigning {
    *  withdrawn; a new click on the same payment keeps it, so a ceremony under way is not cut. */
   private claimed: { vault: string; proposal: string; sighash: string; outputs?: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
-  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string } | null = null
+  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string; sameOutputs?: boolean } | null = null
   /** The last new transaction refused because every earlier one for the approval can no longer be
    *  mined: the device does not know whether one WAS mined, so signing again may pay twice. For the
    *  screen: which approval, the transaction refused, and the block each earlier one expired at
    *  (the most it could have been mined at). */
-  lastLapsed: { proposal: string; sighash: string; earlier: number[]; hashes?: string[] } | null = null
+  lastLapsed: { proposal: string; sighash: string; earlier: number[]; hashes?: string[]; sameOutputs?: boolean } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -87,7 +87,9 @@ export class OwnerSigning {
     const h = sighashHex.trim().toLowerCase()
     if (decision.kind === 'second' && !(this.again?.proposal === activeId && this.again.sighash === h)) {
       this.consent.spent = true
-      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h }
+      // `sameOutputs`: the earlier transaction was under ANOTHER proposal that paid the same lines; it
+      // may be a separate, honest payment, so the screen asks differently.
+      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h, sameOutputs: earlierList !== null }
       return 'second'
     }
     const answered = this.again?.proposal === activeId && this.again.sighash === h
@@ -98,7 +100,7 @@ export class OwnerSigning {
       let list: SignedTx[] = []
       try { list = earlierList ?? readSigned(this.store, vault, activeId) } catch { /* decided above */ }
       // The hashes let the screen show an earlier txid it is handed only when this device signed it.
-      this.lastLapsed = { proposal: activeId, sighash: h, earlier: list.map((t) => t.e), hashes: list.map((t) => t.h) }
+      this.lastLapsed = { proposal: activeId, sighash: h, earlier: list.map((t) => t.e), hashes: list.map((t) => t.h), sameOutputs: earlierList !== null }
       return 'lapsed'
     }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'
