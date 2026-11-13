@@ -611,5 +611,8 @@ describe('the sign-again confirm, accessibility pins', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src).toMatch(/if \(closed && typeof document !== 'undefined' && document\.activeElement === document\.body\) \(errRef\.current \?\? sheetRef\.current\)\?\.focus\(\)/)
     expect(src).toMatch(/<CopyButton value=\{lapsedTxid\} label=\{t\('signing\.copyTxid'\)\} \/>/)
+    // An inline ref is a new function each render, so React would call it (and focus) on every commit.
+    expect(src).not.toMatch(/ref=\{\(el\) =>/)
+    expect(src).toMatch(/className="sign-err" tabIndex=\{-1\} ref=\{errMount\}/)
   })
 })

@@ -383,6 +383,8 @@ export default function SigningPanel() {
   // `Dialog` because the sheet keeps its own layout, so these rules are a copy of `Dialog`'s, kept here for now.
   const sheetRef = useRef<HTMLElement | null>(null)
   const errRef = useRef<HTMLDivElement | null>(null)
+  // Stable, so the message takes focus once when it mounts, not on every render of the panel.
+  const errMount = useCallback((el: HTMLDivElement | null) => { errRef.current = el; el?.focus() }, [])
   // A confirm that closed itself took its opener ("Sign again") with it: focus goes to the message,
   // or the panel, never the page body (WCAG 2.4.3). Only on the confirm closing, not on the sheet's.
   const wasConfirming = useRef(false)
@@ -873,7 +875,7 @@ export default function SigningPanel() {
               <Link className="btn ghost sm-btn mt-sm" to="/ledger" onClick={close}>{t('signing.openLedger')}</Link>
             </div>
           ) : errMsg ? (
-            <div key="error" className="sign-err" tabIndex={-1} ref={(el) => { errRef.current = el; focusOnMount(el) }}>
+            <div key="error" className="sign-err" tabIndex={-1} ref={errMount}>
               <div className="hint err" role="alert" id="sign-err-text">{errShown.text}</div>
               {/* A refusal shows what the device read, so the member can compare it with the
                   proposal as the message asks; and no Try again, because a refusal is not a failed send. */}
