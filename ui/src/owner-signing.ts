@@ -7,9 +7,19 @@
 // A coordinator that says a send failed cannot make that second signature silent: the failure ends
 // the click, not the record.
 import { claimConsent, consentAllows, giveConsent, newConsent, withdrawConsent, type OwnerConsent } from './signing-gate'
-import { decideFor, recordSigned, type RecordStore } from './signed-record'
+import { decideAmong, decideFor, readByOutputs, readSigned, recordSigned, type RecordStore, type SignedTx } from './signed-record'
 
-export type Claim = 'ok' | 'second' | 'refused' | 'unreadable'
+/** How long a payment this device signed marks a new proposal that pays the same outputs. */
+export const SAME_OUTPUTS_HORIZON_MS = 7 * 24 * 3600 * 1000
+
+/** When this device itself recorded the latest of `list` (ms), from its own record: the coordinator
+ *  cannot set it, so the screen can quote it. */
+function lastAt(list: SignedTx[] | null): number | undefined {
+  const ts = (list ?? []).map((t) => t.t).filter((t): t is number => typeof t === 'number')
+  return ts.length ? Math.max(...ts) : undefined
+}
+
+export type Claim = 'ok' | 'second' | 'lapsed' | 'refused' | 'unreadable'
 
 export class OwnerSigning {
   readonly consent: OwnerConsent = newConsent()
@@ -19,9 +29,14 @@ export class OwnerSigning {
   /** The transaction this consent cleared, and for which approval: the only one a share may go into,
    *  recorded under that approval whatever the screen shows by then. Gone when the consent is
    *  withdrawn; a new click on the same payment keeps it, so a ceremony under way is not cut. */
-  private claimed: { vault: string; proposal: string; sighash: string } | null = null
+  private claimed: { vault: string; proposal: string; sighash: string; outputs?: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
-  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string } | null = null
+  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string; sameOutputs?: boolean; sameAt?: number } | null = null
+  /** The last new transaction refused because every earlier one for the approval can no longer be
+   *  mined: the device does not know whether one WAS mined, so signing again may pay twice. For the
+   *  screen: which approval, the transaction refused, and the block each earlier one expired at
+   *  (the most it could have been mined at). */
+  lastLapsed: { proposal: string; sighash: string; earlier: number[]; hashes?: string[]; sameOutputs?: boolean; sameAt?: number } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -34,9 +49,11 @@ export class OwnerSigning {
   /** The owner signs `proposal`; `again` when they confirmed signing a second transaction for it. */
   give(proposal: string, at: number, opts: { again?: boolean } = {}): void {
     giveConsent(this.consent, proposal, at)
-    const shown = this.lastSecond
+    // An answer covers the transaction its owner was shown, whichever of the two asked for it.
+    const shown = this.lastSecond ?? this.lastLapsed
     this.again = opts.again && shown?.proposal === proposal ? { proposal, sighash: shown.sighash } : null
     this.lastSecond = null
+    this.lastLapsed = null
   }
 
   withdraw(): void {
@@ -56,11 +73,18 @@ export class OwnerSigning {
   }
 
   /** The machine cleared `sighashHex` (expiring at `expiry`) for `activeId` on `vault`. */
-  async claim(vault: string, activeId: string | null, sighashHex: string, _expiry: number): Promise<Claim> {
+  async claim(vault: string, activeId: string | null, sighashHex: string, _expiry: number, outputs?: string): Promise<Claim> {
     if (!activeId || !consentAllows(this.consent, activeId, this.now())) return 'refused'
     let decision
+    let earlierList: SignedTx[] | null = null
     try {
       decision = await decideFor(this.store, vault, activeId, sighashHex)
+      // Nothing under this proposal: the same payment may have been signed under another id (#567
+      // bridge). Judged by the same rule, against those transactions.
+      if (decision.kind === 'first' && outputs) {
+        const same = readByOutputs(this.store, vault, outputs, this.now() - SAME_OUTPUTS_HORIZON_MS)
+        if (same.length) { decision = await decideAmong(same, sighashHex); earlierList = same }
+      }
     } catch {
       // Not knowing what this device signed never reads as having signed nothing. Its own answer,
       // so the screen says what happened rather than "already signed".
@@ -70,12 +94,25 @@ export class OwnerSigning {
     const h = sighashHex.trim().toLowerCase()
     if (decision.kind === 'second' && !(this.again?.proposal === activeId && this.again.sighash === h)) {
       this.consent.spent = true
-      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h }
+      // `sameOutputs`: the earlier transaction was under ANOTHER proposal that paid the same lines; it
+      // may be a separate, honest payment, so the screen asks differently.
+      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h, sameOutputs: earlierList !== null, sameAt: lastAt(earlierList) }
       return 'second'
     }
+    const answered = this.again?.proposal === activeId && this.again.sighash === h
+    // Every earlier transaction lapsed: none can be mined from now on, and none is known NOT to have
+    // been. Never silent: the owner answers for this transaction, as for a second one (A1).
+    if (decision.kind === 'afterExpiry' && !answered) {
+      this.consent.spent = true
+      let list: SignedTx[] = []
+      try { list = earlierList ?? readSigned(this.store, vault, activeId) } catch { /* decided above */ }
+      // The hashes let the screen show an earlier txid it is handed only when this device signed it.
+      this.lastLapsed = { proposal: activeId, sighash: h, earlier: list.map((t) => t.e), hashes: list.map((t) => t.h), sameOutputs: earlierList !== null, sameAt: lastAt(earlierList) }
+      return 'lapsed'
+    }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'
-    if (decision.kind === 'second') this.again = null
-    this.claimed = { vault, proposal: activeId, sighash: sighashHex.trim().toLowerCase() }
+    if (decision.kind === 'second' || decision.kind === 'afterExpiry') this.again = null
+    this.claimed = { vault, proposal: activeId, sighash: sighashHex.trim().toLowerCase(), outputs }
     return 'ok'
   }
 
@@ -90,6 +127,6 @@ export class OwnerSigning {
     if (!c || c.sighash !== sighashHex.trim().toLowerCase() || !consentAllows(this.consent, c.proposal, this.now(), sighashHex)) {
       throw new Error('[withdrawn] no live consent for this transaction')
     }
-    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry, branch)
+    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry, branch, c.outputs ? { o: c.outputs, t: this.now() } : undefined)
   }
 }

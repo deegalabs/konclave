@@ -15,7 +15,7 @@ import {
 import { quorumIsPossible, DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
 import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
-import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
@@ -25,7 +25,6 @@ import { deriveReadKey, deriveSeatProofKey, generateVaultSecret } from '../vault
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
-import { writeProof } from '../api'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
 import { newPassphraseProblem } from '../passphrase'
@@ -48,11 +47,8 @@ import {
   coordinatorCreationMin,
   vaultBalance,
   listProposals,
-  executeProposal,
   type Proposal,
 } from '../helper'
-import { readReply } from '../send-outcome'
-import { netReplyText } from '../send-preflight'
 import { zatToZec, fmtZecExact, vaultFingerprint } from '../format'
 import { readingRows } from '../device-reading'
 import encodeQR from '@paulmillr/qr'
@@ -280,16 +276,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
   // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
-  // Proposals: proposing/voting lives in the PWA (Dashboard). /net only lists the READY ones and
-  // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
+  // Proposals: proposing, voting and signing live in the app (the proposal's signing panel). /net
+  // only lists the READY ones and opens each there.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
-  const [propMsg, setPropMsg] = useState('')
-  // Single-flight guard: one send at a time from this device. Two concurrent sends (a double-click,
-  // or the same tab firing twice) would publish two competing sign-requests into the relay room and
-  // neither would gather quorum. The cross-DEVICE lock (two tabs pressing) is the per-vault signing
-  // room + singleton in issue #49; this stops the same device from colliding with itself.
-  const [sendingId, setSendingId] = useState<string | null>(null)
-  const sendingRef = useRef(false)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -498,18 +487,21 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   if (!machineRef.current) {
     machineRef.current = new SigningMachine({
       signingMaterial,
-      // #281, stated rather than silently skipped. This driver signs a ceremony that is not bound
-      // to a proposal at all (#363), so it has no approved payment to compare an output against -
-      // there is nothing here that could answer the question honestly. Answering `match` says "this
-      // driver does not gate on content", which is the truth and is now visible at the call site;
-      // refusing would refuse every /net signature, including vault creation.
+      // #281, stated rather than silently skipped. This driver has no approved payment to compare an
+      // output against. It no longer answers any coordinator request (they are consumed before the
+      // machine sees them, and `claim` below refuses), so this answer decides nothing today; it stays
+      // `match` only because the dependency is required and says, at the call site, that /net does
+      // not gate on content.
       //
       // The reason the dep is REQUIRED rather than optional is exactly this: /net and the
       // background signer have diverged three times (#424, #425, #363) because a rule lived in one
       // and not the other. It cannot silently miss this one - it has to say so, here.
       decideApproval: () => 'match',
-      // /net binds no consent to a transaction (Known limits, with its missing content gate).
-      claim: () => true,
+      // /net binds no consent to a transaction and keeps no record, so it contributes to no
+      // coordinator's signing request: a proposal is signed from its signing panel (VaultSigner),
+      // which does both. This is the only place a request reaches a share here, so /net signs none.
+      // (Creation does not go through it.)
+      claim: () => false,
       // Nor does it keep a record of what it signed: /net has no proposal to key it by (Known limits).
       record: async () => {},
       seatOf: (tag) => seatByTagRef.current.get(tag),
@@ -567,9 +559,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       } catch {
         /* no signing material yet */
       }
-      if (await machine.tryHelperRequest(reqData)) return true
-      // A request whose coordinator is not seated here yet waits for the rejoin that seats it.
-      if (parseSignRequest(reqData)) return false
+      // A coordinator's signing request is not this page's to answer: proposals are signed from their
+      // signing panel. Consumed here, so it is neither signed nor shown as a refusal that does not
+      // apply (the machine's claim refuses as well, should one ever reach it).
+      if (parseSignRequest(reqData)) return true
       // ---- the creation ceremony: these go to DkgCeremony, which owns the rules ----
       if (parsed.type === 'config' || parsed.type === 'hello' || parsed.type === 'commit' || parsed.type === 'reveal'
         || parsed.type === 'r1' || parsed.type === 'r2' || parsed.type === 'done') {
@@ -647,6 +640,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
       // ---- signing over the relay (Marco 4): all bytes below are public. The ceremony state and
       // its sreq|s1|sp|s2|signed handlers live in the shared SigningMachine (issue #50). ----
+      // With a coordinator configured, a signing request is the app's to answer (the proposal's
+      // signing panel), never this page's: dropped, so it is not met with a refusal that does not apply.
+      if (parsed.type === 'sreq' && helperConfigured()) return true
       if (
         parsed.type === 'sreq' ||
         parsed.type === 's1' ||
@@ -876,44 +872,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     setProposals(await listProposals(groupVk))
   }, [groupVk])
 
-  // Execute a ready proposal: the browsers sign over the relay and the helper broadcasts. This
-  // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
-  const execProp = useCallback(
-    async (id: string) => {
-      if (sendingRef.current) return // a send is already in flight from this device; ignore re-entry
-      const ok = typeof window === 'undefined' || window.confirm(
-        pe(
-          'Executar este pagamento aprovado? As duas abas vão assinar e a transação vai para a rede.',
-          'Execute this approved payment? Both tabs will sign and the transaction goes to the network.',
-        ),
-      )
-      if (!ok) return
-      sendingRef.current = true
-      setSendingId(id)
-      setPropMsg(pe('Executando: as abas assinam pelo relay…', 'Executing: the tabs sign over the relay…'))
-      try {
-        const r = await executeProposal({
-          vault: groupVk,
-          proposalId: id,
-          relayBase: relayBase(),
-          room,
-          dryRun: false,
-          // #288, same rule as the app's signing panel: firing a broadcast is a governance write.
-          proof: await writeProof(groupVk, 'send', id),
-        })
-        // What the reply means is one rule (readReply, send-outcome.ts), the same as the signing
-        // panel's, and what /net says for it is netReplyText (send-preflight.ts).
-        const said = netReplyText(readReply(r))
-        setPropMsg(pe(said.pt, said.en))
-        if (said.stop) return
-        void loadProposals()
-      } finally {
-        sendingRef.current = false
-        setSendingId(null)
-      }
-    },
-    [groupVk, room, pe, loadProposals],
-  )
 
   // Auto-load the proposals once the vault is known (helper configured + group key set).
   useEffect(() => {
@@ -1632,9 +1590,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           <button className="net-btn" onClick={() => void loadProposals()}>
             {pe('Atualizar', 'Refresh')}
           </button>
-          {propMsg && (
-            <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{propMsg}</p>
-          )}
           {(() => {
             const ready = (proposals ?? []).filter((p) => p.state === 'ready')
             if (proposals && ready.length === 0) {
@@ -1661,17 +1616,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                       </code>
                     </div>
                     <div className="net-trail-row" style={{ marginTop: 4 }}>
+                      {/* Signed from the proposal's own signing panel, which records what this device
+                          signed and checks the approval; /net's driver does neither. */}
                       <button
                         className="net-btn primary"
-                        disabled={!room || sendingId !== null}
-                        aria-busy={sendingId === p.id}
-                        onClick={() => void execProp(p.id)}
+                        onClick={() => { setSelectedVault(groupVk); nav('/proposal', { state: { id: p.id } }) }}
                       >
-                        {sendingId === p.id
-                          ? pe('Enviando…', 'Sending…')
-                          : room
-                          ? pe('Assinar e enviar', 'Sign & send')
-                          : pe('Inicie uma sessão de assinatura', 'Start a signing session')}
+                        {tt('dashboard.goSign')}
                       </button>
                     </div>
                   </li>

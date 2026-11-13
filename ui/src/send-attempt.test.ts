@@ -63,13 +63,3 @@ describe('the panel goes through the send memory', () => {
     expect(button).not.toMatch(/doSend/)
   })
 })
-
-describe('/net reads a send reply by the same rule', () => {
-  it('NetVault goes through readReply, never the reply\'s fields by hand', () => {
-    const net = codeOf('./screens/NetVault.tsx')
-    const at = net.indexOf('const r = await executeProposal(')
-    const block = net.slice(at, net.indexOf('} finally {', at))
-    expect(block).toMatch(/const said = netReplyText\(readReply\(r\)\)\s*setPropMsg\(pe\(said\.pt, said\.en\)\)\s*if \(said\.stop\) return/)
-    expect(block).not.toMatch(/'error' in r|'unknown' in r|r\.txid|end\./)
-  })
-})

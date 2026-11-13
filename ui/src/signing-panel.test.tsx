@@ -283,6 +283,64 @@ describe('the confirm for signing again', () => {
     expect(html).toContain('signing.againCta amt=1')
     expect(html).not.toContain('signing.confirmSignTitle')
   })
+  // A1: every earlier attempt lapsed, and the device cannot tell whether one was mined. Its own
+  // wording: no "until" (there is nothing to wait for), the block it could have been mined up to, and
+  // the CTA held behind the owner saying they know it was not.
+  it('after a lapse, says it cannot tell whether the earlier attempt was mined, names the block, and holds the CTA', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={3_600_123} locale="en" />)
+    expect(html).toContain('signing.againLapsedBody amt=1 block=3600123')
+    expect(html).toContain('signing.againLapsedChecked block=3600123')
+    expect(html).not.toContain('signing.againBody')
+    expect(html).not.toContain('signing.againUntil')
+    expect(html).not.toContain('signing.againNoTime')
+    const cta = html.slice(html.lastIndexOf('<button', html.indexOf('signing.againCta')), html.indexOf('signing.againCta'))
+    expect(cta).toContain('disabled')
+  })
+  it('after a lapse, shows an earlier txid only as one this device checked, and says so when it cannot', () => {
+    const tx = 'ab'.repeat(32)
+    const shown = renderToStaticMarkup(<I18nProvider><SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={tx} lapsedOf={{ k: 1, n: 2 }} locale="en" /></I18nProvider>)
+    expect(shown).toContain('signing.againLapsedTxid')
+    expect(shown).toContain('signing.againLapsedPartial k=1 n=2')
+    expect(shown).toMatch(/aria-describedby="[^"]*sign-again-txid/)
+    expect(shown).toContain(tx)
+    const none = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={null} lapsedOf={{ k: 0, n: 1 }} locale="en" />)
+    expect(none).toContain('signing.againLapsedNoTxid')
+    expect(none).not.toContain('signing.againLapsedTxid')
+    expect(none).not.toContain('signing.againLapsedPartial')
+  })
+  it('several earlier attempts are worded as several, and every one is shown as identified only when it is', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={null} lapsedOf={{ k: 0, n: 3 }} locale="en" />)
+    expect(html).toContain('signing.againLapsedBodyMany amt=1 block=9 n=3')
+  })
+  it('the same lines under another proposal ask whether this is a separate payment', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} sameOutputs sameAt={1_792_490_400_000} locale="en" />)
+    expect(html).toMatch(/signing\.againSameBody amt=1 whenPhrase=signing\.sameOn when=\d{2}\/\d{2}\/2026/)
+    expect(html).toContain('signing.againSameChecked')
+    expect(html).not.toContain('signing.againBody')
+  })
+  it('the same lines under another proposal, after a lapse, show no lapse txid line and no until line', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} sameOutputs sameAt={1_792_490_400_000} lapsedAt={9} lapsedTxid={'ab'.repeat(32)} lapsedOf={{ k: 1, n: 1 }} locale="en" />)
+    expect(html).toContain('signing.againSameLapsedBody')
+    expect(html).toContain('signing.againSameLapsedChecked block=9')
+    expect(html).not.toContain('signing.againLapsedTxid')
+    expect(html).not.toContain('signing.againUntil')
+    expect(html).not.toContain('sign-again-txid')
+  })
+  // R3-A: the same lines under another proposal while that signature can still go out: the screen says
+  // until when, and the only answer offered is "a separate payment" (not "it did not go out": an
+  // explorer cannot show a transaction the coordinator is still holding back).
+  it('the same lines, earlier signature still alive: shows until when, and offers only "a separate payment"', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} sameOutputs sameAt={1_792_490_400_000} lapsedAt={null} locale="en" />)
+    expect(html).toContain('signing.againSameBody')
+    expect(html).toContain('signing.againUntil')
+    expect(html).toContain('signing.againSameChecked')
+    expect(html).not.toContain('signing.againSameLapsedChecked')
+  })
+  it('the same lines with no time in the record: no date, never a "?"', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} sameOutputs locale="en" />)
+    expect(html).toContain('whenPhrase=signing.sameEarlier')
+    expect(html).not.toContain('when=?')
+  })
   it('claims no time that has already passed', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_480_000} locale="en" />)
     expect(html).not.toContain('signing.againUntil')
@@ -534,5 +592,27 @@ describe('the confirm for signing again, when an upgrade ends the earlier attemp
     }
     expect(en['signing.againUntilEpoch']).not.toMatch(/no longer accepts|refuses/i)
     expect(ptBR['signing.againUntilEpoch']).not.toMatch(/não a aceita mais|recusa/i)
+  })
+})
+
+// Accessibility of the sign-again confirm (WCAG 2.2 AA review): the long pt-BR CTA wraps instead of
+// clipping Cancel, a focused checkbox clears the stacked foot on a phone, focus never falls to the body
+// when the confirm closes itself, and the copy button names what it copies.
+describe('the sign-again confirm, accessibility pins', () => {
+  const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+  it('the buttons wrap and the CTA text wraps', () => {
+    expect(css).toMatch(/\.sign-confirm > \.btns\{flex-wrap:wrap\}/)
+    expect(css).toMatch(/\.sign-confirm > \.btns \.btn\{white-space:normal;/)
+  })
+  it('a phone gets room for the stacked foot', () => {
+    expect(css).toMatch(/@media\(max-width:560px\)\{ \.modal-card\.sign-confirm\{scroll-padding-bottom:170px\} \}/)
+  })
+  it('focus goes to the message or the panel when the confirm closes itself', () => {
+    const src = codeOf('./screens/SigningPanel.tsx')
+    expect(src).toMatch(/if \(closed && typeof document !== 'undefined' && document\.activeElement === document\.body\) \(errRef\.current \?\? sheetRef\.current\)\?\.focus\(\)/)
+    expect(src).toMatch(/<CopyButton value=\{lapsedTxid\} label=\{t\('signing\.copyTxid'\)\} \/>/)
+    // An inline ref is a new function each render, so React would call it (and focus) on every commit.
+    expect(src).not.toMatch(/ref=\{\(el\) =>/)
+    expect(src).toMatch(/className="sign-err" tabIndex=\{-1\} ref=\{errMount\}/)
   })
 })
