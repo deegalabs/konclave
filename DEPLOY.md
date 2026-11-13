@@ -128,6 +128,12 @@ trailing dot in the variable would refuse every send.
 Production lists both names of the same relay because an installed PWA keeps calling the URL it was
 built with until it updates (see the paragraph on service names below).
 
+**New vaults.** The coordinator accepts at most 60 new vaults an hour in all, and pauses new vaults
+while the filesystem that holds `KONCLAVE_VAULTS_DIR` has less than 5 GiB free (the image sets it to
+`/data/vaults`, on the volume). Existing vaults, payments, reads and devices joining a vault are not
+affected. The boot log says whether the floor is on and for which directory (`new vaults: ...`);
+with the variable unset there is no floor.
+
 **Which address the limits count a request under (`KONCLAVE_TRUSTED_PROXY_HOPS`).** Both servers,
 the coordinator and the relay, take the client's address from `X-Forwarded-For`. Unset, they take
 the first hop, as they always have. Set to a whole number from 0 to 8, they trust that many proxies:

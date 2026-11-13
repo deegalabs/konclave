@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **New vaults have a ceiling in all, not only per address.** The coordinator accepts at most 60
+  new vaults an hour from every address together, and pauses new vaults while the volume has less
+  than 5 GiB free; a refused creation is answered to try again later, and existing vaults, payments,
+  reads and devices joining a vault are not affected. The boot log says whether the floor is on.
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -228,6 +232,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
   (the payment does not go out at that fee), never funds: the device's own fee check stays the
   defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
+- **A paused creation reads as "busy" in the app.** When new vaults are paused, the app says the
+  coordinator is busy and to try again in a moment; the pause can last up to an hour, or until space
+  is freed on the volume. The coordinator's log says when it pauses and when it resumes.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already
