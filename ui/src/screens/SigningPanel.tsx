@@ -104,7 +104,7 @@ function PlanLines({ lines: rows }: { lines: ApprovedPlan['lines'] }) {
   )
 }
 
-export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, from `approvalDecision`); 0 when unknown. */
   firstUntil: number
@@ -113,6 +113,9 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   byEpoch?: boolean
   /** The last block the earlier attempt can be mined in (the block before the upgrade); with `byEpoch`. */
   untilHeight?: number | null
+  /** Every earlier attempt can no longer be mined, and this device cannot tell whether one was: the
+   *  highest block one could have been mined at. Its own wording, never silent (A1). */
+  lapsedAt?: number | null
   locale: 'pt-BR' | 'en'
   amt: string
   usd?: string | null
@@ -137,7 +140,7 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   // is said when it is unknown or already past (the confirm then no longer applies).
   // The epoch wording only when WASM named the block the upgrade cuts it at; an unknown time says so
   // instead of staying silent (a decision with no turning point is not "nothing to wait for").
-  const until = firstUntil * 1000 > now
+  const until = lapsedAt !== null ? '' : firstUntil * 1000 > now
     ? byEpoch && untilHeight !== null
       ? t('signing.againUntilEpoch', { when: fmtWhen(firstUntil, locale), block: untilHeight })
       : t('signing.againUntil', { when: fmtWhen(firstUntil, locale) })
@@ -166,13 +169,13 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
       {again ? (
         <>
           <p id="sign-again-body" className="modal-p">
-            {t('signing.againBody', { amt })}
+            {lapsedAt !== null ? t('signing.againLapsedBody', { amt, block: lapsedAt }) : t('signing.againBody', { amt })}
             {iWouldBeLast && <> {t('signing.confirmBody')}</>}
           </p>
           {until && <p id="sign-again-until" className="modal-p">{until}</p>}
           <label className="check-row mt-sm">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-            <span>{t('signing.againChecked')}</span>
+            <span>{lapsedAt !== null ? t('signing.againLapsedChecked') : t('signing.againChecked')}</span>
           </label>
         </>
       ) : (
@@ -975,6 +978,7 @@ export default function SigningPanel() {
           firstUntil={signedBefore?.firstUntil ?? 0}
           byEpoch={signedBefore?.byEpoch ?? false}
           untilHeight={signedBefore?.untilHeight ?? null}
+          lapsedAt={signedBefore?.lapsedAt ?? null}
           fee={amountZat !== null && feeKnown ? fmtZecExact(feeZat / 1e8) : undefined}
           total={amountZat !== null && feeKnown ? fmtZecExact((amountZat + feeZat) / 1e8) : undefined}
           locale={locale}

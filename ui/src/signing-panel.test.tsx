@@ -283,6 +283,19 @@ describe('the confirm for signing again', () => {
     expect(html).toContain('signing.againCta amt=1')
     expect(html).not.toContain('signing.confirmSignTitle')
   })
+  // A1: every earlier attempt lapsed, and the device cannot tell whether one was mined. Its own
+  // wording: no "until" (there is nothing to wait for), the block it could have been mined up to, and
+  // the CTA held behind the owner saying they know it was not.
+  it('after a lapse, says it cannot tell whether the earlier attempt was mined, names the block, and holds the CTA', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={3_600_123} locale="en" />)
+    expect(html).toContain('signing.againLapsedBody amt=1 block=3600123')
+    expect(html).toContain('signing.againLapsedChecked')
+    expect(html).not.toContain('signing.againBody')
+    expect(html).not.toContain('signing.againUntil')
+    expect(html).not.toContain('signing.againNoTime')
+    const cta = html.slice(html.lastIndexOf('<button', html.indexOf('signing.againCta')), html.indexOf('signing.againCta'))
+    expect(cta).toContain('disabled')
+  })
   it('claims no time that has already passed', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_480_000} locale="en" />)
     expect(html).not.toContain('signing.againUntil')

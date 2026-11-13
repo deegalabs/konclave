@@ -1067,7 +1067,7 @@ export const ptBR: Record<string, string> = {
   'signing.tryAgain': 'Tentar de novo',
   'signing.againTitle': 'Assinar este pagamento de novo?',
   'signing.againBody': 'Este aparelho já assinou uma tentativa anterior deste pagamento. Se aquela tentativa sair, assinar de novo pode pagá-lo duas vezes: {amt} ZEC uma segunda vez. Faça isso só se o livro não mostrar o pagamento como enviado.',
-  'signing.againUntil': 'Até por volta de {when}, este aparelho trata a tentativa anterior como capaz de chegar à rede (a própria rede desiste dela antes). Esperar até lá é o caminho seguro: depois disso, este aparelho deixa de perguntar pela tentativa anterior, e assinar volta ao normal.',
+  'signing.againUntil': 'Até por volta de {when}, este aparelho trata a tentativa anterior como capaz de chegar à rede (a própria rede desiste dela antes). Esperar até lá é o caminho seguro. Depois disso, este aparelho ainda pergunta antes de assinar este pagamento de novo.',
   // RASCUNHO (#638), para o mantenedor aprovar antes do merge. Uma atualizacao da rede esta por tras de cada
   // um dos proximos textos; nenhum aparece ate a linha da atualizacao entrar na versao.
   'signing.againUntilEpoch': 'Uma transação anterior deste pagamento só pode ser minerada até o bloco {block} (por volta de {when}). Se ela for minerada antes, assinar de novo paga este pagamento duas vezes. Esperar até lá é o caminho seguro.',
@@ -1078,6 +1078,8 @@ export const ptBR: Record<string, string> = {
   'error.upgradeHoldCrossing': 'Este pagamento move fundos entre pools e poderia ficar preso na rede durante a atualização. Envie depois da atualização; nada foi montado.',
   'error.coordinatorNotUpdated': 'O coordenador ainda não foi atualizado para a atualização da rede. Nada foi assinado nem enviado. Seu voto continua valendo até a proposta expirar (72 horas); você vai precisar assinar de novo quando o pagamento puder ser montado.',
   'signing.againChecked': 'Conferi o livro: este pagamento não aparece como enviado.',
+  'signing.againLapsedBody': 'Este aparelho já assinou uma tentativa anterior deste pagamento. Aquela tentativa não pode mais ser minerada, mas este aparelho não sabe dizer se ela foi minerada antes disso: pode ter sido, até o bloco {block}. Se foi, assinar de novo paga {amt} ZEC uma segunda vez. Se você tem o id da transação anterior, procure-o num explorador de blocos: se ele estiver lá, o pagamento saiu.',
+  'signing.againLapsedChecked': 'Sei que a tentativa anterior não foi minerada.',
   'signing.againCta': 'Assinar de novo: {amt} ZEC',
   'signing.readAgainHeading': 'O que o cofre montou desta vez',
   'signing.againCtaSend': 'Assinar de novo e enviar: {amt} ZEC',

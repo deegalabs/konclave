@@ -7,9 +7,9 @@
 // A coordinator that says a send failed cannot make that second signature silent: the failure ends
 // the click, not the record.
 import { claimConsent, consentAllows, giveConsent, newConsent, withdrawConsent, type OwnerConsent } from './signing-gate'
-import { decideFor, recordSigned, type RecordStore } from './signed-record'
+import { decideFor, readSigned, recordSigned, type RecordStore } from './signed-record'
 
-export type Claim = 'ok' | 'second' | 'refused' | 'unreadable'
+export type Claim = 'ok' | 'second' | 'lapsed' | 'refused' | 'unreadable'
 
 export class OwnerSigning {
   readonly consent: OwnerConsent = newConsent()
@@ -22,6 +22,11 @@ export class OwnerSigning {
   private claimed: { vault: string; proposal: string; sighash: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
   lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string } | null = null
+  /** The last new transaction refused because every earlier one for the approval can no longer be
+   *  mined: the device does not know whether one WAS mined, so signing again may pay twice. For the
+   *  screen: which approval, the transaction refused, and the block each earlier one expired at
+   *  (the most it could have been mined at). */
+  lastLapsed: { proposal: string; sighash: string; earlier: number[] } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -34,9 +39,11 @@ export class OwnerSigning {
   /** The owner signs `proposal`; `again` when they confirmed signing a second transaction for it. */
   give(proposal: string, at: number, opts: { again?: boolean } = {}): void {
     giveConsent(this.consent, proposal, at)
-    const shown = this.lastSecond
+    // An answer covers the transaction its owner was shown, whichever of the two asked for it.
+    const shown = this.lastSecond ?? this.lastLapsed
     this.again = opts.again && shown?.proposal === proposal ? { proposal, sighash: shown.sighash } : null
     this.lastSecond = null
+    this.lastLapsed = null
   }
 
   withdraw(): void {
@@ -73,8 +80,18 @@ export class OwnerSigning {
       this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h }
       return 'second'
     }
+    const answered = this.again?.proposal === activeId && this.again.sighash === h
+    // Every earlier transaction lapsed: none can be mined from now on, and none is known NOT to have
+    // been. Never silent: the owner answers for this transaction, as for a second one (A1).
+    if (decision.kind === 'afterExpiry' && !answered) {
+      this.consent.spent = true
+      let earlier: number[] = []
+      try { earlier = readSigned(this.store, vault, activeId).map((t) => t.e) } catch { /* decided above */ }
+      this.lastLapsed = { proposal: activeId, sighash: h, earlier }
+      return 'lapsed'
+    }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'
-    if (decision.kind === 'second') this.again = null
+    if (decision.kind === 'second' || decision.kind === 'afterExpiry') this.again = null
     this.claimed = { vault, proposal: activeId, sighash: sighashHex.trim().toLowerCase() }
     return 'ok'
   }

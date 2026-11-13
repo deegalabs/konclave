@@ -1071,7 +1071,7 @@ export const en: Record<string, string> = {
   'signing.tryAgain': 'Try again',
   'signing.againTitle': 'Sign this payment again?',
   'signing.againBody': 'This device already signed an earlier attempt at this payment. If that attempt goes out, signing again could pay it twice: {amt} ZEC a second time. Do this only if the book does not show the payment as sent.',
-  'signing.againUntil': 'Until about {when}, this device treats the earlier attempt as able to reach the network (the network itself gives up on it earlier). Waiting until then is the safe choice: after that, this device stops asking about the earlier attempt, and signing works as usual.',
+  'signing.againUntil': 'Until about {when}, this device treats the earlier attempt as able to reach the network (the network itself gives up on it earlier). Waiting until then is the safe choice. After that, this device still asks before it signs this payment again.',
   // DRAFT (#638), for the maintainer to approve before merge. A network upgrade is behind each of the next
   // texts; none can appear until the upgrade's row is in the build.
   'signing.againUntilEpoch': 'An earlier transaction for this payment can only be mined until block {block} (about {when}). If it is mined first, signing again pays this payment twice. Waiting until then is the safe choice.',
@@ -1082,6 +1082,8 @@ export const en: Record<string, string> = {
   'error.upgradeHoldCrossing': 'This payment moves funds between pools and could be held by the network across the upgrade. Send it after the upgrade; nothing was built.',
   'error.coordinatorNotUpdated': 'The coordinator has not been updated for the network upgrade yet. Nothing was signed or sent. Your vote stands until the proposal expires (72 hours); you will be asked to sign again when the payment can be built.',
   'signing.againChecked': 'I checked the book: this payment does not show as sent.',
+  'signing.againLapsedBody': 'This device already signed an earlier attempt at this payment. That attempt can no longer be mined, but this device cannot tell whether it was mined before then: it could have been, up to block {block}. If it was, signing again pays {amt} ZEC a second time. If you have the earlier transaction id, look it up in a block explorer: if it is there, the payment went out.',
+  'signing.againLapsedChecked': 'I know the earlier attempt was not mined.',
   'signing.againCta': 'Sign again: {amt} ZEC',
   'signing.readAgainHeading': 'What the vault built this time',
   'signing.againCtaSend': 'Sign again and send: {amt} ZEC',

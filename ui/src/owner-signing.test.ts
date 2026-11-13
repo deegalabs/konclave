@@ -23,6 +23,8 @@ function memory(): RecordStore {
 const A = 'ab'.repeat(32)
 const B = 'cd'.repeat(32)
 const ALIVE = 4_000_000_000
+// An expiry no transaction can still be mined at, by any clock this suite pins.
+const DEAD = 1
 // NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
 const NU63 = 0x37a5165b
 // NU7 is the last row of the table: nothing follows it, so a record under it ends at its own expiry.
@@ -143,5 +145,41 @@ describe('the owner signing on this device', () => {
     await o.record(A, ALIVE, NU63)
     expect(readSigned(store, 'v1', 'p1').length).toBe(1)
     expect(readSigned(store, 'v1', 'p2')).toEqual([])
+  })
+
+  // A transaction this device signed for an approval can no longer be mined: the device does not know
+  // whether it WAS mined. Signing a new one silently would pay twice if it was, so it asks, like a
+  // second transaction does, and a click alone never covers it.
+  it('after an earlier transaction lapsed, a new one for the approval asks, it is never signed on the click alone', async () => {
+    const store = memory()
+    const o = new OwnerSigning(store)
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', A, DEAD)).toBe('ok')
+    await o.record(A, DEAD, NU63)
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', B, ALIVE)).toBe('lapsed')
+    expect(o.lastLapsed).toEqual({ proposal: 'p1', sighash: B, earlier: [DEAD] })
+    expect(o.allows('p1'), 'the refused click is spent').toBe(false)
+  })
+
+  it('after a lapse, the owner signs again knowing it, for the transaction shown, and only once', async () => {
+    const store = memory()
+    const o = new OwnerSigning(store)
+    o.give('p1', Date.now())
+    await o.claim('v1', 'p1', A, DEAD)
+    await o.record(A, DEAD, NU63)
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', B, ALIVE)).toBe('lapsed')
+    o.give('p1', Date.now(), { again: true })
+    // Another transaction than the one shown is not covered by that answer.
+    expect(await o.claim('v1', 'p1', 'ef'.repeat(32), ALIVE)).toBe('lapsed')
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', B, ALIVE)).toBe('lapsed')
+    o.give('p1', Date.now(), { again: true })
+    expect(await o.claim('v1', 'p1', B, ALIVE)).toBe('ok')
+    await o.record(B, ALIVE, NU63)
+    // The answer was spent on B.
+    o.give('p1', Date.now(), { again: true })
+    expect(await o.claim('v1', 'p1', 'ef'.repeat(32), ALIVE)).toBe('second')
   })
 })
