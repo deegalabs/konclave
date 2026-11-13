@@ -559,9 +559,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       } catch {
         /* no signing material yet */
       }
-      if (await machine.tryHelperRequest(reqData)) return true
-      // A request whose coordinator is not seated here yet waits for the rejoin that seats it.
-      if (parseSignRequest(reqData)) return false
+      // A coordinator's signing request is not this page's to answer: proposals are signed from their
+      // signing panel. Consumed here, so it is neither signed nor shown as a refusal that does not
+      // apply (the machine's claim refuses as well, should one ever reach it).
+      if (parseSignRequest(reqData)) return true
       // ---- the creation ceremony: these go to DkgCeremony, which owns the rules ----
       if (parsed.type === 'config' || parsed.type === 'hello' || parsed.type === 'commit' || parsed.type === 'reveal'
         || parsed.type === 'r1' || parsed.type === 'r2' || parsed.type === 'done') {

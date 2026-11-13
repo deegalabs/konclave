@@ -105,7 +105,7 @@ function PlanLines({ lines: rows }: { lines: ApprovedPlan['lines'] }) {
   )
 }
 
-export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, lapsedTxid = null, lapsedOf, sameOutputs = false, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, lapsedTxid = null, lapsedOf, sameOutputs = false, sameAt, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, from `approvalDecision`); 0 when unknown. */
   firstUntil: number
@@ -124,6 +124,8 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   /** The earlier signature was for ANOTHER proposal that paid exactly these lines: it may be a
    *  separate payment, so the owner is asked whether this one is the same payment again. */
   sameOutputs?: boolean
+  /** When this device signed that earlier payment (ms), from its own record. */
+  sameAt?: number
   locale: 'pt-BR' | 'en'
   amt: string
   usd?: string | null
@@ -148,7 +150,9 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   // device still asks (a lapse, below); nothing is said here when it is unknown or already past.
   // The epoch wording only when WASM named the block the upgrade cuts it at; an unknown time says so
   // instead of staying silent (a decision with no turning point is not "nothing to wait for").
-  const until = lapsedAt !== null ? '' : firstUntil * 1000 > now
+  // The "until" line is about an earlier attempt at THIS proposal: not shown for a lapse, nor for the
+  // same lines under another proposal (a separate payment there is expected to have gone out).
+  const until = lapsedAt !== null || sameOutputs ? '' : firstUntil * 1000 > now
     ? byEpoch && untilHeight !== null
       ? t('signing.againUntilEpoch', { when: fmtWhen(firstUntil, locale), block: untilHeight })
       : t('signing.againUntil', { when: fmtWhen(firstUntil, locale) })
@@ -161,7 +165,7 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
       className="modal-overlay"
       cardClassName="modal-card danger sign-confirm"
       labelledBy="sign-confirm-title"
-      describedBy={again ? ['sign-again-body', until && 'sign-again-until', lapsedAt !== null && 'sign-again-txid', 'sign-confirm-what'].filter(Boolean).join(' ') : 'sign-confirm-what'}
+      describedBy={again ? ['sign-again-body', until && 'sign-again-until', lapsedAt !== null && !sameOutputs && 'sign-again-txid', 'sign-confirm-what'].filter(Boolean).join(' ') : 'sign-confirm-what'}
       focusCard={again}
       onClose={onCancel}
     >
@@ -178,14 +182,14 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
         <>
           <p id="sign-again-body" className="modal-p">
             {sameOutputs
-              ? t('signing.againSameBody', { amt })
+              ? t('signing.againSameBody', { amt, when: sameAt ? fmtWhen(Math.floor(sameAt / 1000), locale) : '?' })
               : lapsedAt !== null
                 ? t((lapsedOf?.n ?? 1) > 1 ? 'signing.againLapsedBodyMany' : 'signing.againLapsedBody', { amt, block: lapsedAt, n: lapsedOf?.n ?? 1 })
                 : t('signing.againBody', { amt })}
             {iWouldBeLast && <> {t('signing.confirmBody')}</>}
           </p>
           {until && <p id="sign-again-until" className="modal-p">{until}</p>}
-          {lapsedAt !== null && (
+          {lapsedAt !== null && !sameOutputs && (
             <>
               {/* Announced without the 64-character id itself; the id follows, with a copy button. */}
               <p id="sign-again-txid" className="modal-p">
@@ -1004,6 +1008,7 @@ export default function SigningPanel() {
           lapsedTxid={signedBefore?.lapsedTxid ?? null}
           lapsedOf={signedBefore?.lapsedOf}
           sameOutputs={signedBefore?.sameOutputs ?? false}
+          sameAt={signedBefore?.sameAt}
           fee={amountZat !== null && feeKnown ? fmtZecExact(feeZat / 1e8) : undefined}
           total={amountZat !== null && feeKnown ? fmtZecExact((amountZat + feeZat) / 1e8) : undefined}
           locale={locale}

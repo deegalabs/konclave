@@ -59,7 +59,7 @@ describe('the owner signing on this device', () => {
     reloaded.give('p1', Date.now())
     // ...does not cover another transaction for the same approval while the first is alive.
     expect(await reloaded.claim('v1', 'p1', B, ALIVE)).toEqual('second')
-    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), untilHeight: null, byEpoch: false, sighash: B, sameOutputs: false })
+    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), untilHeight: null, byEpoch: false, sighash: B, sameOutputs: false, sameAt: undefined })
     expect(reloaded.allows('p1'), 'the refused click is spent').toBe(false)
   })
 
@@ -235,6 +235,7 @@ describe('the owner signing on this device', () => {
     o.give('p2', Date.now())
     expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('second')
     expect(o.lastSecond?.sameOutputs).toBe(true)
+    expect(o.lastSecond?.sameAt, 'the device\'s own time of the earlier signature').toEqual(expect.any(Number))
     o.give('p1', Date.now())
     expect(await o.claim('v1', 'p1', B, ALIVE, 'K')).toBe('second')
     expect(o.lastSecond?.sameOutputs, 'under its own proposal it is not the bridge').toBe(false)

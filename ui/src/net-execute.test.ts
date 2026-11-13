@@ -18,4 +18,8 @@ describe('/net does not execute a proposal where a coordinator is configured', (
     expect(src).not.toMatch(/'Sign & send'/)
     expect(src).toMatch(/nav\('\/proposal', \{ state: \{ id: p\.id \} \}\)/)
   })
+  it('a coordinator request is consumed before the signer sees it', () => {
+    expect(src).toMatch(/if \(parseSignRequest\(reqData\)\) return true/)
+    expect(src).not.toMatch(/tryHelperRequest/)
+  })
 })
