@@ -13,9 +13,11 @@
 // not keep the branch while its engine builds the later one, so there an absent branch is UNKNOWN.
 // A NEW entry always carries a branch: `recordSigned` refuses to write one without.
 //
-// A hash, not the sighash: the sighash gives the txid, and the device's storage need not say which
-// transactions it signed. The record lives in the browser's own storage so it outlives a reload,
-// which a record in memory did not.
+// A hash of the sighash, not the sighash. It is NOT a privacy boundary: the hash is unsalted and sits
+// beside the expiry, so whoever reads this storage can hash the public txids of each expiry window and
+// find which transactions this device signed (the txid is the sighash byte-reversed). It is kept as a
+// hash because the device only needs to compare. A keyed record is a separate item. The record lives in
+// the browser's own storage so it outlives a reload, which a record in memory did not.
 import { approvalDecision } from './wasm-pkg/konclave_wasm.js'
 
 export interface RecordStore {
