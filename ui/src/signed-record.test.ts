@@ -184,3 +184,20 @@ describe('what a new transaction is, by the rule in WASM', () => {
     expect(await decideFor(t, 'v1', 'p1', B)).toEqual({ kind: 'afterExpiry' })
   })
 })
+
+// A txid the device is handed (the ledger, the proposal answer) is shown as one it signed only when it
+// is: for a transaction with no transparent input the txid is the sighash byte-reversed (ZIP 244), and
+// the record keeps SHA-256 of the sighash.
+describe('txidIsOurs', () => {
+  it('matches a txid to the record entry of its sighash, and nothing else', async () => {
+    const { txidIsOurs, hashSighash: hs } = await import('./signed-record')
+    const sighash = '01' + 'ab'.repeat(30) + 'ff'
+    const txid = sighash.match(/../g)!.reverse().join('')
+    const h = await hs(sighash)
+    expect(await txidIsOurs(txid, [h])).toBe(true)
+    expect(await txidIsOurs(txid.toUpperCase(), [h])).toBe(true)
+    expect(await txidIsOurs(sighash, [h]), 'not reversed').toBe(false)
+    expect(await txidIsOurs(txid, [])).toBe(false)
+    expect(await txidIsOurs('zz', [h])).toBe(false)
+  })
+})

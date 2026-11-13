@@ -104,7 +104,7 @@ function PlanLines({ lines: rows }: { lines: ApprovedPlan['lines'] }) {
   )
 }
 
-export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+export function SignConfirm({ payrollLines, destPublic = false, again, firstUntil, byEpoch = false, untilHeight = null, lapsedAt = null, lapsedTxid = null, lapsedOf, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, from `approvalDecision`); 0 when unknown. */
   firstUntil: number
@@ -116,6 +116,10 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
   /** Every earlier attempt can no longer be mined, and this device cannot tell whether one was: the
    *  highest block one could have been mined at. Its own wording, never silent (A1). */
   lapsedAt?: number | null
+  /** An earlier attempt's txid, checked on this device as one it signed; null when none could be. */
+  lapsedTxid?: string | null
+  /** How many earlier attempts there are, and how many of them the screen could identify. */
+  lapsedOf?: { k: number; n: number }
   locale: 'pt-BR' | 'en'
   amt: string
   usd?: string | null
@@ -173,6 +177,13 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
             {iWouldBeLast && <> {t('signing.confirmBody')}</>}
           </p>
           {until && <p id="sign-again-until" className="modal-p">{until}</p>}
+          {lapsedAt !== null && (
+            <p className="modal-p">
+              {lapsedTxid
+                ? <>{t('signing.againLapsedTxid', { k: lapsedOf?.k ?? 1, n: lapsedOf?.n ?? 1 })} <code className="sign-txid">{lapsedTxid}</code></>
+                : t('signing.againLapsedNoTxid')}
+            </p>
+          )}
           <label className="check-row mt-sm">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
             <span>{lapsedAt !== null ? t('signing.againLapsedChecked') : t('signing.againChecked')}</span>
@@ -979,6 +990,8 @@ export default function SigningPanel() {
           byEpoch={signedBefore?.byEpoch ?? false}
           untilHeight={signedBefore?.untilHeight ?? null}
           lapsedAt={signedBefore?.lapsedAt ?? null}
+          lapsedTxid={signedBefore?.lapsedTxid ?? null}
+          lapsedOf={signedBefore?.lapsedOf}
           fee={amountZat !== null && feeKnown ? fmtZecExact(feeZat / 1e8) : undefined}
           total={amountZat !== null && feeKnown ? fmtZecExact((amountZat + feeZat) / 1e8) : undefined}
           locale={locale}

@@ -296,6 +296,15 @@ describe('the confirm for signing again', () => {
     const cta = html.slice(html.lastIndexOf('<button', html.indexOf('signing.againCta')), html.indexOf('signing.againCta'))
     expect(cta).toContain('disabled')
   })
+  it('after a lapse, shows an earlier txid only as one this device checked, and says so when it cannot', () => {
+    const tx = 'ab'.repeat(32)
+    const shown = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={tx} lapsedOf={{ k: 1, n: 2 }} locale="en" />)
+    expect(shown).toContain('signing.againLapsedTxid k=1 n=2')
+    expect(shown).toContain(tx)
+    const none = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} lapsedAt={9} lapsedTxid={null} lapsedOf={{ k: 0, n: 1 }} locale="en" />)
+    expect(none).toContain('signing.againLapsedNoTxid')
+    expect(none).not.toContain('signing.againLapsedTxid')
+  })
   it('claims no time that has already passed', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_480_000} locale="en" />)
     expect(html).not.toContain('signing.againUntil')

@@ -1080,6 +1080,8 @@ export const ptBR: Record<string, string> = {
   'signing.againChecked': 'Conferi o livro: este pagamento não aparece como enviado.',
   'signing.againLapsedBody': 'Este aparelho já assinou uma tentativa anterior deste pagamento. Aquela tentativa não pode mais ser minerada, mas este aparelho não sabe dizer se ela foi minerada antes disso: pode ter sido, até o bloco {block}. Se foi, assinar de novo paga {amt} ZEC uma segunda vez. Se você tem o id da transação anterior, procure-o num explorador de blocos: se ele estiver lá, o pagamento saiu.',
   'signing.againLapsedChecked': 'Sei que a tentativa anterior não foi minerada.',
+  'signing.againLapsedTxid': 'Conferida neste aparelho como uma transação que ele assinou ({k} de {n} tentativas anteriores identificadas). Procure-a num explorador de blocos:',
+  'signing.againLapsedNoTxid': 'Este aparelho não consegue mostrar o id da transação anterior, então não pode indicá-la. Não assine de novo a menos que saiba que ela não foi minerada.',
   'signing.againCta': 'Assinar de novo: {amt} ZEC',
   'signing.readAgainHeading': 'O que o cofre montou desta vez',
   'signing.againCtaSend': 'Assinar de novo e enviar: {amt} ZEC',

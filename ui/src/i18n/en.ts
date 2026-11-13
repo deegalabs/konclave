@@ -1084,6 +1084,8 @@ export const en: Record<string, string> = {
   'signing.againChecked': 'I checked the book: this payment does not show as sent.',
   'signing.againLapsedBody': 'This device already signed an earlier attempt at this payment. That attempt can no longer be mined, but this device cannot tell whether it was mined before then: it could have been, up to block {block}. If it was, signing again pays {amt} ZEC a second time. If you have the earlier transaction id, look it up in a block explorer: if it is there, the payment went out.',
   'signing.againLapsedChecked': 'I know the earlier attempt was not mined.',
+  'signing.againLapsedTxid': 'Checked on this device as a transaction it signed ({k} of {n} earlier attempts identified). Look it up in a block explorer:',
+  'signing.againLapsedNoTxid': 'This device cannot show the transaction id of the earlier attempt, so it cannot point you to it. Do not sign again unless you know it was not mined.',
   'signing.againCta': 'Sign again: {amt} ZEC',
   'signing.readAgainHeading': 'What the vault built this time',
   'signing.againCtaSend': 'Sign again and send: {amt} ZEC',

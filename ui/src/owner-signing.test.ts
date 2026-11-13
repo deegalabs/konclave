@@ -158,7 +158,7 @@ describe('the owner signing on this device', () => {
     await o.record(A, DEAD, NU63)
     o.give('p1', Date.now())
     expect(await o.claim('v1', 'p1', B, ALIVE)).toBe('lapsed')
-    expect(o.lastLapsed).toEqual({ proposal: 'p1', sighash: B, earlier: [DEAD] })
+    expect(o.lastLapsed).toMatchObject({ proposal: 'p1', sighash: B, earlier: [DEAD] })
     expect(o.allows('p1'), 'the refused click is spent').toBe(false)
   })
 

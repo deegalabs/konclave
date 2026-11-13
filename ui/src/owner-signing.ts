@@ -29,7 +29,7 @@ export class OwnerSigning {
    *  mined: the device does not know whether one WAS mined, so signing again may pay twice. For the
    *  screen: which approval, the transaction refused, and the block each earlier one expired at
    *  (the most it could have been mined at). */
-  lastLapsed: { proposal: string; sighash: string; earlier: number[] } | null = null
+  lastLapsed: { proposal: string; sighash: string; earlier: number[]; hashes?: string[] } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -95,9 +95,10 @@ export class OwnerSigning {
     // been. Never silent: the owner answers for this transaction, as for a second one (A1).
     if (decision.kind === 'afterExpiry' && !answered) {
       this.consent.spent = true
-      let earlier: number[] = []
-      try { earlier = (earlierList ?? readSigned(this.store, vault, activeId)).map((t) => t.e) } catch { /* decided above */ }
-      this.lastLapsed = { proposal: activeId, sighash: h, earlier }
+      let list: SignedTx[] = []
+      try { list = earlierList ?? readSigned(this.store, vault, activeId) } catch { /* decided above */ }
+      // The hashes let the screen show an earlier txid it is handed only when this device signed it.
+      this.lastLapsed = { proposal: activeId, sighash: h, earlier: list.map((t) => t.e), hashes: list.map((t) => t.h) }
       return 'lapsed'
     }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'

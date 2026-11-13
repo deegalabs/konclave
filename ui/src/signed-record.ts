@@ -50,6 +50,16 @@ export async function hashSighash(sighashHex: string): Promise<string> {
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/** Whether `txid` is one of the transactions whose sighash hashes are `hashes`. For a transaction
+ *  with no transparent input the txid is the sighash byte-reversed (ZIP 244: the signature digest is
+ *  the txid digest; konclave-wasm `read_for_signing_with`). A txid that is not 64 hex digits is not ours. */
+export async function txidIsOurs(txid: string, hashes: string[]): Promise<boolean> {
+  const t = txid.trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(t)) return false
+  const sighash = t.match(/../g)!.reverse().join('')
+  return hashes.includes(await hashSighash(sighash))
+}
+
 function readAll(store: RecordStore, vault: string): Record<string, SignedTx[]> {
   // A record that cannot be read throws: not knowing what this device signed must never read as
   // having signed nothing.
