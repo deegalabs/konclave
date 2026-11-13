@@ -104,6 +104,14 @@
 .p-cost-line{display:flex; justify-content:space-between; gap:14px; font-size:13px}
 .p-cost-k{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted)}
 .p-cost-v{white-space:nowrap}
+/* "Worth a second look" on a proposal (UnusualNote): a reading aid, drawn like the cost box, not as an alarm. */
+.p-unusual{padding:11px 13px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
+.p-unusual h2{margin:0}
+.p-unusual-list{margin:8px 0 0; padding-left:18px; display:grid; gap:4px; font-size:13px; overflow-wrap:anywhere}
+.p-unusual-one{margin:8px 0 0; font-size:13px}
+.p-unusual-aid{margin-bottom:0; font-size:13px; color:var(--text-muted)}
+/* The live region stays mounted while there is nothing to say, so it takes no room then. */
+.p-unusual-live:empty{margin:0}
 
 /* Confirmation progress. A count of how far the chain has buried the newest note, not a promise
    about when the vault will spend it - the vault decides that, and the pending line vanishing is
