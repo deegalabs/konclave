@@ -409,6 +409,21 @@ impl Table {
         out
     }
 
+    /// The height from which this build accepts a marginal fee lower than the one every earlier era
+    /// accepts (ZIP 2009's switch), or `None` when no era does. What a seat reports to the vault's
+    /// coordinator (`fee_from`): read from the era table, never typed anywhere else.
+    pub fn fee_from(&self) -> Option<u32> {
+        let mut lowest = u64::MAX;
+        for (i, e) in self.fees.iter().enumerate() {
+            let era_lowest = e.accepts.iter().copied().min().unwrap_or(u64::MAX);
+            if i > 0 && era_lowest < lowest {
+                return Some(e.from_height);
+            }
+            lowest = lowest.min(era_lowest);
+        }
+        None
+    }
+
     /// The highest accepted value: what a gate reserves.
     pub fn reserve_marginal_fee(&self, now_unix: i64) -> u64 {
         self.accepted_marginal_fees(now_unix)
@@ -611,6 +626,23 @@ mod tests {
         fees: MAINNET.fees,
         anchor: MAINNET.anchor,
     };
+
+    #[test]
+    fn this_build_reports_the_literal_height_from_which_it_accepts_the_lower_marginal() {
+        // A literal on purpose: a table that moves must move this number deliberately (ZIP 2009).
+        assert_eq!(MAINNET.fee_from(), Some(3_590_000));
+        // A table whose eras never accept a lower rate has nothing to report.
+        const FLAT: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[FeeEra {
+                from_height: 0,
+                builds: 5_000,
+                accepts: &[5_000],
+            }],
+            anchor: MAINNET.anchor,
+        };
+        assert_eq!(FLAT.fee_from(), None);
+    }
 
     #[test]
     fn the_mainnet_table_has_the_nu63_row_then_the_nu7_row_and_is_ordered() {

@@ -97,6 +97,13 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Added
 
+- **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
+  optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
+  without it clears that seat's report, and the newest registration of a seat speaks. A malformed
+  value is refused with a 400, and a registration that names no seat writes nothing. The report
+  is not authenticated (whoever may register that seat's keys can set or clear it): a hint about
+  availability, never a guarantee. Nothing reads it yet: what a payment pays does not change.
+
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
   bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its

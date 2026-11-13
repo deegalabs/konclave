@@ -85,8 +85,16 @@ band before the vault is trusted") is realised by these four pieces instead of t
    shows a 9-character code. Each member reads the code with **every listed person**, by voice, and
    confirms only if each reads back the same code. Round 2 does not run, and nothing is sealed, until
    then. The device's confirm call only orders the protocol; the check is the people comparing.
-   After round 3 every seat signs, with its new share, that it finished; the vault is registered,
-   shown and saved only when every seat has, so no one funds a vault a member does not hold.
+   After round 3 every seat signs, with its new share, that it finished. A device that holds every
+   seat's signature registers the vault and shows its deposit address; until then it keeps the vault
+   saved as not finished, with no address. A device that did not receive every signature (it went
+   offline, or it was restored) never posts a registration of its own: it finishes only when the
+   coordinator holds the vault pinned to that device's own key package, which, in this app, only a
+   device that held every signature registers. So no one funds a vault a member does not hold, as long as the device
+   that pinned it ran this app. (Waiting for every seat is the app's rule, not the coordinator's: the
+   coordinator pins a vault on certificates from `t` distinct seats, ADR-0012 D5, so `t` members on a
+   modified app could pin it before every seat finished.) *(Reworded on 2026-11-12, #941: this point
+   said the vault was saved only when every seat had; the device saves it earlier, as not finished.)*
 4. **Sealing inside WASM.** Round-2 packages and the vault's access secret are sealed by WASM to the
    keys bound into that code; the access secret also carries the creator's share signature.
 

@@ -7144,6 +7144,14 @@ mod js_pczt {
         ))
     }
 
+    /// The height from which this build accepts the lower marginal fee (ZIP 2009), read from the era
+    /// table in `konclave_seal::epochs`; `undefined` when no era of the table does. What the device
+    /// reports to its vault's coordinator as `fee_from`: never a number typed in the app.
+    #[wasm_bindgen(js_name = feeFrom)]
+    pub fn fee_from() -> Option<u32> {
+        pczt_bridge::MAINNET.fee_from()
+    }
+
     /// The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
     /// reads it for the notice it shows before a payment: the same number the device and the
     /// coordinator use, never one typed in the app.
