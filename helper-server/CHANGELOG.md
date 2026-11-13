@@ -106,6 +106,17 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The builder decides its network fee from a permission (#847), and an operator switch pins it.**
+  `konclave-signer build-payroll` reads the wallet's target height before it builds its fee rule, and
+  takes `--zip2009-permitted` and `--zip2009-from <height>`; without them it pays 5,000 per action, as
+  before. The coordinator passes the permission, checks the fee of its own transaction with the
+  reader the devices use and refuses its own build if the fee is not one the rule permits, and the
+  proof of funds at creation is always built at 5,000, so a proposal that only fits at a lower fee
+  is not accepted. No vault is permitted yet: nothing pays a different fee from this entry.
+  `KONCLAVE_FEE_MARGINAL_MAX` is the operator's switch: **unset**, the per-vault permission decides;
+  **exactly `5000`**, every vault pays 5,000 per action; **any other value** (empty, `1000`, text),
+  the coordinator refuses to start and says why. It logs one line at boot saying which case is in
+  force. See `deploy/helper/README.md`.
 - **A payment is built the same way as a payroll line.** The coordinator builds a single payment
   with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
   line, so the two share one set of rules. Nothing changes in what a payment pays: the same
@@ -192,6 +203,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **The lower fee ZIP 2009 allows is not in use yet (#847).** The switch ships ON (`5000`): every vault
+  pays 5,000 per action, which is also the fee before block 3,590,000. It is turned OFF only after
+  the maintainer has made a send at the lower fee on staging, after that block. Until the seats'
+  reports are read (still to come), no vault is permitted even with the switch OFF.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already

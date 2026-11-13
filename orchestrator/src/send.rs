@@ -83,6 +83,14 @@ pub struct SendConfig {
     /// no wallet configuration to read it from (the devtool it replaced read it from `keys.toml`).
     #[serde(default = "default_network")]
     pub network: String,
+    /// The vault may be built at the ZIP 2009 fee (every seat reported it, and the operator's switch
+    /// is not forcing the legacy one). False builds at 5,000. Handed to the builder as a permission,
+    /// never as a number: the builder reads the table.
+    #[serde(default)]
+    pub zip2009_permitted: bool,
+    /// The height from which that permission holds (the highest `fee_from` the seats reported).
+    #[serde(default)]
+    pub zip2009_from: Option<u32>,
 }
 
 fn default_network() -> String {
@@ -246,8 +254,13 @@ fn funding_check_capped(
     let probe_dir = format!("{}/funding-check", sc.work_dir);
     let _ = std::fs::remove_dir_all(&probe_dir);
     std::fs::create_dir_all(&probe_dir).map_err(ToolError::Io)?;
+    // The proof of funds is ALWAYS built at the legacy fee (F3): a proposal that only fits at the
+    // ZIP 2009 fee would pass here and come up `Short` after the quorum, the day a permission drops
+    // (an old device unlocks, the operator's switch is turned). 5,000 is what it can always pay.
     let probe = SendConfig {
         work_dir: probe_dir.clone(),
+        zip2009_permitted: false,
+        zip2009_from: None,
         ..sc.clone()
     };
     let outcome = build_unproven(&probe, plan);
@@ -347,24 +360,30 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
     };
     let spec = serde_json::to_string(lines).map_err(|e| ToolError::parse(what, e.to_string()))?;
     let out_path = format!("{}/payroll.pczt", sc.work_dir);
+    let from = sc.zip2009_from.map(|h| h.to_string());
     crate::secrets::with_private_file(spec.as_bytes(), |spec_path| {
-        crate::tools::run(
-            &sc.konclave_signer,
-            &[
-                "build-payroll",
-                "--wallet",
-                &sc.wallet_dir,
-                "--account",
-                &sc.account,
-                "--spec",
-                &spec_path.to_string_lossy(),
-                "--out",
-                &out_path,
-                "--network",
-                &sc.network,
-            ],
-            None,
-        )
+        let spec_path = spec_path.to_string_lossy();
+        let mut args = vec![
+            "build-payroll",
+            "--wallet",
+            &sc.wallet_dir,
+            "--account",
+            &sc.account,
+            "--spec",
+            &spec_path,
+            "--out",
+            &out_path,
+            "--network",
+            &sc.network,
+        ];
+        // The permission, and the height it holds from. Absent, the signer pays 5,000.
+        if sc.zip2009_permitted {
+            args.push("--zip2009-permitted");
+        }
+        if let Some(from) = &from {
+            args.extend(["--zip2009-from", from]);
+        }
+        crate::tools::run(&sc.konclave_signer, &args, None)
     })
     .map_err(|e| ToolError::parse(what, e.to_string()))??;
     let built = std::fs::read(&out_path).map_err(ToolError::Io);
@@ -737,6 +756,11 @@ fn prepare_capped<T: Transport>(
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_unproven(sc, plan)?;
+    // The guard: the coordinator reads the fee its own build pays, with the reader the devices judge
+    // with, and refuses its own transaction if the rule for this vault at this height does not permit
+    // it. The next block is the target the wallet builds for.
+    let target = u32::try_from(tip.saturating_add(1)).unwrap_or(u32::MAX);
+    crate::fee::guard_built_fee(&tx1, target, sc.zip2009_permitted)?;
     // #821. Notes can change between the proposal and the send, so the count asked at proposal time is
     // asked again, before the prove spends a minute on a transaction nobody can sign. A PCZT this
     // cannot read goes on: the exact size check below is the guard.
@@ -1142,7 +1166,8 @@ mod tests {
                 std::fs::write(&path, bytes).unwrap();
                 format!("cp {} \"$out\"", path.display())
             }
-            None => "printf unproven > \"$out\"".to_string(),
+            // A PCZT that can be read, because the coordinator reads its fee before anything else.
+            None => format!("cp {} \"$out\"", proven.display()),
         };
         let devtool = script(
             "devtool",
@@ -1312,7 +1337,8 @@ mod tests {
         let signer = script(
             "signer",
             format!(
-                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) printf unproven > \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) cp {} \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                proven.display(),
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
                 vector.display()
@@ -1439,8 +1465,9 @@ mod tests {
         let signer = script(
             "signer",
             format!(
-                "echo \"signer $@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) printf unproven > \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "echo \"signer $@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) cp {} \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
                 ran.display(),
+                proven.display(),
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
                 vector.display()
@@ -1877,6 +1904,17 @@ mod tests {
 
     #[cfg(unix)]
     fn build_seen(tag: &str, plan: &SpendPlan, network: Option<&str>) -> BuildSeen {
+        build_seen_with(tag, plan, network, |_| {})
+    }
+
+    /// `build_seen` with a change to the configuration's JSON (the fee permission, for one).
+    #[cfg(unix)]
+    fn build_seen_with(
+        tag: &str,
+        plan: &SpendPlan,
+        network: Option<&str>,
+        tweak: impl FnOnce(&mut serde_json::Value),
+    ) -> BuildSeen {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-b3a-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1925,6 +1963,7 @@ mod tests {
         if let Some(n) = network {
             cfg["network"] = n.into();
         }
+        tweak(&mut cfg);
         let sc: SendConfig = serde_json::from_value(cfg).unwrap();
         std::fs::create_dir_all(&sc.work_dir).unwrap();
         let built = build_unproven(&sc, plan).unwrap();
@@ -1979,6 +2018,125 @@ mod tests {
             !seen.pczt_left,
             "the unproven PCZT, which names the payee, is not left behind"
         );
+    }
+
+    /// B3b. The permission reaches the builder as two flags and nothing else: without it the signer is
+    /// not told anything about fees (so it pays 5,000), with it the signer is told the permission and
+    /// the height it holds from. A fee number is never passed.
+    #[cfg(unix)]
+    #[test]
+    fn the_fee_permission_reaches_the_builder_as_flags_and_never_as_a_number() {
+        let plan = SpendPlan::Payment {
+            to: "a".into(),
+            value_zat: 1,
+            memo: None,
+        };
+        let argv = |tag: &str, permitted: bool, from: Option<u32>| {
+            build_seen_with(tag, &plan, None, |c| {
+                c["zip2009_permitted"] = permitted.into();
+                if let Some(f) = from {
+                    c["zip2009_from"] = f.into();
+                }
+            })
+            .argv
+        };
+        let none = build_seen("fee-none", &plan, None).argv;
+        assert!(!none.contains("zip2009"), "{none}");
+        let off = argv("fee-off", false, None);
+        assert!(!off.contains("zip2009"), "{off}");
+        let on = argv("fee-on", true, Some(3_590_000));
+        assert!(
+            on.trim_end()
+                .ends_with("--zip2009-permitted --zip2009-from 3590000"),
+            "{on}"
+        );
+        let no_height = argv("fee-noheight", true, None);
+        assert!(
+            no_height.trim_end().ends_with("--zip2009-permitted"),
+            "{no_height}"
+        );
+        // A height without a permission is passed as it is: the signer decides, and says legacy.
+        assert!(argv("fee-from-only", false, Some(7)).contains("--zip2009-from 7"));
+    }
+
+    /// F3. The proof of funds is ALWAYS built at the legacy fee, whatever the vault permits: a
+    /// proposal that only fits at the ZIP 2009 fee must not pass at creation.
+    #[cfg(unix)]
+    #[test]
+    fn the_funding_check_always_builds_at_the_legacy_fee() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-f3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let unproven = dir.join("unproven.pczt");
+        std::fs::write(&unproven, VECTOR).unwrap();
+        let log = dir.join("argv.log");
+        let path = dir.join("signer");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {} \"$out\"; exit 0; fi\necho 'SIGHASH {}'; echo 'RANDOMIZER 0 {}'\n",
+                log.display(),
+                unproven.display(),
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32)
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&path).output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                _ => break,
+            }
+        }
+        let _ = std::fs::remove_file(&log);
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": path, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+            "zip2009_permitted": true, "zip2009_from": 3_590_000,
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        assert!(matches!(funding_check(&sc, &plan, 1), Ok(Funding::Ok)));
+        let seen = std::fs::read_to_string(&log).unwrap();
+        let builds: Vec<&str> = seen
+            .lines()
+            .filter(|l| l.starts_with("build-payroll"))
+            .collect();
+        assert_eq!(builds.len(), 1, "{seen}");
+        assert!(!builds[0].contains("zip2009"), "{}", builds[0]);
+        // And the send's own build does carry the permission, so the test above is not vacuous.
+        std::fs::create_dir_all(&sc.work_dir).unwrap();
+        build_unproven(&sc, &plan).unwrap();
+        let seen = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            seen.contains("--zip2009-permitted --zip2009-from 3590000"),
+            "{seen}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The guard sits between the build and everything after it: the coordinator reads the fee of its
+    /// own transaction before the proof is made, the room opens or anyone is asked to sign.
+    #[test]
+    fn the_guard_runs_on_the_built_transaction_before_it_is_proven() {
+        let src = include_str!("send.rs");
+        let body = &src[src.find("fn prepare_capped<T").unwrap()..];
+        let build = body.find("build_unproven(sc, plan)?").unwrap();
+        let guard = body.find("guard_built_fee(").unwrap();
+        let prove = body.find("pczt::prove(").unwrap();
+        assert!(build < guard && guard < prove);
+        // And the guard is told the vault's permission, not a constant.
+        assert!(body[guard..prove].contains("sc.zip2009_permitted"));
     }
 
     /// The builder is told which network the wallet is on: a testnet coordinator builds with testnet

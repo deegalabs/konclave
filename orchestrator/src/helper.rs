@@ -38,6 +38,9 @@ pub struct HelperConfig {
     /// The most a send waits for the devices' signatures, in polls (about a second each). The
     /// operator's setting (`KONCLAVE_SEND_MAX_POLLS`).
     pub send_max_polls: u32,
+    /// The operator's fee switch (`KONCLAVE_FEE_MARGINAL_MAX`): `On` forces every vault to the legacy
+    /// fee, `Off` lets each vault's own permission decide.
+    pub fee_switch: crate::fee::FeeSwitch,
 }
 
 /// What a send waits for the devices when the operator has not said: five minutes.
@@ -138,6 +141,10 @@ pub fn send_config_for(
         zcash_sign: Some(cfg.zcash_sign.clone()),
         vaults_dir: Some(cfg.vaults_dir.display().to_string()),
         network: cfg.network.clone(),
+        // TODO(B2): `crate::fee::fee_permission(cfg.fee_switch, seat_fee_reports(..))`, wired when the
+        // seats' fee reports exist. Until then no vault is permitted, whatever the switch says.
+        zip2009_permitted: crate::fee::fee_permission(cfg.fee_switch, false),
+        zip2009_from: None,
     }
 }
 
@@ -4183,6 +4190,7 @@ mod tests {
             vaults_dir,
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         }
     }
 
@@ -5130,6 +5138,7 @@ mod tests {
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
@@ -5144,6 +5153,7 @@ mod tests {
             vaults_dir: PathBuf::from("/srv/vaults"),
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         }
     }
 
@@ -6267,6 +6277,7 @@ mod change_receiver_tests {
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         };
         let key = format!("{:064x}", 0xabc);
         let before = now_secs();
@@ -6348,6 +6359,7 @@ mod change_receiver_tests {
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         };
         (cfg, dir)
     }
