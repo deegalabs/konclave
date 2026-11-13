@@ -352,7 +352,7 @@ export default function Proposal() {
           </table>
         )}
 
-        {(isAwaiting || isReady) && <UnusualNote reading={unusual} lines={lines} />}
+        {(isAwaiting || isReady) && <UnusualNote state={unusual} lines={lines} />}
 
         <div className="who-head">
           <span className="klab">{t('proposal.approvals')}</span>

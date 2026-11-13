@@ -1,7 +1,8 @@
-- **A proposal says what is out of the ordinary, while it can still be voted on or signed.** A first
-  payment to an address, an amount more than twice what that address usually receives, and a
-  payroll that adds, drops or changes someone against the previous one are named under "Worth a
-  second look". It is a reading aid, not a check: it compares with the vault's history as the
-  coordinator reports it, so a payment it does not name is not thereby safe, and what the device
-  reads from the transaction before signing is still what counts. It reads the lines of the twelve
-  most recent payrolls and says so when the comparison is partial.
+- **A proposal says what is out of the ordinary, while it can still be voted on or signed.** Under
+  "Worth a second look" it names, once per person and at most five lines before "and N more": an
+  address the book shows no earlier payment to, an amount more than twice what the vault usually
+  pays that address, and who a payroll adds, drops or pays differently against the previous one,
+  each by the name a payroll gave them. It is a reading aid, not a check: what the device reads from
+  the transaction before signing is what counts, and the comparison uses the vault's history as the
+  coordinator reports it. While it reads, and when the history cannot be read, the note says so, so
+  its absence only means nothing stood out.
