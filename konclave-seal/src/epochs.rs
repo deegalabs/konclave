@@ -275,6 +275,17 @@ pub fn fee_rule_for(target_height: u32, in_force: bool) -> u64 {
     }
 }
 
+/// The marginal fees the era at `target_height` accepts when the ZIP 2009 rule is `in_force`, else only
+/// [`LEGACY_MARGINAL_FEE`]. NOT the coordinator's guard: since #847 it requires exactly `fee_rule_for`.
+/// No caller is left; it stays only so this crate, built into the device, is unchanged in this release,
+/// and it is removed with the next rebuild of the device package. Do not add a caller.
+pub fn fee_marginals_permitted(target_height: u32, in_force: bool) -> Vec<u64> {
+    if !in_force {
+        return vec![LEGACY_MARGINAL_FEE];
+    }
+    MAINNET.fee_era_at(target_height).accepts.to_vec()
+}
+
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeightBounds {
@@ -1302,6 +1313,19 @@ mod tests {
         ];
         assert!(!every_era_accepts(DROPS, 5_000));
         assert!(!every_era_accepts(DROPS, 1_000));
+    }
+
+    #[test]
+    fn the_era_set_contains_what_the_builder_pays() {
+        assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
+        // Whatever the builder pays for a target is among what the guard permits for it.
+        for h in [0, 3_589_999, 3_590_000, 4_000_000] {
+            for p in [false, true] {
+                assert!(fee_marginals_permitted(h, p).contains(&fee_rule_for(h, p)));
+            }
+        }
     }
 
     #[test]
