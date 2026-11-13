@@ -69,10 +69,38 @@ fn thousands(n: u64) -> String {
     out
 }
 
-/// Whether a send may be built at the ZIP 2009 fee: the switch is not forcing the legacy fee AND the
-/// vault's seats permit it. `seats_permit` is false everywhere until B2's report reader is wired.
-pub fn fee_permission(switch: FeeSwitch, seats_permit: bool) -> bool {
-    switch == FeeSwitch::Off && seats_permit
+/// THE decision whether a vault's sends may be built at the ZIP 2009 fee, and from which height.
+///
+/// `(true, Some(from))` only when the operator's switch is OFF (`per-vault`) AND `reports` is `Some`,
+/// non-empty and EVERY seat reported a height (`seat_fee_reports`); `from` is then the highest of the
+/// table's own `table_from` and every report. The table's floor is a floor: a seat that reports a
+/// LOWER height than the table's (a forged or stale report) cannot bring the era earlier than the
+/// table has it. Anything else is `(false, None)`: switch ON, no seat count (`None`), no seats (empty),
+/// or one seat that reported nothing.
+///
+/// A report is a HINT, not a proof: a member holding the read key can change another seat's report,
+/// which can only withhold the lower fee or delay it (availability), never lower the fee below the
+/// table or below what a device accepts. The height the permission is judged at is the coordinator's
+/// own tip, never a report (`guard_built_fee`, the signer's own wallet target).
+pub fn vault_fee_permission(
+    switch: FeeSwitch,
+    reports: Option<&[Option<u32>]>,
+    table_from: u32,
+) -> (bool, Option<u32>) {
+    if switch != FeeSwitch::Off {
+        return (false, None);
+    }
+    let Some(reports) = reports.filter(|r| !r.is_empty()) else {
+        return (false, None);
+    };
+    let mut from = table_from;
+    for r in reports {
+        match r {
+            Some(h) => from = from.max(*h),
+            None => return (false, None),
+        }
+    }
+    (true, Some(from))
 }
 
 /// The coordinator checks its OWN build before it asks anyone to approve it: the fee the PCZT pays
@@ -169,12 +197,61 @@ mod tests {
         assert_eq!(thousands(123_456), "123,456");
     }
 
+    const F: u32 = 3_590_000;
+
     #[test]
-    fn the_switch_on_never_permits_and_the_switch_off_follows_the_seats() {
-        assert!(!fee_permission(FeeSwitch::On, true));
-        assert!(!fee_permission(FeeSwitch::On, false));
-        assert!(!fee_permission(FeeSwitch::Off, false));
-        assert!(fee_permission(FeeSwitch::Off, true));
+    fn the_switch_on_ignores_full_reports() {
+        let all = [Some(F), Some(F)];
+        assert_eq!(
+            vault_fee_permission(FeeSwitch::On, Some(&all), F),
+            (false, None)
+        );
+    }
+
+    #[test]
+    fn switch_off_with_every_seat_reporting_permits_from_the_highest_height() {
+        assert_eq!(
+            vault_fee_permission(FeeSwitch::Off, Some(&[Some(F), Some(F)]), F),
+            (true, Some(F))
+        );
+        assert_eq!(
+            vault_fee_permission(
+                FeeSwitch::Off,
+                Some(&[Some(F), Some(F + 500), Some(F + 7)]),
+                F
+            ),
+            (true, Some(F + 500))
+        );
+    }
+
+    // The decisive test: a seat cannot report the era earlier than the table has it.
+    #[test]
+    fn a_seat_reporting_below_the_table_cannot_bring_the_era_earlier() {
+        assert_eq!(
+            vault_fee_permission(FeeSwitch::Off, Some(&[Some(1), Some(F + 3)]), F),
+            (true, Some(F + 3))
+        );
+        assert_eq!(
+            vault_fee_permission(FeeSwitch::Off, Some(&[Some(0), Some(5)]), F),
+            (true, Some(F))
+        );
+    }
+
+    #[test]
+    fn nothing_is_permitted_unless_every_seat_reported() {
+        let off = FeeSwitch::Off;
+        assert_eq!(
+            vault_fee_permission(off, Some(&[Some(F), None]), F),
+            (false, None)
+        );
+        assert_eq!(vault_fee_permission(off, Some(&[None]), F), (false, None));
+        assert_eq!(vault_fee_permission(off, None, F), (false, None));
+        assert_eq!(vault_fee_permission(off, Some(&[]), F), (false, None));
+    }
+
+    #[test]
+    fn the_table_floor_is_the_tables_zip_2009_height() {
+        assert_eq!(konclave_seal::epochs::ZIP2009_FROM, 3_590_000);
     }
 
     const V: &str = "../konclave-wasm/tests/vectors/";

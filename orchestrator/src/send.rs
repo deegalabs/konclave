@@ -337,7 +337,7 @@ fn funding_check_capped(
     }
 }
 
-fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
+pub(crate) fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
     // One builder for both plans (B3a). A single payment is a payroll of one line, so the same
     // strategy, policies and padding build it and nothing is left to `zcash-devtool pczt create`,
     // which took the address and the memo on its command line (visible to any process on the host).

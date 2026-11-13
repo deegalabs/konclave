@@ -221,6 +221,9 @@ const _: () = assert!(
 /// builder pays whenever the ZIP 2009 rule is not in force. Read from the table, never written twice.
 pub const LEGACY_MARGINAL_FEE: u64 = MAINNET.fees[0].builds;
 
+/// The height the mainnet table starts the ZIP 2009 era at: the floor no seat's report can lower.
+pub const ZIP2009_FROM: u32 = MAINNET.fees[MAINNET.fees.len() - 1].from_height;
+
 /// Whether every era of `fees` still accepts `marginal`, so a builder that pays it is never refused by
 /// a device, whatever the era its target falls in.
 pub const fn every_era_accepts(fees: &[FeeEra], marginal: u64) -> bool {

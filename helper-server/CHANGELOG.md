@@ -120,8 +120,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   coordinator's own check of its transaction read it. The coordinator checks the fee of its own
   transaction with the reader the devices use and refuses its own build if the fee is not one the rule
   permits, and the proof of funds at creation is always built at 5,000, so a proposal that only fits at
-  a lower fee is not accepted. A ceremony file cannot grant the permission. No vault is permitted yet:
-  nothing pays a different fee from this entry.
+  a lower fee is not accepted. A ceremony file cannot grant the permission. A vault is permitted
+  only with the switch set to `per-vault` AND every seat `1..=total` having reported the height from
+  which its device accepts the lower fee; the permission then holds from the highest of those reports
+  and the height the fee table starts the era at (a seat cannot report it earlier than the table has
+  it), judged against the coordinator's own block height, never a report. With the switch at its
+  default (ON), nothing pays a different fee from this entry.
   `KONCLAVE_FEE_MARGINAL_MAX` is the operator's switch: **unset or exactly `5000`**, every vault pays
   5,000 per action; **exactly `per-vault`**, each vault's own permission decides; **any other value**
   (empty, `1000`, text), the coordinator refuses to start and says why. It logs one line at boot saying
@@ -214,8 +218,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 - **The lower fee ZIP 2009 allows is not in use yet (#847).** The coordinator pays 5,000 per action
   unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
-  maintainer has made a send at the lower fee on staging, after block 3,590,000. Until the seats'
-  reports are read (still to come), no vault is permitted even then.
+  maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
+  pays it only when every seat has reported that its device accepts it. A seat's report is a hint,
+  not a proof: a member holding the vault's read key can change another seat's report, which can
+  withhold or delay the lower fee (availability), never lower the fee below what the table and the
+  devices accept.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already

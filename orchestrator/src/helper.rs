@@ -118,6 +118,15 @@ pub fn send_config_for(
     reg: &VaultRegistration,
     work_dir: String,
 ) -> SendConfig {
+    // The vault's permission to pay the lower fee: the operator's switch and what EVERY seat reported.
+    // Only the permission and its floor come from here; the height it is judged at is the
+    // coordinator's own tip, never a seat's report.
+    let reports = seat_fee_reports(&cfg.vaults_dir, &reg.vault_id, reg.total);
+    let permission = crate::fee::vault_fee_permission(
+        cfg.fee_switch,
+        reports.as_deref(),
+        konclave_seal::epochs::ZIP2009_FROM,
+    );
     SendConfig {
         devtool: cfg.devtool.clone(),
         wallet_dir: reg.wallet_dir.clone(),
@@ -141,13 +150,8 @@ pub fn send_config_for(
         zcash_sign: Some(cfg.zcash_sign.clone()),
         vaults_dir: Some(cfg.vaults_dir.display().to_string()),
         network: cfg.network.clone(),
-        // TODO(B2): `crate::fee::fee_permission(cfg.fee_switch, seat_fee_reports(..))`, wired when the
-        // seats' fee reports exist. Until then no vault is permitted, whatever the switch says. When
-        // it is wired: `zip2009_from` = max(the table's F, the highest `fee_from` the seats reported),
-        // and the target the permission is judged at comes from the coordinator's OWN tip (the guard
-        // reads `gate.tip()`), never from anything a seat reported.
-        zip2009_permitted: crate::fee::fee_permission(cfg.fee_switch, false),
-        zip2009_from: None,
+        zip2009_permitted: permission.0,
+        zip2009_from: permission.1,
     }
 }
 
@@ -5315,6 +5319,108 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+        }
+    }
+
+    /// #847 end to end on the coordinator's side: a vault's registry of seat reports and the operator's
+    /// switch, through `send_config_for`, reach the builder as flags (stub signer, argv logged).
+    #[cfg(unix)]
+    fn built_argv(tag: &str, switch: crate::fee::FeeSwitch, fee_from: &[Option<u32>]) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-b3b-e2e-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let id = "e".repeat(64);
+        std::fs::create_dir_all(dir.join(&id)).unwrap();
+        let recs: Vec<serde_json::Value> = fee_from
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let mut r = serde_json::json!({"comms": format!("{i:064x}"), "seat": i + 1, "write": format!("{i:064x}")});
+                if let Some(f) = f {
+                    r["fee_from"] = (*f).into();
+                }
+                r
+            })
+            .collect();
+        std::fs::write(
+            dir.join(&id).join("device-keys.json"),
+            serde_json::to_string(&recs).unwrap(),
+        )
+        .unwrap();
+        let log = dir.join("argv.log");
+        let signer = dir.join("signer");
+        std::fs::write(
+            &signer,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\n[ -n \"$out\" ] && printf built > \"$out\"\nexit 0\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&signer, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&signer).output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10))
+                }
+                _ => break,
+            }
+        }
+        let _ = std::fs::remove_file(&log);
+        let mut cfg = send_cfg("main");
+        cfg.vaults_dir = dir.clone();
+        cfg.konclave_signer = signer;
+        cfg.fee_switch = switch;
+        let mut r = reg(&id);
+        r.total = fee_from.len() as u16;
+        let sc = send_config_for(&cfg, &r, dir.join("work").display().to_string());
+        std::fs::create_dir_all(&sc.work_dir).unwrap();
+        let plan = SpendPlan::Payment {
+            to: "u1x".into(),
+            value_zat: 1,
+            memo: None,
+        };
+        crate::send::build_unproven(&sc, &plan).unwrap();
+        let argv = std::fs::read_to_string(&log).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        argv
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_vault_whose_seats_all_reported_is_built_with_the_permission_when_the_switch_is_per_vault()
+    {
+        use crate::fee::FeeSwitch::{Off, On};
+        let f = 3_590_000;
+        let full = [Some(f), Some(f), Some(f)];
+        let on = built_argv("off-full", Off, &full);
+        assert!(
+            on.trim_end()
+                .ends_with("--zip2009-permitted --zip2009-from 3590000"),
+            "{on}"
+        );
+        // The highest report wins; a report below the table's height cannot lower it.
+        let high = built_argv("off-high", Off, &[Some(f), Some(f + 40), Some(1)]);
+        assert!(
+            high.trim_end()
+                .ends_with("--zip2009-permitted --zip2009-from 3590040"),
+            "{high}"
+        );
+        let low = built_argv("off-low", Off, &[Some(1), Some(2), Some(3)]);
+        assert!(
+            low.trim_end()
+                .ends_with("--zip2009-permitted --zip2009-from 3590000"),
+            "{low}"
+        );
+        // Switch ON ignores full reports; a missing seat, or nobody reporting, is the legacy fee.
+        for (tag, switch, rep) in [
+            ("on-full", On, vec![Some(f), Some(f), Some(f)]),
+            ("off-missing", Off, vec![Some(f), None, Some(f)]),
+            ("off-none", Off, vec![None, None, None]),
+        ] {
+            let argv = built_argv(tag, switch, &rep);
+            assert!(!argv.contains("zip2009"), "{tag}: {argv}");
         }
     }
 
