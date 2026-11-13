@@ -771,7 +771,6 @@ fn prepare_capped<T: Transport>(
     // The guard: the coordinator reads the fee its own build pays, with the reader the devices judge
     // with, and refuses its own transaction if the rule for this vault at this height does not permit
     // it. The next block is the target the wallet builds for.
-
     crate::fee::guard_built_fee(
         &tx1,
         tip,
@@ -1570,7 +1569,7 @@ mod tests {
         }
     }
 
-    /// M4, behaviourally: a send whose chain tip reads 0 (the coordinator does not know the chain) is
+    /// #847, behaviourally: a send whose chain tip reads 0 (the coordinator does not know the chain) is
     /// refused by the fee guard before the proof, the extraction or the room, for a payment and a
     /// payroll alike. Removing the guard from `prepare_capped` makes this fail.
     #[cfg(unix)]

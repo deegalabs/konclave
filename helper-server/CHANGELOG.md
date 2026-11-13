@@ -222,8 +222,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
   maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
   pays it only when every seat has reported that its device accepts it. A seat's report is
-  self-declared and is not authenticated against the members: a member holding the vault's read key
-  can change another seat's report. And two devices of one seat share one registration, so the newest
+  self-declared and is not authenticated against the members: whoever may register a seat's keys
+  (anyone holding the vault id, on a vault with no read key) can change that seat's report. And two devices of one seat share one registration, so the newest
   one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
   device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
   (the payment does not go out at that fee), never funds: the device's own fee check stays the

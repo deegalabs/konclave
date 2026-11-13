@@ -78,8 +78,8 @@ fn thousands(n: u64) -> String {
 /// table has it. Anything else is `(false, None)`: switch ON, no seat count (`None`), no seats (empty),
 /// or one seat that reported nothing.
 ///
-/// A report is self-declared and NOT authenticated against the members: a member with the read key can
-/// change another seat's report, and two devices of one seat share one registration (the newest speaks
+/// A report is self-declared and NOT authenticated against the members: whoever may register a seat's keys
+/// (anyone holding the vault id, on a vault with no read key) can change that seat's report, and two devices of one seat share one registration (the newest speaks
 /// for the seat). So the coordinator can build at the lower fee for a vault where a signing device
 /// still refuses it, and that device then refuses the ceremony: availability (the payment does not go
 /// out at that fee), never funds. The device's own fee check is the defence; the operator's switch
