@@ -3362,6 +3362,7 @@ pub mod pczt_bridge {
     fn read_bundle(
         pool: &str,
         bundle: &orchard::pczt::Bundle,
+        fee: konclave_seal::spends::BundleFee,
     ) -> Result<(Vec<OutputInfo>, BundleShape, i64), String> {
         let mut out = Vec::with_capacity(bundle.actions().len());
         for (i, action) in bundle.actions().iter().enumerate() {
@@ -3408,14 +3409,14 @@ pub mod pczt_bridge {
                 memo,
             });
         }
+        // The action count and the value balance are `konclave_seal::spends::bundle_fee`'s, the one
+        // reader the coordinator's guard uses too, so the two halves of the fee rule cannot count apart.
         let shape = BundleShape {
-            actions: bundle.actions().len(),
+            actions: fee.actions,
             to_sign: spends_to_sign(bundle)?.len(),
             paying: out.iter().filter(|o| o.value.unwrap_or(0) > 0).count(),
         };
-        let value_balance = i64::try_from(*bundle.value_sum())
-            .map_err(|_| format!("[fee] the {pool} bundle's value balance is out of range"))?;
-        Ok((out, shape, value_balance))
+        Ok((out, shape, fee.value_balance))
     }
 
     /// Open one output the way its recipient will, and return the memo plaintext.
@@ -3472,6 +3473,10 @@ pub mod pczt_bridge {
             Memo::Text(t) => Some(String::from(&*t)),
             _ => None,
         }
+    }
+
+    fn fee_of(pczt: &Pczt, ironwood: bool) -> Result<konclave_seal::spends::BundleFee, String> {
+        konclave_seal::spends::bundle_fee(pczt, ironwood)
     }
 
     /// Run `read` over one pool's bundle, keeping a refusal's own words and wrapping a parse error.
@@ -3564,7 +3569,9 @@ pub mod pczt_bridge {
         // offset a fee raised in the other bundle. And a version 5 transaction has no Ironwood slot
         // in its digest, so an Ironwood bundle in one is signed by nobody: refused, not read.
         if tx_version == 5 {
-            let (_, iw, balance) = with_bundle(&pczt, true, |b| read_bundle("ironwood", b))?;
+            let (_, iw, balance) = with_bundle(&pczt, true, |b| {
+                read_bundle("ironwood", b, fee_of(&pczt, true)?)
+            })?;
             if iw.actions > 0 || balance != 0 {
                 return Err(
                     "[shape] a version 5 transaction carries an Ironwood bundle its signature does not cover"
@@ -3579,8 +3586,9 @@ pub mod pczt_bridge {
         let (mut orchard_balance, mut ironwood_balance) = (0i64, 0i64);
         let mut ironwood_values = vec![];
         for &(ironwood_pool, pool) in pools {
-            let (part, shape, balance) =
-                with_bundle(&pczt, ironwood_pool, |b| read_bundle(pool, b))?;
+            let (part, shape, balance) = with_bundle(&pczt, ironwood_pool, |b| {
+                read_bundle(pool, b, fee_of(&pczt, ironwood_pool)?)
+            })?;
             if shape.actions == 0 && balance != 0 {
                 return Err(format!(
                     "[shape] the {pool} bundle has no actions and a value balance its signature does not cover"
@@ -5965,10 +5973,16 @@ pub mod pczt_bridge {
             // Two fixtures where the vault signs fewer spends than the bundle has actions: the
             // padding bound is computed from `to_sign`, so it must not be the action count.
             let pczt = Pczt::parse(OR_MAINNET_DKG).unwrap();
-            let (_, s, _) = with_bundle(&pczt, false, |b| read_bundle("orchard", b)).unwrap();
+            let (_, s, _) = with_bundle(&pczt, false, |b| {
+                read_bundle("orchard", b, fee_of(&pczt, false)?)
+            })
+            .unwrap();
             assert_eq!(s, shape_of(2, 1, 2));
             let pczt = Pczt::parse(ZF_IW_SPLIT_CHANGE).unwrap();
-            let (_, s, _) = with_bundle(&pczt, true, |b| read_bundle("ironwood", b)).unwrap();
+            let (_, s, _) = with_bundle(&pczt, true, |b| {
+                read_bundle("ironwood", b, fee_of(&pczt, true)?)
+            })
+            .unwrap();
             assert_eq!(s, shape_of(5, 1, 5));
         }
 
@@ -5977,8 +5991,10 @@ pub mod pczt_bridge {
             // 4 actions, 4 spends this vault signs, a payment and change: the numbers the padding
             // bound and the exact ZIP 317 fee are computed from.
             let pczt = Pczt::parse(IW_PROVEN).unwrap();
-            let (_, shape, balance) =
-                with_bundle(&pczt, true, |b| read_bundle("ironwood", b)).unwrap();
+            let (_, shape, balance) = with_bundle(&pczt, true, |b| {
+                read_bundle("ironwood", b, fee_of(&pczt, true)?)
+            })
+            .unwrap();
             assert_eq!(shape, shape_of(4, 4, 2));
             assert_eq!(balance, 20_000);
         }

@@ -942,6 +942,7 @@ mod tests {
                 vaults_dir: dir.join("vaults"),
                 relays: Vec::new(),
                 send_max_polls: crate::helper::DEFAULT_SEND_MAX_POLLS,
+                fee_switch: Default::default(),
             };
             (cfg, dir)
         }

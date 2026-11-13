@@ -2069,13 +2069,25 @@ fn install_panic_hook() {
 /// Build a HelperConfig from env vars. All paths are public tooling; nothing secret.
 fn config_from_env() -> HelperConfig {
     // A value that is not UTF-8 is read as text, which is not a number, and the log says so.
-    let (config, send_polls_note) = config_with(&|k| match std::env::var(k) {
+    let (config, send_polls_note) = match config_with(&|k| match std::env::var(k) {
         Ok(v) => Some(v),
-        Err(std::env::VarError::NotUnicode(v)) if k == "KONCLAVE_SEND_MAX_POLLS" => {
+        // Not UTF-8 is a value, and for the fee switch a value that is not the one accepted: it must
+        // refuse to start, never read as unset.
+        Err(std::env::VarError::NotUnicode(v))
+            if k == "KONCLAVE_SEND_MAX_POLLS" || k == orchestrator::fee::FEE_SWITCH_VAR =>
+        {
             Some(v.to_string_lossy().into_owned())
         }
         Err(_) => None,
-    });
+    }) {
+        Ok(c) => c,
+        // Fail closed: a fee switch that cannot be read is not defaulted.
+        Err(why) => {
+            eprintln!("konclave-helper: {why}");
+            std::process::exit(2);
+        }
+    };
+    eprintln!("{}", config.fee_switch.boot_line());
     eprintln!(
         "konclave-helper: a send waits at most {} polls (about a second each) for the devices (KONCLAVE_SEND_MAX_POLLS)",
         config.send_max_polls
@@ -2088,7 +2100,11 @@ fn config_from_env() -> HelperConfig {
 
 /// The configuration, from whatever answers for the variables: the process environment in the
 /// binary, a table in a test. Returns the note about the wait setting when it was not taken as given.
-fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'static str>) {
+fn config_with(
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<(HelperConfig, Option<&'static str>), String> {
+    let fee_switch =
+        orchestrator::fee::FeeSwitch::from_env(get(orchestrator::fee::FEE_SWITCH_VAR).as_deref())?;
     let env = |k: &str, d: &str| get(k).unwrap_or_else(|| d.to_string());
     let (send_max_polls, send_polls_note) =
         send_polls_from(get("KONCLAVE_SEND_MAX_POLLS").as_deref());
@@ -2103,8 +2119,9 @@ fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
         relays: relays_from(&get("KONCLAVE_RELAY_BASES").unwrap_or_default()),
         send_max_polls,
+        fee_switch,
     };
-    (config, send_polls_note)
+    Ok((config, send_polls_note))
 }
 
 /// The relays this coordinator may publish a signing request to (#270), from
@@ -4879,6 +4896,7 @@ mod tests {
             },
             relays: vec![TEST_RELAY.into()],
             send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         }
     }
 
@@ -8272,6 +8290,7 @@ mod tests {
                     .then(|| value.clone())
                     .flatten()
             })
+            .unwrap()
         };
         assert_eq!(with(Some("240")).0.send_max_polls, 240);
         assert_eq!(with(Some("240")).1, None);
@@ -8280,6 +8299,45 @@ mod tests {
         assert_eq!(config.send_max_polls, 300);
         assert!(note.is_some(), "a value that was not taken says so");
         assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly
+    /// `per-vault` is OFF, and any other value refuses to boot (fail closed), with a message that names
+    /// the variable.
+    #[test]
+    fn the_fee_switch_is_on_unless_per_vault_and_anything_else_refuses_to_boot() {
+        use orchestrator::fee::FeeSwitch;
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_FEE_MARGINAL_MAX")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+        };
+        assert_eq!(with(None).unwrap().0.fee_switch, FeeSwitch::On);
+        assert_eq!(with(Some("5000")).unwrap().0.fee_switch, FeeSwitch::On);
+        assert_eq!(
+            with(Some("per-vault")).unwrap().0.fee_switch,
+            FeeSwitch::Off
+        );
+        for bad in ["", "1000", "garbage", "5000 ", "\u{FFFD}", "Per-Vault"] {
+            let why = with(Some(bad))
+                .err()
+                .unwrap_or_else(|| panic!("{bad:?} booted"));
+            assert!(why.contains("KONCLAVE_FEE_MARGINAL_MAX"), "{why}");
+        }
+    }
+
+    /// The boot refusal and the boot line are wired into the binary's own startup, not only defined.
+    #[test]
+    fn startup_logs_the_switch_and_exits_when_it_cannot_be_read() {
+        let src = include_str!("main.rs");
+        let start = src.find("fn config_from_env()").unwrap();
+        let body = &src[start..start + 1800];
+        assert!(body.contains("process::exit(2)"));
+        assert!(body.contains("fee_switch.boot_line()"));
+        assert!(body.contains("FEE_SWITCH_VAR"));
     }
 
     /// A request cannot choose how long its send waits: the value the send is built with comes from

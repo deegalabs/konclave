@@ -102,7 +102,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
   value is refused with a 400, and a registration that names no seat writes nothing. The report
   is not authenticated (whoever may register that seat's keys can set or clear it): a hint about
-  availability, never a guarantee. Nothing reads it yet: what a payment pays does not change.
+  availability, never a guarantee. The builder's permission reads it (a vault is permitted the lower
+  fee only when every seat reported it and the operator's switch is `per-vault`); with the switch at
+  its default, what a payment pays does not change.
 
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
@@ -113,6 +115,23 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The builder decides its network fee from a permission (#847), and an operator switch pins it.**
+  `konclave-signer build-payroll` reads the wallet's target height before it builds its fee rule, and
+  takes `--zip2009-permitted` and `--zip2009-from <height>`; without them it pays 5,000 per action, as
+  before. One rule (`zip2009_in_force`) says when the permission applies, and both the builder and the
+  coordinator's own check of its transaction read it. The coordinator checks the fee of its own
+  transaction with the reader the devices use and refuses its own build if the fee is not one the rule
+  permits, and the proof of funds at creation is always built at 5,000, so a proposal that only fits at
+  a lower fee is not accepted. A ceremony file cannot grant the permission. A vault is permitted
+  only with the switch set to `per-vault` AND every seat `1..=total` having reported the height from
+  which its device accepts the lower fee; the permission then holds from the highest of those reports
+  and the height the fee table starts the era at (a seat cannot report it earlier than the table has
+  it), judged against the coordinator's own block height, never a report. With the switch at its
+  default (ON), nothing pays a different fee from this entry.
+  `KONCLAVE_FEE_MARGINAL_MAX` is the operator's switch: **unset or exactly `5000`**, every vault pays
+  5,000 per action; **exactly `per-vault`**, each vault's own permission decides; **any other value**
+  (empty, `1000`, text), the coordinator refuses to start and says why. It logs one line at boot saying
+  which case is in force. See `deploy/helper/README.md`.
 - **A payment is built the same way as a payroll line.** The coordinator builds a single payment
   with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
   line, so the two share one set of rules. Nothing changes in what a payment pays: the same
@@ -199,6 +218,16 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **The lower fee ZIP 2009 allows is not in use yet (#847).** The coordinator pays 5,000 per action
+  unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
+  maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
+  pays it only when every seat has reported that its device accepts it. A seat's report is
+  self-declared and is not authenticated against the members: whoever may register a seat's keys
+  (anyone holding the vault id, on a vault with no read key) can change that seat's report. And two devices of one seat share one registration, so the newest
+  one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
+  device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
+  (the payment does not go out at that fee), never funds: the device's own fee check stays the
+  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already
