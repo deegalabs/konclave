@@ -1085,6 +1085,7 @@ export const ptBR: Record<string, string> = {
   'signing.againSameChecked': 'Este é um pagamento separado, não o anterior de novo.',
   'signing.againSameLapsedBody': '{whenPhrase}, este aparelho assinou um pagamento com exatamente estes destinatários, valores e memos, em outra proposta. Se aquele pagamento saiu e este for o mesmo pagamento de novo, assinar paga {amt} ZEC uma segunda vez. Assine só se este for um pagamento separado, ou se você conferiu que o anterior não saiu.',
   'signing.againSameLapsedChecked': 'Este é um pagamento separado, ou conferi que o anterior não saiu e que o último bloco do explorador já passou de {block}.',
+  'signing.copyTxid': 'Copiar id da transação',
   'signing.sameOn': 'Em {when}',
   'signing.sameEarlier': 'Antes',
   'signing.againLapsedChecked': 'Conferi: nenhuma tentativa anterior deste pagamento saiu, e o último bloco do explorador já passou de {block}. Se eu tiver me enganado, isto paga duas vezes.',

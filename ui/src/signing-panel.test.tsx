@@ -594,3 +594,22 @@ describe('the confirm for signing again, when an upgrade ends the earlier attemp
     expect(ptBR['signing.againUntilEpoch']).not.toMatch(/não a aceita mais|recusa/i)
   })
 })
+
+// Accessibility of the sign-again confirm (WCAG 2.2 AA review): the long pt-BR CTA wraps instead of
+// clipping Cancel, a focused checkbox clears the stacked foot on a phone, focus never falls to the body
+// when the confirm closes itself, and the copy button names what it copies.
+describe('the sign-again confirm, accessibility pins', () => {
+  const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+  it('the buttons wrap and the CTA text wraps', () => {
+    expect(css).toMatch(/\.sign-confirm > \.btns\{flex-wrap:wrap\}/)
+    expect(css).toMatch(/\.sign-confirm > \.btns \.btn\{white-space:normal;/)
+  })
+  it('a phone gets room for the stacked foot', () => {
+    expect(css).toMatch(/@media\(max-width:560px\)\{ \.modal-card\.sign-confirm\{scroll-padding-bottom:170px\} \}/)
+  })
+  it('focus goes to the message or the panel when the confirm closes itself', () => {
+    const src = codeOf('./screens/SigningPanel.tsx')
+    expect(src).toMatch(/if \(closed && typeof document !== 'undefined' && document\.activeElement === document\.body\) \(errRef\.current \?\? sheetRef\.current\)\?\.focus\(\)/)
+    expect(src).toMatch(/<CopyButton value=\{lapsedTxid\} label=\{t\('signing\.copyTxid'\)\} \/>/)
+  })
+})

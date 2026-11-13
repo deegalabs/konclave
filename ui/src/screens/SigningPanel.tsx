@@ -200,7 +200,7 @@ export function SignConfirm({ payrollLines, destPublic = false, again, firstUnti
                 {lapsedTxid ? t('signing.againLapsedTxid') : t('signing.againLapsedNoTxid')}
                 {lapsedTxid && (lapsedOf?.k ?? 1) < (lapsedOf?.n ?? 1) && <> {t('signing.againLapsedPartial', { k: lapsedOf?.k ?? 1, n: lapsedOf?.n ?? 1 })}</>}
               </p>
-              {lapsedTxid && <p className="modal-p"><code className="sign-txid">{lapsedTxid}</code> <CopyButton value={lapsedTxid} /></p>}
+              {lapsedTxid && <p className="modal-p"><code className="sign-txid">{lapsedTxid}</code> <CopyButton value={lapsedTxid} label={t('signing.copyTxid')} /></p>}
             </>
           )}
           <label className="check-row mt-sm">
@@ -382,6 +382,15 @@ export default function SigningPanel() {
   // Escape closes it, and focus goes back to what opened it. The scrim and the sheet are not a
   // `Dialog` because the sheet keeps its own layout, so these rules are a copy of `Dialog`'s, kept here for now.
   const sheetRef = useRef<HTMLElement | null>(null)
+  const errRef = useRef<HTMLDivElement | null>(null)
+  // A confirm that closed itself took its opener ("Sign again") with it: focus goes to the message,
+  // or the panel, never the page body (WCAG 2.4.3). Only on the confirm closing, not on the sheet's.
+  const wasConfirming = useRef(false)
+  useEffect(() => {
+    const closed = wasConfirming.current && confirming === null
+    wasConfirming.current = confirming !== null
+    if (closed && typeof document !== 'undefined' && document.activeElement === document.body) (errRef.current ?? sheetRef.current)?.focus()
+  }, [confirming])
   const openerRef = useRef<HTMLElement | null>(null)
   const isOpen = !!active
   // Read during render, as `Dialog` does: an autofocused field takes focus at commit.
@@ -864,7 +873,7 @@ export default function SigningPanel() {
               <Link className="btn ghost sm-btn mt-sm" to="/ledger" onClick={close}>{t('signing.openLedger')}</Link>
             </div>
           ) : errMsg ? (
-            <div key="error" className="sign-err" tabIndex={-1} ref={focusOnMount}>
+            <div key="error" className="sign-err" tabIndex={-1} ref={(el) => { errRef.current = el; focusOnMount(el) }}>
               <div className="hint err" role="alert" id="sign-err-text">{errShown.text}</div>
               {/* A refusal shows what the device read, so the member can compare it with the
                   proposal as the message asks; and no Try again, because a refusal is not a failed send. */}

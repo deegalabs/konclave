@@ -1089,6 +1089,7 @@ export const en: Record<string, string> = {
   'signing.againSameChecked': 'This is a separate payment, not the earlier one again.',
   'signing.againSameLapsedBody': '{whenPhrase}, this device signed a payment of exactly these recipients, amounts and memos, under another proposal. If that payment went out and this is the same payment again, signing pays {amt} ZEC a second time. Sign only if this is a separate payment, or if you checked that the earlier one did not go out.',
   'signing.againSameLapsedChecked': 'This is a separate payment, or I checked that the earlier one did not go out and the explorer\'s latest block is past {block}.',
+  'signing.copyTxid': 'Copy transaction id',
   'signing.sameOn': 'On {when}',
   'signing.sameEarlier': 'Earlier',
   'signing.againLapsedChecked': 'I checked: no earlier attempt at this payment went out, and the explorer\'s latest block is past {block}. If I am wrong, this pays it twice.',

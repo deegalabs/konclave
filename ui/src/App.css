@@ -895,6 +895,17 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .modal-card.sign-confirm{max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); overflow-y:auto; overscroll-behavior:contain; scroll-padding-bottom:72px}
 /* bottom: minus the card's padding, so the row sits on the card's edge and covers no text at the end. */
 .sign-confirm > .btns{position:sticky; bottom:-26px; margin:16px -26px -26px; padding:14px 26px; background:var(--surface-1); border-top:1px solid var(--line)}
+/* A long CTA (pt-BR "Assinar de novo e enviar: ... ZEC") wraps instead of pushing Cancel off the
+   card's start edge, and the card reflows at 320 px (WCAG 1.4.10, 1.4.12). */
+.sign-confirm > .btns{flex-wrap:wrap}
+.sign-confirm > .btns .btn{white-space:normal; text-align:center; min-width:0; max-width:100%}
+/* Stacked buttons on a phone make the sticky foot taller: a focused checkbox is scrolled clear of it
+   (WCAG 2.4.11). */
+@media(max-width:560px){ .modal-card.sign-confirm{scroll-padding-bottom:170px} }
+@media(max-width:400px){
+  .modal-card.sign-confirm{padding:18px}
+  .sign-confirm > .btns{bottom:-18px; margin:16px -18px -18px; padding:12px 18px}
+}
 .modal-h{margin:6px 0 4px; font-size:22px}
 .modal-p{color:var(--text-muted); font-size:13.5px; line-height:1.55; margin:0 0 14px}
 /* A deliberate acknowledgement before a risky confirm (signing a payment again): the box and its text
