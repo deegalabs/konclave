@@ -10,7 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getVault, getProposalDetail, IS_NET, type Proposal, type Vault } from './api'
 import { listVaults } from './storage'
-import { approvedLinesFor, readPlan, refusePlan, gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type ApprovedPlan, type GateDecision, type PcztOutput } from './approved-payment'
+import { approvedLinesFor, paidKey, readPlan, refusePlan, gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type ApprovedPlan, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
 import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
@@ -204,7 +204,11 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // stops reading as signed, so its owner can sign again after checking the book (the panel says so).
   const claim = useMemo(
     () => async (sighashHex: string, expiry: number) => {
-      const r = await owner.current.claim(vaultIdRef.current ?? '', activeIdRef.current, sighashHex, expiry)
+      // What the transaction pays, as the gate just matched it: recognises the same payment under a new
+      // proposal id until approvals are bound to content (#567).
+      const approved = approvalRef.current?.approved
+      const paid = approved && approved.length ? await paidKey(approved) : undefined
+      const r = await owner.current.claim(vaultIdRef.current ?? '', activeIdRef.current, sighashHex, expiry, paid)
       if (r !== 'ok') { setArmedProposal(null); setArmedAt(null) }
       const last = owner.current.lastSecond
       // The machine read this transaction, so the WASM is ready. The time was computed by WASM, by the

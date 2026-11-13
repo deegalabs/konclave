@@ -7,7 +7,10 @@
 // A coordinator that says a send failed cannot make that second signature silent: the failure ends
 // the click, not the record.
 import { claimConsent, consentAllows, giveConsent, newConsent, withdrawConsent, type OwnerConsent } from './signing-gate'
-import { decideFor, readSigned, recordSigned, type RecordStore } from './signed-record'
+import { decideAmong, decideFor, readByOutputs, readSigned, recordSigned, type RecordStore, type SignedTx } from './signed-record'
+
+/** How long a payment this device signed marks a new proposal that pays the same outputs. */
+export const SAME_OUTPUTS_HORIZON_MS = 7 * 24 * 3600 * 1000
 
 export type Claim = 'ok' | 'second' | 'lapsed' | 'refused' | 'unreadable'
 
@@ -19,7 +22,7 @@ export class OwnerSigning {
   /** The transaction this consent cleared, and for which approval: the only one a share may go into,
    *  recorded under that approval whatever the screen shows by then. Gone when the consent is
    *  withdrawn; a new click on the same payment keeps it, so a ceremony under way is not cut. */
-  private claimed: { vault: string; proposal: string; sighash: string } | null = null
+  private claimed: { vault: string; proposal: string; sighash: string; outputs?: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
   lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string } | null = null
   /** The last new transaction refused because every earlier one for the approval can no longer be
@@ -63,11 +66,18 @@ export class OwnerSigning {
   }
 
   /** The machine cleared `sighashHex` (expiring at `expiry`) for `activeId` on `vault`. */
-  async claim(vault: string, activeId: string | null, sighashHex: string, _expiry: number): Promise<Claim> {
+  async claim(vault: string, activeId: string | null, sighashHex: string, _expiry: number, outputs?: string): Promise<Claim> {
     if (!activeId || !consentAllows(this.consent, activeId, this.now())) return 'refused'
     let decision
+    let earlierList: SignedTx[] | null = null
     try {
       decision = await decideFor(this.store, vault, activeId, sighashHex)
+      // Nothing under this proposal: the same payment may have been signed under another id (#567
+      // bridge). Judged by the same rule, against those transactions.
+      if (decision.kind === 'first' && outputs) {
+        const same = readByOutputs(this.store, vault, outputs, this.now() - SAME_OUTPUTS_HORIZON_MS)
+        if (same.length) { decision = await decideAmong(same, sighashHex); earlierList = same }
+      }
     } catch {
       // Not knowing what this device signed never reads as having signed nothing. Its own answer,
       // so the screen says what happened rather than "already signed".
@@ -86,13 +96,13 @@ export class OwnerSigning {
     if (decision.kind === 'afterExpiry' && !answered) {
       this.consent.spent = true
       let earlier: number[] = []
-      try { earlier = readSigned(this.store, vault, activeId).map((t) => t.e) } catch { /* decided above */ }
+      try { earlier = (earlierList ?? readSigned(this.store, vault, activeId)).map((t) => t.e) } catch { /* decided above */ }
       this.lastLapsed = { proposal: activeId, sighash: h, earlier }
       return 'lapsed'
     }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'
     if (decision.kind === 'second' || decision.kind === 'afterExpiry') this.again = null
-    this.claimed = { vault, proposal: activeId, sighash: sighashHex.trim().toLowerCase() }
+    this.claimed = { vault, proposal: activeId, sighash: sighashHex.trim().toLowerCase(), outputs }
     return 'ok'
   }
 
@@ -107,6 +117,6 @@ export class OwnerSigning {
     if (!c || c.sighash !== sighashHex.trim().toLowerCase() || !consentAllows(this.consent, c.proposal, this.now(), sighashHex)) {
       throw new Error('[withdrawn] no live consent for this transaction')
     }
-    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry, branch)
+    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry, branch, c.outputs ? { o: c.outputs, t: this.now() } : undefined)
   }
 }

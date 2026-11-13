@@ -91,7 +91,9 @@ describe("the owner's claim and record reach the signer", () => {
   it('the provider passes its own claim and record, made from OwnerSigning', () => {
     const src = codeOf('./VaultSigner.tsx')
     expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent\)/)
-    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry\)/)
+    // With the key of what the gate matched (#567 bridge): the same payment under a new id is recognised.
+    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry, paid\)/)
+    expect(src).toMatch(/const paid = approved && approved\.length \? await paidKey\(approved\) : undefined/)
     expect(src).toMatch(/\(sighashHex: string, expiry: number, branch: number\) => owner\.current\.record\(sighashHex, expiry, branch\)/)
     expect(src).toMatch(/return r === 'ok'/)
   })

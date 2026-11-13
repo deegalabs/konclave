@@ -182,4 +182,41 @@ describe('the owner signing on this device', () => {
     o.give('p1', Date.now(), { again: true })
     expect(await o.claim('v1', 'p1', 'ef'.repeat(32), ALIVE)).toBe('second')
   })
+
+  // Until approvals are bound to content (#567), the record is keyed by a proposal id the coordinator
+  // chooses. A new proposal that pays exactly what this device already signed for another one is not a
+  // first signature: the device recognises the payment by what the transaction pays.
+  it('a new proposal paying exactly what it already signed for another is not a first signature', async () => {
+    const store = memory()
+    const o = new OwnerSigning(store)
+    o.give('p1', Date.now())
+    expect(await o.claim('v1', 'p1', A, ALIVE, 'K')).toBe('ok')
+    await o.record(A, ALIVE, NU63)
+    o.give('p2', Date.now())
+    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('second')
+    o.give('p3', Date.now())
+    expect(await o.claim('v1', 'p3', B, ALIVE, 'OTHER')).toBe('ok')
+  })
+
+  it('the same payment under a new proposal, after the earlier one lapsed, asks as a lapse', async () => {
+    const store = memory()
+    const o = new OwnerSigning(store)
+    o.give('p1', Date.now())
+    await o.claim('v1', 'p1', A, DEAD, 'K')
+    await o.record(A, DEAD, NU63)
+    o.give('p2', Date.now())
+    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('lapsed')
+  })
+
+  it('a payment signed more than seven days ago no longer marks a new proposal for the same outputs', async () => {
+    const store = memory()
+    let now = Date.now()
+    const o = new OwnerSigning(store, () => now)
+    o.give('p1', now)
+    await o.claim('v1', 'p1', A, DEAD, 'K')
+    await o.record(A, DEAD, NU63)
+    now += 8 * 24 * 3600 * 1000
+    o.give('p2', now)
+    expect(await o.claim('v1', 'p2', B, ALIVE, 'K')).toBe('ok')
+  })
 })
