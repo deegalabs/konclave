@@ -1,14 +1,12 @@
 //! The coordinator's side of the fee rule (#847, B3b): the operator's switch, the permission a send
 //! is built with, and the guard that checks the coordinator's own build.
 //!
-//! What a fee MAY be lives in `konclave_seal::epochs` (`fee_rule_for`, `fee_marginals_permitted`) and
+//! What a fee MAY be lives in `konclave_seal::epochs` (`fee_rule_for`) and
 //! what a PCZT pays is read by `konclave_seal::spends`, the reader the device judges with. This file
 //! decides nothing about eras: it only says whether this coordinator may ask for the ZIP 2009 one.
 
 use crate::tools::ToolError;
-use konclave_seal::epochs::{
-    fee_in, fee_marginals_permitted, zip2009_in_force, LEGACY_MARGINAL_FEE,
-};
+use konclave_seal::epochs::{fee_in, fee_rule_for, zip2009_in_force, LEGACY_MARGINAL_FEE};
 
 /// The operator's variable: `KONCLAVE_FEE_MARGINAL_MAX`.
 pub const FEE_SWITCH_VAR: &str = "KONCLAVE_FEE_MARGINAL_MAX";
@@ -107,8 +105,9 @@ pub fn vault_fee_permission(
 }
 
 /// The coordinator checks its OWN build before it asks anyone to approve it: the fee the PCZT pays
-/// must be one the rule for this vault allows at the build's target (the coordinator's own tip plus
-/// one). The rule is `konclave_seal::epochs::zip2009_in_force`, the predicate the signer decides its
+/// must be EXACTLY what the builder's rule gives for this vault at the build's target (the
+/// coordinator's own tip plus one): 5,000 per action, or 1,000 once the ZIP 2009 fee is in force. A
+/// signer that ignored its permission and paid the other one is refused here. The rule is `konclave_seal::epochs::zip2009_in_force`, the predicate the signer decides its
 /// marginal with, so the guard cannot allow what the signer would not pay. The device judges the fee it
 /// signs either way; this catches the coordinator's own mistake (a signer binary of another build, a
 /// rule that drifted) as an error here, instead of as every member's refusal.
@@ -130,12 +129,17 @@ pub fn guard_built_fee(
     guard_fee_in(pczt_bytes, &guard_set(tip, mainnet, permitted, from))
 }
 
-/// The marginal fees the guard allows for a build whose chain tip is `tip`: the build's target is the
-/// next block, and the set follows the shared predicate, so it is 5,000 alone unless the ZIP 2009 rule
-/// is in force for that target.
+/// The marginal fee the guard requires for a build whose chain tip is `tip`: the build's target is the
+/// next block, and the fee is the builder's own rule (`fee_rule_for`) under the shared predicate, so it
+/// is 5,000 unless the ZIP 2009 rule is in force for that target, and then exactly that era's fee. A
+/// set of one: this checks the coordinator's own build, which must follow its rule to the zatoshi (the
+/// device, not this guard, is what accepts either era).
 fn guard_set(tip: u64, mainnet: bool, permitted: bool, from: Option<u32>) -> Vec<u64> {
     let target = u32::try_from(tip.saturating_add(1)).unwrap_or(u32::MAX);
-    fee_marginals_permitted(target, zip2009_in_force(mainnet, target, permitted, from))
+    vec![fee_rule_for(
+        target,
+        zip2009_in_force(mainnet, target, permitted, from),
+    )]
 }
 
 /// `guard_built_fee` against a given set of marginal fees, so the refusal can be driven with the
@@ -262,16 +266,44 @@ mod tests {
         std::fs::read(format!("{V}{name}")).unwrap()
     }
 
-    // The guard against real PCZTs. Every vector pays the 5,000 rule (4 actions, 20,000).
+    // The guard against real PCZTs. Every vector pays the 5,000 rule (4 actions, 20,000); no real
+    // 1,000 vector exists yet, so the 1,000 side is driven through `guard_fee_in` with the set the
+    // guard computes.
     #[test]
-    fn the_guard_passes_the_legacy_fee_with_and_without_permission() {
+    fn the_guard_passes_the_legacy_fee_only_when_the_lower_fee_is_not_in_force() {
         let p = vector("ironwood_single_spend.proven.pczt");
-        for (tip, permitted) in [(3_500_000, false), (3_590_000, false), (3_590_000, true)] {
+        // Switch/permission off, target below `from`, testnet, or `from` unknown: 5,000 passes.
+        for (tip, mainnet, permitted, from) in [
+            (3_500_000, true, false, Some(3_590_000)),
+            (3_590_000, true, false, Some(3_590_000)),
+            (3_589_997, true, true, Some(3_590_000)),
+            (3_600_000, false, true, Some(0)),
+            (3_600_000, true, true, None),
+        ] {
             assert!(
-                guard_built_fee(&p, tip, true, permitted, Some(3_590_000)).is_ok(),
-                "{tip} {permitted}"
+                guard_built_fee(&p, tip, mainnet, permitted, from).is_ok(),
+                "{tip} {mainnet} {permitted} {from:?}"
             );
         }
+        // And 1,000 is refused there: the guard requires exactly 5,000.
+        assert!(guard_fee_in(&p, &guard_set(3_500_000, true, false, None)).is_ok());
+        assert!(guard_fee_in(&p, &[1_000]).is_err());
+    }
+
+    #[test]
+    fn the_guard_refuses_a_5000_build_once_the_lower_fee_is_in_force() {
+        let p = vector("ironwood_single_spend.proven.pczt");
+        // target = tip + 1 = 3_590_000 = from: in force, so 20,000 for 4 actions is refused.
+        for tip in [3_589_999u64, 3_590_000, 4_000_000] {
+            let e = guard_built_fee(&p, tip, true, true, Some(3_590_000))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("20000") && e.contains("4 actions"), "{tip} {e}");
+        }
+        // What it requires then is exactly 1,000, and nothing else.
+        let set = guard_set(3_589_999, true, true, Some(3_590_000));
+        assert_eq!(set, vec![1_000]);
+        assert!(guard_fee_in(&p, &set).is_err());
     }
 
     #[test]
@@ -298,16 +330,16 @@ mod tests {
         assert!(e.contains("chain tip is unknown"), "{e}");
     }
 
-    // The guard asks the SAME predicate as the signer: the set it allows is 5,000 alone unless the
-    // permission is in force for the target, on this network, from this height.
+    // The guard asks the SAME predicate as the signer: the one fee it requires is 5,000 unless the
+    // permission is in force for the target, on this network, from this height, and then 1,000.
     #[test]
     fn the_guards_set_is_the_signers_predicate() {
         for (mainnet, tip, permitted, from, want) in [
             (true, 3_590_000u64, true, Some(3_600_000u32), vec![5_000u64]),
             (true, 3_599_998, true, Some(3_600_000), vec![5_000]),
-            (true, 3_599_999, true, Some(3_600_000), vec![5_000, 1_000]),
+            (true, 3_599_999, true, Some(3_600_000), vec![1_000]),
             (true, 3_589_998, true, Some(0), vec![5_000]),
-            (true, 3_589_999, true, Some(0), vec![5_000, 1_000]),
+            (true, 3_589_999, true, Some(0), vec![1_000]),
             (false, 3_600_000, true, Some(0), vec![5_000]),
             (true, 3_600_000, true, None, vec![5_000]),
             (true, 3_600_000, false, Some(0), vec![5_000]),

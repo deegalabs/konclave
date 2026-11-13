@@ -275,17 +275,6 @@ pub fn fee_rule_for(target_height: u32, in_force: bool) -> u64 {
     }
 }
 
-/// The marginal fees a transaction built for `target_height` may carry, for the party that checks its
-/// OWN build (the coordinator's guard): only [`LEGACY_MARGINAL_FEE`] unless the ZIP 2009 rule is
-/// `in_force`; then what the era at the target accepts. The builder's choice is always one of them
-/// (`fee_rule_for`), so the guard refuses a build that did not follow its rule, and never one that did.
-pub fn fee_marginals_permitted(target_height: u32, in_force: bool) -> Vec<u64> {
-    if !in_force {
-        return vec![LEGACY_MARGINAL_FEE];
-    }
-    MAINNET.fee_era_at(target_height).accepts.to_vec()
-}
-
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeightBounds {
@@ -1313,19 +1302,6 @@ mod tests {
         ];
         assert!(!every_era_accepts(DROPS, 5_000));
         assert!(!every_era_accepts(DROPS, 1_000));
-    }
-
-    #[test]
-    fn what_the_guard_permits_follows_the_same_rule() {
-        assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
-        assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
-        assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
-        // Whatever the builder pays for a target is among what the guard permits for it.
-        for h in [0, 3_589_999, 3_590_000, 4_000_000] {
-            for p in [false, true] {
-                assert!(fee_marginals_permitted(h, p).contains(&fee_rule_for(h, p)));
-            }
-        }
     }
 
     #[test]

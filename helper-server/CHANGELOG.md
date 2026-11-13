@@ -119,6 +119,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **With the lower network fee in force for a vault's build, the coordinator refuses its own build
+  unless it pays exactly that fee (#847).** The check of the coordinator's own transaction used to
+  accept either era's fee once the permission applied, so a signer that ignored its permission and paid
+  5,000 per action would have passed it. It now requires what the builder's rule gives: 1,000 per
+  action with the lower fee in force, 5,000 otherwise. This is a consistency check on the coordinator's
+  own build, not a defence: the devices judge the fee they sign, and still accept either.
 - **The builder decides its network fee from a permission (#847), and an operator switch pins it.**
   `konclave-signer build-payroll` reads the wallet's target height before it builds its fee rule, and
   takes `--zip2009-permitted` and `--zip2009-from <height>`; without them it pays 5,000 per action, as
