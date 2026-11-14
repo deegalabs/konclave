@@ -109,7 +109,8 @@ device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same regis
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
     replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not
-    #62. This bullet said until 2026-09-29 that `/net` did not recompute the sighash, which stopped
+    #62. With a coordinator configured, `/net` does not answer a signing request: a proposal is signed
+    only from its signing panel (`ui/src/net-execute.test.ts` pins it). This bullet said until 2026-09-29 that `/net` did not recompute the sighash, which stopped
     being true when the ceremony moved into the shared machine. The background-signer path is still
     the one the app uses. (Zkool ships the recompute defense too.)
 - **Signing-request metadata leak (H2) - SHIPPED (#63), proven live 2026-08-29.** This bullet used to

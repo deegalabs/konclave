@@ -172,6 +172,7 @@ classDiagram
         +usize threshold
         +String group
         +Option sealing_keychain_id
+        +String network
     }
     class SpendPlan {
         <<enum>>
@@ -250,7 +251,7 @@ classDiagram
 | `SigningInput`, `Randomizer`, `inject` | `signer.rs` | Bridge to `konclave-signer`: extract sighash + randomizers, inject FROST sigs. |
 | `pczt::prove/send` | `pczt.rs` | Drive `zcash-devtool pczt` (building is `konclave-signer build-payroll`, for a payment as one line); validate broadcast output (reject expired even on exit 0). |
 | `Frostd`, `run_coordinator`, `run_participant` | `ceremony.rs` | `frostd` lifecycle (killed on drop) + coordinator/participant FROST roles. |
-| `SendConfig`, `SpendPlan`, `SendOutcome`, `orchestrate_send` | `send.rs` | End-to-end Ready→Sent: build/prove PCZT → ceremony → inject → broadcast (dry-run capable). |
+| `SendConfig`, `SpendPlan`, `SendOutcome`, `orchestrate_send` | `send.rs` | End-to-end Ready→Sent: build/prove PCZT → ceremony → inject → broadcast (dry-run capable). The ceremony file's `network` (`main` or `test`, default `main`) is handed to the builder, so a payment on a testnet wallet needs `"network": "test"`. |
 | `DkgVault`, `create_vault_dkg` | `dkg.rs` | Create a vault by real DKG through the app; shares sealed, key never reconstituted. |
 | `ReconcileReport`, `Outcome`, `reconcile` | `reconcile.rs` | Pure "on-chain wins" engine: confirm sent txids, invalidate underfunded reservations (FIFO). |
 | `InheritancePolicy`, `SwitchState`, `evaluate` | `inheritance.rs` | Pure dead-man's-switch policy: heartbeat → lapse → grace → release-authorized. |

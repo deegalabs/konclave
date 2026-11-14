@@ -1,6 +1,6 @@
 - **The device limits padding, but not how many actions a payment carries.** Before it signs a
-  payment from the vault's desk, your device checks that the fee is exactly the standard network fee
-  (ZIP 317) for the transaction's actions, and it limits padding. But that limit grows with the
+  payment from the vault's desk, your device checks that the fee is one of the fees the network rule
+  (ZIP 317) allows at that height for the transaction's actions, and it limits padding. But that limit grows with the
   transaction, and the coordinator builds the transaction: it chooses how many spends the vault is
   asked to sign, which of the vault's notes are spent and how the change is split. So a hostile or
   compromised coordinator can make the vault pay a higher fee than the payment needs. The extra goes
