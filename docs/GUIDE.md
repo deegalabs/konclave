@@ -318,7 +318,7 @@ Cross-cutting guarantees that hold across every use case:
 | UC-3 | Fund / Receive | `/receive` | Sender / treasurer |
 | UC-4 | Propose a payment | `/pay` | A member (proposer) |
 | UC-5 | Approve / Refuse (quorum) | `/proposal` | Members |
-| UC-6 | Sign & send (FROST broadcast) | `/proposal` | Operator + the shares of the members who sign |
+| UC-6 | Sign & send (FROST broadcast) | `/proposal` | `t` shares: on the web, the members who sign; in the local build, the first `t` approvers |
 | UC-7 | Private payroll | `/payroll` | Proposer + quorum |
 | UC-8 | Social recovery (RTS) | `/recovery` | Quorum of helpers |
 | UC-9 | Inheritance / dead-man's-switch | `/inheritance` | Owner + quorum + heir |
@@ -379,16 +379,18 @@ Cross-cutting guarantees that hold across every use case:
 - **Flow:** the proposal detail shows the state trail, amount, per-person stance, and progress
   `count/threshold`. Approve/Refuse posts the vote; the authoritative state machine returns `409`
   on a conflicting/out-of-state vote. At `t` approvals the state flips to `ready`.
-- **Postcondition:** `ready` at quorum, or `rejected`/still `awaiting`. Approval and
-  signing are separate: signing is open to any member of the vault once the proposal is `ready`, and
-  the shares that sign are those of the members who press Sign, whether or not they approved.
+- **Postcondition:** `ready` at quorum, or `rejected`/still `awaiting`. Who signs depends on
+  the build. On the web, signing is open to any member of the vault once the proposal is `ready`: the
+  shares that sign are those of any `t` of the members who press Sign, whether or not they approved.
+  In the local build, the ceremony signs with the shares of the first `t` members who approved.
 - **Honest limits:** a proposal can hit `expired` (72h placeholder) - terminal, cannot be sent.
 
 ### UC-6 - Sign & send (FROST broadcast)
 - **Flow:** optionally **validate (dry-run)**, in the local build only (the hosted coordinator takes
   no dry run) - the whole chain except broadcast, returning a sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
-- **Postcondition:** `sent` (later `confirmed` via reconcile); signed by the shares of any `t` members.
+- **Postcondition:** `sent` (later `confirmed` via reconcile); on the web, signed by the shares of any `t` members; in the
+  local build, by the shares of the first `t` approvers.
 - **Honest limits:** in the local build `frostd` is started fresh per call, killed on drop, and the
   ceremony can take 30-60s; on the web, the signatures themselves take seconds once the signers are online, and the whole send takes a few minutes, most of it building and proving the transaction.
 
@@ -664,9 +666,10 @@ The everyday flow, route by route:
 3. **Propose a payment** (`/pay`) - amount + recipient; address + balance validated up front.
 4. **Approve to quorum** (`/proposals` → a proposal) - approve/refuse; nothing moves until `t`;
    proposals expire.
-5. **Sign & send** - members open the payment and press Sign; one shielded transaction goes out when
-   `t` of them have signed, after a preview and an explicit confirmation; the key is never
-   reassembled.
+5. **Sign & send** - on the web, members open the payment and press Sign, and one shielded
+   transaction goes out when `t` of them have signed; in the local build the send signs with the
+   shares of the first `t` approvers. A preview and an explicit confirmation come first; the key is
+   never reassembled.
 6. **Payroll** (`/payroll`) - CSV of beneficiaries → one shielded tx, N encrypted memos, approved
    once.
 7. **Account** (`/ledger`) - full internal ledger + itemized CSV for the accountant.
@@ -682,8 +685,9 @@ Try the flow by creating a vault at [konclave-demo.vercel.app](https://konclave-
   authoritatively (`validate_recipient`) and blocks it with a clear message - heed the warning.
 - **Memos need a shielded destination.** Transparent (public) destinations cannot carry a memo; the memo
   field is disabled for them, and a transparent payment is flagged as **public on-chain**.
-- **Anyone in the vault can sign an approved payment.** Approval and signing are separate: approving
-  does not pick who signs.
+- **Who signs depends on the build.** On the web, any member can sign an approved payment: approving
+  does not pick who signs. In the local build, the ceremony signs with the shares of the first `t`
+  members who approved, so approve as the member you intend to sign as.
 - **Dry-run first.** The send path has a dry-run that runs the whole ceremony and stops *before*
   broadcast - use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
   inject verifies the FROST signature it applied, not the full bundle - see the Ironwood note.)
@@ -715,8 +719,8 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | Broadcast across **separate physical devices** (carried to a confirmed txid) | **Proven on mainnet** (`aec83baf…`, separate machines over the internet; `2d861b8f…`, from a phone) |
 | **Ironwood / NU6.3** (Orchard→Ironwood migration + first Ironwood-pool spend) | **Proven on mainnet** (`54266f47…`, `36c60f1e…`) |
 | C6 signer tests (extract/inject vectors) | **Closed** (real Ironwood PCZT vectors, tests green) |
-| `/net` multi-device - single-spend live | **Done** (part of the browser-signed broadcast) |
-| `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
+| `/net` multi-device - single-spend live | **Done, history** (the browser-signed broadcast `3022420a…`; `/net` no longer signs payments, proposals are signed from their signing panel) |
+| Multi-note signing over the live relay | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
 | Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.20.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |

@@ -325,12 +325,23 @@ open the reads, the registration of a device and the replacement of the key to a
 the vault id. The members see an EMPTY vault, not an error: no balance and no proposals.
 
 - **Restore the file from the ops backup (D)**, which includes it. Check it first, on your own
-  machine: `test "$(head -c1 read-key.json)" = '"' && jq -e -s 'length == 1 and (.[0] | type == "string"
-  and test("^[^\\s]+$"))' read-key.json`. A plain `jq .` passes an empty string, `null` and a blank
+  machine. A vault registered before creation protocol 3 holds a string; a newer one holds an object,
+  `{"v":1,"state":"closed"}` or `{"v":1,"state":"pinned","read_key_sha256":"<64 hex>"}`. This check
+  accepts either form, and the backup's own copy is the right form for its vault:
+
+  ```sh
+  { test "$(head -c1 read-key.json)" = '"' || test "$(head -c1 read-key.json)" = '{'; } &&
+    jq -e -s 'length == 1 and (.[0] | if type == "string" then test("^[^\\s]+$")
+      else (type == "object" and .v == 1 and (.state == "closed" or (.state == "pinned"
+      and (.read_key_sha256 | type == "string" and test("^[0-9a-f]{64}$"))))) end)' read-key.json
+  ```
+
+  A plain `jq .` passes an empty string, `null` and a blank
   one, and a bare `jq -e` passes a file with a byte-order mark, two strings, or `null` followed by a
   string, which the coordinator refuses. Put it in place with `mv -T`, as in F.
-- **Without a backup there is no clean way out.** Do not remove the file: the vault then reads as
-  unprotected. Putting back a random 64-hex value keeps the reads closed, but no member's device
+- **Without a backup there is no clean way out.** Do not remove the file: a vault registered before
+  creation protocol 3 ([ADR-0012](adr/0012-seat-certificates.md)) then reads as unprotected, and a
+  newer one stops answering its reads. Putting back a random 64-hex value keeps the reads closed, but no member's device
   holds it, so the members still cannot read, and there is no tool to give them a key. Decide with
   the members, and tell them.
 

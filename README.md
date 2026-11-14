@@ -364,8 +364,8 @@ cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web 
 ```
 
 The multi-device network (two tabs make one vault) works against the local server at
-`http://127.0.0.1:4762/#/net`, or live on the hosted app above; proposals are signed from their
-signing panel in the app.
+`http://127.0.0.1:4762/#/net`, or live on the hosted app above. The `/net` page signs no payments;
+on the hosted app, a proposal is signed from its signing panel.
 
 ## Project structure
 
