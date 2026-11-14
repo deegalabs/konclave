@@ -5,4 +5,4 @@
   0.21.0 or later; and the server's own view of the chain has reached that block. Otherwise the vault
   pays 5,000 per action, which stays valid and can be told apart on chain from wallets that pay
   1,000. The device that unlocked a seat last speaks for it: a seat that has never unlocked on 0.21.0
-  or later, or that unlocks again on an older app, puts the whole vault back on 5,000.
+  or later, or that unlocks again on an app older than 0.21.0, puts the whole vault back on 5,000.
