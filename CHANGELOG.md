@@ -56,11 +56,60 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.21.0] 2026-11-14
+
+> **Services deployed when this was cut (2026-11-14):** coordinator `027c4a6c`, relay `68c687b62bc3d547`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Added
 
 - **Each seat's device reports the network fee era it accepts (#847).** One function in the era table
   (`fee_from`) answers the height from which this build accepts the lower fee, the wasm exposes it,
   and the coordinator stores it per seat. No behaviour change in what a payment pays.
+
+### Changed
+
+- **The builder of a payment or a payroll can take a permission into its network-fee decision, and a
+  switch pins it.** The coordinator's builder reads the wallet's own block height and a permission,
+  and the coordinator checks the fee of its own transaction before anyone is asked to approve it,
+  refusing it unless it pays exactly the fee the builder's rule gives (a consistency check on its own
+  build, not a defence: from block 3,590,000 the devices accept either fee). A
+  vault can be given the permission only when every one of its seats has reported that its device
+  accepts the lower fee, and only while the operator's switch is set to allow it. The switch is on by
+  default: every payment pays what it paid before, 5,000 per action.
+- **A payment is now built the same way as a payroll line.** The coordinator and the local bridge
+  build a single payment with the same builder that builds a payroll, as a payroll of one line, so a
+  payment and a payroll share one set of rules. Nothing changes in what a payment pays: the same
+  recipient, amount and memo, the same network fee, and the same shielded pool for the change. The
+  payee's address and the memo are no longer passed to a helper program on its command line, where
+  another process on the same machine could read them.
+- **The dependency supply-chain settings are now in force; until now they did nothing.**
+  `pnpm-workspace.yaml` has carried `minimumReleaseAge` (refuse a package published less than 24
+  hours ago), `trustPolicy: no-downgrade` (refuse a version with weaker trust evidence than an
+  earlier one) and `blockExoticSubdeps` (refuse git and tarball sources below a direct dependency).
+  pnpm reads them from 10.16, 10.21 and 10.26, and the workspace pinned pnpm 9.15.0, which ignores
+  them without a warning. That was the hole: every dependency added or updated while they sat there
+  got none of those checks. The workspace now pins pnpm 10.34.9, CI installs that version, and
+  `engines` asks for pnpm 10.26 or later, so an older pnpm stops instead of skipping the checks.
+  Measured on a copy of the repository: pnpm 9.15.0 accepted a TypeScript build published six hours
+  earlier, and 10.34.9 refuses it. Two locked packages fail the trust check and are excluded by exact
+  version, each with its reason in the file: `semver@6.3.1` (a backport, a false positive of the
+  publish-date ordering) and `@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1` (a fork that
+  `workbox-build` requires, published without the provenance its previous release had).
+  For contributors: Corepack switches to the pinned pnpm by itself; a pnpm older than 10.26 installed
+  globally now stops with an engine error, and `pnpm add` or `pnpm update` can now be refused.
+- **Security reports can also go to security@deegalabs.com.** `SECURITY.md` now lists the email
+  address beside GitHub Security Advisories for reporting a vulnerability. No PGP key is published
+  for it yet, so for exploit details the advisory form is still the better channel.
+
+### Known limits
+
+- **CI does not enforce the dependency supply-chain settings.** They act when pnpm resolves dependencies, and CI installs
+  with `--frozen-lockfile`, which does not. A lockfile that already holds something they would have
+  refused still installs in CI. They guard the moment a contributor changes the lockfile, not the
+  lockfile itself.
 
 ## [0.20.0] 2026-11-11
 
