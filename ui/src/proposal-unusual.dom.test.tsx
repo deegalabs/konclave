@@ -107,6 +107,29 @@ describe('the proposal names what is out of the ordinary', () => {
     expect(screen.getByText(en('unusual.amount', { who: `Oto (${shortAddr(OLD)})` }))).toBeTruthy()
   })
 
+  it('the one who left is named by the payroll compared with, even when an older one comes first in the book', async () => {
+    detailOf({ proposal: roll, lines: [line('Oto', OLD, 200)] })
+    bookOf([payroll('r-old', T0 - 50), payroll('r-prev', T0), roll],
+      { 'r-old': [line('Beatriz', BIA, 200), line('Oto', OLD, 200)], 'r-prev': [line('Bia', BIA, 200), line('Oto', OLD, 200)] })
+    mount(roll.id)
+    expect(await screen.findByText(en('unusual.removed', { who: `Bia (${shortAddr(BIA)})` }))).toBeTruthy()
+    expect(screen.queryByText(en('unusual.removed', { who: `Beatriz (${shortAddr(BIA)})` }))).toBeNull()
+  })
+
+  it(`an amount above usual and a person dropped from the payroll are shown, not counted in "and N more"`, async () => {
+    // More newcomers than the note shows, an address paid three times before and now paid far more,
+    // and a person on the previous payroll who is not on this one.
+    const newcomers = Array.from({ length: SHOWN + 1 }, (_, i) => line(`P${i}`, A(String.fromCharCode(100 + i)), 1))
+    detailOf({ proposal: roll, lines: [...newcomers, line('Oto', OLD, 1000)] })
+    bookOf([payment('a', OLD, 100, T0 - 3), payment('b', OLD, 100, T0 - 2), payment('c', OLD, 100, T0 - 1), payroll('r-prev', T0), roll],
+      { 'r-prev': [line('Oto', OLD, 100), line('Bia', BIA, 100)] })
+    mount(roll.id)
+    expect(await screen.findByText(en('unusual.above', { who: `Oto (${shortAddr(OLD)})` }))).toBeTruthy()
+    expect(screen.getByText(en('unusual.removed', { who: `Bia (${shortAddr(BIA)})` }))).toBeTruthy()
+    expect(note()!.querySelectorAll('li')).toHaveLength(SHOWN + 1)
+    expect(screen.getByText(en('unusual.more', { n: String(newcomers.length + 2 - SHOWN) }))).toBeTruthy()
+  })
+
   it('a newcomer to a payroll gets one line, not two', async () => {
     detailOf({ proposal: roll, lines: [line('Caio', CAIO, 200), line('Bia', BIA, 200)] })
     bookOf([payroll('r-prev', T0), roll], { 'r-prev': [line('Bia', BIA, 200)] })

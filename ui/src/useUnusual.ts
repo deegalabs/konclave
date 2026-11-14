@@ -9,13 +9,15 @@ export type UnusualState =
   | { status: 'reading' }
   /** The book could not be read, so nothing was compared. Said, never shown as "nothing found". */
   | { status: 'failed' }
-  /** `names`: a label per address, from this payroll and then the earlier ones, so a person who left
-   *  the payroll is named as the previous payroll named them. */
+  /** `names`: a label per address, from this payroll, then the payroll it was compared with, then the
+   *  other earlier ones, so a person who left the payroll is named as the previous payroll named them. */
   | { status: 'read'; reading: UnusualReading; names: ReadonlyMap<string, string> }
 
-function namesFrom(lines: readonly PayrollLine[], earlier: Readonly<Record<string, PayrollLine[]>>): Map<string, string> {
+function namesFrom(lines: readonly PayrollLine[], earlier: Readonly<Record<string, PayrollLine[]>>, comparedTo: string | null): Map<string, string> {
   const names = new Map<string, string>()
-  for (const l of [...lines, ...Object.values(earlier).flat()]) {
+  const compared = comparedTo ? earlier[comparedTo] ?? [] : []
+  const others = Object.entries(earlier).filter(([id]) => id !== comparedTo).flatMap(([, ls]) => ls)
+  for (const l of [...lines, ...compared, ...others]) {
     const address = l.address.trim()
     const label = (l.label ?? '').trim()
     if (address && label && !names.has(address)) names.set(address, label)
@@ -37,7 +39,7 @@ export function useUnusual(p: Proposal | null, lines: readonly PayrollLine[]): U
       if (!on) return
       if (!book) { setState({ status: 'failed' }); return }
       const reading = unusualFor(p, p.kind === 'payroll' ? lines : null, book.history, book.linesById)
-      setState({ status: 'read', reading, names: namesFrom(lines, book.linesById) })
+      setState({ status: 'read', reading, names: namesFrom(lines, book.linesById, reading.comparedTo) })
     })()
     return () => { on = false }
     // Once per proposal: the poll that refreshes `p` (and hands new arrays of the same lines) must
