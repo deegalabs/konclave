@@ -40,12 +40,73 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.21.0] 2026-11-14
+
+### Security
+
+- **Your device is more careful with a payment it already signed.** It asks before signing a payment
+  again in more cases than before, recognises the same payment when it comes back under another
+  proposal, and shows an earlier transaction only when it can confirm it signed it. Proposals are now
+  signed only from their signing panel; the standalone `/net` page no longer signs them. This narrows
+  the risk of a payment going out twice; it does not close it until approvals are bound to what a
+  payment pays. The details follow in a later entry.
+
 ### Added
 
 - **Each device tells the vault's server which network fees it accepts (#847).** When a device
   unlocks, it now also reports from which block it accepts the lower network fee. Nothing changes in
   what a payment pays yet; it only lets the server know, for each seat, which fees the device that
   last unlocked it accepts.
+- **A proposal says what is out of the ordinary, while it can still be voted on or signed.** Under
+  "Worth a second look" it names, once per person and at most five lines before "and N more": an
+  address the book shows no earlier payment to, an amount more than twice what the vault usually
+  pays that address, and who a payroll adds, drops or pays differently against the previous one,
+  each by the name a payroll gave them. It is a reading aid, not a check: what the device reads from
+  the transaction before signing is what counts, and the comparison uses the vault's history as the
+  coordinator reports it. While it reads, and when the history cannot be read, the note says so, so
+  its absence only means nothing stood out.
+
+### Changed
+
+- **Your device reads a payment's network fee with the same reader the coordinator checks its own
+  transaction with.** Before signing, the device reads the fee and the number of actions from the
+  transaction, and that reading now comes from one shared function instead of the device's own copy,
+  so the two sides cannot drift apart. What the device accepts does not change (#847).
+- **The public roadmap gives the order of step 0.** "Fix our own defects" lists its four items in the
+  order we intend to take them (#575, #577, #567, #605), says #577 concerns vaults created before
+  8 November 2026, and says the step can move at the same time as step 1.
+
+### Fixed
+
+- **The in-app documentation and a few screen texts match the app.** The Portuguese pages and
+  messages name the screens as they are called (Livro, Signatários, Ajustes, Painel), the
+  network-fee answer says what a device accepts from around block 3,590,000, the page for `/net` and
+  its hint describe what it does today, the trust panel no longer mentions it, and the desktop
+  version it names is 0.20.0.
+- **The book fills in faster on a vault with many payrolls.** On the web, opening the book by
+  beneficiary and exporting the book read the vault's whole proposal list again for each payroll. Each
+  now reads it once, however many payrolls the vault has made (#949).
+- **A release page opens the files it cites, and speaks the app's language.** A file the notes
+  name (`helper-server/CHANGELOG.md`, `docs/PROOF.md`) used to open a page of this site that does
+  not exist; it now opens on GitHub as it was at that release. The page's own words follow the
+  app's language; the notes stay in English, as the changelog is.
+
+### Known limits
+
+- **The device limits padding, but not how many actions a payment carries.** Before it signs a
+  payment from the vault's desk, your device checks that the fee is exactly ZIP 317's fee for the transaction's actions at a rate its
+  clock allows (5,000 zatoshis per action, and also 1,000 under ZIP 2009 once its clock says block
+  3,590,000 may have been reached), and it limits padding. But that limit grows with the
+  transaction, and the coordinator builds the transaction: it chooses how many spends the vault is
+  asked to sign, which of the vault's notes are spent and how the change is split. So a hostile or
+  compromised coordinator can make the vault pay a higher fee than the payment needs. The extra goes
+  to the network, not to the coordinator, and the recipient and the amount do not change. Two
+  earlier entries said this more firmly than the code supports: the 0.10.0 Known limits ("refuses
+  padding the coordinator signed itself") and the 0.19.0 entry for the lower network fee ("and so is
+  padding that raises it"). This entry corrects both (#940).
+- **What a device remembers about its own signatures stays on that device.** A second device of the
+  same seat, a restored device, or a browser whose site data was cleared does not know what was
+  signed before, and asks as for a first signature. A backup does not carry this record.
 
 ## [0.20.0] 2026-11-11
 
