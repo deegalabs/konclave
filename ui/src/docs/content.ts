@@ -104,7 +104,7 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '[Abrir o cofre](#/vaults) - o produto rodando: pagamento, folha, aprovações e registro.',
+            'pt-BR': '[Abrir o cofre](#/vaults) - o produto rodando: pagamento, folha, aprovações e livro.',
             en: '[Open the vault](#/vaults) - the product running: payment, payroll, approvals and ledger.',
           },
           {
@@ -254,7 +254,7 @@ export const SECTIONS: Section[] = [
           { 'pt-BR': '**Recuperação de membro, só demonstração** (`/recovery`) - mostra como um quórum poderia reconstruir o pedaço da chave de quem perdeu o aparelho, num cofre descartável criado no seu navegador. Ainda não dá para rodar no seu cofre (#58).', en: "**Member recovery, demo only** (`/recovery`) - shows how a quorum could rebuild a lost member's part of the key, on a throwaway vault made in your browser. It cannot be run on your own vault yet (#58)." },
           { 'pt-BR': '**Herança, só demonstração** (`/inheritance`) - uma simulação da regra que liberaria um cofre para um herdeiro. Não está ligada a cofres reais (#58).', en: '**Inheritance, demo only** (`/inheritance`) - a simulation of the rule that would release a vault to an heir. Not connected to real vaults (#58).' },
           { 'pt-BR': '**Assinar no navegador** (`/signer`) - uma cerimônia FROST 2-de-3 inteira em WebAssembly.', en: '**Sign in the browser** (`/signer`) - a full 2-of-3 FROST ceremony entirely in WebAssembly.' },
-          { 'pt-BR': '**Membros** (`/members`) e **beneficiários** (`/people`) - quem assina e quem recebe.', en: '**Members** (`/members`) and **beneficiaries** (`/people`) - who signs and who gets paid.' },
+          { 'pt-BR': '**Signatários** (`/members`) e **beneficiários** (`/people`) - quem assina e quem recebe.', en: '**Signers** (`/members`) and **beneficiaries** (`/people`) - who signs and who gets paid.' },
         ],
       },
       {
@@ -351,8 +351,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Dois caminhos, não confundir. O **`/net`** assina a PCZT real do **próprio cofre** (sob o alpha da transação) e **foi transmitido na mainnet** - txid `3022420a…`, naquela vez com **duas abas numa máquina só**. O broadcast entre **dispositivos separados** deixou de ser marco em aberto: aconteceu em 25/08 entre máquinas físicas diferentes, pela internet (`aec83baf…`, bloco 3.460.285). O **multi-nota ao vivo** continua só testado em unidade. O **`/signer`** é uma **demonstração**: assina o sighash real de uma tx de exemplo (`aab00f90…`) para mostrar a mecânica, mas essa PCZT é de outro cofre, então **não é transmitível**.',
-          en: 'Two paths, not to be conflated. **`/net`** signs the real PCZT of the **vault’s own** address (under the transaction’s alpha) and **was broadcast on mainnet** - txid `3022420a…`, that time with **two tabs on one machine**. A broadcast across **separate devices** is no longer the open milestone: it happened on 2026-08-25 between different physical machines over the internet (`aec83baf…`, block 3,460,285). **Live multi-note** is still only unit-tested. **`/signer`** is a **demo**: it signs the real sighash of a sample tx (`aab00f90…`) to show the mechanics, but that PCZT belongs to another vault, so it is **not broadcastable**.',
+          'pt-BR': 'Dois caminhos, não confundir. Uma proposta é assinada no painel de assinatura dela, no app, sob o alpha da transação. A página avulsa **`/net`** cria cofres e, com um coordenador, lista as propostas prontas para assinar, que ela abre no app; não as assina. O primeiro broadcast assinado no navegador foi o txid `3022420a…`, com **duas abas numa máquina só**. O broadcast entre **dispositivos separados** deixou de ser marco em aberto: aconteceu em 25/08 entre máquinas físicas diferentes, pela internet (`aec83baf…`, bloco 3.460.285). O **multi-nota ao vivo** continua só testado em unidade. O **`/signer`** é uma **demonstração**: assina o sighash real de uma tx de exemplo (`aab00f90…`) para mostrar a mecânica, mas essa PCZT é de outro cofre, então **não é transmitível**.',
+          en: 'Two paths, not to be conflated. A proposal is signed from its own signing panel in the app, under the transaction’s alpha. The standalone **`/net`** page creates vaults and, with a coordinator, lists the proposals ready to sign, which it opens in the app; it does not sign them. The first browser-signed broadcast was txid `3022420a…`, with **two tabs on one machine**. A broadcast across **separate devices** is no longer the open milestone: it happened on 2026-08-25 between different physical machines over the internet (`aec83baf…`, block 3,460,285). **Live multi-note** is still only unit-tested. **`/signer`** is a **demo**: it signs the real sighash of a sample tx (`aab00f90…`) to show the mechanics, but that PCZT belongs to another vault, so it is **not broadcastable**.',
         },
       },
       { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },
@@ -450,8 +450,8 @@ export const SECTIONS: Section[] = [
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to temporary files, in tmpfs where the system has one).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), e então transmitido pelo **coordenador hospedado** (Arquitetura B), que nunca recebe um pedaço da chave. Cada dispositivo lê o pagamento da própria transação e o confere com o pagamento aprovado, como o coordenador o informa (#567), antes de a sua parte sair (#610). A leitura aparece enquanto a cerimônia está em andamento, sem pausa para lê-la antes, e a página antiga `/net` assina sem essa conferência. Provado na mainnet primeiro com duas abas numa máquina só (txid `3022420a…`) e depois entre máquinas físicas separadas, pela internet (txid `aec83baf…`), duas pessoas em dois lugares, cada navegador com só o seu share.',
-            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), then broadcast by the **hosted coordinator** (Architecture B), which never receives a part of the key. Each device reads the payment from the transaction itself and checks it against the approved payment, as the coordinator reports it (#567), before its share moves (#610). The reading is shown while the ceremony runs, with no pause to read it first, and the legacy `/net` page signs without this check. Proven on mainnet first with two tabs on one machine (txid `3022420a…`), then across separate physical machines over the internet (txid `aec83baf…`), two people in two places, each browser holding only its own share.',
+            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), e então transmitido pelo **coordenador hospedado** (Arquitetura B), que nunca recebe um pedaço da chave. Cada dispositivo lê o pagamento da própria transação e o confere com o pagamento aprovado, como o coordenador o informa (#567), antes de a sua parte sair (#610). A leitura aparece enquanto a cerimônia está em andamento, sem pausa para lê-la antes. Provado na mainnet primeiro com duas abas numa máquina só (txid `3022420a…`) e depois entre máquinas físicas separadas, pela internet (txid `aec83baf…`), duas pessoas em dois lugares, cada navegador com só o seu share.',
+            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), then broadcast by the **hosted coordinator** (Architecture B), which never receives a part of the key. Each device reads the payment from the transaction itself and checks it against the approved payment, as the coordinator reports it (#567), before its share moves (#610). The reading is shown while the ceremony runs, with no pause to read it first. Proven on mainnet first with two tabs on one machine (txid `3022420a…`), then across separate physical machines over the internet (txid `aec83baf…`), two people in two places, each browser holding only its own share.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
@@ -835,15 +835,15 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'O único custo é a taxa da rede Zcash, uma fração pequena de um ZEC: a tela de pagamento mostra a estimativa antes de você propor (hoje, 0,00015 ZEC para um pagamento simples; um padrão proposto para carteiras Zcash, a ZIP 2009, deve reduzi-la), e uma folha custa um pouco mais por linha. O Konclave não cobra taxa própria. Depois que o quórum aprova e assina, o pagamento costuma entrar num bloco em poucos minutos. Uma proposta que não alcança o quórum expira em 72 horas.',
-          en: 'The only cost is the Zcash network fee, a small fraction of a ZEC: the payment screen shows the estimate before you propose (0.00015 ZEC for a single payment today; a proposed Zcash wallet standard, ZIP 2009, would lower it), and a payroll costs a little more per line. Konclave adds no fee of its own. Once the quorum approves and signs, the payment usually lands in a block within minutes. A proposal that does not reach its quorum expires after 72 hours.',
+          'pt-BR': 'O único custo é a taxa da rede Zcash, uma fração pequena de um ZEC: a tela de pagamento mostra a estimativa antes de você propor (hoje, 0,00015 ZEC para um pagamento simples: três ações de 5.000 zatoshis cada), e uma folha custa um pouco mais por linha. A partir do bloco 3.590.000 (previsto para cerca de 19 de novembro) o aparelho também aceita 1.000 zatoshis por ação, a taxa de um padrão proposto para carteiras Zcash, a ZIP 2009; a estimativa continua mostrando o valor maior, para a reserva nunca ficar abaixo do que o aparelho assinaria. O Konclave não cobra taxa própria. Depois que o quórum aprova e assina, o pagamento costuma entrar num bloco em poucos minutos. Uma proposta que não alcança o quórum expira em 72 horas.',
+          en: 'The only cost is the Zcash network fee, a small fraction of a ZEC: the payment screen shows the estimate before you propose (0.00015 ZEC for a single payment today: three actions at 5,000 zatoshis each), and a payroll costs a little more per line. From block 3,590,000 (expected around 19 November) a device also accepts 1,000 zatoshis per action, the rate of a proposed Zcash wallet standard, ZIP 2009; the estimate keeps showing the higher figure so a reservation never comes up short. Konclave adds no fee of its own. Once the quorum approves and signs, the payment usually lands in a block within minutes. A proposal that does not reach its quorum expires after 72 hours.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Como confiro um pagamento na blockchain, e por que não vejo o valor?', en: 'How do I check a payment on the blockchain, and why can’t I see the amount?' } },
       {
         k: 'p',
         t: {
-          'pt-BR': 'Abra o pagamento enviado e toque em **ver no explorador ↗** (ou no estado dele no **Registro**) para vê-lo num explorador público da Zcash. O explorador mostra que a transação existe e em que bloco está, mas não o valor, quem enviou ou quem recebeu, porque o pagamento é blindado: essa ausência é a privacidade funcionando. Dentro do cofre, o **Registro** mostra os detalhes para os membros.',
+          'pt-BR': 'Abra o pagamento enviado e toque em **ver no explorador ↗** (ou no estado dele no **Livro**) para vê-lo num explorador público da Zcash. O explorador mostra que a transação existe e em que bloco está, mas não o valor, quem enviou ou quem recebeu, porque o pagamento é blindado: essa ausência é a privacidade funcionando. Dentro do cofre, o **Livro** mostra os detalhes para os membros.',
           en: 'Open the sent payment and press **view in explorer ↗** (or its status in the **Ledger**) to see it on a public Zcash explorer. The explorer shows that the transaction exists and which block it is in, but not the amount, the sender or the recipient, because the payment is shielded: that missing detail is the privacy working. Inside the vault, the **Ledger** shows the details to the members.',
         },
       },
@@ -996,8 +996,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'A rede multi-dispositivo (duas abas fazem um cofre e assinam) roda contra o servidor local em `http://127.0.0.1:4762/#/net`, ou ao vivo no app hospedado.',
-          en: 'The multi-device network (two tabs make one vault, then sign) works against the local server at `http://127.0.0.1:4762/#/net`, or live on the hosted app.',
+          'pt-BR': 'A rede multi-dispositivo (duas abas fazem um cofre) roda contra o servidor local em `http://127.0.0.1:4762/#/net`, ou ao vivo no app hospedado. As propostas são aprovadas e assinadas no app, no painel de assinatura da proposta.',
+          en: 'The multi-device network (two tabs make one vault) works against the local server at `http://127.0.0.1:4762/#/net`, or live on the hosted app. Proposals are approved and signed in the app, from the proposal’s signing panel.',
         },
       },
     ],
@@ -1008,9 +1008,9 @@ export const SECTIONS: Section[] = [
     title: { 'pt-BR': 'SDK: @konclave/frost', en: 'SDK: @konclave/frost' },
     lead: {
       'pt-BR':
-        'A mesma engine WASM que roda no `/net` do Konclave, empacotada como uma primitiva reutilizável de navegador para FROST na Zcash Orchard, com o share secreto **guardado selado no dispositivo**, de onde só sai num backup cifrado que o próprio membro exporta.',
+        'A mesma engine WASM que assina no app do Konclave, empacotada como uma primitiva reutilizável de navegador para FROST na Zcash Orchard, com o share secreto **guardado selado no dispositivo**, de onde só sai num backup cifrado que o próprio membro exporta.',
       en:
-        'The same WASM engine that powers Konclave’s `/net`, packaged as a reusable browser primitive for FROST on Zcash Orchard, with the secret share **kept sealed on the device**, leaving it only inside an encrypted backup the member exports.',
+        'The same WASM engine that powers Konclave’s signing in the app, packaged as a reusable browser primitive for FROST on Zcash Orchard, with the secret share **kept sealed on the device**, leaving it only inside an encrypted backup the member exports.',
     },
     blocks: [
       { k: 'h', t: { 'pt-BR': 'O que é', en: 'What it is' } },

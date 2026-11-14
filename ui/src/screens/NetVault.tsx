@@ -1583,8 +1583,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
           <p className="net-tip">
             {pe(
-              'Propor e aprovar pagamentos é no app (Dashboard). Quando uma proposta bate o quórum, ela aparece aqui: as abas assinam e o cofre transmite. O coordenador nunca vê uma parte da chave.',
-              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here: the tabs sign and the vault broadcasts. The coordinator never sees a key share.',
+              'Propor e aprovar pagamentos é no app (Dashboard). Quando uma proposta bate o quórum, ela aparece aqui e você a abre no app para assinar. O coordenador nunca vê uma parte da chave.',
+              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here, and you open it in the app to sign. The coordinator never sees a key share.',
             )}
           </p>
           <button className="net-btn" onClick={() => void loadProposals()}>

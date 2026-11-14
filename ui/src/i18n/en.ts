@@ -471,7 +471,7 @@ export const en: Record<string, string> = {
   'trust.cell.untilUnlock': 'open, until the first unlock',
   'trust.cell.writes': 'can write',
   'trust.limits': 'Known limits, said as limits:',
-  'trust.limit.builds': 'The vault’s server builds every transaction the quorum signs. A device checks what it signs against its own reading of the payment, but the approved lines it compares with come from that same server, and the old /net page does not check. So a payment the quorum signs is only as safe as the server. Tracked, not fixed.',
+  'trust.limit.builds': 'The vault’s server builds every transaction the quorum signs. A device checks what it signs against its own reading of the payment, but the approved lines it compares with come from that same server. So a payment the quorum signs is only as safe as the server. Tracked, not fixed.',
   'trust.limit.viewingKey': 'The vault’s server holds the viewing key, so it reads the balance, the movements and the memos. Moving that key to the members’ devices is planned, not done.',
   'trust.limit.relay': 'The messages service carries a payment’s content, its memos included, sealed only once every member’s device has registered its key; this device cannot tell whether every one has.',
   'trust.limit.gate': 'On a private vault, proposing, voting, renaming and sending are refused to anyone without a seat once a member has unlocked it on an updated app; until then the link can write, and this device cannot tell which it is. A member can still act in the name of a colleague who has not unlocked yet. On an open vault, the link may write at any time.',
