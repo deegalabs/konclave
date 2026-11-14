@@ -144,9 +144,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   line, so the two share one set of rules. Nothing changes in what a payment pays: the same
   recipient, amount and memo, the same network fee and the same shielded pool for the change. The
   payee's address and the memo are no longer passed to a helper program on its command line, where
-  another process on the same machine could read them. The coordinator and `konclave-signer`
-  both need a new build from the same release commit (since the fee permission, #847, the signer's fee
-  rule and flags changed). Not yet on the hosted coordinator.
+  another process on the same machine could read them. Build the coordinator and
+  `konclave-signer` from the same release commit, as `deploy/helper/README.md` asks: the signer's fee
+  rule and flags changed with the fee permission (#847), and a coordinator set to `per-vault` passes
+  flags an older signer does not know. Not yet on the hosted coordinator.
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep
@@ -238,10 +239,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
 - **A paused creation reads as "busy" in the app.** When new vaults are paused, the app says the
   coordinator is busy and to try again in a moment; the hourly ceiling is a fixed one-hour window that
-  starts at the first new vault after the previous window ended, so once 60 are admitted creation
-  waits until that window ends (up to an hour) and then can fill again, which keeps creation paused
-  for much of every hour for as long as vaults are created at that rate. Below the free-space floor
-  (or when the free space cannot be read) creation waits until the operator frees space on the volume.
+  starts at the first attempt to create a new vault after the previous window ended, admitted or not;
+  a refused attempt is not queued and does not count toward the 60. So once 60 are admitted creation
+  waits until that window ends, which is up to an hour when the 60 arrive early in it, and the next
+  window can fill the same way. Below the free-space floor creation waits until space is freed on the
+  volume; if the free space cannot be read, it waits until it can be. With `KONCLAVE_VAULTS_DIR` unset
+  there is no floor at all (the vaults are still written, to `./helper-vaults`), and the boot line says so.
   The coordinator's log says when it pauses and when it resumes; it logs the resume when a creation
   is next admitted.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
