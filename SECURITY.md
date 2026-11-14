@@ -77,7 +77,7 @@ What is fixed and what is open, by kind of attack:
   transaction under it (#62; round 2: #355, #579). That guards against a member, not against
   the coordinator, which builds the transaction to begin with. A signing device reads the payment from the
   transaction, checks it against the approved payment, memos included, and refuses a fee that is not exactly ZIP 317's fee for its actions at a rate the device accepts
-  (5,000 per action, and from block 3,590,000 also ZIP 2009's 1,000, so after that height a coordinator can still charge the older, higher rate) (#610, live on the web since 2026-10-04; the desktop installers carry it once they are published); the legacy `/net` page no longer signs payments at all (its signer refuses every request), and the fee limit
+  (5,000 per action, and from block 3,590,000 also ZIP 2009's 1,000, so after that height a coordinator can still charge the older, higher rate) (#610, live on the web since 2026-10-04 and in the desktop installers since v0.10.0); the legacy `/net` page no longer signs payments at all (its signer refuses every request), and the fee limit
   grows with the actions the coordinator chooses. Open: an approval is not yet tied
   to the exact content of the proposal, and the approved payment a device compares with is
   fetched from the coordinator when it signs (#567). Until that is fixed, a malicious or

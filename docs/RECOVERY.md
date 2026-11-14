@@ -329,12 +329,10 @@ the vault id. The members see an EMPTY vault, not an error: no balance and no pr
   and test("^[^\\s]+$"))' read-key.json`. A plain `jq .` passes an empty string, `null` and a blank
   one, and a bare `jq -e` passes a file with a byte-order mark, two strings, or `null` followed by a
   string, which the coordinator refuses. Put it in place with `mv -T`, as in F.
-- **Without a backup there is no clean way out.** Do not just remove the file: the vault then reads as
-  unprotected, and the route that sets a key asks for no credential while none is set, so whoever knows
-  the vault id can set the key first, read the vault, and lock the members out (nothing in the
-  app sets the key again after the vault is created). A random 64-hex value in the file keeps the
-  vault closed, but no member's device holds it, so the members still cannot read until a way to set
-  their own key exists, and there is no tool for that yet. Decide with the members, and tell them.
+- **Without a backup there is no clean way out.** Do not remove the file: the vault then reads as
+  unprotected. Putting back a random 64-hex value keeps the reads closed, but no member's device
+  holds it, so the members still cannot read, and there is no tool to give them a key. Decide with
+  the members, and tell them.
 
 ### I. A registration that could not be recorded (503 `registration_not_persisted` / `registration_cleanup_failed`)
 
