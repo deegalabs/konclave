@@ -1,4 +1,5 @@
-- **The in-app documentation matches the app.** The Portuguese pages name the screens as they are
-  called (Livro, Signatários, Ajustes), the network-fee answer says what a device accepts from block
-  3,590,000, the page for `/net` describes what it does today, and the desktop version it names is
-  0.20.0.
+- **The in-app documentation and a few screen texts match the app.** The Portuguese pages and
+  messages name the screens as they are called (Livro, Signatários, Ajustes, Painel), the
+  network-fee answer says what a device accepts from around block 3,590,000, the page for `/net` and
+  its hint describe what it does today, the trust panel no longer mentions it, and the desktop
+  version it names is 0.20.0.
