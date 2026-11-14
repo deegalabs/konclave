@@ -46,6 +46,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   new vaults an hour from every address together, and pauses new vaults while the volume has less
   than 5 GiB free; a refused creation is answered to try again later, and existing vaults, payments,
   reads and devices joining a vault are not affected. The boot log says whether the floor is on.
+  Before this release the coordinator limited new vaults for each address (5 an hour) and had no
+  limit in total, so many addresses together could keep creating vaults until its volume was full.
+  That put the service at risk for every vault; no funds and no vault's books were exposed by it.
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
