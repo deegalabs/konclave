@@ -120,7 +120,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
   own field, never as the memo, and returned on the reads. A payroll without one, a single payment,
   and every proposal stored before this version carry no `title` key, so an older reader sees the
-  same record. It is a label: no signature covers it yet (#567). Not yet on the hosted coordinator.
+  same record. It is a label: no signature covers it yet (#567). The hosted coordinator has run
+  this since 2026-11-09 16:51 UTC (60e1525f, a local build with the service code of 670a1683).
 
 ### Changed
 
@@ -153,7 +154,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   another process on the same machine could read them. Build the coordinator and
   `konclave-signer` from the same release commit, as `deploy/helper/README.md` asks: the signer's fee
   rule and flags changed with the fee permission (#847), and a coordinator set to `per-vault` passes
-  flags an older signer does not know. Not yet on the hosted coordinator.
+  flags an older signer does not know.
   The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
