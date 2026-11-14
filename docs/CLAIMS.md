@@ -109,7 +109,9 @@ device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same regis
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
     replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not
-    #62. This bullet said until 2026-09-29 that `/net` did not recompute the sighash, which stopped
+    #62. `/net` no longer signs payments at all: its signer refuses every request (`claim` always answers
+    no in `NetVault.tsx`), and with a coordinator configured a signing request does not even reach it
+    (`ui/src/net-execute.test.ts` pins that); a proposal is signed only from its signing panel. This bullet said until 2026-09-29 that `/net` did not recompute the sighash, which stopped
     being true when the ceremony moved into the shared machine. The background-signer path is still
     the one the app uses. (Zkool ships the recompute defense too.)
 - **Signing-request metadata leak (H2) - SHIPPED (#63), proven live 2026-08-29.** This bullet used to
@@ -221,8 +223,8 @@ device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same regis
 - Two browser signing paths exist and must not be conflated:
   - **randomizer path** (`participantRound2WithRandomizer` / `aggregateWithRandomizer`) signs
     under the transaction's OWN alpha (read from the PCZT with `extractRandomizers`) and verifies
-    under `ak+alpha` - the real Orchard spend-authorization mechanism. This is what the **live**
-    `/net` ceremony uses today.
+    under `ak+alpha` - the real Orchard spend-authorization mechanism. This is what the app's
+    signing panel uses today; the standalone `/net` page signs no payments.
   - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its own randomizer from
     the commitments. It proves group signing over a message but is **not** a valid Orchard spend
     authorization. Used only by the `/signer` group-signing demo.
@@ -231,12 +233,12 @@ device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same regis
     this is enforced in `konclave-wasm`, not by the page. What it does not claim: that no copy of
     the nonce is left in the runtime's memory from when it was made, or that the key package stays
     out of the page (it still crosses into the module on each call).
-- So: the live `/net` ceremony signs a real Orchard/Ironwood sighash under the transaction's real
-  alpha (the randomizer path). As of 2026-07-30 this is **broadcastable and broadcast**: the helper
-  builds/proves a PCZT for the `/net` vault's **own** address, the browser signs it under that real
-  alpha, and the helper broadcasts (txid `3022420a…` above). The old "sample PCZT belongs to a
-  different vault, not broadcastable" caveat applied to the `/signer` demo vector and no longer
-  describes the live `/net` path.
+- So: a proposal's signing ceremony signs a real Orchard/Ironwood sighash under the transaction's
+  real alpha (the randomizer path). As of 2026-07-30 this was **broadcastable and broadcast**: the
+  helper built and proved a PCZT for the `/net` vault's **own** address, the browser signed it under
+  that real alpha, and the helper broadcast it (txid `3022420a…` above, history: `/net` signed that
+  first broadcast). The old "sample PCZT belongs to a different vault, not broadcastable" caveat
+  applied to the `/signer` demo vector and does not describe the signing path of the app.
 - **Hosted browser-native vault (self-service share-blind helper) - PROVEN on TESTNET (2026-07-31).**
   The `3022420a…` proof above used the *local* orchestrator bridge as the helper. This milestone
   proves the same Architecture B over the **hosted, public, share-blind helper** (`helper-server`,
@@ -290,8 +292,9 @@ device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same regis
     against public explorers. **This is a known, already-fixed upstream issue - not a Konclave bug:**
     librustzcash **#2777** (`create_pczt_from_proposal` did not stamp the ZIP32 derivation on
     wallet-controlled zero-value spends, so external signers could not sign them), fixed on
-    librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` is our interim workaround for
-    the current engine pin; the proper fix arrives with an engine pin bump.
+    librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` was our interim workaround;
+    the engine line of 2026-10-04 carries the upstream fix and the coordinator builds with its own
+    builder.
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
     mainnet is now the authoritative proof. Konclave had eight `proven on-chain` mainnet txids when
     this bullet was written, the eighth (`3022420a…`) being the first browser-signed broadcast

@@ -297,8 +297,7 @@ not promise what we do not deliver.
   each device reading what the tx pays and refusing it when it differs from what the group approved,
   before its share moves (`readPayment`, whose outputs `describeOutputs` returns; since #610 both
   check them against what the signature covers;
-  the reading is shown while the ceremony runs, with no pause to read it first; the legacy `/net`
-  page signs without this check), then broadcast by the
+  the reading is shown while the ceremony runs, with no pause to read it first), then broadcast by the
   **hosted coordinator** (`helper-server`, Architecture B). Proven on mainnet: first with two tabs on one
   machine (`3022420a…`), then **across separate physical machines over the internet** (`aec83baf…`,
   block 3,460,285), two people in two places, each browser holding only its own share.
@@ -308,7 +307,7 @@ not promise what we do not deliver.
   lost seat, or changing the members or the quorum of an existing vault (#154). *(Now shipped, no
   longer roadmap: the browser broadcast; on-device share persistence with sign-after-restore; and
   the installable desktop binary - Tauri, first released as **v0.2.0** on 2026-08-03, now
-  **v0.17.0**, a pre-release that is not code-signed or notarized and not yet validated on real
+  **v0.20.0**, a pre-release that is not code-signed or notarized and not yet validated on real
   per-platform hardware, so the website does not offer the download yet; see
   [ADR-0004](docs/adr/0004-local-http-bridge.md).)*
 
@@ -364,8 +363,9 @@ cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web 
 # then open the printed http://127.0.0.1:4762
 ```
 
-The multi-device network (two tabs make one vault, then sign) works against the local server at
-`http://127.0.0.1:4762/#/net`, or live on the hosted app above.
+The multi-device network (two tabs make one vault) works against the local server at
+`http://127.0.0.1:4762/#/net`, or live on the hosted app above. The `/net` page signs no payments;
+on the hosted app, a proposal is signed from its signing panel.
 
 ## Project structure
 
@@ -389,7 +389,7 @@ konclave/
 A working, mainnet-proven prototype. The core runs through the UI for **payment and payroll**:
 propose → validate (continuous) → approve/refuse (real quorum, with expiry) → **sign (FROST with the
 shares of `t` members, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
-ships, on **Tauri**, since v0.2.0 (now v0.17.0, a pre-release; Windows, Linux and Apple Silicon
+ships, on **Tauri**, since v0.2.0 (now v0.20.0, a pre-release; Windows, Linux and Apple Silicon
 macOS installers, none of them code-signed or notarized; open: embedding the orchestrator and the OS
 keychain (#212), live per-platform hardware validation and signed installers (#606), so the website
 does not offer the download yet). CI gates the whole repo on every push
