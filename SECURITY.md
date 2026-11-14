@@ -15,9 +15,12 @@ whenever authentication, key custody, or fund-movement paths change.
 
 **Do not open a public issue for security problems.** Report privately via
 [GitHub Security Advisories](https://github.com/deegalabs/konclave/security/advisories/new),
-or by email to [security@deegalabs.com](mailto:security@deegalabs.com). No PGP key is published for
-that address yet, so for a report that carries exploit details, prefer the advisory form. The same
-two channels are listed in
+or by email to [security@deegalabs.com](mailto:security@deegalabs.com). To encrypt an email,
+use our PGP key at
+[www.deegalabs.com/.well-known/pgp-key.txt](https://www.deegalabs.com/.well-known/pgp-key.txt),
+fingerprint `E266 E6A9 3F09 1314 EDFC AD07 B51B FE1A C8C2 B361` (DeegaLabs Security
+<security@deegalabs.com>, expires 2028-11-13); check the fingerprint before you use it. The same
+two channels, and the key, are listed in
 [www.deegalabs.com/.well-known/security.txt](https://www.deegalabs.com/.well-known/security.txt).
 
 Please include: affected component (FROST signer, PCZT bridge, the local HTTP bridge,
