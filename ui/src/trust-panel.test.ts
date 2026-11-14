@@ -48,8 +48,8 @@ describe('the limits, word for word', () => {
       'Num cofre privado, propor, votar, renomear e enviar passam a ser recusados a quem não tem assento depois que um membro destravar o cofre num app atualizado; até lá o link escreve, e este aparelho não sabe dizer qual é o caso. Um membro ainda pode agir em nome de um colega que não destravou. Num cofre aberto, o link pode escrever a qualquer momento.',
     ],
     'trust.limit.builds': [
-      'The vault’s server builds every transaction the quorum signs. A device checks what it signs against its own reading of the payment, but the approved lines it compares with come from that same server, and the old /net page does not check. So a payment the quorum signs is only as safe as the server. Tracked, not fixed.',
-      'O servidor do cofre monta toda transação que o quórum assina. O aparelho confere o que assina contra a própria leitura do pagamento, mas as linhas aprovadas com que compara vêm desse mesmo servidor, e a página antiga /net não confere. Então um pagamento que o quórum assina é tão seguro quanto o servidor. Registrado, não resolvido.',
+      'The vault’s server builds every transaction the quorum signs. A device checks what it signs against its own reading of the payment, but the approved lines it compares with come from that same server. So a payment the quorum signs is only as safe as the server. Tracked, not fixed.',
+      'O servidor do cofre monta toda transação que o quórum assina. O aparelho confere o que assina contra a própria leitura do pagamento, mas as linhas aprovadas com que compara vêm desse mesmo servidor. Então um pagamento que o quórum assina é tão seguro quanto o servidor. Registrado, não resolvido.',
     ],
     'trust.limitsNotAll': ['These are the main limits, not all of them.', 'Estes são os principais limites, não todos.'],
   }

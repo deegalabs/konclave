@@ -30,9 +30,25 @@ import { decodeBundle } from './signing'
 import { registerDeviceKeyResult, registerReadKeyResult } from './helper'
 import { noteSeatRefused, noteSeatRegistered, seatRefusalKey } from './seat-registration'
 import { deriveReadKey } from './vault-secret'
-import { seatCertificateFromBundle } from './wasm-pkg/konclave_wasm.js'
+import * as wasm from './wasm-pkg/konclave_wasm.js'
 import { devicePubHex, deviceWriteKeyHex } from './device-key'
 import type { VaultLoaded } from './storage'
+
+/**
+ * The height from which THIS build accepts the lower network fee (ZIP 2009), read from the era table
+ * in the wasm - never a number typed here. Absent when the loaded wasm has no such export (an older
+ * one): the field is then omitted, and the coordinator reads a registration without it as "this seat
+ * reports nothing", which is the safe side.
+ */
+function reportedFeeFrom(): number | undefined {
+  try {
+    const f = (wasm as { feeFrom?: () => number | undefined }).feeFrom
+    const h = typeof f === 'function' ? f() : undefined
+    return Number.isSafeInteger(h) && (h as number) >= 0 ? h : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
@@ -77,12 +93,12 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
     }
     // Protocol 3: this seat's own certificate, which is what a pinned vault takes a seat on.
     const proof = share.cp !== undefined && share.cp >= 3 && share.accessSecret
-      ? seatCertificateFromBundle(b.keyPackage, b.pubkeys, b.seat, b.t, b.n, share.cp, await deriveReadKey(share.accessSecret))
+      ? wasm.seatCertificateFromBundle(b.keyPackage, b.pubkeys, b.seat, b.t, b.n, share.cp, await deriveReadKey(share.accessSecret))
       : undefined
     const sent = await registerDeviceKeyResult(hex(share.groupKey), devicePubHex(b.keyPackage), {
       seat: b.seat,
       pub: deviceWriteKeyHex(b.keyPackage),
-    }, proof)
+    }, proof, reportedFeeFrom())
     if ('failure' in sent) {
       const code = sent.failure?.code
       if (share.cp !== undefined && share.cp >= 3 && code) {

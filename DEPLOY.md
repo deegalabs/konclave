@@ -23,6 +23,19 @@ services whether the behaviour a fix introduced is actually there, rather than w
 merged. Pass `--vault=<64 hex>` when a probe needs a real vault; without one it says so instead of
 guessing, and an ambiguous 404 reads as "behind" until you do.
 
+`node scripts/check-deployed.mjs --against-lock --relay-digest=<16 hex>` asks the stronger question:
+does every public host run the deploy `engine/versions.lock` records (read from `staging`, where the
+lock PRs land)? It compares the coordinator's commit and creation protocol on both names, the relay's
+source digest with `relay-server --digest` built at the recorded commit, the web's `version.json`
+with the tip of `main` (what Vercel publishes) and the latest release version, and the preflight of
+every coordinator and relay name with the custom headers the app sends it.
+Any difference fails the run; the staging coordinator is reported and never fails it. The
+`What is running` workflow runs it once a day; GitHub runs a scheduled workflow only from the
+default branch, so the schedule starts once the workflow reaches `main` with a release (before that,
+run it by hand from the Actions tab). The check is red by design between a deploy and the merge into
+`staging` of the lock PR that records it: the hosts already run the new build and the lock still names
+the old one.
+
 ## The app → Vercel (automatic)
 
 Static Vite build at **konclave.xyz** / **konclave-demo.vercel.app**, project `konclave-demo`
@@ -114,6 +127,12 @@ trailing dot in the variable would refuse every send.
 
 Production lists both names of the same relay because an installed PWA keeps calling the URL it was
 built with until it updates (see the paragraph on service names below).
+
+**New vaults.** The coordinator accepts at most 60 new vaults an hour in all, and pauses new vaults
+while the filesystem that holds `KONCLAVE_VAULTS_DIR` has less than 5 GiB free (the image sets it to
+`/data/vaults`, on the volume). Existing vaults, payments, reads and devices joining a vault are not
+affected. The boot log says whether the floor is on and for which directory (`new vaults: ...`);
+with the variable unset there is no floor.
 
 **Which address the limits count a request under (`KONCLAVE_TRUSTED_PROXY_HOPS`).** Both servers,
 the coordinator and the relay, take the client's address from `X-Forwarded-For`. Unset, they take

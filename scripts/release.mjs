@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { hasSection, versionsIn, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBodyFor, readReleaseSources, semverCompare, taggedVersions, versionsToReport } from './changelog-sections.mjs'
+import { hasSection, versionsIn, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBodyFor, readReleaseSources, semverCompare, taggedVersions, unlistedFolds, versionsToReport } from './changelog-sections.mjs'
 // Moved to the shared reader, where the docs' release pages read it too; still exported from here.
 export { upgradeFirst, versionsToReport } from './changelog-sections.mjs'
 
@@ -201,6 +201,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // The record goes in the ROOT file only. It describes the release, not the app - repeating it in
     // every changelog would be four copies of one fact, which is the shape this repo keeps paying for.
     return SOURCES.map(([file]) => cutOne(file, version, file === CHANGELOG ? note : '')).some(Boolean)
+  }
+
+  // A section this release folds in (cut, never tagged) must be in SUPERSEDED, or the site gives it a
+  // page of its own while the GitHub body carries it inside this one. Checked before anything is written.
+  const unlisted = unlistedFolds(version, taggedVersions(), readFileSync(CHANGELOG, 'utf8'))
+  if (unlisted.length) {
+    console.error(`v${version} folds in ${unlisted.join(', ')}, which has no tag in this clone.`)
+    console.error('If it was published, fetch its tag (git fetch --tags) and cut again; if it was never')
+    console.error('published, add it to SUPERSEDED in scripts/changelog-sections.mjs.')
+    process.exit(1)
   }
 
   // Read BEFORE the cut: `notes` falls back to Unreleased, which is what this version's body still is.

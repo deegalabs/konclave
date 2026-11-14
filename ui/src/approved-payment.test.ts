@@ -295,3 +295,17 @@ describe('mayContribute', () => {
     expect(mayContribute({ cp: 3, receiversState: 'verified', abandoned: 'x' }, undefined)).toBe(false)
   })
 })
+
+// The key the signing record keeps of what a transaction pays (#567 bridge): the same lines in any
+// order are the same payment; any change of receiver, amount or memo is another.
+describe('paidKey', () => {
+  const l = (r: string, z: number, m = '') => ({ toReceiver: r, amountZat: z, memo: m })
+  it('is order-free, case-free on the receiver, and changes with any field', async () => {
+    const { paidKey } = await import('./approved-payment')
+    const k = await paidKey([l('AA', 1), l('bb', 2, 'x')])
+    expect(await paidKey([l('bb', 2, 'x'), l('aa', 1)])).toBe(k)
+    expect(await paidKey([l('aa', 1), l('bb', 3, 'x')])).not.toBe(k)
+    expect(await paidKey([l('aa', 1), l('bb', 2, 'y')])).not.toBe(k)
+    expect(await paidKey([l('aa', 1), l('cc', 2, 'x')])).not.toBe(k)
+  })
+})

@@ -91,9 +91,27 @@ describe("the owner's claim and record reach the signer", () => {
   it('the provider passes its own claim and record, made from OwnerSigning', () => {
     const src = codeOf('./VaultSigner.tsx')
     expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent\)/)
-    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry\)/)
+    // With the key of what the gate matched (#567 bridge): the same payment under a new id is recognised.
+    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry, paid\)/)
+    expect(src).toMatch(/const paid = approved && approved\.length \? await paidKey\(approved\) : undefined/)
     expect(src).toMatch(/\(sighashHex: string, expiry: number, branch: number\) => owner\.current\.record\(sighashHex, expiry, branch\)/)
     expect(src).toMatch(/return r === 'ok'/)
+  })
+  // After a lapse: the screen is told, with the block, and an earlier txid only when this device
+  // checked it signed it (a coordinator's txid is never shown on its word).
+  it('a lapse reaches the screen, and a txid is shown only when the device confirmed it', () => {
+    const src = codeOf('./VaultSigner.tsx')
+    expect(src).toMatch(/if \(r === 'lapsed' && lapsed\)/)
+    expect(src).toMatch(/const ours = cand \? await txidIsOurs\(cand, lapsed\.hashes \?\? \[\]\) : false/)
+    expect(src).toMatch(/lapsedTxid: ours \? cand : null/)
+    expect(src).not.toMatch(/lapsedTxid: cand\b/)
+    const panel = codeOf('./screens/SigningPanel.tsx')
+    expect(panel).toMatch(/lapsedAt=\{signedBefore\?\.lapsedAt \?\? null\}/)
+    expect(panel).toMatch(/lapsedTxid=\{signedBefore\?\.lapsedTxid \?\? null\}/)
+    expect(panel).toMatch(/sameOutputs=\{signedBefore\?\.sameOutputs \?\? false\}/)
+    expect(panel).toMatch(/sameAt=\{signedBefore\?\.sameAt\}/)
+    expect(src).toMatch(/lapsedAt: null, sameOutputs: !!last\.sameOutputs, sameAt: last\.sameAt \}/)
+    expect(src).toMatch(/lapsedOf: \{ k: ours \? 1 : 0, n: lapsed\.earlier\.length \}, sameOutputs: !!lapsed\.sameOutputs, sameAt: lapsed\.sameAt \}/)
   })
   it('the hook hands them to the session unchanged', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s*claim,\s*record,\s/)

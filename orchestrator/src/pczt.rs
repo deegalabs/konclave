@@ -1,4 +1,4 @@
-//! PCZT orchestration: drives `zcash-devtool pczt` (create → prove → send). PCZT
+//! PCZT orchestration: drives `zcash-devtool pczt` (prove → send; building is `konclave-signer build-payroll`). PCZT
 //! bytes are piped between steps; the final `send` returns the broadcast txid.
 //!
 //! `parse_txid` validates the tool's output rather than trusting the exit code - a
@@ -8,35 +8,6 @@
 use std::path::Path;
 
 use crate::tools::{run, run_text, ToolError};
-
-/// `zcash-devtool pczt -w <dir> create --address <a> --value <zat> [--memo <m>] <account>`
-/// Returns the (unproven) PCZT bytes.
-pub fn create(
-    devtool: &Path,
-    wallet_dir: &str,
-    address: &str,
-    value_zat: u64,
-    account: &str,
-    memo: Option<&str>,
-) -> Result<Vec<u8>, ToolError> {
-    let value_s = value_zat.to_string();
-    let mut args: Vec<&str> = vec![
-        "pczt",
-        "-w",
-        wallet_dir,
-        "create",
-        "--address",
-        address,
-        "--value",
-        value_s.as_str(),
-    ];
-    if let Some(m) = memo {
-        args.push("--memo");
-        args.push(m);
-    }
-    args.push(account);
-    run(devtool, &args, None)
-}
 
 /// `zcash-devtool pczt -w <dir> prove` - reads a PCZT on stdin, returns the proven PCZT.
 pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, ToolError> {
@@ -118,7 +89,15 @@ pub fn consensus_branch_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
 pub fn action_count_of(pczt_bytes: &[u8]) -> Result<usize, ToolError> {
     let pczt = ::pczt::Pczt::parse(pczt_bytes)
         .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
-    Ok(pczt.orchard().actions().len() + pczt.ironwood().actions().len())
+    // The count is `konclave_seal::spends`' (the device's fee check reads the same one), not a second one.
+    Ok(konclave_seal::spends::action_count(&pczt))
+}
+
+/// The fee the PCZT pays and its logical actions, by the reader the device judges the fee with.
+pub fn fee_and_actions_of(pczt_bytes: &[u8]) -> Result<(u64, u64), ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
+    konclave_seal::spends::fee_and_actions(&pczt).map_err(|e| ToolError::parse("pczt", e))
 }
 
 /// The copy of a proven PCZT that goes into the signing room: the same transaction without the

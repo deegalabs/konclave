@@ -431,6 +431,8 @@ export async function registerDeviceKeyResult(
   write?: { seat: number; pub: string },
   /** A seat's certificate, as JSON, which a pinned vault asks of a seat it does not hold. */
   proof?: string,
+  /** The height from which this build accepts the lower network fee. Omitted, it clears the seat's report. */
+  feeFrom?: number,
 ): Promise<PostResult<boolean>> {
   // The vault's readKey rides along: claiming a seat now requires it, because an unclaimed seat
   // used to be free to anyone holding the vault id. This device has `S` - registration runs on
@@ -444,6 +446,7 @@ export async function registerDeviceKeyResult(
     // only ever sent by a device that can actually sign, i.e. one holding the share.
     ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
     ...(proof ? { proof: JSON.parse(proof) } : {}),
+    ...(feeFrom !== undefined ? { fee_from: feeFrom } : {}),
   }, await readAuthFor(groupKeyHex))
   if ('failure' in r) return r
   // An answer without a boolean `added` is no answer: it is not read blindly.

@@ -325,16 +325,34 @@ open the reads, the registration of a device and the replacement of the key to a
 the vault id. The members see an EMPTY vault, not an error: no balance and no proposals.
 
 - **Restore the file from the ops backup (D)**, which includes it. Check it first, on your own
-  machine: `test "$(head -c1 read-key.json)" = '"' && jq -e -s 'length == 1 and (.[0] | type == "string"
-  and test("^[^\\s]+$"))' read-key.json`. A plain `jq .` passes an empty string, `null` and a blank
+  machine. A vault registered before creation protocol 3 holds a string; a newer one holds an object,
+  `{"v":1,"state":"closed"}` or `{"v":1,"state":"pinned","read_key_sha256":"<64 hex>"}`. This check
+  accepts either form:
+
+  ```sh
+  { test "$(head -c1 read-key.json)" = '"' || test "$(head -c1 read-key.json)" = '{'; } &&
+    jq -e -s 'length == 1 and (.[0] | if type == "string" then test("^[^\\s]+$")
+      else (type == "object" and .v == 1 and (.state == "closed" or (.state == "pinned"
+      and (.read_key_sha256 | type == "string" and test("^[0-9a-f]{64}$"))))) end)' read-key.json
+  ```
+
+  Then check that the form matches the vault's creation protocol, from the `registration.json` in the
+  same directory (a string on a newer vault, or an object on an older one, is read as unreadable):
+
+  ```sh
+  jq -e -n --slurpfile r registration.json --slurpfile k read-key.json \
+    '(($r[0].cp // 0) >= 3) == ($k[0] | type == "object")'
+  ```
+
+  The coordinator writes the version as `1`; a hand-edited `1.0` passes these checks and is still
+  refused. A plain `jq .` passes an empty string, `null` and a blank
   one, and a bare `jq -e` passes a file with a byte-order mark, two strings, or `null` followed by a
   string, which the coordinator refuses. Put it in place with `mv -T`, as in F.
-- **Without a backup there is no clean way out.** Do not just remove the file: the vault then reads as
-  unprotected, and the route that sets a key asks for no credential while none is set, so whoever knows
-  the vault id can set the key first, read the vault, and lock the members out (nothing in the
-  app sets the key again after the vault is created). A random 64-hex value in the file keeps the
-  vault closed, but no member's device holds it, so the members still cannot read until a way to set
-  their own key exists, and there is no tool for that yet. Decide with the members, and tell them.
+- **Without a backup there is no clean way out.** Do not remove the file: a vault registered before
+  creation protocol 3 ([ADR-0012](adr/0012-seat-certificates.md)) then reads as unprotected, and a
+  newer one stops answering its reads. Putting back a random 64-hex value keeps the reads closed, but no member's device
+  holds it, so the members still cannot read, and there is no tool to give them a key. Decide with
+  the members, and tell them.
 
 ### I. A registration that could not be recorded (503 `registration_not_persisted` / `registration_cleanup_failed`)
 

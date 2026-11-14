@@ -217,6 +217,75 @@ const _: () = assert!(
     "the mainnet fee table is malformed"
 );
 
+/// The marginal fee of the era before ZIP 2009: what every builder paid until the switch, and what a
+/// builder pays whenever the ZIP 2009 rule is not in force. Read from the table, never written twice.
+pub const LEGACY_MARGINAL_FEE: u64 = MAINNET.fees[0].builds;
+
+/// The height the mainnet table starts the ZIP 2009 era at: the floor no seat's report can lower.
+pub const ZIP2009_FROM: u32 = MAINNET.fees[MAINNET.fees.len() - 1].from_height;
+
+/// Whether every era of `fees` still accepts `marginal`, so a builder that pays it is never refused by
+/// a device, whatever the era its target falls in.
+pub const fn every_era_accepts(fees: &[FeeEra], marginal: u64) -> bool {
+    let mut i = 0;
+    while i < fees.len() {
+        let mut found = false;
+        let mut j = 0;
+        while j < fees[i].accepts.len() {
+            if fees[i].accepts[j] == marginal {
+                found = true;
+            }
+            j += 1;
+        }
+        if !found {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+// What a builder pays without permission is the legacy fee, and that holds only while every era accepts
+// it: the day a table drops it from an era, the build that never asked for anything is refused by every
+// device. Compile-time, like the table's shape.
+const _: () = assert!(
+    every_era_accepts(MAINNET.fees, LEGACY_MARGINAL_FEE),
+    "an era of the mainnet fee table no longer accepts the legacy marginal fee"
+);
+
+/// THE one predicate for whether the ZIP 2009 fee is in force for a build: the vault `permitted` it
+/// (every seat accepts it and the operator's switch is open), the network is mainnet (the table is
+/// mainnet's), `from` is known (the height the permission holds from), and the build's `target` has
+/// reached it. The signer decides its marginal with it and the coordinator's guard decides what its own
+/// build may pay with it, so the two cannot disagree about when the permission applies.
+pub fn zip2009_in_force(mainnet: bool, target: u32, permitted: bool, from: Option<u32>) -> bool {
+    permitted && mainnet && from.is_some_and(|f| target >= f)
+}
+
+/// THE builder's fee rule: the marginal fee per logical action for a transaction targeting
+/// `target_height`. The ZIP 2009 era of [`MAINNET`] applies only when `in_force` (see
+/// [`zip2009_in_force`]) AND the target is inside the era; otherwise it is [`LEGACY_MARGINAL_FEE`]. It is a
+/// PERMISSION, not a marginal fee passed around: the builder cannot be told a number, only whether it
+/// may use the era's, so a wrong caller cannot name a fee the table does not hold.
+pub fn fee_rule_for(target_height: u32, in_force: bool) -> u64 {
+    if in_force {
+        MAINNET.builder_marginal_fee(target_height)
+    } else {
+        LEGACY_MARGINAL_FEE
+    }
+}
+
+/// The marginal fees the era at `target_height` accepts when the ZIP 2009 rule is `in_force`, else only
+/// [`LEGACY_MARGINAL_FEE`]. NOT the coordinator's guard: since #847 it requires exactly `fee_rule_for`.
+/// No caller is left; it stays only so this crate, built into the device, is unchanged in this release,
+/// and it is removed with the next rebuild of the device package. Do not add a caller.
+pub fn fee_marginals_permitted(target_height: u32, in_force: bool) -> Vec<u64> {
+    if !in_force {
+        return vec![LEGACY_MARGINAL_FEE];
+    }
+    MAINNET.fee_era_at(target_height).accepts.to_vec()
+}
+
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HeightBounds {
@@ -292,11 +361,16 @@ impl Table {
     /// What a builder targeting `target_height` pays per logical action. A validated table starts at
     /// height 0 (`fees_are_valid`), so some era always applies.
     pub fn builder_marginal_fee(&self, target_height: u32) -> u64 {
+        self.fee_era_at(target_height).builds
+    }
+
+    /// The fee era that holds `height`: the last one that starts at or below it. The ONE lookup, read
+    /// by the builder's rule and by the guard's set.
+    pub fn fee_era_at(&self, height: u32) -> &'static FeeEra {
         self.fees
             .iter()
-            .rfind(|e| e.from_height <= target_height)
+            .rfind(|e| e.from_height <= height)
             .unwrap_or(&self.fees[0])
-            .builds
     }
 
     /// The marginal fees a device accepts at `now_unix`: the union of `accepts` over the eras the
@@ -336,6 +410,21 @@ impl Table {
             }
         }
         out
+    }
+
+    /// The height from which this build accepts a marginal fee lower than the one every earlier era
+    /// accepts (ZIP 2009's switch), or `None` when no era does. What a seat reports to the vault's
+    /// coordinator (`fee_from`): read from the era table, never typed anywhere else.
+    pub fn fee_from(&self) -> Option<u32> {
+        let mut lowest = u64::MAX;
+        for (i, e) in self.fees.iter().enumerate() {
+            let era_lowest = e.accepts.iter().copied().min().unwrap_or(u64::MAX);
+            if i > 0 && era_lowest < lowest {
+                return Some(e.from_height);
+            }
+            lowest = lowest.min(era_lowest);
+        }
+        None
     }
 
     /// The highest accepted value: what a gate reserves.
@@ -540,6 +629,23 @@ mod tests {
         fees: MAINNET.fees,
         anchor: MAINNET.anchor,
     };
+
+    #[test]
+    fn this_build_reports_the_literal_height_from_which_it_accepts_the_lower_marginal() {
+        // A literal on purpose: a table that moves must move this number deliberately (ZIP 2009).
+        assert_eq!(MAINNET.fee_from(), Some(3_590_000));
+        // A table whose eras never accept a lower rate has nothing to report.
+        const FLAT: Table = Table {
+            epochs: MAINNET.epochs,
+            fees: &[FeeEra {
+                from_height: 0,
+                builds: 5_000,
+                accepts: &[5_000],
+            }],
+            anchor: MAINNET.anchor,
+        };
+        assert_eq!(FLAT.fee_from(), None);
+    }
 
     #[test]
     fn the_mainnet_table_has_the_nu63_row_then_the_nu7_row_and_is_ordered() {
@@ -1147,5 +1253,92 @@ mod tests {
             anchor: MAINNET.anchor,
         };
         assert_eq!(LATER.estimated_fee(T_F + 30 * 86_400, 1), Some(3_000));
+    }
+
+    // F2 part 1: the builder's rule against LITERAL heights and values, written here and not read
+    // back from the table, so a table that moves alone, or a rule that stops reading the era, fails.
+    #[test]
+    fn the_builder_pays_1000_only_with_permission_and_only_inside_the_era() {
+        for (height, permitted, want) in [
+            (3_589_999, true, 5_000),
+            (3_590_000, true, 1_000),
+            (3_590_001, true, 1_000),
+            (u32::MAX, true, 1_000),
+            (3_589_999, false, 5_000),
+            (3_590_000, false, 5_000),
+            (u32::MAX, false, 5_000),
+            (0, true, 5_000),
+        ] {
+            assert_eq!(
+                fee_rule_for(height, permitted),
+                want,
+                "{height} {permitted}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_permission_is_in_force_only_on_mainnet_with_a_height_the_target_reached() {
+        for (mainnet, target, permitted, from, want) in [
+            (true, 3_590_000, true, Some(3_590_000), true),
+            (true, 3_589_999, true, Some(3_590_000), false),
+            (true, 3_599_999, true, Some(3_600_000), false),
+            (true, 3_600_000, true, Some(3_600_000), true),
+            (true, 3_600_000, true, None, false),
+            (true, 3_600_000, false, Some(0), false),
+            (false, 3_600_000, true, Some(0), false),
+        ] {
+            assert_eq!(
+                zip2009_in_force(mainnet, target, permitted, from),
+                want,
+                "{mainnet} {target} {permitted} {from:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_table_that_drops_the_legacy_fee_from_an_era_is_seen() {
+        assert!(every_era_accepts(MAINNET.fees, 5_000));
+        const DROPS: &[FeeEra] = &[
+            FeeEra {
+                from_height: 0,
+                builds: 5_000,
+                accepts: &[5_000],
+            },
+            FeeEra {
+                from_height: 10,
+                builds: 1_000,
+                accepts: &[1_000],
+            },
+        ];
+        assert!(!every_era_accepts(DROPS, 5_000));
+        assert!(!every_era_accepts(DROPS, 1_000));
+    }
+
+    #[test]
+    fn the_era_set_contains_what_the_builder_pays() {
+        assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
+        assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
+        // Whatever the builder pays for a target is among what the guard permits for it.
+        for h in [0, 3_589_999, 3_590_000, 4_000_000] {
+            for p in [false, true] {
+                assert!(fee_marginals_permitted(h, p).contains(&fee_rule_for(h, p)));
+            }
+        }
+    }
+
+    #[test]
+    fn the_fee_at_the_boundary_is_marginal_times_max_of_two_and_actions() {
+        for n in 1..=8u64 {
+            assert_eq!(
+                conventional_fee(fee_rule_for(3_589_999, true), n),
+                Some(5_000 * n.max(2))
+            );
+            assert_eq!(
+                conventional_fee(fee_rule_for(3_590_000, true), n),
+                Some(1_000 * n.max(2))
+            );
+        }
     }
 }

@@ -387,10 +387,27 @@ fn handle_request(
                 /// The seat's own certificate, which a pinned vault asks of a seat it does not hold.
                 #[serde(default)]
                 proof: Option<orchestrator::seat_registry::ProofJson>,
+                /// The height from which the device's build accepts the lower network fee (ZIP
+                /// 2009). Outside every signed payload: it is a report, and an older coordinator
+                /// ignores it. Absent clears the seat's report.
+                #[serde(default)]
+                fee_from: Option<serde_json::Value>,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
                 Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            let fee_from = match &req.fee_from {
+                None | Some(serde_json::Value::Null) => None,
+                Some(v) => match v.as_u64().and_then(|h| u32::try_from(h).ok()) {
+                    Some(h) => Some(h),
+                    None => {
+                        return resp(
+                            400,
+                            json!({ "error": "fee_from must be a block height" }).to_string(),
+                        )
+                    }
+                },
             };
             if !is_valid_group_key(&req.group_key) {
                 return resp(
@@ -444,6 +461,7 @@ fn handle_request(
                         seat: req.seat,
                         write_pub: req.write_pub.as_deref(),
                         proof: proof.as_ref(),
+                        fee_from,
                     };
                     match seats::offer_device(&cfg.vaults_dir, &reg, read_token, &claim) {
                         Ok(seats::DeviceOutcome::NeedsReadKey) => resp(
@@ -2051,13 +2069,25 @@ fn install_panic_hook() {
 /// Build a HelperConfig from env vars. All paths are public tooling; nothing secret.
 fn config_from_env() -> HelperConfig {
     // A value that is not UTF-8 is read as text, which is not a number, and the log says so.
-    let (config, send_polls_note) = config_with(&|k| match std::env::var(k) {
+    let (config, send_polls_note) = match config_with(&|k| match std::env::var(k) {
         Ok(v) => Some(v),
-        Err(std::env::VarError::NotUnicode(v)) if k == "KONCLAVE_SEND_MAX_POLLS" => {
+        // Not UTF-8 is a value, and for the fee switch a value that is not the one accepted: it must
+        // refuse to start, never read as unset.
+        Err(std::env::VarError::NotUnicode(v))
+            if k == "KONCLAVE_SEND_MAX_POLLS" || k == orchestrator::fee::FEE_SWITCH_VAR =>
+        {
             Some(v.to_string_lossy().into_owned())
         }
         Err(_) => None,
-    });
+    }) {
+        Ok(c) => c,
+        // Fail closed: a fee switch that cannot be read is not defaulted.
+        Err(why) => {
+            eprintln!("konclave-helper: {why}");
+            std::process::exit(2);
+        }
+    };
+    eprintln!("{}", config.fee_switch.boot_line());
     eprintln!(
         "konclave-helper: a send waits at most {} polls (about a second each) for the devices (KONCLAVE_SEND_MAX_POLLS)",
         config.send_max_polls
@@ -2070,7 +2100,11 @@ fn config_from_env() -> HelperConfig {
 
 /// The configuration, from whatever answers for the variables: the process environment in the
 /// binary, a table in a test. Returns the note about the wait setting when it was not taken as given.
-fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'static str>) {
+fn config_with(
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<(HelperConfig, Option<&'static str>), String> {
+    let fee_switch =
+        orchestrator::fee::FeeSwitch::from_env(get(orchestrator::fee::FEE_SWITCH_VAR).as_deref())?;
     let env = |k: &str, d: &str| get(k).unwrap_or_else(|| d.to_string());
     let (send_max_polls, send_polls_note) =
         send_polls_from(get("KONCLAVE_SEND_MAX_POLLS").as_deref());
@@ -2085,8 +2119,9 @@ fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
         relays: relays_from(&get("KONCLAVE_RELAY_BASES").unwrap_or_default()),
         send_max_polls,
+        fee_switch,
     };
-    (config, send_polls_note)
+    Ok((config, send_polls_note))
 }
 
 /// The relays this coordinator may publish a signing request to (#270), from
@@ -3218,9 +3253,8 @@ mod tests {
         assert_eq!(r.status, 502);
     }
 
-    /// Stand-ins for the engine a funding check runs, in `dir`: the devtool answers a balance and
-    /// prints `unproven` for `pczt create`; `konclave-signer build-payroll` writes it to its `--out`
-    /// (the ninth argument); everything else succeeds silently.
+    /// Stand-ins for the engine a funding check runs, in `dir`: the devtool answers a balance;
+    /// `konclave-signer build-payroll` writes `unproven` to its `--out` (found by name); everything else succeeds silently.
     #[cfg(unix)]
     fn funding_engine(dir: &std::path::Path, unproven: &[u8]) -> HelperConfig {
         use std::os::unix::fs::PermissionsExt;
@@ -3245,15 +3279,12 @@ mod tests {
         let mut c = cfg();
         c.devtool = script(
             "devtool",
-            format!(
-                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then cat {p}; fi",
-                p = pczt.display()
-            ),
+            "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}'; fi".to_string(),
         );
         c.konclave_signer = script(
             "signer",
             format!(
-                "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$1\" = build-payroll ]; then cp {p} \"$9\"; fi",
+                "[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {p} \"$out\"; fi",
                 p = pczt.display()
             ),
         );
@@ -4865,6 +4896,7 @@ mod tests {
             },
             relays: vec![TEST_RELAY.into()],
             send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
         }
     }
 
@@ -6300,6 +6332,269 @@ mod tests {
             "the pubkey is persisted in the vault's seal-set",
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- #847: the seat's fee report, and the version matrix of the release (v0.20 <-> v0.21) ----
+
+    fn seat_body(gk: &str, comms: &str, seat: u16, extra: &str) -> Vec<u8> {
+        format!(
+            r#"{{"group_key":"{gk}","device_pub":"{comms}","seat":{seat},"write_pub":"{}"{extra}}}"#,
+            "cc".repeat(32)
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn fee_report_is_stored_per_seat_cleared_by_a_registration_without_it_and_refused_when_malformed(
+    ) {
+        let gk = "55".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let call = |b: Vec<u8>| handle(&st, &c, &Method::Post, "/api/vault/devicekey", &b);
+        let reports = || orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap();
+        let (a, b) = ("aa".repeat(32), "bb".repeat(32));
+
+        assert_eq!(
+            call(seat_body(&gk, &a, 1, r#","fee_from":3590000"#)).status,
+            200
+        );
+        assert_eq!(call(seat_body(&gk, &b, 2, "")).status, 200);
+        assert_eq!(
+            reports(),
+            vec![Some(3_590_000), None, None],
+            "seat 2 reported nothing, seat 3 has no record"
+        );
+
+        // The same seat registering again WITHOUT the field clears its report, and says it is not new.
+        let again = call(seat_body(&gk, &a, 1, ""));
+        assert!(again.body.contains("\"added\":false"), "{}", again.body);
+        assert_eq!(reports(), vec![None, None, None]);
+
+        // A newer report from the same seat (same registration: two devices of one seat) speaks.
+        call(seat_body(&gk, &a, 1, r#","fee_from":3590000"#));
+        call(seat_body(&gk, &a, 1, r#","fee_from":3600000"#));
+        assert_eq!(reports()[0], Some(3_600_000));
+
+        // A malformed value is refused and changes nothing.
+        for bad in [r#""3590000""#, "-1", "1.5", "4294967296", "true", "[1]"] {
+            let r = call(seat_body(&gk, &a, 1, &format!(r#","fee_from":{bad}"#)));
+            assert_eq!(r.status, 400, "fee_from {bad}: {}", r.body);
+        }
+        assert_eq!(reports()[0], Some(3_600_000));
+        // A registration that names no seat (comms key only) writes and clears nothing: it cannot say
+        // which seat it speaks for, and a comms key is public among the members.
+        let no_seat = |extra: &str| {
+            format!(r#"{{"group_key":"{gk}","device_pub":"{a}"{extra}}}"#).into_bytes()
+        };
+        assert_eq!(call(no_seat(r#","fee_from":7"#)).status, 200);
+        assert_eq!(reports()[0], Some(3_600_000), "no seat, no write");
+        assert_eq!(call(no_seat("")).status, 200);
+        assert_eq!(reports()[0], Some(3_600_000), "no seat, no clear");
+        // An explicit null is the same as absent.
+        assert_eq!(
+            call(seat_body(&gk, &a, 1, r#","fee_from":null"#)).status,
+            200
+        );
+        assert_eq!(reports()[0], None);
+    }
+
+    /// VERSION MATRIX (a): a v0.20 coordinator takes a v0.21 registration that carries `fee_from`.
+    /// This is the request struct of `POST /api/vault/devicekey` as it was at f5bb899a (v0.20.0), frozen:
+    /// no `deny_unknown_fields`, so an unknown field is ignored. And `fee_from` sits in no signed
+    /// payload (seat certificate, write signature), so the old verification path cannot see it.
+    #[test]
+    fn version_matrix_a_v020_coordinator_ignores_fee_from_and_it_is_in_no_signed_payload() {
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct FrozenV020Req {
+            group_key: String,
+            device_pub: String,
+            #[serde(default)]
+            seat: Option<u16>,
+            #[serde(default)]
+            write_pub: Option<String>,
+            #[serde(default)]
+            proof: Option<orchestrator::seat_registry::ProofJson>,
+        }
+        let body = seat_body(
+            &"55".repeat(32),
+            &"aa".repeat(32),
+            1,
+            r#","fee_from":3590000"#,
+        );
+        let parsed: FrozenV020Req = serde_json::from_slice(&body).expect("a v0.20 route parses it");
+        assert_eq!((parsed.seat, parsed.device_pub.len()), (Some(1), 64));
+        // Neither signed payload carries it. Read as FIELD LISTS, not only as a name: a renamed field
+        // (`fee_height`) or one added to the signed statement fails here too.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let read = |f: &str| std::fs::read_to_string(root.join(f)).unwrap();
+        let production = |text: &str| text.split("\n#[cfg(test)]").next().unwrap().to_string();
+        let seal = production(&read("konclave-seal/src/share_sig.rs"));
+        let fields = seal
+            .split("pub struct SeatStatement {")
+            .nth(1)
+            .and_then(|r| r.split('}').next())
+            .unwrap()
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("pub "))
+            .map(|l| l.split(':').next().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fields,
+            [
+                "vault_id",
+                "cp",
+                "t",
+                "n",
+                "seat",
+                "pkp_digest",
+                "read_key_hash",
+                "comms_pub",
+                "write_pub"
+            ],
+            "the seat certificate signs exactly these"
+        );
+        // The signature too: a new parameter under any name would change what the seat signs.
+        assert!(
+            seal.contains("pub fn seat_message(st: &SeatStatement) -> Vec<u8> {"),
+            "seat_message takes the statement and nothing else"
+        );
+        let message = seal
+            .split("pub fn seat_message")
+            .nth(1)
+            .and_then(|r| r.split("\n}\n").next())
+            .unwrap();
+        for f in &fields {
+            assert!(
+                message.contains(&format!("st.{f}")),
+                "seat_message lacks {f}"
+            );
+        }
+        assert_eq!(
+            message.matches("st.").count(),
+            fields.len(),
+            "seat_message reads nothing but the statement's fields"
+        );
+        let lib = production(&read("konclave-seal/src/lib.rs"));
+        let write_sig = lib
+            .split("pub fn write_message(")
+            .nth(1)
+            .and_then(|r| r.split(") -> Vec<u8>").next())
+            .unwrap();
+        let params = write_sig
+            .split(',')
+            .filter_map(|p| p.split(':').next())
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            params,
+            ["vault_id", "action", "target", "seat", "ts", "nonce"],
+            "the write signature covers exactly these"
+        );
+        // The device builds the statement in the wasm and the coordinator checks it here: neither
+        // construction site names the report.
+        for (file, text) in [
+            ("konclave-wasm/src/lib.rs", read("konclave-wasm/src/lib.rs")),
+            (
+                "seat_registry.rs",
+                read("orchestrator/src/seat_registry.rs"),
+            ),
+        ] {
+            for chunk in text.split("SeatStatement {").skip(1) {
+                let body = chunk.split("};").next().unwrap();
+                assert!(
+                    !body.contains("fee"),
+                    "{file}: a SeatStatement carries a fee field"
+                );
+            }
+        }
+        assert!(!seal.contains("fee_from") && !lib.contains("fee_from"));
+    }
+
+    /// VERSION MATRIX (c): a rollback. A v0.20 coordinator reads the `device-keys.json` a v0.21 one
+    /// wrote, with `fee_from` in it. This is the `DeviceRecord` of f5bb899a (v0.20.0), frozen, and
+    /// `load_device_records` there tries a list of records first: no `deny_unknown_fields`, so the
+    /// field is ignored. If it were not, the registry would read as unreadable and every write on
+    /// the vault would be refused.
+    #[test]
+    fn version_matrix_c_a_v020_coordinator_reads_the_registry_a_v021_wrote() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct FrozenV020Record {
+            comms: String,
+            #[serde(default)]
+            seat: Option<u16>,
+            #[serde(default)]
+            write: Option<String>,
+        }
+        let gk = "57".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let a = "aa".repeat(32);
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, r#","fee_from":3590000"#),
+        );
+        assert_eq!(r.status, 200);
+        let file =
+            std::fs::read_to_string(c.vaults_dir.join(&gk).join("device-keys.json")).unwrap();
+        assert!(
+            file.contains("fee_from"),
+            "the v0.21 file carries the report: {file}"
+        );
+        let read: Vec<FrozenV020Record> = serde_json::from_str(&file).expect("a v0.20 reads it");
+        assert_eq!(
+            read,
+            vec![FrozenV020Record {
+                comms: a,
+                seat: Some(1),
+                write: Some("cc".repeat(32)),
+            }]
+        );
+    }
+
+    /// VERSION MATRIX (b): a v0.21 coordinator takes a v0.20 web that sends no `fee_from`: the seat's
+    /// report is cleared, which reads as 5,000 only (the safe side).
+    #[test]
+    fn version_matrix_b_v021_coordinator_takes_a_registration_without_fee_from_as_no_report() {
+        let gk = "56".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_dir_all(c.vaults_dir.join(&gk));
+        let a = "aa".repeat(32);
+        let v021 = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, r#","fee_from":3590000"#),
+        );
+        assert_eq!(v021.status, 200);
+        assert_eq!(
+            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap(),
+            vec![Some(3_590_000), None, None],
+            "the v0.21 report was stored before the v0.20 body clears it"
+        );
+        let v020 = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &seat_body(&gk, &a, 1, ""),
+        );
+        assert_eq!(v020.status, 200, "{}", v020.body);
+        assert_eq!(
+            orchestrator::helper::seat_fee_reports(&c.vaults_dir, &gk, 3).unwrap(),
+            vec![None, None, None]
+        );
     }
 
     #[test]
@@ -7995,6 +8290,7 @@ mod tests {
                     .then(|| value.clone())
                     .flatten()
             })
+            .unwrap()
         };
         assert_eq!(with(Some("240")).0.send_max_polls, 240);
         assert_eq!(with(Some("240")).1, None);
@@ -8003,6 +8299,45 @@ mod tests {
         assert_eq!(config.send_max_polls, 300);
         assert!(note.is_some(), "a value that was not taken says so");
         assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly
+    /// `per-vault` is OFF, and any other value refuses to boot (fail closed), with a message that names
+    /// the variable.
+    #[test]
+    fn the_fee_switch_is_on_unless_per_vault_and_anything_else_refuses_to_boot() {
+        use orchestrator::fee::FeeSwitch;
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_FEE_MARGINAL_MAX")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+        };
+        assert_eq!(with(None).unwrap().0.fee_switch, FeeSwitch::On);
+        assert_eq!(with(Some("5000")).unwrap().0.fee_switch, FeeSwitch::On);
+        assert_eq!(
+            with(Some("per-vault")).unwrap().0.fee_switch,
+            FeeSwitch::Off
+        );
+        for bad in ["", "1000", "garbage", "5000 ", "\u{FFFD}", "Per-Vault"] {
+            let why = with(Some(bad))
+                .err()
+                .unwrap_or_else(|| panic!("{bad:?} booted"));
+            assert!(why.contains("KONCLAVE_FEE_MARGINAL_MAX"), "{why}");
+        }
+    }
+
+    /// The boot refusal and the boot line are wired into the binary's own startup, not only defined.
+    #[test]
+    fn startup_logs_the_switch_and_exits_when_it_cannot_be_read() {
+        let src = include_str!("main.rs");
+        let start = src.find("fn config_from_env()").unwrap();
+        let body = &src[start..start + 1800];
+        assert!(body.contains("process::exit(2)"));
+        assert!(body.contains("fee_switch.boot_line()"));
+        assert!(body.contains("FEE_SWITCH_VAR"));
     }
 
     /// A request cannot choose how long its send waits: the value the send is built with comes from
@@ -9013,8 +9348,7 @@ mod tests {
             .contains("list-tx"));
     }
 
-    /// A devtool that reports `balance` after `pause` seconds and takes `pause` seconds to start
-    /// building: a send that has passed every gate is in it for that long.
+    /// A devtool that reports `balance` after `pause` seconds: the funding gate is in it for that long.
     #[cfg(unix)]
     fn devtool_that_pauses(dir: &std::path::Path, balance: u64, pause: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -9022,8 +9356,23 @@ mod tests {
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then sleep {pause}; exit 1; fi\n"
+                "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\n"
             ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    /// A `konclave-signer` that takes `pause` seconds to build and then fails: a send that has passed
+    /// every gate is in it for that long (the build is the signer's, for a payment as for a payroll).
+    #[cfg(unix)]
+    fn signer_that_pauses(dir: &std::path::Path, pause: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("pausing-signer");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nif [ \"$1\" = build-payroll ]; then sleep {pause}; exit 1; fi\n"),
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -9095,11 +9444,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_send_is_shown_as_sending_only_while_it_runs() {
-        // A funded vault: the send passes every gate, then waits in `pczt create` and fails.
+        // A funded vault: the send passes every gate, then waits in the signer's build and fails.
         let st = HelperState::new();
         seed(&st, "relayv");
         let mut c = cfg();
         c.devtool = devtool_that_pauses(&c.vaults_dir, 5_000_000, "1.2");
+        c.konclave_signer = signer_that_pauses(&c.vaults_dir, "1.2");
         a_ready_proposal(&c.vaults_dir, "relayv");
         every_seat_has_a_device(&c.vaults_dir, "relayv");
         let locks = concurrency::VaultLocks::new();
@@ -9401,6 +9751,35 @@ mod tests {
             .collect()
     }
 
+    /// A `konclave-signer` stand-in whose `build-payroll` writes an empty PCZT to its `--out`. The
+    /// build opens the same wallet database the devtool does, so it joins the devtool's detector: it
+    /// logs `build-payroll` in `calls.log` and takes the `in-engine` slot, writing `overlap.log` if it
+    /// finds it taken (two engine processes on one wallet). It holds the slot for a moment so that a
+    /// build running beside a sync is caught.
+    #[cfg(unix)]
+    fn counting_signer(dir: &std::path::Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("counting-signer");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then\necho build-payroll >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nsleep 0.5\n: > \"$out\"\nrmdir \"{d}/in-engine\" 2>/dev/null\nfi\nexit 0\n",
+                d = dir.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&fake).arg("--probe").output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => break,
+            }
+        }
+        fake
+    }
+
     #[cfg(unix)]
     fn counting_cfg(name: &str, sync_secs: u32) -> (HelperConfig, PathBuf) {
         let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
@@ -9408,6 +9787,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut c = cfg();
         c.devtool = counting_devtool(&dir, sync_secs);
+        // A payment is built by the signer (B3a): this one writes an empty PCZT to its `--out` and is
+        // watched by the same overlap detector as the devtool, so the build is still under guard.
+        c.konclave_signer = counting_signer(&dir);
         c.vaults_dir = dir.join("vaults");
         std::fs::create_dir_all(&c.vaults_dir).unwrap();
         (c, dir)
@@ -9674,6 +10056,12 @@ mod tests {
                 syncs,
                 1,
                 "history_first={history_first}: {:?}",
+                engine_calls(&dir)
+            );
+            // The build ran too, so the overlap check above watched it and not only the sync.
+            assert!(
+                engine_calls(&dir).iter().any(|l| l == "build-payroll"),
+                "history_first={history_first}: the funding check built: {:?}",
                 engine_calls(&dir)
             );
             assert!(

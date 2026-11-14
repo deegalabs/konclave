@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Shared ECIES seal/open, so the helper seals a SignRequest with the SAME code the browser opens (#63).
-konclave-seal = { path = "../konclave-seal", features = ["receivers", "share-sig"] }
+konclave-seal = { path = "../konclave-seal", features = ["receivers", "share-sig", "pczt"] }
 # The relay's message cap, read from the crate the relay reads it from, so the largest payment the
 # coordinator lets a vault propose cannot drift from what the relay accepts (#821). No dependencies.
 konclave-http = { path = "../konclave-http" }

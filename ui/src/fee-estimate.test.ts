@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import init, { estimatedFeeZat } from './wasm-pkg/konclave_wasm.js'
+import init, { estimatedFeeZat, feeFrom } from './wasm-pkg/konclave_wasm.js'
 import { readFeeEstimator } from './fee-estimate'
 import { codeAt, codeOf } from './source-scan'
 import { en as enDict } from './i18n/en'
@@ -104,6 +104,8 @@ describe('no fee arithmetic outside the rule', () => {
     // (a ZIP number is a name, not an amount: "ZIP 2009")
     /(fee|marginal)[^\n]*(?<![\w.])(?<!ZIP )\d{1,3}_?\d{3}(?![\w.])/i,
     /SINGLE_PAYMENT_FEE_ZAT|GRACE_ACTIONS|MARGINAL_FEE/,
+    // The height ZIP 2009 switches on (#847): a seat reports it from the table, through the wasm.
+    /(?<![\w.])3_?590_?000(?![\w.])/,
   ]
 
   it('scans the screens and the sdk', () => {
@@ -127,6 +129,12 @@ describe('no fee arithmetic outside the rule', () => {
     expect(PATTERNS.some((p) => p.test('the fee drops under ZIP 2009 at a later height'))).toBe(false)
   })
 
+  it('and does not take a longer number or a property for the height', () => {
+    for (const fine of ['const id = 35900001', 'x.3590000', 'const n = 13590000']) {
+      expect(PATTERNS.some((p) => p.test(fine)), fine).toBe(false)
+    }
+  })
+
   it('and would find one', () => {
     for (const planted of [
       'const soloFeeZat = count * 5000 * 2',
@@ -136,8 +144,18 @@ describe('no fee arithmetic outside the rule', () => {
       'const feeZat = est(1) ?? 10_000',
       'const marginalFee = 1_000',
       'return 5000 * Math.max(2, n)',
+      'return 3590000',
+      '}, proof, 3_590_000)',
+      "const h = typeof f === 'function' ? f() : 3590000",
     ]) {
       expect(PATTERNS.some((p) => p.test(planted)), planted).toBe(true)
     }
+  })
+})
+
+describe('the fee era this build accepts, reported to the coordinator', () => {
+  it('feeFrom is the height ZIP 2009 switches on, read from the table in the wasm', () => {
+    // A literal on purpose: the number is the table's, and this fails the day it moves alone.
+    expect(feeFrom()).toBe(3_590_000)
   })
 })

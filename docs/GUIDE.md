@@ -172,6 +172,7 @@ classDiagram
         +usize threshold
         +String group
         +Option sealing_keychain_id
+        +String network
     }
     class SpendPlan {
         <<enum>>
@@ -248,9 +249,9 @@ classDiagram
 | `Tools`, `ToolError` | `tools.rs` | Subprocess driver for the official binaries; non-zero exit → error with stderr. |
 | `Balance`, `ChainInfo`, `list_confirmed_txids` | `wallet.rs` | Read-side wallet: parse `zcash-devtool` JSON (balance / get-info / list-tx). |
 | `SigningInput`, `Randomizer`, `inject` | `signer.rs` | Bridge to `konclave-signer`: extract sighash + randomizers, inject FROST sigs. |
-| `pczt::create/prove/send` | `pczt.rs` | Drive `zcash-devtool pczt`; validate broadcast output (reject expired even on exit 0). |
+| `pczt::prove/send` | `pczt.rs` | Drive `zcash-devtool pczt` (building is `konclave-signer build-payroll`, for a payment as one line); validate broadcast output (reject expired even on exit 0). |
 | `Frostd`, `run_coordinator`, `run_participant` | `ceremony.rs` | `frostd` lifecycle (killed on drop) + coordinator/participant FROST roles. |
-| `SendConfig`, `SpendPlan`, `SendOutcome`, `orchestrate_send` | `send.rs` | End-to-end Ready→Sent: build/prove PCZT → ceremony → inject → broadcast (dry-run capable). |
+| `SendConfig`, `SpendPlan`, `SendOutcome`, `orchestrate_send` | `send.rs` | End-to-end Ready→Sent: build/prove PCZT → ceremony → inject → broadcast (dry-run capable). The ceremony file's `network` (`main` or `test`, default `main`) is handed to the builder, so a payment on a testnet wallet needs `"network": "test"`. |
 | `DkgVault`, `create_vault_dkg` | `dkg.rs` | Create a vault by real DKG through the app; shares sealed, key never reconstituted. |
 | `ReconcileReport`, `Outcome`, `reconcile` | `reconcile.rs` | Pure "on-chain wins" engine: confirm sent txids, invalidate underfunded reservations (FIFO). |
 | `InheritancePolicy`, `SwitchState`, `evaluate` | `inheritance.rs` | Pure dead-man's-switch policy: heartbeat → lapse → grace → release-authorized. |
@@ -308,8 +309,7 @@ Cross-cutting guarantees that hold across every use case:
   preview, and the real broadcast is gated behind a danger dialog.
 - **Shares sealed at rest** (XChaCha20-Poly1305), unsealed only to ephemeral 0600 tmpfs files
   during signing.
-- **The loopback bridge is Host-gated + per-session CSRF token.** Reads fall back to a
-  coherent mock so screens always render.
+- **The loopback bridge is Host-gated + per-session CSRF token.**
 
 | # | Use case | Route | Actor |
 |---|---|---|---|
@@ -318,7 +318,7 @@ Cross-cutting guarantees that hold across every use case:
 | UC-3 | Fund / Receive | `/receive` | Sender / treasurer |
 | UC-4 | Propose a payment | `/pay` | A member (proposer) |
 | UC-5 | Approve / Refuse (quorum) | `/proposal` | Members |
-| UC-6 | Sign & send (FROST broadcast) | `/proposal` | Operator + approvers' shares |
+| UC-6 | Sign & send (FROST broadcast) | `/proposal` | `t` shares: on the web, the members who sign; in the local build, the first `t` approvers |
 | UC-7 | Private payroll | `/payroll` | Proposer + quorum |
 | UC-8 | Social recovery (RTS) | `/recovery` | Quorum of helpers |
 | UC-9 | Inheritance / dead-man's-switch | `/inheritance` | Owner + quorum + heir |
@@ -358,10 +358,10 @@ Cross-cutting guarantees that hold across every use case:
   across two tabs / two hosted contexts; multi-note over the live relay is unit-tested.
 
 ### UC-3 - Fund / Receive
-- **Flow:** the screen reads the vault's shielded **Orchard** address and renders it + a QR + a
-  **ZIP-321** `zcash:` payment URI (optional amount), all client-side. Funds land in the vault's
-  Orchard pool; balance appears after sync.
-- **Honest limits:** receiving needs no key or signature; the receive address is Orchard
+- **Flow:** the screen reads the vault's shielded address (`u1…`) and renders it + a QR + a
+  **ZIP-321** `zcash:` payment URI (optional amount), all client-side. Funds land in the Ironwood
+  pool (since NU6.3); balance appears after sync.
+- **Honest limits:** receiving needs no key or signature; the receive address is shielded
   (shielded-first). Post-NU6.3 the vault's **spendable** balance is **Orchard + Ironwood
   combined** - a legacy Orchard note can be spent or migrated into the Ironwood pool, and Ironwood
   notes are spendable in their own right (see the post-Ironwood note in §8).
@@ -379,15 +379,18 @@ Cross-cutting guarantees that hold across every use case:
 - **Flow:** the proposal detail shows the state trail, amount, per-person stance, and progress
   `count/threshold`. Approve/Refuse posts the vote; the authoritative state machine returns `409`
   on a conflicting/out-of-state vote. At `t` approvals the state flips to `ready`.
-- **Postcondition:** `ready` at quorum, or `rejected`/still `awaiting`. **Approval binds the
-  share that signs** - whoever approved is whose config signs.
+- **Postcondition:** `ready` at quorum, or `rejected`/still `awaiting`. Who signs depends on
+  the build. On the web, signing is open to any member of the vault once the proposal is `ready`: the
+  shares that sign are those of any `t` of the members who press Sign, whether or not they approved.
+  In the local build, the ceremony signs with the shares of the first `t` members who approved.
 - **Honest limits:** a proposal can hit `expired` (72h placeholder) - terminal, cannot be sent.
 
 ### UC-6 - Sign & send (FROST broadcast)
 - **Flow:** optionally **validate (dry-run)**, in the local build only (the hosted coordinator takes
   no dry run) - the whole chain except broadcast, returning a sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
-- **Postcondition:** `sent` (later `confirmed` via reconcile); only the approvers' shares signed.
+- **Postcondition:** `sent` (later `confirmed` via reconcile); on the web, signed by the shares of any `t` members; in the
+  local build, by the shares of the first `t` approvers.
 - **Honest limits:** in the local build `frostd` is started fresh per call, killed on drop, and the
   ceremony can take 30-60s; on the web, the signatures themselves take seconds once the signers are online, and the whole send takes a few minutes, most of it building and proving the transaction.
 
@@ -440,7 +443,8 @@ Cross-cutting guarantees that hold across every use case:
 - **Flow:** list/register/edit/delete beneficiaries (name, address, default memo, public flag);
   classification warns on transparent/Sapling. Registered people feed the pickers on `/pay` and
   `/payroll`.
-- **Honest limits:** no update endpoint - edit = add-then-delete; scoped per selected vault.
+- **Honest limits:** the screen edits a person in place (`/people` → edit), but there is no update
+  endpoint: saving an edit adds the new entry and then deletes the old one. Scoped per selected vault.
 
 ---
 
@@ -474,7 +478,7 @@ sequenceDiagram
     U->>S: POST /api/proposals/{id}/send {dry_run}
     Note over S: guards - ceremony configured, state Ready, vault group matches
     S->>O: orchestrate_send (signers are who approved, shares unsealed to tmpfs 0600)
-    O->>DT: pczt create --address --value
+    O->>KS: build-payroll --spec (one line for a payment)
     O->>DT: pczt prove (local ZK proofs)
     O->>KS: extract yields SIGHASH and a RANDOMIZER per real spend
     O->>FD: start frostd (readiness handshake)
@@ -662,14 +666,16 @@ The everyday flow, route by route:
 3. **Propose a payment** (`/pay`) - amount + recipient; address + balance validated up front.
 4. **Approve to quorum** (`/proposals` → a proposal) - approve/refuse; nothing moves until `t`;
    proposals expire.
-5. **Sign & send** - dry-run to verify, then confirm to broadcast; only the approvers' shares
-   sign; the key is never reassembled.
+5. **Sign & send** - on the web, members open the payment and press Sign, and one shielded
+   transaction goes out when `t` of them have signed; in the local build the send signs with the
+   shares of the first `t` approvers. A preview and an explicit confirmation come first; the key is
+   never reassembled.
 6. **Payroll** (`/payroll`) - CSV of beneficiaries → one shielded tx, N encrypted memos, approved
    once.
 7. **Account** (`/ledger`) - full internal ledger + itemized CSV for the accountant.
 
-Try it with demo data at [konclave-demo.vercel.app](https://konclave-demo.vercel.app); run it for
-real per the README's **Try it** section; the same walkthrough is in-app under `/docs`.
+Try the flow by creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app)
+(there is no demo data); run it for real per the README's **Try it** section; the same walkthrough is in-app under `/docs`.
 
 ---
 
@@ -677,10 +683,11 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
 
 - **Sapling ≠ Orchard.** A Sapling-only destination can lock funds; Konclave decodes the address
   authoritatively (`validate_recipient`) and blocks it with a clear message - heed the warning.
-- **Memos are Orchard-only.** Transparent (public) destinations cannot carry a memo; the memo
+- **Memos need a shielded destination.** Transparent (public) destinations cannot carry a memo; the memo
   field is disabled for them, and a transparent payment is flagged as **public on-chain**.
-- **Approval binds the signer.** Whoever approves is whose share signs. Approve as the member you
-  intend to sign as.
+- **Who signs depends on the build.** On the web, any member can sign an approved payment: approving
+  does not pick who signs. In the local build, the ceremony signs with the shares of the first `t`
+  members who approved, so approve as the member you intend to sign as.
 - **Dry-run first.** The send path has a dry-run that runs the whole ceremony and stops *before*
   broadcast - use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
   inject verifies the FROST signature it applied, not the full bundle - see the Ironwood note.)
@@ -688,10 +695,10 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
   there is no client timeout, so let it finish. On the web, the signatures themselves take seconds
   once the signers are online, and the whole send takes a few minutes, most of it building and
   proving the transaction.
-- **Post-Ironwood spends.** Spending a single legacy Orchard note can produce an
-  Orchard→Ironwood migration whose dummy spend the FROST inject does not sign; the interim
-  workaround is `pczt create-max` (spend all notes, so every action is real). The proper fix
-  lands with the engine bump to a librustzcash including upstream `#2777`.
+- **Post-Ironwood spends.** A spend of a single legacy Orchard note once failed at signing, on a
+  dummy spend the FROST inject did not sign (upstream librustzcash `#2777`). The engine line of
+  2026-10-04 (v0.10.0) carries the fix and the coordinator builds with its own builder, so there is
+  no workaround to apply.
 - **A reload can lose an unsaved `/net` share.** Save it (encrypted IndexedDB) if you want to
   restore without redoing the DKG.
 - **The hosted app has no mock data.** It shows only vaults you created. The proof is on-chain -
@@ -712,11 +719,11 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | Broadcast across **separate physical devices** (carried to a confirmed txid) | **Proven on mainnet** (`aec83baf…`, separate machines over the internet; `2d861b8f…`, from a phone) |
 | **Ironwood / NU6.3** (Orchard→Ironwood migration + first Ironwood-pool spend) | **Proven on mainnet** (`54266f47…`, `36c60f1e…`) |
 | C6 signer tests (extract/inject vectors) | **Closed** (real Ironwood PCZT vectors, tests green) |
-| `/net` multi-device - single-spend live | **Done** (part of the browser-signed broadcast) |
-| `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
+| `/net` multi-device - single-spend live | **Done, history** (the browser-signed broadcast `3022420a…`; `/net` no longer signs payments, proposals are signed from their signing panel) |
+| Multi-note signing over the live relay | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.17.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
+| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.20.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 

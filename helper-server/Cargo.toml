@@ -27,6 +27,8 @@ konclave-seal = { path = "../konclave-seal", features = ["share-sig"] }
 tiny_http = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# statvfs, for the free-space floor before a new vault (admission.rs).
+libc = "0.2"
 
 [profile.release]
 opt-level = 2

@@ -4,7 +4,8 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getProposalDetail, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
+import { readPayrollLines } from '../payroll-lines'
 import { proposalName } from '../proposal-name'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { itemizeBook, pivotByPayee, pivotCheck, pivotEntries } from '../ledgerPivot'
@@ -119,11 +120,12 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     setPivotReading(true)
     void (async () => {
       try {
-        for (const id of missing) {
-          const detail = await getProposalDetail(id)
-          if (!mounted.current) return
-          if (detail?.lines?.length) setLinesById((m) => ({ ...m, [id]: detail.lines }))
-        }
+        // One read on the web, however many payrolls (#949); one per payroll on the local bridge.
+        const read = await readPayrollLines(missing)
+        if (!mounted.current) return
+        // Only payrolls with lines, as before: one that answered none is asked again on reopening.
+        const found = Object.fromEntries(Object.entries(read).filter(([, l]) => l.length > 0))
+        if (Object.keys(found).length > 0) setLinesById((m) => ({ ...m, ...found }))
       } finally {
         pivotInFlight.current -= 1
         if (mounted.current && pivotInFlight.current === 0) setPivotReading(false)
@@ -139,8 +141,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     if (next.has(p.id)) { next.delete(p.id); setOpen(next); return }
     next.add(p.id); setOpen(next)
     if (!linesById[p.id]) {
-      const detail = await getProposalDetail(p.id)
-      if (detail?.lines) setLinesById((m) => ({ ...m, [p.id]: detail.lines }))
+      const read = await readPayrollLines([p.id])
+      const lines = read[p.id]
+      if (lines) setLinesById((m) => ({ ...m, [p.id]: lines }))
     }
   }
 
@@ -158,12 +161,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       // own memo (a payroll line's, not the payroll's) and the txid, shared by a payroll's rows.
       // The rows themselves come from `itemizeBook`, the same rule the book by beneficiary reads.
       const read: Record<string, PayrollLine[]> = { ...linesById }
-      for (const p of filtered) {
-        if (p.kind !== 'payroll' || read[p.id]) continue
-        const detail = await getProposalDetail(p.id)
-        const lines = detail?.lines ?? []
-        read[p.id] = lines
-        setLinesById((m) => ({ ...m, [p.id]: lines }))
+      // Every payroll in the filtered book not loaded yet, in ONE read on the web (#949).
+      const want = filtered.filter((p) => p.kind === 'payroll' && !read[p.id]).map((p) => p.id)
+      if (want.length > 0) {
+        const got = await readPayrollLines(want)
+        const add: Record<string, PayrollLine[]> = {}
+        for (const id of want) add[id] = got[id] ?? []
+        Object.assign(read, add)
+        setLinesById((m) => ({ ...m, ...add }))
       }
       const head = {
         vaultName: vaultName ?? 'Konclave',

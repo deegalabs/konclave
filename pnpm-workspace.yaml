@@ -3,8 +3,28 @@ packages:
   - mcp-server
   - sdk
 
-# Supply-chain hardening (flagged by the security scan). Safe here: the lockfile has no exotic
-# (git/tarball) subdeps, and CI installs with --frozen-lockfile so resolution is not re-run.
+# Supply-chain hardening (flagged by the security scan).
+#
+# These keys need pnpm >= 10.26 (minimumReleaseAge arrived in 10.16, trustPolicy in 10.21,
+# blockExoticSubdeps in 10.26). pnpm 9 ignores them without a word, which is what happened while
+# package.json pinned pnpm@9.15.0: they were here and did nothing. `packageManager` now pins a
+# version that reads them, and CI's pnpm/action-setup installs exactly that version.
+#
+# They act when pnpm RESOLVES (`pnpm add`, `pnpm update`, an install after a manifest change). CI
+# installs with --frozen-lockfile, which does not resolve, so CI does not re-check a lockfile that
+# already holds something these keys would have refused. They guard the moment the lockfile changes.
 minimumReleaseAge: 1440        # do not pull a package published less than 24h ago (dodges fresh-publish attacks)
-trustPolicy: no-downgrade      # never let an update silently downgrade a security setting
+trustPolicy: no-downgrade      # refuse a version with weaker trust evidence (provenance, trusted publisher) than an earlier one
 blockExoticSubdeps: true       # transitive deps must come from the registry, not git/tarball sources
+
+# The only two locked packages trustPolicy refuses, checked by enumerating the whole tree on
+# 2026-11-03. Exact versions only, so a newer release of either is checked as normal.
+trustPolicyExclude:
+  # A 6.x backport published in 2023, after 7.x releases that carried provenance. The check orders
+  # versions by publish date, not semver, so this is a false positive.
+  - semver@6.3.1
+  # Required by workbox-build@7.4.1 (through vite-plugin-pwa) as ^3.0.0-pre1. A single-maintainer
+  # fork whose 2.5.0 carried provenance and whose 3.0.0-pre1, published 32 minutes later, carries
+  # none. Not evidence of compromise; excluded so the build tooling installs, and worth a diff of the
+  # two tarballs.
+  - "@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1"

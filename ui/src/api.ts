@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { SETTLED } from './ledger-state'
 import { rememberBalance, rememberProposals } from './vault-status'
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
@@ -1001,6 +1002,50 @@ export async function deleteBeneficiary(id: string): Promise<boolean> {
   }
 }
 
+/** A payroll's lines as the coordinator's proposal carries them, in the screens' shape. */
+function netLines(hp: { lines?: Array<{ label?: string | null; to: string; amount_zat: number; memo?: string | null }> | null }): PayrollLine[] {
+  return (hp.lines ?? []).map((l) => ({
+    label: l.label ?? null,
+    address: l.to,
+    value_zat: l.amount_zat,
+    value_zec: zatToZec(l.amount_zat),
+    memo: l.memo ?? '',
+    is_public: classifyAddress(l.to) !== 'unified',
+  }))
+}
+
+/** Settled payrolls whose lines the local bridge reads one by one, newest first. */
+export const BRIDGE_PAYROLLS_READ = 12
+
+/** The book with its payrolls' lines, for comparing a proposal with what was paid before
+ *  (unusual.ts). On the web the vault's proposals already carry every payroll's lines, so this is
+ *  ONE read. The local bridge serves lines by id only, so there the newest settled payrolls are
+ *  read, up to BRIDGE_PAYROLLS_READ; a payroll past that has no lines here, and the comparison says
+ *  it is partial. null when the book itself could not be read. */
+export async function getBookWithLines(): Promise<{ history: Proposal[]; linesById: Record<string, PayrollLine[]> } | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const ps = await netListProposals(id)
+    if (!ps) return null
+    const linesById: Record<string, PayrollLine[]> = {}
+    for (const hp of ps) if (hp.lines && hp.lines.length > 0) linesById[hp.id] = netLines(hp)
+    return { history: ps.map(mapNetProposal), linesById }
+  }
+  const history = await getLedger()
+  if (!history) return null
+  const linesById: Record<string, PayrollLine[]> = {}
+  const payrolls = history
+    .filter((h) => h.kind === 'payroll' && SETTLED(h.state))
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+    .slice(0, BRIDGE_PAYROLLS_READ)
+  for (const r of payrolls) {
+    const d = await getProposalDetail(r.id)
+    if (d?.lines && d.lines.length > 0) linesById[r.id] = d.lines
+  }
+  return { history, linesById }
+}
+
 /** Proposal detail including payroll lines (empty for a single payment). */
 export async function getProposalDetail(
   id: string,
@@ -1014,15 +1059,7 @@ export async function getProposalDetail(
     const ps = await netListProposals(vid)
     const hp = ps?.find((x) => x.id === id)
     if (!hp) return null
-    const lines: PayrollLine[] = (hp.lines ?? []).map((l) => ({
-      label: l.label ?? null,
-      address: l.to,
-      value_zat: l.amount_zat,
-      value_zec: zatToZec(l.amount_zat),
-      memo: l.memo ?? '',
-      is_public: classifyAddress(l.to) !== 'unified',
-    }))
-    return { proposal: mapNetProposal(hp), lines }
+    return { proposal: mapNetProposal(hp), lines: netLines(hp) }
   }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return null

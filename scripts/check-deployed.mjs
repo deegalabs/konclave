@@ -13,7 +13,15 @@
 // or is not present.
 //
 // Usage:  node scripts/check-deployed.mjs
+//         node scripts/check-deployed.mjs --against-lock --relay-digest=<16 hex>
 // No dependencies. Read-only. Talks to the public endpoints anyone can reach.
+// `--against-lock` (scripts/what-is-running.mjs) asks whether every public host runs the recorded
+// deploy; it needs origin/staging, origin/main and the tags fetched (DEPLOY.md).
+
+if (process.argv.includes("--against-lock")) {
+  const { againstLock } = await import("./against-lock.mjs");
+  process.exit(await againstLock(process.argv));
+}
 
 const HELPER = process.env.KONCLAVE_HELPER ?? "https://konclave-helper-production.up.railway.app";
 const RELAY = process.env.KONCLAVE_RELAY ?? "https://konclave-relay-production.up.railway.app";

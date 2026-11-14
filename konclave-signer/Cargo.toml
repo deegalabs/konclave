@@ -23,7 +23,9 @@ orchard = { version = "0.16.0", default-features = false, features = ["unstable-
 # pczt's `default` includes "orchard"+"sapling" (since 0.9.3), which is inert here: the `signer` feature
 # already implies both. A crate that must stay lean (konclave-wasm) sets default-features = false.
 pczt = { version = "0.10.0", features = ["signer"] }
-zcash_primitives = "0.31.0"
+# `non-standard-fees`: the builder pays the marginal fee the table gives for its target (ZIP 2009), so
+# the fee rule is built from a number, not chosen from the crate's one standard.
+zcash_primitives = { version = "0.31.0", features = ["non-standard-fees"] }
 zcash_protocol = "0.11.0"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly

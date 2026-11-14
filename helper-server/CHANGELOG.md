@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **New vaults have a ceiling in all, and creation pauses when the volume is nearly full.** The coordinator accepts at most 60
+  new vaults an hour from every address together, and pauses new vaults while the volume has less
+  than 5 GiB free; a refused creation is answered to try again later, and existing vaults, payments,
+  reads and devices joining a vault are not affected. The boot log says whether the floor is on.
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -97,6 +101,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Added
 
+- **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
+  optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
+  without it clears that seat's report, and the newest registration of a seat speaks. A malformed
+  value is refused with a 400, and a registration that names no seat writes nothing. The report
+  is not authenticated (whoever may register that seat's keys can set or clear it): a hint about
+  availability, never a guarantee. The builder's permission reads it (a vault is permitted the lower
+  fee only when every seat reported it and the operator's switch is `per-vault`); with the switch at
+  its default, what a payment pays does not change.
+
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
   bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
@@ -106,6 +119,35 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The builder decides its network fee from a permission (#847), and an operator switch pins it.**
+  `konclave-signer build-payroll` reads the wallet's target height before it builds its fee rule, and
+  takes `--zip2009-permitted` and `--zip2009-from <height>`; without them it pays 5,000 per action, as
+  before. One rule (`zip2009_in_force`) says when the permission applies, and both the builder and the
+  coordinator's own check of its transaction read it. The coordinator checks the fee of its own
+  transaction with the reader the devices use and refuses its own build unless it pays exactly the fee
+  the builder's rule gives for that target (1,000 per action once the lower fee was in force for the
+  build's target, 5,000 otherwise). That is a consistency check on the coordinator's own build, not a
+  defence: from block 3,590,000 the devices accept either fee. The proof of funds at creation is
+  always built at 5,000, so a proposal that only fits at a lower fee is not accepted. A ceremony
+  file cannot grant the permission. A vault is permitted
+  only with the switch set to `per-vault` AND every seat `1..=total` having reported the height from
+  which its device accepts the lower fee; the permission then holds from the highest of those reports
+  and the height the fee table starts the era at (a seat cannot report it earlier than the table has
+  it), judged against the coordinator's own block height, never a report. With the switch at its
+  default (unset or `5000`: every vault pays 5,000 per action), nothing pays a different fee from this entry.
+  `KONCLAVE_FEE_MARGINAL_MAX` is the operator's switch: **unset or exactly `5000`**, every vault pays
+  5,000 per action; **exactly `per-vault`**, each vault's own permission decides; **any other value**
+  (empty, `1000`, text), the coordinator refuses to start and says why. It logs one line at boot saying
+  which case is in force. See `deploy/helper/README.md`.
+- **A payment is built the same way as a payroll line.** The coordinator builds a single payment
+  with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
+  line, so the two share one set of rules. Nothing changes in what a payment pays: the same
+  recipient, amount and memo, the same network fee and the same shielded pool for the change. The
+  payee's address and the memo are no longer passed to a helper program on its command line, where
+  another process on the same machine could read them. Build the coordinator and
+  `konclave-signer` from the same release commit, as `deploy/helper/README.md` asks: the signer's fee
+  rule and flags changed with the fee permission (#847), and a coordinator set to `per-vault` passes
+  flags an older signer does not know. Not yet on the hosted coordinator.
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep
@@ -185,6 +227,26 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **The lower fee ZIP 2009 allows is not in use yet (#847).** The coordinator pays 5,000 per action
+  unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
+  maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
+  pays it only when every seat has reported that its device accepts it. A seat's report is
+  self-declared and is not authenticated against the members: whoever may register a seat's keys
+  (anyone holding the vault id, on a vault with no read key) can change that seat's report. And two devices of one seat share one registration, so the newest
+  one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
+  device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
+  (the payment does not go out at that fee), never funds: the device's own fee check stays the
+  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
+- **A paused creation reads as "busy" in the app.** When new vaults are paused, the app says the
+  coordinator is busy and to try again in a moment; the hourly ceiling is a fixed one-hour window that
+  starts at the first attempt to create a new vault after the previous window ended, admitted or not;
+  a refused attempt is not queued and does not count toward the 60. So once 60 are admitted creation
+  waits until that window ends, which is up to an hour when the 60 arrive early in it, and the next
+  window can fill the same way. Below the free-space floor creation waits until space is freed on the
+  volume; if the free space cannot be read, it waits until it can be. With `KONCLAVE_VAULTS_DIR` unset
+  there is no floor at all (the vaults are still written, to `./helper-vaults`), and the boot line says so.
+  The coordinator's log says when it pauses and when it resumes; it logs the resume when a creation
+  is next admitted.
 - **A creation with an older app that is still in progress when the coordinator is updated cannot
   finish.** A member whose device had not yet finished registering such a vault is refused
   (`update_required`) and its record stays pending, even if another member's device already

@@ -30,6 +30,7 @@ pub mod store;
 pub mod ceremony;
 pub mod dkg;
 pub mod epoch;
+pub mod fee;
 pub mod helper;
 pub mod pczt;
 pub mod send;

@@ -1120,6 +1120,17 @@ export function extractRandomizers(pczt, group_vk) {
 }
 
 /**
+ * The height from which this build accepts the lower marginal fee (ZIP 2009), read from the era
+ * table in `konclave_seal::epochs`; `undefined` when no era of the table does. What the device
+ * reports to its vault's coordinator as `fee_from`: never a number typed in the app.
+ * @returns {number | undefined}
+ */
+export function feeFrom() {
+    const ret = wasm.feeFrom();
+    return ret === Number.MAX_SAFE_INTEGER ? undefined : ret;
+}
+
+/**
  * The 32-byte group verifying key of a saved `PublicKeyPackage` (the key the device signs
  * under), for confirming the key on record before it is used to read a transaction.
  * @param {Uint8Array} pubkeys

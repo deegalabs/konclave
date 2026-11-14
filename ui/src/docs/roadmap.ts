@@ -102,11 +102,11 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova: a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; um defeito do coordenador achado em revisão, que a versão de 04/10/2026 estreitou mas não fechou; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
+        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada (#605). Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
       en:
-        'Before anything new: approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; a coordinator defect found in review, which the 2026-10-04 release narrowed but did not close; and nothing yet lets a member check that the app our server sends is a published release.',
+        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and nothing yet lets a member check that the app our server sends is a published release (#605). This step and step 1 can move at the same time.',
     },
-    refs: [issue(567), issue(577), issue(575), issue(605)],
+    refs: [issue(575), issue(577), issue(567), issue(605)],
   },
   {
     id: 'measure-design-review',

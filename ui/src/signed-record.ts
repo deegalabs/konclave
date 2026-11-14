@@ -13,16 +13,23 @@
 // not keep the branch while its engine builds the later one, so there an absent branch is UNKNOWN.
 // A NEW entry always carries a branch: `recordSigned` refuses to write one without.
 //
-// A hash, not the sighash: the sighash gives the txid, and the device's storage need not say which
-// transactions it signed. The record lives in the browser's own storage so it outlives a reload,
-// which a record in memory did not.
+// A hash of the sighash, not the sighash. It is NOT a privacy boundary: the hash is unsalted and sits
+// beside the expiry, so whoever reads this storage can hash the public txids of each expiry window and
+// find which transactions this device signed (the txid is the sighash byte-reversed). It is kept as a
+// hash because the device only needs to compare. The same holds for `o`, an unsalted hash of what a
+// payment paid (receivers, amounts, memos): it is a local record, readable by whoever reads this
+// storage. A keyed record is a separate item. The record lives in
+// the browser's own storage so it outlives a reload, which a record in memory did not.
 import { approvalDecision } from './wasm-pkg/konclave_wasm.js'
 
 export interface RecordStore {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
 }
-export interface SignedTx { h: string; e: number; b?: number }
+// `o`: a key of what the transaction pays (its paying outputs, as the gate matched them), and `t` when
+// it was recorded (ms). Until approvals are bound to content (#567) the record is keyed by a proposal
+// id the coordinator chooses; `o` lets the device recognise the same payment under a new id.
+export interface SignedTx { h: string; e: number; b?: number; o?: string; t?: number }
 export type Decision =
   | { kind: 'first' }
   | { kind: 'same' }
@@ -47,6 +54,16 @@ export async function hashSighash(sighashHex: string): Promise<string> {
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/** Whether `txid` is one of the transactions whose sighash hashes are `hashes`. For a transaction
+ *  with no transparent input the txid is the sighash byte-reversed (ZIP 244: the signature digest is
+ *  the txid digest; konclave-wasm `read_for_signing_with`). A txid that is not 64 hex digits is not ours. */
+export async function txidIsOurs(txid: string, hashes: string[]): Promise<boolean> {
+  const t = txid.trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(t)) return false
+  const sighash = t.match(/../g)!.reverse().join('')
+  return hashes.includes(await hashSighash(sighash))
+}
+
 function readAll(store: RecordStore, vault: string): Record<string, SignedTx[]> {
   // A record that cannot be read throws: not knowing what this device signed must never read as
   // having signed nothing.
@@ -60,15 +77,32 @@ function readAll(store: RecordStore, vault: string): Record<string, SignedTx[]> 
 /** The transactions this device signed for `proposal` on `vault`. Throws when the record cannot be read. */
 export function readSigned(store: RecordStore, vault: string, proposal: string): SignedTx[] {
   const list = readAll(store, vault)[proposal] ?? []
-  if (!Array.isArray(list) || list.some((t) => typeof t?.h !== 'string' || !Number.isInteger(t?.e) || (t?.b !== undefined && !Number.isInteger(t?.b)))) {
-    throw new Error('signed record: unreadable')
-  }
+  if (!Array.isArray(list) || list.some(malformed)) throw new Error('signed record: unreadable')
   return list
+}
+
+function malformed(t: SignedTx): boolean {
+  return typeof t?.h !== 'string' || !Number.isInteger(t?.e) || (t?.b !== undefined && !Number.isInteger(t?.b))
+    || (t?.o !== undefined && typeof t.o !== 'string') || (t?.t !== undefined && !Number.isInteger(t.t))
+}
+
+/** Every transaction this device signed on `vault`, under any proposal, that paid what `outputs` names
+ *  and was recorded at or after `since` (ms). Throws when the record cannot be read. */
+export function readByOutputs(store: RecordStore, vault: string, outputs: string, since: number): SignedTx[] {
+  const all = readAll(store, vault)
+  const out: SignedTx[] = []
+  for (const list of Object.values(all)) {
+    if (!Array.isArray(list) || list.some(malformed)) throw new Error('signed record: unreadable')
+    // An entry with a payment key and no time is not one this code writes (it writes both): it counts
+    // as recent, so a damaged record asks rather than letting a payment through as a first signature.
+    for (const t of list) if (t.o === outputs && (t.t ?? Number.POSITIVE_INFINITY) >= since) out.push(t)
+  }
+  return out
 }
 
 /** Record that this device's share went into the transaction `sighashHex`, expiring at `expiry` under
  *  consensus branch `branch`: both read by this device from the header it checked. */
-export async function recordSigned(store: RecordStore, vault: string, proposal: string, sighashHex: string, expiry: number, branch: number): Promise<void> {
+export async function recordSigned(store: RecordStore, vault: string, proposal: string, sighashHex: string, expiry: number, branch: number, paid?: { o: string; t: number }): Promise<void> {
   // A branch that is missing or not a whole positive u32 would write nothing (JSON drops undefined),
   // and the entry would then read as NU6.3 for good: a later upgrade's transaction counted as dead
   // too early. Fail closed, before any share leaves (the machine records first).
@@ -77,13 +111,17 @@ export async function recordSigned(store: RecordStore, vault: string, proposal: 
   const all = readAll(store, vault)
   const list = readSigned(store, vault, proposal)
   if (list.some((t) => t.h === h)) return
-  all[proposal] = [...list, { h, e: expiry, b: branch }]
+  all[proposal] = [...list, paid ? { h, e: expiry, b: branch, o: paid.o, t: paid.t } : { h, e: expiry, b: branch }]
   store.setItem(key(vault), JSON.stringify(all))
 }
 
 /** What the transaction `sighashHex` is for this approval, by the rule in WASM and this device's clock. */
 export async function decideFor(store: RecordStore, vault: string, proposal: string, sighashHex: string): Promise<Decision> {
-  const list = readSigned(store, vault, proposal)
+  return decideAmong(readSigned(store, vault, proposal), sighashHex)
+}
+
+/** What the transaction `sighashHex` is against `list`, by the rule in WASM. */
+export async function decideAmong(list: SignedTx[], sighashHex: string): Promise<Decision> {
   // `h:e:b`; an entry with no branch goes as `h:e`, which WASM reads as NU6.3.
   const signed = list.map((t) => (t.b === undefined ? `${t.h}:${t.e}` : `${t.h}:${t.e}:${t.b}`)).join(',')
   return JSON.parse(approvalDecision(signed, await hashSighash(sighashHex))) as Decision
