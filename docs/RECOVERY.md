@@ -327,7 +327,7 @@ the vault id. The members see an EMPTY vault, not an error: no balance and no pr
 - **Restore the file from the ops backup (D)**, which includes it. Check it first, on your own
   machine. A vault registered before creation protocol 3 holds a string; a newer one holds an object,
   `{"v":1,"state":"closed"}` or `{"v":1,"state":"pinned","read_key_sha256":"<64 hex>"}`. This check
-  accepts either form, and the backup's own copy is the right form for its vault:
+  accepts either form:
 
   ```sh
   { test "$(head -c1 read-key.json)" = '"' || test "$(head -c1 read-key.json)" = '{'; } &&
@@ -336,7 +336,16 @@ the vault id. The members see an EMPTY vault, not an error: no balance and no pr
       and (.read_key_sha256 | type == "string" and test("^[0-9a-f]{64}$"))))) end)' read-key.json
   ```
 
-  A plain `jq .` passes an empty string, `null` and a blank
+  Then check that the form matches the vault's creation protocol, from the `registration.json` in the
+  same directory (a string on a newer vault, or an object on an older one, is read as unreadable):
+
+  ```sh
+  jq -e -n --slurpfile r registration.json --slurpfile k read-key.json \
+    '(($r[0].cp // 0) >= 3) == ($k[0] | type == "object")'
+  ```
+
+  The coordinator writes the version as `1`; a hand-edited `1.0` passes these checks and is still
+  refused. A plain `jq .` passes an empty string, `null` and a blank
   one, and a bare `jq -e` passes a file with a byte-order mark, two strings, or `null` followed by a
   string, which the coordinator refuses. Put it in place with `mv -T`, as in F.
 - **Without a backup there is no clean way out.** Do not remove the file: a vault registered before
