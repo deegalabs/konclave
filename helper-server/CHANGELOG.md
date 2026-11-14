@@ -49,6 +49,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   Before this change the coordinator limited new vaults for each address (5 an hour) and had no
   limit in total, so many addresses together could keep creating vaults until its volume was full.
   That put the service at risk for every vault; no funds and no vault's books were exposed by it.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -112,6 +113,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   availability, never a guarantee. The builder's permission reads it (a vault is permitted the lower
   fee only when every seat reported it and the operator's switch is `per-vault`); with the switch at
   its default, what a payment pays does not change.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
@@ -142,6 +144,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   5,000 per action; **exactly `per-vault`**, each vault's own permission decides; **any other value**
   (empty, `1000`, text), the coordinator refuses to start and says why. It logs one line at boot saying
   which case is in force. See `deploy/helper/README.md`.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **A payment is built the same way as a payroll line.** The coordinator builds a single payment
   with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
   line, so the two share one set of rules. Nothing changes in what a payment pays: the same
@@ -151,6 +154,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   `konclave-signer` from the same release commit, as `deploy/helper/README.md` asks: the signer's fee
   rule and flags changed with the fee permission (#847), and a coordinator set to `per-vault` passes
   flags an older signer does not know. Not yet on the hosted coordinator.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep
