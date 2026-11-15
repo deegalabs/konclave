@@ -1010,6 +1010,7 @@ export const en: Record<string, string> = {
   'signing.title': 'Sign this payment',
   'signing.presence': 'Signers present',
   'signing.opening': 'Opening a secure session in your vault…',
+  'signing.elsewhere': 'This vault is open for signing in another tab or window of this browser. Close it there to sign here.',
   'signing.connecting': 'Connecting to the signing room…',
   'signing.loadingUnlock': 'Opening your share…',
   'signing.waiting': 'Waiting for the other signers to open this payment on their device.',

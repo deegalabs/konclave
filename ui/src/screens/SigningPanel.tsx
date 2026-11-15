@@ -538,7 +538,7 @@ export default function SigningPanel() {
 
   const stageNote = connecting ? (unlocking ? t('signing.loadingUnlock') : t('signing.connecting'))
     : started || !!result || armed || !hasShare || !plan || errMsg ? ''
-    : !bg.ready ? t('signing.opening')
+    : !bg.ready ? t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')
     : !quorumHere ? t('signing.waiting')
     : t('signing.readyToSend')
 
@@ -953,7 +953,7 @@ export default function SigningPanel() {
               </button>
             </div>
           ) : !bg.ready ? (
-            <div className="confirm">{t('signing.opening')}</div>
+            <div className="confirm">{t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')}</div>
           ) : !quorumHere ? (
             <>
               <div className="confirm">{t('signing.waiting')}</div>

@@ -1006,6 +1006,7 @@ export const ptBR: Record<string, string> = {
   'signing.title': 'Assinar este pagamento',
   'signing.presence': 'Signatários presentes',
   'signing.opening': 'Abrindo uma sessão segura no seu cofre…',
+  'signing.elsewhere': 'Este cofre está aberto para assinar em outra aba ou janela deste navegador. Feche lá para assinar aqui.',
   'signing.connecting': 'Conectando à sala de assinatura…',
   'signing.loadingUnlock': 'Abrindo sua parte…',
   'signing.waiting': 'Aguardando os outros signatários abrirem este pagamento no aparelho deles.',
