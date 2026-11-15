@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { codeOf } from './source-scan'
+import { en } from './i18n/en'
+import { ptBR } from './i18n/pt-BR'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import { deriveRoom, pinIsLongEnough, MIN_PIN_LENGTH } from './net'
@@ -131,6 +133,11 @@ describe('room PIN minimum', () => {
       expect(src).not.toMatch(/4 to 6|4 a 6/)
       expect(src).not.toMatch(/\b4\b[^'`]{0,12}(digits|dígitos)/)
       expect(src).not.toMatch(/Math\.max\(4,/)
+    }
+    // /net's words live in the dictionary since #318: they are held to the same rule.
+    for (const v of [...Object.values(en), ...Object.values(ptBR)]) {
+      expect(v).not.toMatch(/4 to 6|4 a 6/)
+      expect(v).not.toMatch(/\b4\b.{0,12}(digits|dígitos)/)
     }
   })
 
