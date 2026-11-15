@@ -46,6 +46,9 @@ jobs:
           # tags. The default checkout carries at most the tag being released, which says nothing
           # about the versions before it (#573).
           fetch-depth: 0
+          # The tag on a manual run too, not the branch it starts from: the installers and the web
+          # manifest must be built from one commit (#605 review).
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -130,6 +133,7 @@ jobs:
           # Written by web-manifest-cli.mjs in the web job; data, through env, never interpolated.
           WEB_NOTES: ${{ needs.web.outputs.notes }}
         run: |
+          test -n "$WEB_NOTES" || { echo "the web job gave no notes line"; exit 1; }
           git-cliff --version
           {
             echo 'body<<KONCLAVE_EOF'
@@ -222,7 +226,7 @@ jobs:
   # can compare the live site with it (scripts/verify-web.mjs) or rebuild the commit and compare.
   # Vercel deploys the web from `main` by itself; this job rebuilds the same commit with the same two
   # variables, which gives the same bytes (measured on v0.21.0, 73 of 73 files, once the app stopped
-  # inlining the env object). It builds twice from clean and fails if the two differ, so a build that
+  # inlining the env object). It builds twice and fails if the two differ, so a build that
   # stopped being deterministic shows here, not as a verify-web failure on members' machines.
   web:
     runs-on: ubuntu-22.04
@@ -285,8 +289,11 @@ jobs:
           node scripts/web-manifest-cli.mjs write "$RUNNER_TEMP/dist-first" "$commit" "$RUNNER_TEMP/first.json" > /dev/null
           fp=$(node scripts/web-manifest-cli.mjs write ui/dist "$commit" web-manifest.json)
           cmp "$RUNNER_TEMP/first.json" web-manifest.json || { echo "two builds of $commit differ:"; diff "$RUNNER_TEMP/first.json" web-manifest.json || true; exit 1; }
+          # Its own line, so a failure stops the step (inside "$(...)" in an echo, set -e does not see it).
+          notes=$(node scripts/web-manifest-cli.mjs notes web-manifest.json)
+          test -n "$notes"
           echo "fingerprint=$fp" >> "$GITHUB_OUTPUT"
-          echo "notes=$(node scripts/web-manifest-cli.mjs notes web-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
           echo "web-manifest.json $fp"
 
       # Who built it: a signed statement that this workflow, at this commit, produced these bytes.
@@ -301,3 +308,5 @@ jobs:
           name: web-manifest
           path: web-manifest.json
           if-no-files-found: error
+          # A re-run of this job replaces its own artifact instead of failing on the name.
+          overwrite: true

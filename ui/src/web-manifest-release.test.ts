@@ -9,7 +9,7 @@ const wf = readFileSync(new URL('../../.github/workflows/desktop-release.yml', i
 const job = (name: string) => {
   const m = new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`).exec(wf)
   expect(m, name).not.toBeNull()
-  return m![1].split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+  return m![1]!.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
 }
 
 describe('the web manifest in the release workflow (#605)', () => {
@@ -17,6 +17,10 @@ describe('the web manifest in the release workflow (#605)', () => {
     expect(wf).toMatch(/^env:\n  VITE_HELPER_BASE: \S+\n  VITE_RELAY_BASE: \S+$/m)
     expect(job('build')).not.toMatch(/VITE_HELPER_BASE:/)
     expect(job('web')).not.toMatch(/VITE_[A-Z_]+:/)
+  })
+
+  it('builds the installers from the tag too, on a manual run', () => {
+    expect(job('build')).toMatch(/ref: \$\{\{ inputs\.tag \|\| github\.ref \}\}/)
   })
 
   it('checks out the tag and refuses a tag that is not the app version', () => {
@@ -47,6 +51,10 @@ describe('the web manifest in the release workflow (#605)', () => {
     expect(b).toMatch(/needs: web/)
     expect(b).toMatch(/WEB_NOTES: \$\{\{ needs\.web\.outputs\.notes \}\}/)
     expect(b).toMatch(/echo "\$WEB_NOTES"/)
+    expect(b).toMatch(/test -n "\$WEB_NOTES" \|\|/)
+    // The notes are computed on their own line, where a failure stops the step.
+    expect(job('web')).toMatch(/\n\s+notes=\$\(node scripts\/web-manifest-cli\.mjs notes web-manifest\.json\)\n\s+test -n "\$notes"/)
+    expect(job('web')).not.toMatch(/echo "notes=\$\(/)
     for (const run of b.split(/\n\s+run: \|/).slice(1)) expect(run.split(/\n\s+- /)[0]).not.toMatch(/\$\{\{/)
   })
 
