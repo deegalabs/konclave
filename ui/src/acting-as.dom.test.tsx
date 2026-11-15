@@ -25,6 +25,12 @@ vi.mock('./api', async (orig) => ({
   getLedger: async () => [],
   createProposal: vi.fn(),
 }))
+const unlock = vi.hoisted(() => ({ calls: [] as unknown[][], result: { ok: true } as { ok: boolean; wrong?: boolean } }))
+vi.mock('./unlock', async (orig) => ({
+  ...(await orig<typeof import('./unlock')>()),
+  // The one way the app opens a share with the passphrase; opening it is what lets `actingAs` answer.
+  unlockOnDevice: async (...a: unknown[]) => { unlock.calls.push(a); if (unlock.result.ok) ctl.acting = { ok: true, seat: 2, name: 'Bia' }; return unlock.result },
+}))
 vi.mock('./fee-estimate', async (orig) => ({
   ...(await orig<typeof import('./fee-estimate')>()),
   useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
@@ -109,5 +115,42 @@ describe('the payroll screen proposes as the seat (#591)', () => {
     ctl.vault = { roster_differs: true, own_members: ['Ana', 'Beatriz'] }
     render(shell(<NewPayroll />))
     expect(await screen.findByText(en('members.rosterDiffers'))).toBeTruthy()
+  })
+})
+
+describe('a locked device unlocks right on the proposing screen (#591)', () => {
+  afterEach(() => { cleanup(); ctl.vault = {}; ctl.acting = { ok: true, seat: 2, name: 'Bia' }; unlock.calls.length = 0; unlock.result = { ok: true } })
+
+  it('typing the passphrase opens the share through the app\'s unlock, and the proposer resolves at once', async () => {
+    ctl.acting = { ok: false, why: 'locked' }
+    render(shell(<NewPayment />))
+    await fillPayment()
+    fireEvent.change(await screen.findByLabelText(en('payment.actingPassLabel')), { target: { value: 'the word' } })
+    fireEvent.click(screen.getByRole('button', { name: en('lock.unlock') }))
+    expect((await screen.findAllByText('Bia')).length).toBeGreaterThan(0)
+    expect(unlock.calls).toEqual([['v', 'net', 'the word']])
+    expect(screen.queryByText(en('payment.actingLocked'))).toBeNull()
+    expect(propose().disabled).toBe(false)
+  })
+
+  it('a wrong passphrase says so and stays locked', async () => {
+    ctl.acting = { ok: false, why: 'locked' }
+    unlock.result = { ok: false, wrong: true }
+    render(shell(<NewPayment />))
+    fireEvent.change(await screen.findByLabelText(en('payment.actingPassLabel')), { target: { value: 'nope' } })
+    fireEvent.click(screen.getByRole('button', { name: en('lock.unlock') }))
+    expect(await screen.findByText(en('vaults.unlockWrong'))).toBeTruthy()
+    expect(screen.getByText(en('payment.actingLocked'))).toBeTruthy()
+  })
+
+  it('the payroll screen offers it too, and offers it for no other reason', async () => {
+    ctl.acting = { ok: false, why: 'list-unread' }
+    const first = render(shell(<NewPayroll />))
+    await screen.findByText(en('payment.actingListUnread'))
+    expect(screen.queryByLabelText(en('payment.actingPassLabel'))).toBeNull()
+    first.unmount()
+    ctl.acting = { ok: false, why: 'locked' }
+    render(shell(<NewPayroll />))
+    expect(await screen.findByLabelText(en('payment.actingPassLabel'))).toBeTruthy()
   })
 })

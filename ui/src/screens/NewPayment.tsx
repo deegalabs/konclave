@@ -51,7 +51,7 @@ export default function NewPayment() {
   // user (the real name replaces this as soon as getVault resolves).
   const [vaultName, setVaultName] = useState('…')
   const [vaultRef, setVaultRef] = useState<{ id: string; roster_differs?: boolean; own_members?: string[] } | null>(null)
-  const { acting, name: proposer, differs: rosterDiffers } = useProposer(vaultRef)
+  const { acting, name: proposer, differs: rosterDiffers, refresh: askProposer } = useProposer(vaultRef)
   const [toName, setToName] = useState<string | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
@@ -232,7 +232,7 @@ export default function NewPayment() {
           <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
         )}
       </div>
-      <ProposerNotice acting={acting} differs={rosterDiffers} />
+      <ProposerNotice acting={acting} differs={rosterDiffers} vaultId={vaultRef?.id ?? null} onUnlocked={askProposer} />
 
       <div className="pay-cols">
         {/* LEFT: the form you fill in. */}

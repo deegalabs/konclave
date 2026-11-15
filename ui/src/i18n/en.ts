@@ -799,6 +799,7 @@ export const en: Record<string, string> = {
   'payment.actingLocked': "Unlock this vault on this device to propose: your seat decides who the proposal is made as.",
   'payment.actingListUnread': "The member list could not be read from the coordinator, so this device cannot tell who it proposes as. Try again in a moment.",
   'payment.actingNoSeatName': "The coordinator has no name for the seat this device holds, so a proposal cannot be made as you. Tell whoever runs your coordinator.",
+  'payment.actingPassLabel': "Vault word",
   'payment.personFromRegistry': 'Person (from registry)',
   'payment.chooseByName': 'choose by name, or type the address below',
   'people.manage': 'Manage payees',

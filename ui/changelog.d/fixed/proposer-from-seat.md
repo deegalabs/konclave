@@ -12,9 +12,3 @@
   names its seat differently from the coordinator's, the screen shows the same warning the members
   page does, without blocking. Voting and renaming still read the device's saved name, and are the
   next change.
-- **Changed: on a vault without signed actions, a device must unlock the vault before it proposes,
-  and unlocking registers its key (#591).** A device that proposed there without unlocking used to be
-  accepted, under the first member's name. Now the screen asks for the unlock first, because the seat
-  is known only from the unlocked share; the unlock registers the device's key, and from the first
-  device that does, the vault begins to refuse writes from anyone without a seat. A device opened
-  only with a passkey reads the vault but must type the passphrase to propose.

@@ -462,9 +462,6 @@ export async function writeProof(
   vaultId: string,
   action: 'approve' | 'refuse' | 'rename' | 'propose' | 'send',
   target: string,
-  /** The seat the caller named `target` for (`actingAs`). A proof for any other seat is not made:
-   *  the name and the signature must come from the same seat (#591). */
-  seat?: number,
 ): Promise<WriteProof | undefined> {
   const share = getUnlockedShare(vaultId)
   if (!share) return undefined
@@ -476,7 +473,6 @@ export async function writeProof(
     // had none.
     await ensureWasm()
     const b = decodeBundle(share)
-    if (seat !== undefined && b.seat !== seat) return undefined
     return signGovernanceWrite(b.keyPackage, vaultId, action, target, b.seat)
   } catch (e) {
     // Still non-fatal - an unsigned write is refused by a migrated vault and accepted by an open
@@ -525,6 +521,18 @@ export async function actingAs(vaultId: string): Promise<ActingAs> {
   return name ? { ok: true, seat, name } : { ok: false, why: 'no-seat-name' }
 }
 
+/** The proof for a proposal under `who`'s name, or `null` when the device now holds another seat than
+ *  the one the name was read for (the share changed between the two reads). Then nothing is sent: an
+ *  unsigned proposal is accepted by a vault without signed actions, under a name this seat does not
+ *  hold. `undefined` is "could not sign" as ever (`writeProof`), which is not this case. */
+async function proposeProof(vaultId: string, who: { seat: number; name: string }): Promise<{ proof: WriteProof | undefined } | null> {
+  const share = getUnlockedShare(vaultId)
+  let held: number | undefined
+  try { held = share ? decodeBundle(share).seat : undefined } catch { held = undefined }
+  if (held !== who.seat) return null
+  return { proof: await writeProof(vaultId, 'propose', who.name) }
+}
+
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
   if (NET) {
     const id = getSelectedVault()
@@ -535,6 +543,8 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     // what it showed (#591).
     const who = await actingAs(id)
     if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
+    const signed = await proposeProof(id, who)
+    if (!signed) return { ok: false, error: 'proposer unresolved', detail: 'locked' }
     const p = await netCreateProposal({
       vault: id,
       proposer: who.name,
@@ -542,7 +552,7 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
       amountZat: zat,
       memo: input.memo,
       // Bound to the proposer's name, which the helper checks against the signing seat (#288).
-      proof: await writeProof(id, 'propose', who.name, who.seat),
+      proof: signed.proof,
     })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // EVERY failure used to be reported as `invalid address`, whatever went wrong: a locked device
@@ -903,7 +913,9 @@ export async function createPayroll(
     }
     const who = await actingAs(id)
     if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
-    const p = await netCreatePayroll({ vault: id, proposer: who.name, lines: mapped, title: description, proof: await writeProof(id, 'propose', who.name, who.seat) })
+    const signed = await proposeProof(id, who)
+    if (!signed) return { ok: false, error: 'proposer unresolved', detail: 'locked' }
+    const p = await netCreatePayroll({ vault: id, proposer: who.name, lines: mapped, title: description, proof: signed.proof })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.

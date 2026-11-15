@@ -226,7 +226,7 @@ export default function NewPayroll() {
   // Neutral placeholder while the real vault name loads (never a fake name).
   const [vaultName, setVaultName] = useState('…')
   const [vaultRef, setVaultRef] = useState<{ id: string; roster_differs?: boolean; own_members?: string[] } | null>(null)
-  const { acting, name: proposer, differs: rosterDiffers } = useProposer(vaultRef)
+  const { acting, name: proposer, differs: rosterDiffers, refresh: askProposer } = useProposer(vaultRef)
   const [loaded, setLoaded] = useState(false)
 
   // The draft belongs to the vault this screen opened in; with none selected nothing is kept.
@@ -429,7 +429,7 @@ export default function NewPayroll() {
             <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
           )}
         </div>
-        <ProposerNotice acting={acting} differs={rosterDiffers} />
+        <ProposerNotice acting={acting} differs={rosterDiffers} vaultId={vaultRef?.id ?? null} onUnlocked={askProposer} />
 
         {/* A payroll is a DOCUMENT, so it is laid out as one: full width for the lines, and the
             totals at the foot where a document's totals belong. The side rail this replaces was

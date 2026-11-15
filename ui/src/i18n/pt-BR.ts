@@ -795,6 +795,7 @@ export const ptBR: Record<string, string> = {
   'payment.actingLocked': "Desbloqueie este cofre neste aparelho para propor: o seu assento decide em nome de quem a proposta é feita.",
   'payment.actingListUnread': "A lista de membros não pôde ser lida no coordenador, então este aparelho não sabe em nome de quem propõe. Tente de novo em instantes.",
   'payment.actingNoSeatName': "O coordenador não tem nome para o assento que este aparelho tem, então não dá para propor como você. Avise quem opera o seu coordenador.",
+  'payment.actingPassLabel': "Palavra do cofre",
   'payment.personFromRegistry': 'Pessoa (do cadastro)',
   'payment.chooseByName': 'escolher pelo nome, ou digite o endereço abaixo',
   'people.manage': 'Gerenciar destinatários',
