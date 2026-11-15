@@ -4,7 +4,7 @@ import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { proposalsReadable, type HostedState, type NetPhase } from '../net-proposals'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault, getSelectedVault } from '../api'
+import { setSelectedVault, getSelectedVault, shortAddr } from '../api'
 import CopyButton from '../CopyButton'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import {
@@ -1449,7 +1449,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <code style={{ flex: '1 1 100%', wordBreak: 'break-all', fontSize: '0.8em' }}>{v.id}</code>
+                <code style={{ flex: '1 1 100%', fontSize: '0.8em' }}>{shortAddr(v.id, 6, 4)}</code>
                 <input
                   className="net-input"
                   type="password"
@@ -1481,7 +1481,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
-        <div className="net-vk">{groupVk}</div>
+        <div className="net-vk">{fp ?? '…'}</div>
         {restoredRoster.length > 0 && (
           <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
         )}
@@ -1829,7 +1829,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       {phase === 'done' && (
         <div className="net-done">
           <p className="net-lead">{ttr('net.done.lead')}</p>
-          <div className="net-vk">{groupVk}</div>
+          <div className="net-vk">{fp ?? '…'}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
 
           {finished && hostedState === 'registered' && (
@@ -1956,7 +1956,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               'Vault restored on this device. Rejoining with the other members to sign; no DKG runs again.',
             )}
           </p>
-          <div className="net-vk">{groupVk}</div>
+          <div className="net-vk">{fp ?? '…'}</div>
           <p className="net-tip">{pe('Código da sessão (compartilhe com os membros)', 'Session code (share with the members)')}:</p>
           <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
           <p className="net-tip" style={{ marginTop: 12 }}>{pe('Membros na sessão', 'Members in session')}: {signSeatCount} / {quorum}</p>
