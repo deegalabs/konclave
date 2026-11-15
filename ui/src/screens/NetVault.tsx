@@ -57,6 +57,7 @@ import '../net.css'
 import { CREATION_PROTOCOL, creationVerdict } from '../creation-protocol'
 import { CREATE_DEVICE_CAP, noMarginWarning } from '../create-rule'
 import { WALLET_BUSY } from '../helper'
+import { HostNotice } from '../HostNotice'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
@@ -153,6 +154,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
     return (
       <div className="rd net-embedded">
         <span id="create-title" className="sr-only">{t('vaults.createDialogTitle')}</span>
+        <HostNotice />
         {error && <div className="net-error" role="alert">{error}</div>}
         {children}
       </div>
@@ -170,6 +172,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
         <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
         <p className="demo-note">{t('net.frame.note')}</p>
       </div>
+      <HostNotice />
       {error && <div className="net-error" role="alert">{error}</div>}
       {children}
     </div>

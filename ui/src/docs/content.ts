@@ -863,6 +863,14 @@ export const SECTIONS: Section[] = [
           en: 'It is a shortcut you turn on in **Settings**, under **Access on this device**, with **Create a passkey**, so this device opens the vault’s books the way you unlock the device itself. It only lets you read: approving and sending always ask for your passphrase. It works only on the device where you created it and does not travel in a backup, so set it up again after restoring on a new device.',
         },
       },
+      { k: 'h', t: { 'pt-BR': 'Como sei que estou no Konclave de verdade?', en: 'How do I know I am on the real Konclave?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O Konclave só fica em **www.konclave.xyz**. Confira o endereço na barra do navegador antes de abrir um convite, digitar a frase-senha ou importar um backup: uma cópia do app em outro endereço parece igual e pode guardar o seu assento. Nas telas de criar e de entrar num cofre, o app mostra o endereço em que você está, e avisa quando não é o oficial. Todo convite que o Konclave cria aponta para www.konclave.xyz, de onde quer que tenha sido criado; se um convite abrir em outro endereço, não continue e avise quem o enviou.',
+          en: 'Konclave only lives at **www.konclave.xyz**. Check the address in your browser’s bar before you open an invite, type your passphrase or import a backup: a copy of the app at another address looks the same and can hold your seat. On the create and join screens the app shows the address you are on, and warns you when it is not the official one. Every invite Konclave makes points to www.konclave.xyz, wherever it was made; if an invite opens at another address, do not go on and tell whoever sent it.',
+        },
+      },
       { k: 'h', t: { 'pt-BR': 'O Konclave é auditado? O que ainda não está pronto?', en: 'Is Konclave audited? What is not done yet?' } },
       {
         k: 'p',

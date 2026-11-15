@@ -265,13 +265,13 @@ export function joinParam(hash: string): string | null {
   return m ? safeDecode(m[1]!) : null
 }
 
-/** Where an invite link points: this web app, or the public one when this is the desktop shell
- *  (whose own origin means nothing on another device). */
+/** Where an invite link points: always the real app, whatever host this copy runs on. A copy on a
+ *  lookalike or preview host would otherwise send the joiner to itself, and a joiner who opens it
+ *  there seals the seat's share in that host's storage. One rule, no exception for localhost: a
+ *  developer testing two tabs pastes the code, which the join field accepts as it does a link. */
 const PUBLIC_APP = 'https://www.konclave.xyz/'
 function inviteBase(): string {
-  return /^https?:$/.test(location.protocol) && !/tauri/.test(location.hostname)
-    ? `${location.origin}${location.pathname}`
-    : PUBLIC_APP
+  return PUBLIC_APP
 }
 
 /** Group an invite for reading: 4-4-4-… */
