@@ -198,7 +198,7 @@ describe('the PIN fields: errors and the own PIN', () => {
     const note = () => Array.from(document.querySelectorAll('[role="status"].sr-only'))[0]!
     expect(note().textContent).toBe('')
     expect(document.body.textContent).not.toMatch(/1234 5678 9012 3/)
-    fireEvent.click(screen.getByRole('button', { name: /show/i }))
+    fireEvent.click(screen.getByRole('button', { name: /show\s*the room PIN/i }))
     expect(document.querySelector('.cv-pin-value [aria-hidden]')!.textContent).toBe('1234 5678 9012 3')
     expect(note().textContent).toBe('Room PIN: 1 2 3 4, 5 6 7 8, 9 0 1 2, 3')
     expect(document.querySelector('.cv-status')!.textContent).toBe('')
