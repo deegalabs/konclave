@@ -1728,6 +1728,8 @@ export const en: Record<string, string> = {
   'net.save.eyebrow': 'SAVE YOUR PART',
   'net.save.title': 'Your part of the key is ready',
   'net.save.lead': 'Protect it on this device with a passphrase. The vault’s address appears once every member has saved theirs; until then there is nowhere to deposit.',
+  'net.save.passConfirm': 'Type the passphrase again',
+  'net.save.passMismatch': 'The two passphrases do not match yet.',
   'net.save.passLabel': 'Passphrase (at least 12 characters)',
   'net.save.keyMissing': 'The access key has not arrived. Ask the creator to check their connection, or start again.',
   'net.save.waitingKey': 'Waiting for the access key from the creator…',
