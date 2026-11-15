@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
-import { classify, weakenings, withAbsurdAge, withoutTrustExcludes } from '../../scripts/check-lockfile-policy.mjs'
+import { classify, handoffs, weakenings, withAbsurdAge, withoutTrustExcludes } from '../../scripts/check-lockfile-policy.mjs'
 
 // The CI check of the lockfile against the supply-chain settings (#820) runs pnpm 12 and reads its
 // answer. These pin how it reads that answer, so that red means "refused", a registry outage is never
@@ -11,7 +11,10 @@ const workspace = readFileSync(fileURLToPath(new URL('../../pnpm-workspace.yaml'
 
 describe('reading what pnpm answered', () => {
   it('passes only on a clean exit that says the lockfile passes', () => {
-    expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries in 4.4s)')).toEqual({ outcome: 'passes' })
+    expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries in 4.4s)\nDone in 4.5s using pnpm v12.21.0')).toEqual({ outcome: 'passes' })
+    // The same words from another pnpm release, which a manifest can make pnpm hand the install to.
+    expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries)\nDone in 1s using pnpm v12.20.0').outcome).toBe('could not verify')
+    expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries)').outcome).toBe('could not verify')
     // A clean exit that did not say it verified anything (a pnpm that skipped the check) is not a pass.
     expect(classify(0, 'Done in 1.1s using pnpm v12.21.0').outcome).toBe('could not verify')
   })
@@ -111,5 +114,21 @@ describe('settings weaker than documented are refused, as pnpm itself resolved t
 
   it('removing the excludes fails loudly when there is nothing to remove', () => {
     expect(() => withoutTrustExcludes('packages:\n  - ui\n')).toThrow(/could not remove/)
+  })
+})
+
+describe('nothing hands the verification to another pnpm', () => {
+  const lock = "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n\nimporters:\n\n  .: {}\n"
+  it('accepts manifests and a lockfile as committed', () => {
+    expect(handoffs({ 'package.json': '{"name":"konclave","packageManager":"pnpm@10.34.9"}' }, lock)).toEqual([])
+  })
+
+  it('refuses devEngines.packageManager in any manifest, and a package-manager block in the lockfile', () => {
+    const dev = '{"devEngines":{"packageManager":{"name":"pnpm","version":"12.20.0","onFail":"download"}}}'
+    expect(handoffs({ 'sdk/package.json': dev }, lock).join(' ')).toContain('sdk/package.json sets devEngines.packageManager')
+    for (const key of ['packageManagerDependencies', 'configDependencies']) {
+      const withBlock = lock.replace('importers:', `${key}:\n  pnpm:\n    specifier: 12.20.0\n\nimporters:`)
+      expect(handoffs({}, withBlock).join(' '), key).toContain(key)
+    }
   })
 })

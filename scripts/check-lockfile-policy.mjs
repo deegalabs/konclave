@@ -37,7 +37,9 @@ const RUN_TIMEOUT_MS = 90_000
 
 /** pnpm's answer, from its exit status and output. */
 export function classify(status, output) {
-  if (status === 0 && PASSED.test(output)) return { outcome: 'passes' }
+  // The pass counts only from the pinned pnpm: a manifest can make pnpm hand the install to another
+  // release, and that release's answer is not the one this check vouches for.
+  if (status === 0 && PASSED.test(output) && output.includes(`using pnpm v${PNPM_VERIFY_VERSION}`)) return { outcome: 'passes' }
   const codes = REFUSALS.filter((c) => output.includes(c))
   if (status !== 0 && codes.length > 0) return { outcome: 'refused', codes }
   return { outcome: 'could not verify' }
@@ -80,6 +82,19 @@ export function weakenings(config, npmrc) {
   }
   if (config.registry !== DEFAULT_REGISTRY) why.push(`the registry must be ${DEFAULT_REGISTRY}`)
   if (JSON.stringify(config.registries) !== JSON.stringify(DEFAULT_REGISTRIES)) why.push('no registry may be added or overridden')
+  return why
+}
+
+/** Why the manifests or the lockfile could hand the verification to another pnpm; empty when not. */
+export function handoffs(manifests, lock) {
+  const why = []
+  for (const [path, text] of Object.entries(manifests)) {
+    if (JSON.parse(text).devEngines?.packageManager !== undefined) why.push(`${path} sets devEngines.packageManager`)
+  }
+  const head = lock.split(/^importers:/m)[0]
+  for (const key of ['packageManagerDependencies', 'configDependencies']) {
+    if (new RegExp(`^\\s*${key}:`, 'm').test(head)) why.push(`pnpm-lock.yaml sets ${key}`)
+  }
   return why
 }
 
@@ -152,6 +167,9 @@ function main() {
       return { ...classify(r.status, output), output, rewrote: readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8') !== lock }
     }
 
+    const manifests = Object.fromEntries(files.filter((f) => f.endsWith('package.json')).map((f) => [f, readFileSync(join(repo, f), 'utf8')]))
+    const handed = handoffs(manifests, lock)
+    if (handed.length) throw new Failure(`the verification could be handed to another pnpm: ${handed.join('; ')}`)
     const configDir = copy('config', workspace)
     const config = JSON.parse(execFileSync(pnpm, ['config', 'list', '--json', '--ignore-pnpmfile'], { cwd: configDir, encoding: 'utf8', timeout: 30_000 }))
     const weak = weakenings(config, readFileSync(join(repo, '.npmrc'), 'utf8'))
