@@ -28,6 +28,7 @@ function ruleIn(source: string, file: string, selector: string): string {
 }
 /** The declarations of one App.css rule, by its exact selector. */
 const appRule = (selector: string) => ruleIn(appCss, 'App.css', selector)
+const lruleIn = (selector: string) => ruleIn(css, 'lacre.css', selector)
 const netRule = (selector: string) => ruleIn(netCss, 'net.css', selector)
 const tokenIn = (decls: string, prop: string) => new RegExp(`(?:^|[;{\\s])${prop}:\\s*var\\(--([a-z0-9-]+)\\)`).exec(decls)?.[1]
 
@@ -198,6 +199,22 @@ for (const theme of ['light', 'dark'] as const) {
       expect(netRule('.cv-input')).toMatch(/border:\s*1px solid var\(--line-strong\)/)
       for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
         expect(ratio(t('line-strong'), bg), `--line-strong on ${name}`).toBeGreaterThanOrEqual(3)
+      }
+    })
+
+    // Settings' fields (`.input`, about 20 uses): the same edge, read-only included. Read-only keeps
+    // the surface-2 fill, so the edge against it (3.07 in dark, the thinnest pair here) is what holds.
+    it('Settings field edge, hover and read-only clear 3:1 on both surfaces', () => {
+      const input = lruleIn('.input')
+      expect(input).toMatch(/border:\s*1\.5px solid var\(--line-strong\)/)
+      const hover = tokenIn(lruleIn('.input:hover'), 'border-color')
+      expect(hover, '.input:hover paints its edge from a token').toBeTruthy()
+      const ro = lruleIn('.input[readonly]')
+      expect(tokenIn(ro, 'background')).toBe('surface-2')
+      expect(ro).toMatch(/cursor:\s*default/)
+      for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
+        expect(ratio(t('line-strong'), bg), `edge on ${name}`).toBeGreaterThanOrEqual(3)
+        expect(ratio(t(hover!), bg), `hover --${hover} on ${name}`).toBeGreaterThanOrEqual(3)
       }
     })
 

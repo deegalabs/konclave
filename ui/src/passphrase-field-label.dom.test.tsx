@@ -30,6 +30,15 @@ describe('PassphraseField label', () => {
     const a = screen.getByLabelText('First'); const b = screen.getByLabelText('Second')
     expect(a.id).toBeTruthy(); expect(b.id).toBeTruthy(); expect(a.id).not.toBe(b.id)
   })
+  // #927: a password manager must be told the confirmation is a NEW passphrase. The default lives
+  // here, so it is pinned here (the NetVault scan only sees two raw inputs).
+  it('a confirmation (choosing={false}) is new-password by default; a current one passes through', () => {
+    const { container } = show(<><PassphraseField label="C" choosing={false} value="" onChange={noop} />
+      <PassphraseField label="D" choosing={false} autoComplete="current-password" value="" onChange={noop} /></>)
+    const [a, b] = Array.from(container.querySelectorAll('input'))
+    expect(a!.autocomplete).toBe('new-password')
+    expect(b!.autocomplete).toBe('current-password')
+  })
   it('uses the id the caller gives', () => {
     show(<PassphraseField label="X" id="mine" value="" onChange={noop} />)
     expect(screen.getByLabelText('X').id).toBe('mine')

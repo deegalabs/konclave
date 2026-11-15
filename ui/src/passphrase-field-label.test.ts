@@ -18,7 +18,16 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 const users = sources(root).map((p) => p.slice(root.length)).filter((p) => p !== 'components.tsx')
   .filter((p) => readFileSync(root + p, 'utf8').includes('<PassphraseField'))
 
+// The pattern itself: a blank label and `aria-label=` must not count as a label.
+const LABEL = /(?<![\w-])label=(\{[^}]*\S[^}]*\}|"[^"]*\S[^"]*")/
+
 describe('every PassphraseField is labelled', () => {
+  it('the label pattern rejects a blank label and aria-label', () => {
+    expect(LABEL.test('<PassphraseField label=" " />')).toBe(false)
+    expect(LABEL.test('<PassphraseField aria-label="x" />')).toBe(false)
+    expect(LABEL.test('<PassphraseField label={t(\'k\')} />')).toBe(true)
+    expect(LABEL.test('<PassphraseField label="Name" />')).toBe(true)
+  })
   it('finds the known callers', () => {
     expect(users.sort()).toEqual(['screens/NetVault.tsx', 'screens/Settings.tsx'])
   })
@@ -28,7 +37,7 @@ describe('every PassphraseField is labelled', () => {
       const src = codeOf(f)
       for (const m of src.matchAll(/<PassphraseField\b[\s\S]*?\/>/g)) {
         tags++
-        expect(m[0], `${f}: label=`).toMatch(/\blabel=\{[^}]*\S[^}]*\}|\blabel="[^"]+"/)
+        expect(m[0], `${f}: label=`).toMatch(LABEL)
         expect(m[0], `${f}: empty label`).not.toMatch(/\blabel=(""|\{''\}|\{""\})/)
       }
       // no <label ...> opened and not yet closed when a PassphraseField starts

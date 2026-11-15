@@ -73,7 +73,9 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
       if (!first || !last) return
       const active = document.activeElement
       // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
-      if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
+      // So does focus left on a control that was disabled while it held it: some browsers keep it
+      // there, it is not in `f`, and the default Tab would carry it out of the dialog.
+      if (!node || !node.contains(active) || (active as HTMLElement).matches(':disabled')) { e.preventDefault(); first.focus(); return }
       // Opened on the card itself (focusCard), the first Shift+Tab starts there, not on `first`.
       if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }

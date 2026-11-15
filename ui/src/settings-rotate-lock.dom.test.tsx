@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { ToastProvider } from './toast'
 import { en as dict } from './i18n/en'
+import { StorageError } from './storage-errors'
 const en = (k: string): string => dict[k] ?? k
 
 // Rotating the passphrase: while the device verifies and seals, the three fields are locked (what is
@@ -70,6 +71,42 @@ describe('rotation locks while it verifies', () => {
     expect(dlg()).not.toBeNull()
     expect(document.getElementById('xp-title')).toBeNull()
     expect(screen.getByLabelText(en('rotate.newLabel'))).toBeTruthy()
+  })
+
+  it('a failure is the description of the confirm button, and invalid is on the field at fault', async () => {
+    const f = await open()
+    fireEvent.change(f('rotate.new2Label'), { target: { value: 'something else entirely' } })
+    await press()
+    const btn = within(screen.getByRole('dialog')).getByRole('button', { name: en('rotate.confirm') })
+    const err = document.getElementById('rot-err')!
+    expect(err.textContent).toBe(en('rotate.errMismatch'))
+    expect(btn.getAttribute('aria-describedby')).toBe('rot-err')
+    expect(f('rotate.new2Label').getAttribute('aria-invalid')).toBe('true')
+    expect(f('rotate.currentLabel').getAttribute('aria-invalid')).toBeNull()
+    expect(f('rotate.newLabel').getAttribute('aria-invalid')).toBeNull()
+    // a wrong current passphrase marks the current field
+    fireEvent.change(f('rotate.new2Label'), { target: { value: 'correct horse battery staple' } })
+    change.fn.mockRejectedValue(new StorageError('wrong-passphrase-saved', 'x'))
+    await press()
+    expect(f('rotate.currentLabel').getAttribute('aria-invalid')).toBe('true')
+    expect(f('rotate.new2Label').getAttribute('aria-invalid')).toBeNull()
+    // typing clears the error and the description
+    fireEvent.change(f('rotate.currentLabel'), { target: { value: 'x' } })
+    expect(btn.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('a rotation that ends after Settings left still tells the member, through the toast', async () => {
+    let resolve!: () => void
+    change.fn.mockImplementation(() => new Promise<void>((r) => { resolve = r }))
+    const view = render(<MemoryRouter><I18nProvider><ToastProvider><Settings /></ToastProvider></I18nProvider></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: en('rotate.open') }))
+    const f = (k: string) => screen.getByLabelText(en(k)) as HTMLInputElement
+    for (const [k, v] of [['rotate.currentLabel', 'old passphrase 123'], ['rotate.newLabel', 'correct horse battery staple'], ['rotate.new2Label', 'correct horse battery staple']] as const) fireEvent.change(f(k), { target: { value: v } })
+    await press()
+    // Settings goes away, the toast provider stays (it sits above the routes).
+    view.rerender(<MemoryRouter><I18nProvider><ToastProvider><div /></ToastProvider></I18nProvider></MemoryRouter>)
+    await act(async () => { resolve() })
+    expect(await screen.findAllByText(en('rotate.done'))).not.toHaveLength(0)
   })
 
   it('without a pending rotation Cancel still closes', async () => {

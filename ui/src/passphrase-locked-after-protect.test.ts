@@ -48,7 +48,7 @@ describe('the passphrase locks once the member pressed Protect the vault (#928)'
   it('a failed save keeps no passphrase and is announced; focus returns to the button', () => {
     const caught = doSaveBody().slice(doSaveBody().indexOf('catch (e)'))
     expect(caught).toMatch(/savePassRef\.current = ''/)
-    expect(src).toMatch(/<p className="set-err" role="alert">\{saveErr\}<\/p>/)
+    expect(src).toMatch(/<p className="set-err" id="net-save-err" role="alert">\{saveErr\}<\/p>/)
     expect(src).toMatch(/if \(saveErr && saveState === 'idle'\) saveBtnRef\.current\?\.focus\(\)/)
     expect(src.match(/ref=\{saveBtnRef\}/g) ?? []).toHaveLength(2)
   })

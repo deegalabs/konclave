@@ -1722,7 +1722,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               aria-describedby={!backup.complete ? 'net-backup-incomplete' : undefined}>{tt('net.backup.title')}</h2>
             <p className="cv-lead">{tt('net.backup.lead')}</p>
             {!backup.complete && (
-              // Before the buttons, so reading on from the title meets it first. Silence here is what the fix is FOR. The vault registers and its read key lands
+              // It sits before the buttons, so reading on from the title meets it first.
+              // Silence here is what the fix is FOR. The vault registers and its read key lands
               // asynchronously, so this copy can be written before the viewing key exists to fetch -
               // and a backup that quietly restores the seat and not the vault leaves a member holding
               // real spend authority over money they cannot see. Saying so costs a trip to Settings.
@@ -1781,8 +1782,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 </>
               )}
-              {saveErr && <p className="set-err" role="alert">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" ref={saveBtnRef} disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
+              {saveErr && <p className="set-err" id="net-save-err" role="alert">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" ref={saveBtnRef} aria-describedby={saveErr ? 'net-save-err' : undefined}
+                disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? tt('net.save.keyMissing')
@@ -1922,7 +1924,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </>
             ) : (
               <>
-                {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
+                {saveErr && <div className="net-error" id="net-save-err" role="alert">{saveErr}</div>}
                 <input
                   className="net-input"
                   type="password"
@@ -1950,6 +1952,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <button
                   className="net-btn"
                   ref={saveBtnRef}
+                  aria-describedby={saveErr ? 'net-save-err' : undefined}
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >
