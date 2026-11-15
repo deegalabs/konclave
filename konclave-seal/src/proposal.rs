@@ -18,7 +18,7 @@
 
 use sha2::{Digest, Sha256};
 
-use crate::epochs::{GRACE_ACTIONS, MAINNET};
+use crate::epochs::{conventional_fee, GRACE_ACTIONS, MAINNET};
 
 /// Domain of the canonical content bytes.
 pub const CONTENT_DOMAIN: &[u8] = b"konclave-proposal-v1\0";
@@ -84,14 +84,19 @@ pub struct Content {
 }
 
 /// The device's own record of the vault, against which a content is checked.
+///
+/// Both receivers are fields, not a list, so a caller cannot pass none and lose the refusal of a
+/// line that pays the vault itself.
 #[derive(Clone, Copy, Debug)]
-pub struct Context<'a> {
+pub struct Context {
     pub network: u8,
     pub vault_id: [u8; 32],
     pub threshold: u16,
     pub total: u16,
-    /// The vault's own receivers (deposit and change): a line may never pay one of them.
-    pub own_receivers: &'a [[u8; ORCHARD_RECEIVER_LEN]],
+    /// The vault's deposit receiver: a line may never pay it.
+    pub external: [u8; ORCHARD_RECEIVER_LEN],
+    /// The vault's change receiver: a line may never pay it.
+    pub change: [u8; ORCHARD_RECEIVER_LEN],
 }
 
 /// A content that passed `validate`. Its field is private: it cannot be built any other way.
@@ -100,8 +105,10 @@ pub struct Context<'a> {
 ///
 /// ```
 /// use konclave_seal::proposal::*;
-/// let own = [[0x44u8; ORCHARD_RECEIVER_LEN]];
-/// let ctx = Context { network: NETWORK_MAINNET, vault_id: [1; 32], threshold: 1, total: 1, own_receivers: &own };
+/// let ctx = Context {
+///     network: NETWORK_MAINNET, vault_id: [1; 32], threshold: 1, total: 1,
+///     external: [0x44; ORCHARD_RECEIVER_LEN], change: [0x55; ORCHARD_RECEIVER_LEN],
+/// };
 /// let c = Content {
 ///     network: NETWORK_MAINNET, vault_id: [1; 32], kind: KIND_PAYMENT,
 ///     lines: vec![Line { receiver_type: RECEIVER_ORCHARD, receiver: [2; ORCHARD_RECEIVER_LEN], amount: 1, memo: String::new() }],
@@ -169,10 +176,12 @@ pub fn fee_cap_floor() -> u64 {
         .flat_map(|era| era.accepts.iter().copied())
         .min()
         .expect("the fee table has an era");
-    lowest * GRACE_ACTIONS
+    conventional_fee(lowest, GRACE_ACTIONS).expect("no overflow at the grace actions")
 }
 
 /// The highest fee cap a content may carry: the highest accepted rate over `MAX_ACTIONS_FOR_CAP`.
+/// Both bounds are read from the fee era table, so a new era moves them with it; a content signed
+/// under one table stays valid only while its cap is inside the bounds of the table that reads it.
 pub fn fee_cap_ceiling() -> u64 {
     let highest = MAINNET
         .fees
@@ -180,7 +189,7 @@ pub fn fee_cap_ceiling() -> u64 {
         .flat_map(|era| era.accepts.iter().copied())
         .max()
         .expect("the fee table has an era");
-    highest * MAX_ACTIONS_FOR_CAP
+    conventional_fee(highest, MAX_ACTIONS_FOR_CAP).expect("no overflow at the block budget")
 }
 
 /// Checks `content` against the device's own record of the vault.
@@ -208,7 +217,7 @@ pub fn validate(content: Content, ctx: &Context) -> Result<ValidContent, Content
         if l.receiver_type != RECEIVER_ORCHARD {
             return Err(ContentError::ReceiverType);
         }
-        if ctx.own_receivers.contains(&l.receiver) {
+        if l.receiver == ctx.external || l.receiver == ctx.change {
             return Err(ContentError::OwnReceiver);
         }
         if l.amount == 0 || l.amount > MAX_MONEY {
@@ -277,11 +286,15 @@ pub fn proposal_id(hash: &ContentHash) -> String {
     crate::hex::encode_lower(&hash.0)
 }
 
-/// Whether a content expiring at `expiry_unix` (seconds) is still open at `now_ms`, and was set
-/// within `EXPIRY_MAX_MS` (+ margin) of the approval made at `ts_ms`. Every reader calls this one.
-pub fn check_expiry(expiry_unix: u64, ts_ms: i64, now_ms: i64) -> Result<(), ContentError> {
+/// Whether `content` is still open at `now_ms`, and was set within `EXPIRY_MAX_MS` (+ margin) of
+/// the approval made at `ts_ms`. Every reader calls this one, with the expiry of the content it
+/// validated, never one from a record served beside it.
+///
+/// `ts_ms` is the device's own clock when it approves, or the `ts` of the approval envelope it
+/// selected after that envelope's signature verified; never a field served unsigned.
+pub fn check_expiry(content: &ValidContent, ts_ms: i64, now_ms: i64) -> Result<(), ContentError> {
     // i128 so no input overflows.
-    let expiry_ms = i128::from(expiry_unix) * 1000;
+    let expiry_ms = i128::from(content.0.expiry_unix) * 1000;
     if expiry_ms <= i128::from(now_ms) {
         return Err(ContentError::Expired);
     }

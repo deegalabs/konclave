@@ -1,15 +1,18 @@
 use super::*;
 
-const OWN: [[u8; ORCHARD_RECEIVER_LEN]; 2] =
-    [[0x44; ORCHARD_RECEIVER_LEN], [0x55; ORCHARD_RECEIVER_LEN]];
+const EXTERNAL: [u8; ORCHARD_RECEIVER_LEN] = [0x44; ORCHARD_RECEIVER_LEN];
+const CHANGE: [u8; ORCHARD_RECEIVER_LEN] = [0x55; ORCHARD_RECEIVER_LEN];
 
-fn ctx() -> Context<'static> {
+/// Testnet on purpose: the network (2), kind (1) and receiver type (1) bytes of the fixture then
+/// differ from at least one neighbour, so a swap of two of them changes the bytes.
+fn ctx() -> Context {
     Context {
-        network: NETWORK_MAINNET,
+        network: NETWORK_TESTNET,
         vault_id: [0x11; 32],
         threshold: 2,
         total: 3,
-        own_receivers: &OWN,
+        external: EXTERNAL,
+        change: CHANGE,
     }
 }
 
@@ -25,7 +28,7 @@ fn line(receiver: u8, amount: u64, memo: &str) -> Line {
 /// The content the hand-written fixture below spells.
 fn sample() -> Content {
     Content {
-        network: NETWORK_MAINNET,
+        network: NETWORK_TESTNET,
         vault_id: [0x11; 32],
         kind: KIND_PAYMENT,
         lines: vec![line(0x22, 150_000, "hi")],
@@ -50,7 +53,7 @@ fn refused(c: Content) -> ContentError {
 /// The canonical bytes, written out by hand field by field, NOT produced by `encode`.
 fn fixture_bytes() -> Vec<u8> {
     let mut b = b"konclave-proposal-v1\0".to_vec();
-    b.push(0x01); // network: mainnet
+    b.push(0x02); // network: testnet
     b.extend([0x11; 32]); // vault id
     b.push(0x01); // kind: payment
     b.extend([0, 0, 0, 1]); // one line
@@ -70,7 +73,7 @@ fn fixture_bytes() -> Vec<u8> {
 }
 
 /// SHA-256("konclave-proposal-hash-v1\0" || fixture), computed outside Rust (Python hashlib).
-const FIXTURE_HASH: &str = "12c0de0584c1e98641848c9b45358ca86a809b01549780a89d5bfc0654d455c8";
+const FIXTURE_HASH: &str = "a9ea4a8021acd3f706ff00bca151ec3e4078c8ddd8e3c982245f54cbad11fb03";
 
 #[test]
 fn encode_matches_the_hand_written_fixture() {
@@ -143,22 +146,34 @@ fn changing_any_field_changes_the_hash() {
     for (name, v) in variants {
         assert_ne!(content_hash(&valid(v)), base, "{name} must change the hash");
     }
-    // The fields checked against the context change the hash too: encode them under a context
-    // that accepts them.
-    let mut c = sample();
-    c.vault_id = [0x12; 32];
-    c.network = NETWORK_TESTNET;
-    c.threshold = 3;
-    c.total = 4;
-    let other = Context {
-        network: NETWORK_TESTNET,
-        vault_id: [0x12; 32],
-        threshold: 3,
-        total: 4,
-        own_receivers: &OWN,
-    };
-    let h = content_hash(&validate(c, &other).unwrap());
-    assert_ne!(h, base);
+    // The fields checked against the context change the hash too, each alone: encode each under a
+    // context that accepts it.
+    let base_ctx = ctx();
+    type Edit = fn(&mut Content, &mut Context);
+    let cases: [(&str, Edit); 4] = [
+        ("vault_id", |c, x| {
+            c.vault_id = [0x12; 32];
+            x.vault_id = [0x12; 32];
+        }),
+        ("network", |c, x| {
+            c.network = NETWORK_MAINNET;
+            x.network = NETWORK_MAINNET;
+        }),
+        ("threshold", |c, x| {
+            c.threshold = 3;
+            x.threshold = 3;
+        }),
+        ("total", |c, x| {
+            c.total = 4;
+            x.total = 4;
+        }),
+    ];
+    for (name, f) in cases {
+        let mut c = sample();
+        let mut x = base_ctx;
+        f(&mut c, &mut x);
+        assert_ne!(content_hash(&validate(c, &x).unwrap()), base, "{name}");
+    }
 }
 
 #[test]
@@ -167,11 +182,19 @@ fn it_refuses_a_content_for_another_vault_or_network() {
     c.vault_id = [0x12; 32];
     assert_eq!(refused(c), ContentError::VaultId);
     let mut c = sample();
-    c.network = NETWORK_TESTNET;
+    c.network = NETWORK_MAINNET;
     assert_eq!(refused(c), ContentError::Network);
     let mut c = sample();
     c.network = 0;
     assert_eq!(refused(c), ContentError::Network);
+    // A network byte outside the known two is refused even when the context carries it.
+    let mut c = sample();
+    c.network = 3;
+    let x = Context {
+        network: 3,
+        ..ctx()
+    };
+    assert_eq!(validate(c, &x).unwrap_err(), ContentError::Network);
 }
 
 #[test]
@@ -211,7 +234,7 @@ fn a_payroll_takes_one_to_max_lines() {
 
 #[test]
 fn it_refuses_a_line_paying_the_vaults_own_receivers() {
-    for own in OWN {
+    for own in [EXTERNAL, CHANGE] {
         let mut c = sample();
         c.lines[0].receiver = own;
         assert_eq!(refused(c), ContentError::OwnReceiver);
@@ -257,9 +280,13 @@ fn memo_vectors() {
     c.lines[0].memo = "é".repeat(256);
     assert_eq!(c.lines[0].memo.len(), 512);
     assert!(validate(c, &ctx()).is_ok());
-    // 513 bytes.
+    // 513 bytes, ASCII and multi-byte (257 characters: measuring characters would pass it).
     let mut c = sample();
     c.lines[0].memo = "a".repeat(513);
+    assert_eq!(refused(c), ContentError::Memo);
+    let mut c = sample();
+    c.lines[0].memo = format!("{}a", "é".repeat(256));
+    assert_eq!(c.lines[0].memo.len(), 513);
     assert_eq!(refused(c), ContentError::Memo);
     // A NUL anywhere: a wire memo is NUL-padded, so a NUL in the text could not be compared.
     let mut c = sample();
@@ -311,40 +338,45 @@ fn the_fee_cap_bounds_are_the_zip317_floor_and_the_block_budget() {
     }
 }
 
+fn expiring(expiry_unix: u64) -> ValidContent {
+    let mut c = sample();
+    c.expiry_unix = expiry_unix;
+    valid(c)
+}
+
 #[test]
 fn check_expiry_refuses_expired_and_too_far_and_takes_the_margin() {
-    let ts = 1_800_000_000_000i64; // approval time, ms
-    let exp = |ms: i64| (ms / 1000) as u64;
+    // An approval time that is NOT a whole second, so a millisecond boundary error shows.
+    let ts = 1_800_000_000_123i64;
+    let limit_ms = ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS;
     // Open, within 72 h.
-    assert_eq!(check_expiry(exp(ts + 3_600_000), ts, ts), Ok(()));
-    // Exactly at 72 h + margin: accepted.
+    assert_eq!(check_expiry(&expiring(1_800_003_600), ts, ts), Ok(()));
+    // The last whole second at or under the limit is accepted; the next one is refused.
+    let last_ok = (limit_ms / 1000) as u64;
+    assert_eq!(check_expiry(&expiring(last_ok), ts, ts), Ok(()));
     assert_eq!(
-        check_expiry(exp(ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS), ts, ts),
-        Ok(())
-    );
-    // One second beyond: refused.
-    assert_eq!(
-        check_expiry(exp(ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS) + 1, ts, ts),
+        check_expiry(&expiring(last_ok + 1), ts, ts),
         Err(ContentError::ExpiryTooFar)
     );
-    // Expired at now == expiry, and after.
-    let e = exp(ts + 3_600_000);
+    // Expired at now == expiry, and after; open one millisecond before.
+    let e = 1_800_003_600u64;
+    let at = (e as i64) * 1000;
     assert_eq!(
-        check_expiry(e, ts, (e as i64) * 1000),
+        check_expiry(&expiring(e), ts, at),
         Err(ContentError::Expired)
     );
     assert_eq!(
-        check_expiry(e, ts, (e as i64) * 1000 + 1),
+        check_expiry(&expiring(e), ts, at + 1),
         Err(ContentError::Expired)
     );
-    assert_eq!(check_expiry(e, ts, (e as i64) * 1000 - 1), Ok(()));
+    assert_eq!(check_expiry(&expiring(e), ts, at - 1), Ok(()));
     // No overflow on extreme inputs.
     assert_eq!(
-        check_expiry(u64::MAX, ts, ts),
+        check_expiry(&expiring(u64::MAX), ts, ts),
         Err(ContentError::ExpiryTooFar)
     );
     assert_eq!(
-        check_expiry(0, i64::MIN, i64::MAX),
+        check_expiry(&expiring(1), i64::MIN, i64::MAX),
         Err(ContentError::Expired)
     );
 }
@@ -355,6 +387,12 @@ fn the_bounds_are_the_decided_numbers() {
     assert_eq!(EXPIRY_MARGIN_MS, 600_000);
     assert_eq!(CHANGE_SPLIT_MAX, 4);
     assert_eq!(MAX_MEMO_BYTES, 512);
+    assert_eq!(MAX_LINES, 300);
+    assert_eq!(MAX_MONEY, 2_100_000_000_000_000);
+    assert_eq!(MAX_ACTIONS_FOR_CAP, 330);
+    assert_eq!((NETWORK_MAINNET, NETWORK_TESTNET), (1, 2));
+    assert_eq!((KIND_PAYMENT, KIND_PAYROLL), (1, 2));
+    assert_eq!(RECEIVER_ORCHARD, 1);
 }
 
 #[test]
@@ -378,21 +416,4 @@ fn memo_bytes_cannot_slide_between_lines() {
     let mut b = a.clone();
     b.lines = vec![line(0x22, 1, "ab"), line(0x22, 1, "c")];
     assert_ne!(encode(&valid(a)), encode(&valid(b)));
-}
-
-#[test]
-fn it_refuses_a_line_paying_the_change_receiver_alone() {
-    // A context whose only own receiver is the change one: the deposit address is not the only one
-    // a line may not pay.
-    let change = [[0x66u8; ORCHARD_RECEIVER_LEN]];
-    let only_change = Context {
-        own_receivers: &change,
-        ..ctx()
-    };
-    let mut c = sample();
-    c.lines[0].receiver = change[0];
-    assert_eq!(
-        validate(c, &only_change).unwrap_err(),
-        ContentError::OwnReceiver
-    );
 }
