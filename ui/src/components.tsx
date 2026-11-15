@@ -2,6 +2,7 @@ import { LangToggle } from './AppPrefs'
 import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
+import { veil } from './veil'
 import { useT } from './i18n'
 import { scorePassphrase, generatePassphrase, newPassphraseProblem } from './passphrase'
 
@@ -162,7 +163,9 @@ export function Letterhead({ right }: { right?: ReactNode }) {
 }
 
 /** A sensitive value hidden behind the redaction bar (tarja) until revealed.
- *  The bar is a real button so the privacy gesture is keyboard-operable.
+ *  The bar is a real button so the privacy gesture is keyboard-operable. While hidden the value is
+ *  not in the page at all (`veil`, #838): a placeholder of about its width stands in, and a screen
+ *  reader hears "hidden" and then the control, and the value only once it is revealed.
  *  On paper a hidden value is not drawn at all (lacre.css, print): a bar over drawn text still
  *  leaves the text in the PDF, where it can be selected and copied (#811). */
 export function Secret({ children, sm, label, describedBy, barEvents }: {
@@ -176,7 +179,8 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
   const t = useT()
   return (
     <span className={'secret' + (sm ? ' sm' : '') + (revealed ? ' on' : '')}>
-      <span className="secret-val">{children}</span>
+      <span className="secret-val">{revealed ? children : veil(children)}</span>
+      {!revealed && <span className="visually-hidden">{t('secret.hidden')}</span>}
       <button
         type="button"
         className="bar"

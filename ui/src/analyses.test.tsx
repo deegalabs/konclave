@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Balance, Proposal } from './api'
 import { I18nProvider, translateStatic, type TFn } from './i18n'
+import { RevealProvider } from './reveal'
 import { BalanceBand, RunwayPanel } from './screens/Analyses'
 import { codeOf } from './source-scan'
 
@@ -21,7 +22,8 @@ const NOW = new Date(2026, 10, 10)
 const t: TFn = (k, v) => translateStatic(k, v, 'en')
 const say = (k: string) => translateStatic(k, undefined, 'en')
 const bal = (zat: number, spendable = zat): Balance => ({ configured: true, total_zat: zat, spendable_zat: spendable })
-const wrap = (el: React.ReactElement) => renderToStaticMarkup(<I18nProvider>{el}</I18nProvider>)
+// These read the figures, so the veil is open (#838); the panel's own `revealed` prop is the chart's.
+const wrap = (el: React.ReactElement) => renderToStaticMarkup(<I18nProvider><RevealProvider initial>{el}</RevealProvider></I18nProvider>)
 
 const SOURCE = translateStatic('analyses.source', undefined, 'en')
 

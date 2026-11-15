@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, type ReactNode } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
@@ -20,6 +20,7 @@ import { proposalName } from '../proposal-name'
 import { WALLET_BUSY } from '../helper'
 import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useI18n, useTr } from '../i18n'
+import { useReveal } from '../reveal'
 import {
   getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
   type Vault, type Proposal,
@@ -82,9 +83,19 @@ function whatOf(p: Proposal, t: (k: string) => string): string {
   return proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
 }
 
+/** A sentence with its amount under the veil, wherever the language puts it. The sentence comes in
+ *  with a NUL where the amount goes; `**` around it (the dictionary's bold) becomes a <b>. */
+function aroundAmount(sentence: string, amt: string): ReactNode {
+  const [pre = '', post = ''] = sentence.split('\u0000')
+  const bold = pre.endsWith('**') && post.startsWith('**')
+  const figure = <Secret sm>{amt}</Secret>
+  return <>{bold ? pre.slice(0, -2) : pre}{bold ? <b>{figure}</b> : figure}{bold ? post.slice(2) : post}</>
+}
+
 export default function Dashboard() {
   const { t, locale } = useI18n()
   const tr = useTr()
+  const { revealed } = useReveal()
   const { open: openSigning, bg } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
@@ -639,7 +650,7 @@ export default function Dashboard() {
             <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
               <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
               <span>{hasFree
-                ? tr('dashboard.readyFree', { amt: fmtZecExact((parts?.freeZat ?? 0) / 1e8) })
+                ? aroundAmount(t('dashboard.readyFree', { amt: '\u0000' }), fmtZecExact((parts?.freeZat ?? 0) / 1e8))
                 : !hasBal
                   ? t('dashboard.readyFreeUnknown')
                   : t('dashboard.readyNoFree')}</span>
@@ -679,11 +690,15 @@ export default function Dashboard() {
               {parts && parts.totalZat > 0 && (
                 <div className="bal-comp">
                   <div className="comp" role="img"
-                    aria-label={t('dashboard.compAria', {
-                      free: fmtZecExact(parts.freeZat / 1e8),
-                      reserved: fmtZecExact(parts.reservedZat / 1e8),
-                      confirming: fmtZecExact(parts.confirmingZat / 1e8),
-                    })}>
+                    aria-label={revealed
+                      ? t('dashboard.compAria', {
+                        free: fmtZecExact(parts.freeZat / 1e8),
+                        reserved: fmtZecExact(parts.reservedZat / 1e8),
+                        confirming: fmtZecExact(parts.confirmingZat / 1e8),
+                      })
+                      // The three parts sit under the veil in the legend; read aloud here they would
+                      // be the amounts the veil is there to keep back (#838).
+                      : t('dashboard.compAriaHidden')}>
                     {parts.pct.free > 0 && <span className="c-free" style={{ width: `${parts.pct.free}%` }} />}
                     {parts.pct.reserved > 0 && <span className="c-res" style={{ width: `${parts.pct.reserved}%` }} />}
                     {parts.pct.confirming > 0 && <span className="c-conf" style={{ width: `${parts.pct.confirming}%` }} />}
@@ -715,7 +730,7 @@ export default function Dashboard() {
                       same money counted twice, on the balance card. The composition bar (when
                       `parts` is available) shows the split honestly; this is its fallback and has
                       to be equally honest. */}
-                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: fmtZecExact(pendNum) })}</span>}
+                  {!parts && <span className="pd">{aroundAmount(t('dashboard.confirming', { amt: '\u0000' }), fmtZecExact(pendNum))}</span>}
                   {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.

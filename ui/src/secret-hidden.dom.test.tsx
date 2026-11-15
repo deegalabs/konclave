@@ -94,7 +94,7 @@ describe('veilWidthCh: the placeholder width, approximate by design', () => {
   it('counts a digit as 1, . , \' and space as 0.5, everything else as 1', () => {
     expect(veilWidthCh('1234')).toBe(4)
     expect(veilWidthCh('1.5000')).toBe(5.5)
-    expect(veilWidthCh("1,234.5")).toBe(5.5 + 1)
+    expect(veilWidthCh("1,234.5")).toBe(6)
     expect(veilWidthCh("1'234")).toBe(4.5)
     expect(veilWidthCh('1.5 ZEC')).toBe(1 + 0.5 + 1 + 0.5 + 3)
     expect(veilWidthCh('−0.1')).toBe(1 + 1 + 0.5 + 1)
