@@ -299,6 +299,9 @@ pub mod spends;
 #[cfg(feature = "receivers")]
 pub mod receivers;
 
+#[cfg(feature = "receivers")]
+pub mod destination;
+
 #[cfg(feature = "share-sig")]
 pub mod share_sig;
 
