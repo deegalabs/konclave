@@ -1359,6 +1359,7 @@ fn handle_proposal_send(
         max_polls: cfg.send_max_polls,
         vault_id: &reg.vault_id,
         vaults_dir: &cfg.vaults_dir,
+        clock: cfg.clock,
     };
     // Everything that decides whether a transaction may leave - settling an earlier attempt, the
     // record that comes before the broadcast, the broadcast itself - is `send_proposal`'s, in the
@@ -2120,6 +2121,7 @@ fn config_with(
         relays: relays_from(&get("KONCLAVE_RELAY_BASES").unwrap_or_default()),
         send_max_polls,
         fee_switch,
+        clock: orchestrator::helper::now_secs,
     };
     Ok((config, send_polls_note))
 }
@@ -4897,6 +4899,7 @@ mod tests {
             relays: vec![TEST_RELAY.into()],
             send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: orchestrator::helper::now_secs,
         }
     }
 
@@ -9780,6 +9783,10 @@ mod tests {
         fake
     }
 
+    /// The instant the counting tests' sync window reads.
+    #[cfg(unix)]
+    const SYNC_WINDOW_NOW: u64 = 1_800_000_000;
+
     #[cfg(unix)]
     fn counting_cfg(name: &str, sync_secs: u32) -> (HelperConfig, PathBuf) {
         let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
@@ -9790,6 +9797,9 @@ mod tests {
         // A payment is built by the signer (B3a): this one writes an empty PCZT to its `--out` and is
         // watched by the same overlap detector as the devtool, so the build is still under guard.
         c.konclave_signer = counting_signer(&dir);
+        // The sync window reads this and not the machine's wall clock, which on some machines steps
+        // back between two reads and makes a stamp look like it is from the future (#957).
+        c.clock = || SYNC_WINDOW_NOW;
         c.vaults_dir = dir.join("vaults");
         std::fs::create_dir_all(&c.vaults_dir).unwrap();
         (c, dir)

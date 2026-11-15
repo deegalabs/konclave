@@ -41,6 +41,10 @@ pub struct HelperConfig {
     /// The operator's fee switch (`KONCLAVE_FEE_MARGINAL_MAX`): `On` forces every vault to the legacy
     /// fee, `Off` lets each vault's own permission decide.
     pub fee_switch: crate::fee::FeeSwitch,
+    /// The clock the sync window reads (seconds since the epoch). Production sets the system clock
+    /// ([`now_secs`]); a test may fix it, so that it does not depend on the machine's wall clock
+    /// moving forward.
+    pub clock: fn() -> u64,
 }
 
 /// What a send waits for the devices when the operator has not said: five minutes.
@@ -208,7 +212,8 @@ fn mark_synced(vaults_dir: &Path, vault: &str, now: u64) {
     let _ = std::fs::write(&path, now.to_string());
 }
 
-fn now_secs() -> u64 {
+/// The system clock, in seconds since the epoch: the production value of [`HelperConfig::clock`].
+pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -290,12 +295,15 @@ fn bring_current(
     vaults_dir: &Path,
     vault_id: &str,
     freshness: Freshness,
+    clock: fn() -> u64,
 ) -> Result<(), ToolError> {
     // Once per read, and outside the sync window: a read on a wallet written by an older engine
     // fails even when the sync is skipped (in August: `no such table:
     // orchard_ironwood_migrations`).
     upgrade_logged(devtool, wallet_dir, vault_id);
-    let now = now_secs();
+    // Read after the migration, as before the clock was injected: the stamp is the time the sync
+    // starts.
+    let now = clock();
     if freshness == Freshness::Always || should_sync(vaults_dir, vault_id, SYNC_THROTTLE_SECS, now)
     {
         crate::wallet::sync(devtool, wallet_dir, lightwalletd)?;
@@ -315,6 +323,7 @@ pub fn settle_wallet(
     lightwalletd: &str,
     vaults_dir: &Path,
     vault_id: &str,
+    clock: fn() -> u64,
 ) -> Result<WalletView, ToolError> {
     bring_current(
         devtool,
@@ -323,6 +332,7 @@ pub fn settle_wallet(
         vaults_dir,
         vault_id,
         Freshness::Always,
+        clock,
     )?;
     let tip = crate::wallet::balance(devtool, wallet_dir)?.chain_tip_height;
     let mined = crate::wallet::list_confirmed_txids(devtool, wallet_dir)?;
@@ -342,6 +352,7 @@ fn fresh_wallet(cfg: &HelperConfig, reg: &VaultRegistration) -> Result<(), ToolE
         &cfg.vaults_dir,
         &reg.vault_id,
         Freshness::IfStale,
+        cfg.clock,
     )
 }
 
@@ -3420,6 +3431,10 @@ fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
 
 #[cfg(test)]
 mod tests {
+    /// A fixed instant for the sync-window tests: they must not depend on the machine's wall clock
+    /// moving forward (#957).
+    const FIXED_NOW: u64 = 1_800_000_000;
+
     use super::*;
 
     #[test]
@@ -4356,6 +4371,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: || FIXED_NOW,
         }
     }
 
@@ -4404,7 +4420,7 @@ mod tests {
         let (fake, log) = fake_balance_devtool(&dir, false);
         let cfg = balance_cfg(fake, dir.join("vaults"));
         let r = reg("bbbb2222");
-        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+        mark_synced(&cfg.vaults_dir, &r.vault_id, FIXED_NOW);
 
         vault_balance(&cfg, &r).expect("balance reads");
 
@@ -4572,7 +4588,7 @@ mod tests {
         let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
         let cfg = balance_cfg(fake, dir.join("vaults"));
         let r = reg("99990000");
-        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+        mark_synced(&cfg.vaults_dir, &r.vault_id, FIXED_NOW);
 
         vault_transactions(&cfg, &r).expect("history reads");
 
@@ -4594,7 +4610,7 @@ mod tests {
         mark_synced(
             &cfg.vaults_dir,
             &r.vault_id,
-            now_secs() - SYNC_THROTTLE_SECS - 1,
+            FIXED_NOW - SYNC_THROTTLE_SECS - 1,
         );
 
         vault_transactions(&cfg, &r).expect("history reads");
@@ -4892,9 +4908,11 @@ mod tests {
         let (fake, log) = fake_settle_devtool(&dir, false);
         let vaults = dir.join("vaults");
         // A sync a second ago would let the balance read skip its own. Settling must not.
-        mark_synced(&vaults, "dddd4444", now_secs());
-        let view =
-            settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "dddd4444").expect("settles");
+        mark_synced(&vaults, "dddd4444", FIXED_NOW);
+        let view = settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "dddd4444", || {
+            FIXED_NOW
+        })
+        .expect("settles");
 
         assert_eq!(calls(&log), vec!["upgrade", "sync", "balance", "list-tx"]);
         assert_eq!(view.tip, 3_400_100);
@@ -4923,16 +4941,55 @@ mod tests {
             &vaults,
             "ffff6666",
             SYNC_THROTTLE_SECS,
-            now_secs()
+            FIXED_NOW
         ));
-        settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "ffff6666").expect("settles");
+        settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "ffff6666", || {
+            FIXED_NOW
+        })
+        .expect("settles");
         assert!(!should_sync(
             &vaults,
             "ffff6666",
             SYNC_THROTTLE_SECS,
-            now_secs()
+            FIXED_NOW
         ));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Settling a send stamps the vault's sync window with the clock the send carries (the
+    /// coordinator's), not with the system clock: the window has one clock (#957).
+    #[cfg(unix)]
+    #[test]
+    fn settling_a_live_send_stamps_the_window_with_its_own_clock() {
+        let dir = std::env::temp_dir().join(format!("konclave-live-settle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (fake, _log) = fake_settle_devtool(&dir, false);
+        let sc: crate::send::SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": fake, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": "/nonexistent/signer", "frostd": "/x",
+            "frost_client": "/x", "members": [], "threshold": 2, "group": "g",
+            "frostd_cert": "c", "frostd_key": "k", "server_url": "s",
+            "work_dir": "/nonexistent/work",
+        }))
+        .unwrap();
+        let refused = Err(UnsealedRefused);
+        let vaults = dir.join("vaults");
+        let live = crate::send_record::LiveSend {
+            sc: &sc,
+            plan: None,
+            relay_base: "https://relay.test",
+            room: "room",
+            recipients: &refused,
+            max_polls: 1,
+            vault_id: "cccc3333",
+            vaults_dir: &vaults,
+            clock: || 1_234_567,
+        };
+        crate::send_record::SendSteps::settle_wallet(&live).expect("settles");
+        let stamp = std::fs::read_to_string(vaults.join("cccc3333").join("last_sync")).unwrap();
+        assert_eq!(stamp.trim(), "1234567");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A sync past its deadline is an error, and nothing is read after it.
@@ -4958,6 +5015,7 @@ mod tests {
             "zec.rocks:443",
             &dir.join("vaults"),
             "ffff6666",
+            || FIXED_NOW,
         );
         let took = started.elapsed();
         crate::wallet::set_sync_within_for_test(None);
@@ -4993,6 +5051,7 @@ mod tests {
             "zec.rocks:443",
             &dir.join("vaults"),
             "eeee5555",
+            || FIXED_NOW,
         );
         assert!(r.is_err());
         let ran = calls(&log);
@@ -5304,6 +5363,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
@@ -5319,6 +5379,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         }
     }
 
@@ -6545,6 +6606,7 @@ mod change_receiver_tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         let key = format!("{:064x}", 0xabc);
         let before = now_secs();
@@ -6627,6 +6689,7 @@ mod change_receiver_tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         (cfg, dir)
     }
