@@ -1166,34 +1166,34 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   if (phase === 'idle' && embedded && showJoin) {
     return (
       <Shell error={error} embedded>
-        <span className="rd-eyebrow">{tt('net.join.joinAVault')}</span>
+        <span className="rd-eyebrow">{tt('net.join.eyebrow')}</span>
         <h2 className="cv-title">{tt('net.join.joinWithAnInvite')}</h2>
         <p className="cv-lead">{inviteFromLink
-          ? tt('net.join.theInviteCameFromYour')
-          : tt('net.join.youReceivedAnInviteAnd')}</p>
+          ? tt('net.join.leadFromLink')
+          : tt('net.join.leadPaste')}</p>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-name">{tt('net.join.yourNameShownToThe')}</label>
-          <input id="cv-join-name" ref={joinNameRef} required className="cv-nameinput" type="text" maxLength={30} placeholder={tt('net.join.eGBob')}
+          <label className="cv-k" htmlFor="cv-join-name">{tt('net.yourNameLabel')}</label>
+          <input id="cv-join-name" ref={joinNameRef} required className="cv-nameinput" type="text" maxLength={30} placeholder={tt('net.join.namePlaceholder')}
             value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus={!inviteFromLink} />
         </div>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-invite">{tt('net.join.inviteLinkOrCode')}</label>
+          <label className="cv-k" htmlFor="cv-join-invite">{tt('net.join.inviteLabel')}</label>
           <input id="cv-join-invite" ref={joinInviteRef} required aria-invalid={!!joinCode.trim() && !parseInvite(joinCode)} className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }}
             autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-describedby={inviteFromLink ? "cv-join-invite-hint cv-join-from-link" : "cv-join-invite-hint"}
-            placeholder={tt('net.join.pasteTheLinkOrThe')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
+            placeholder={tt('net.join.invitePlaceholder')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
           <span className="cv-govnote" id="cv-join-invite-hint" role="status">
-            {joinCode.trim() && !parseInvite(joinCode) ? tt('net.join.thatDoesNotLookLike') : ''}
+            {joinCode.trim() && !parseInvite(joinCode) ? tt('net.join.inviteIncomplete') : ''}
           </span>
           {inviteFromLink && parseInvite(joinCode) && (
-            <span className="cv-govnote" id="cv-join-from-link">{tt('net.join.filledFromYourInviteLink')}</span>
+            <span className="cv-govnote" id="cv-join-from-link">{tt('net.join.inviteFromLink')}</span>
           )}
         </div>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-pin">{tt('net.join.roomPinYouGotIt')}</label>
+          <label className="cv-k" htmlFor="cv-join-pin">{tt('net.join.pinLabel')}</label>
           <input id="cv-join-pin" ref={joinPinRef} aria-invalid={joinProblem ? true : undefined} aria-describedby="cv-join-pin-hint cv-join-pin-note cv-join-pin-err" className="cv-nameinput" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
             value={pin} onChange={(e) => setPin(e.target.value)} />
-          <span className="cv-govnote" id="cv-join-pin-hint">{tt('net.join.usually13DigitsAsThe')}</span>
-          <span className="cv-govnote" id="cv-join-pin-note">{joinNote ? tt('net.join.thisPinHasDigitsThe', { n: joinNote }) : ''}</span>
+          <span className="cv-govnote" id="cv-join-pin-hint">{tt('net.join.pinHint')}</span>
+          <span className="cv-govnote" id="cv-join-pin-note">{joinNote ? tt('net.join.pinShort', { n: joinNote }) : ''}</span>
           <PinErr id="cv-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
         </div>
         {(() => {
@@ -1206,7 +1206,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           // its text is often not announced.
           return (
             <p className="cv-govnote" id="cv-join-why" role="status">
-              {missing.length > 0 ? tt('net.join.toJoinFillIn', { list: missing.join(', ') }) : ''}
+              {missing.length > 0 ? tt('net.join.missing', { list: missing.join(', ') }) : ''}
             </p>
           )
         })()}
@@ -1223,7 +1223,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   if (phase === 'idle' && embedded) {
     const approveWord = t === 1 ? tt('net.create.approves') : tt('net.create.approve')
     const memberWord = n === 1 ? tt('net.create.member') : tt('net.create.members')
-    const trustSentence = tt('net.create.moneyMovesOnlyWhenOf', { t, n, memberWord, approveWord })
+    const trustSentence = tt('net.create.trustSentence', { t, n, memberWord, approveWord })
     return (
       <Shell error={error} embedded>
         <div className="cv-steps" aria-hidden="true">
@@ -1233,31 +1233,31 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {createStep === 1 && (
           <>
-            <span className="rd-eyebrow">{tt('net.create.step1Of2Name')}</span>
-            <h2 className="cv-title">{tt('net.create.whatSTheVaultCalled')}</h2>
-            <p className="cv-lead">{tt('net.create.aNameYouLlRecognize')}</p>
+            <span className="rd-eyebrow">{tt('net.create.step1')}</span>
+            <h2 className="cv-title">{tt('net.create.nameTitle')}</h2>
+            <p className="cv-lead">{tt('net.create.nameLead')}</p>
             <div className="cv-field cv-name">
               <label className="cv-k" htmlFor="cv-vault-name">{tt('net.create.vaultName')}</label>
               <input id="cv-vault-name" className="cv-nameinput" type="text" maxLength={40} autoFocus
-                placeholder={tt('net.create.eGCollectiveTreasury')}
+                placeholder={tt('net.create.vaultNamePlaceholder')}
                 value={vaultName}
                 onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
             </div>
             <div className="cv-field cv-name">
-              <label className="cv-k" htmlFor="cv-create-name">{tt('net.join.yourNameShownToThe')}</label>
+              <label className="cv-k" htmlFor="cv-create-name">{tt('net.yourNameLabel')}</label>
               <input id="cv-create-name" required className="cv-nameinput" type="text" maxLength={30}
-                placeholder={tt('net.create.eGAlice')}
+                placeholder={tt('net.create.namePlaceholder')}
                 value={myName}
                 onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
             </div>
             <p className="cv-govnote" id="cv-create-why" role="status">
-              {!myName.trim() ? tt('net.create.toGoOnFillIn') : ''}
+              {!myName.trim() ? tt('net.create.nameMissing') : ''}
             </p>
             <button className="rd-enter primary cv-primary" disabled={!myName.trim()} aria-describedby="cv-create-why" onClick={() => { setMadePin(generateRoomPin()); setCreateStep(2) }}>
               {tt('net.create.continue')}
             </button>
             <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-              {tt('net.create.haveAnInviteJoin')}
+              {tt('net.create.haveInvite')}
             </button>
           </>
         )}
@@ -1265,9 +1265,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         {createStep === 2 && (
           <>
             <button type="button" className="cv-back" onClick={() => setCreateStep(1)}>{tt('net.create.back')}</button>
-            <span className="rd-eyebrow">{tt('net.create.step2Of2Rule')}</span>
+            <span className="rd-eyebrow">{tt('net.create.step2')}</span>
             <h2 className="cv-title">{tt('net.create.whoNeedsToApprove')}</h2>
-            <p className="cv-lead">{tt('net.create.howManyPeopleAndHow')}</p>
+            <p className="cv-lead">{tt('net.create.ruleLead')}</p>
 
             <div className="cv-controls">
               <div className="cv-field">
@@ -1323,8 +1323,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                     </button>
                   </div>
                   <span className="cv-govnote">{governance === 'quorum'
-                    ? tt('net.create.changingNamesAndBeneficiariesIs')
-                    : tt('net.create.anyMemberEditsNamesAnd')}</span>
+                    ? tt('net.create.govQuorumNote')
+                    : tt('net.create.govOpenNote')}</span>
                 </div>
 
               </>
@@ -1339,11 +1339,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <MadePin id="cv-create-pin-made" value={madePin} onNew={newMadePin} newRef={newPinRef} pe={pe} />
               )}
               <span className="cv-govnote" id="cv-create-pin-help">{ownPin
-                ? tt('net.create.chooseAtLeast6Characters')
-                : tt('net.create.sayThisPinToEach')}</span>
+                ? tt('net.create.pinChooseHint')
+                : tt('net.create.pinSayHint')}</span>
               <PinErr id="cv-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
               <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
-                {ownPin ? tt('net.create.useThePinTheApp') : tt('net.create.chooseMyOwnPinInstead')}
+                {ownPin ? tt('net.create.pinUseGenerated') : tt('net.create.pinChooseOwn')}
               </button>
             </div>
 

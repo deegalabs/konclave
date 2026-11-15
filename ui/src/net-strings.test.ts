@@ -12,7 +12,7 @@ describe('/net reads its words from the dictionary (#318)', () => {
     expect(calls.length).toBeLessThanOrEqual(92)
   })
   it('the joining and creating words are in both languages', () => {
-    for (const k of Object.keys(en).filter((k) => k.startsWith('net.join.') || k.startsWith('net.create.'))) {
+    for (const k of Object.keys(en).filter((k) => k.startsWith('net.join.') || k.startsWith('net.create.') || k === 'net.yourNameLabel')) {
       expect(ptBR[k], k).toBeTruthy()
     }
     expect(en['net.join.joinWithAnInvite']).toBe('Join with an invite')
