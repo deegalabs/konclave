@@ -643,7 +643,7 @@ export const en: Record<string, string> = {
   // Readiness: can the vault pay right now, and if not, which condition fails.
   'dashboard.readyYes': 'Ready to pay',
   'dashboard.readyNo': 'Cannot pay right now',
-  'dashboard.readySeats': '{present} of {threshold} seats present',
+  'dashboard.readyQuorum': 'a payment needs {threshold} of {total} members to sign',
   'dashboard.readyFree': 'free **{amt}** ZEC',
   'dashboard.readyNoFree': 'nothing free to spend right now',
   'dashboard.readyFreeUnknown': 'free funds: waiting for the vault',

@@ -86,7 +86,7 @@ function whatOf(p: Proposal, t: (k: string) => string): string {
 export default function Dashboard() {
   const { t, locale } = useI18n()
   const tr = useTr()
-  const { open: openSigning, bg } = useVaultSigner()
+  const { open: openSigning } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
@@ -374,9 +374,8 @@ export default function Dashboard() {
   // "approved and signed" reading would be half invented.
   const part = participation(ledger ?? [], roster.map((m) => m.name))
 
-  // Can this vault pay right now? Four conditions, every one from data already on this page. The
-  // point is answering BEFORE the click what today could only be discovered after it.
-  const seatsHere = bg.seatCount
+  // Whether this vault can pay right now is `ReadyCard`'s (pay-readiness.ts); the page keeps no copy
+  // of the rule and reads no presence count (#693).
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
   const byMonth = new Map<string, SpendPoint>()
@@ -624,7 +623,7 @@ export default function Dashboard() {
         {/* 2a · Can this vault pay right now? Answering it here is the point: every condition below
             was previously discovered only AFTER proposing, approving, signing and waiting. */}
         {!loading && (
-          <ReadyCard threshold={thr} seatsHere={seatsHere} freeZat={parts?.freeZat ?? null} hasBal={hasBal} backendsUp={isLive} />
+          <ReadyCard threshold={thr} total={n} freeZat={parts?.freeZat ?? null} hasBal={hasBal} backendsUp={isLive} />
         )}
 
         {/* 2 · Saldo */}
