@@ -241,7 +241,8 @@ mod verify {
         let k = key();
         let h = fixture_hash();
         let good = envelope(&k, VoteAction::Refuse, &h, reason_hash("no"));
-        let edits: [(&str, fn(&mut Envelope)); 5] = [
+        type Edit = fn(&mut Envelope);
+        let edits: [(&str, Edit); 5] = [
             ("action", |e| e.action = VoteAction::Approve),
             ("seat", |e| e.seat = 3),
             ("ts", |e| e.ts_ms += 1),
@@ -284,8 +285,12 @@ mod verify {
             assert_eq!(check(&k, &e, &h), Err(EnvelopeError::Malformed));
         }
         // A key that is not a curve point.
+        let not_a_point = (0u8..=255)
+            .map(|i| [i; 32])
+            .find(|b| ed25519_dalek::VerifyingKey::from_bytes(b).is_err())
+            .expect("some repeated byte is not a curve point");
         assert_eq!(
-            verify_envelope(&[0xff; 32], &[0x11; 32], &env, &h),
+            verify_envelope(&not_a_point, &[0x11; 32], &env, &h),
             Err(EnvelopeError::BadKey)
         );
     }

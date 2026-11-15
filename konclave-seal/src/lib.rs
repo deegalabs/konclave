@@ -122,7 +122,7 @@ pub fn write_message(
     nonce: &str,
 ) -> Vec<u8> {
     let mut out = Vec::new();
-    out.extend_from_slice(b"konclave-write-v1\0");
+    out.extend_from_slice(domains::WRITE_V1);
     for field in [vault_id, action.tag(), target, nonce] {
         out.extend_from_slice(&(field.len() as u32).to_be_bytes());
         out.extend_from_slice(field.as_bytes());

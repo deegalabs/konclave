@@ -16,10 +16,10 @@ use sha2::{Digest, Sha256};
 /// The most seats a vault may have. The one definition; the wasm and the screens read or pin it.
 pub const N_MAX: u16 = 16;
 
-const ROOM_DOMAIN: &[u8] = b"konclave-room-v1\0";
-const SEAT_DOMAIN: &[u8] = b"konclave-seat-v1\0";
-const PKP_DOMAIN: &[u8] = b"konclave-pkp-v1\0";
-const READKEY_DOMAIN: &[u8] = b"konclave-readkey-v1\0";
+const ROOM_DOMAIN: &[u8] = crate::domains::ROOM;
+const SEAT_DOMAIN: &[u8] = crate::domains::SEAT;
+const PKP_DOMAIN: &[u8] = crate::domains::PKP;
+const READKEY_DOMAIN: &[u8] = crate::domains::READKEY;
 
 /// A quorum the signing library accepts: frost-core refuses fewer than 2 signers.
 pub fn quorum_is_possible(t: u16, n: u16) -> bool {
@@ -421,16 +421,11 @@ mod tests {
 
     #[test]
     fn no_konclave_domain_is_a_prefix_of_another() {
-        // Written out: the write one lives in this crate, the vote one is reserved for the change
-        // that defines it.
-        let all: [&[u8]; 6] = [
-            ROOM_DOMAIN,
-            SEAT_DOMAIN,
-            PKP_DOMAIN,
-            READKEY_DOMAIN,
-            b"konclave-write-v1\0",
-            b"konclave-vote-v2\0",
-        ];
+        // The closed list lives in `domains`; this crate's own four are on it.
+        for d in [ROOM_DOMAIN, SEAT_DOMAIN, PKP_DOMAIN, READKEY_DOMAIN] {
+            assert!(crate::domains::ALL.contains(&d));
+        }
+        let all = crate::domains::ALL;
         for (i, a) in all.iter().enumerate() {
             for (j, b) in all.iter().enumerate() {
                 assert!(i == j || !b.starts_with(a), "{i} is a prefix of {j}");

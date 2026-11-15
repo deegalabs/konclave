@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256};
 use crate::epochs::{conventional_fee, GRACE_ACTIONS, MAINNET};
 
 /// Domain of the canonical content bytes.
-pub const CONTENT_DOMAIN: &[u8] = b"konclave-proposal-v1\0";
+pub const CONTENT_DOMAIN: &[u8] = crate::domains::PROPOSAL_V1;
 /// Domain of the content hash over those bytes.
-pub const HASH_DOMAIN: &[u8] = b"konclave-proposal-hash-v1\0";
+pub const HASH_DOMAIN: &[u8] = crate::domains::PROPOSAL_HASH_V1;
 
 /// The longest a proposal stays open after the approval that creates it.
 pub const EXPIRY_MAX_MS: i64 = 72 * 60 * 60 * 1000;
