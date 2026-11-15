@@ -57,6 +57,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [pKind, setPKind] = useState<PeriodKind>('all')
   const [pOffset, setPOffset] = useState(0)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'csv'>(null)
+  // The last export the browser did not save (#983): said where the buttons are.
+  const [exportFailed, setExportFailed] = useState(false)
   // The book by beneficiary (#778): opened on demand, since it reads every payroll's lines.
   const [showPivot, setShowPivot] = useState(false)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
@@ -225,8 +227,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     setExporting(kind)
     try {
       const data = await exportData(kind)
-      if (kind === 'xlsx') await exportLedgerXlsx(data)
-      else await exportLedgerCsv(data, locale)
+      const saved = kind === 'xlsx' ? await exportLedgerXlsx(data) : await exportLedgerCsv(data, locale)
+      setExportFailed(!saved)
     } finally {
       setExporting(null)
     }
@@ -288,6 +290,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.csvIncludes')} onClick={() => void exportAs('csv')}>{exporting === 'csv' ? t('ledger.exporting') : t('ledger.exportCsv')}</button>
       <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.xlsxIncludes')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
+      {exportFailed && <p className="hint err" role="alert">{t('download.failed')}</p>}
     </>
   )
 
