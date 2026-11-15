@@ -323,7 +323,7 @@ export const ptBR: Record<string, string> = {
   'nav.activity': 'Aprovações',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
-  'nav.vaultNav': 'Navegação do cofre',
+  'nav.vaultNav': 'Principal',
   'nav.bandVault': 'Cofre',
   'nav.bandMoney': 'Movimentos',
   'nav.bandGovernance': 'Governança',

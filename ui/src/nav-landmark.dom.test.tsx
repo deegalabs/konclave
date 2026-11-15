@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-// #318: the shell's navigation landmark is named in the member's language and says what it is. It
-// was named "Konclave", a brand, which a screen reader announces as "Konclave navigation" in English
-// on a Portuguese screen. The real Layout, the rest stood in.
+// #318: the shell's navigation landmark is named in the member's language and says which navigation
+// it is. It was named "Konclave", a brand, which describes nothing and was the same word in every
+// language. "Main"/"Principal": the reader adds the role ("navigation") itself. The real Layout,
+// the rest stood in.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
