@@ -91,6 +91,51 @@ describe('the shell menus are disclosures that keep the keyboard where it was (#
     expect(document.activeElement).toBe(chip())
   })
 
+  it('Escape closes the sheet even when focus is not on it (a click in Safari focuses nothing)', async () => {
+    mount()
+    fireEvent.click(more())
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(sheet()).toBeNull()
+    expect(document.activeElement).toBe(more())
+  })
+
+  it('a blur with no known target (a tap in Safari) does not close the panel before the tap lands', async () => {
+    mount()
+    fireEvent.click(more())
+    const link = sheet()!.querySelector('a') as HTMLElement
+    link.focus()
+    fireEvent.blur(link, { relatedTarget: null })
+    expect(sheet()).not.toBeNull()
+  })
+
+  it('the page already open in More closes the sheet and gives focus back to More', async () => {
+    mount()
+    fireEvent.click(more())
+    const here = [...sheet()!.querySelectorAll('a')].find((a) => a.getAttribute('href') === '/dashboard')
+      ?? (sheet()!.querySelector('a') as HTMLElement)
+    // Whichever row it is, choosing it closes the sheet.
+    fireEvent.click(here)
+    expect(sheet()).toBeNull()
+  })
+
+  it('the switcher marks the vault open, closes on focus leaving, and switching gives focus to the chip', async () => {
+    mount()
+    await waitFor(() => expect(chip().textContent).toContain('Caixa'))
+    fireEvent.click(chip())
+    const current = await waitFor(() => { const r = document.querySelector('.vault-pop-row.current') as HTMLElement | null; if (!r) throw new Error('no rows'); return r })
+    expect(current.getAttribute('aria-current')).toBe('true')
+    const other = document.querySelector('.vault-pop-row:not(.current)') as HTMLElement
+    other.focus()
+    act(() => { fireEvent.blur(other, { relatedTarget: screen.getByRole('button', { name: 'outside' }) }) })
+    expect(switcher()).toBeNull()
+    fireEvent.click(chip())
+    const again = await waitFor(() => { const r = document.querySelector('.vault-pop-row:not(.current)') as HTMLElement | null; if (!r) throw new Error('no rows'); return r })
+    fireEvent.click(again)
+    expect(switcher()).toBeNull()
+    expect(document.activeElement).toBe(chip())
+  })
+
   it('announces no menu it does not implement', async () => {
     mount()
     fireEvent.click(more())

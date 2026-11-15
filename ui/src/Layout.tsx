@@ -82,8 +82,9 @@ export default function Layout() {
   // Switch vaults: same-session-unlocked vaults open straight; otherwise route through /vaults for
   // the unlock gate (a net vault must decrypt its share into the session before it can be used).
   function switchTo(id: string) {
-    // The vault already open goes nowhere, so focus goes back to the chip, not to the page.
-    switchD.close(id === vault?.id)
+    // Focus back to the chip, which never unmounts: the row clicked does, and switching from the
+    // dashboard changes no route, so nothing else would take focus (a route change moves it on).
+    switchD.close(true)
     if (id === vault?.id) return
     setSelectedVault(id)
     // The rail names the vault the signer is on: re-read it, since Layout reads its own once (#610).
@@ -232,14 +233,15 @@ export default function Layout() {
 
         {moreOpen && (
           <>
-            <div className="nav-more-scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+            <div className="nav-more-scrim" onClick={() => moreD.close(true)} aria-hidden="true" />
             <div className="nav-more-sheet" {...moreD.panel} aria-label={t('nav.more')}>
               {overflow.map(([to, label, icon]) => (
                 <NavLink
                   key={to}
                   to={to}
-                  // The item already open changes no route, so the route change would not close it.
-                  onClick={() => setMoreOpen(false)}
+                  // The item already open changes no route, so the route change would not close it,
+                  // and focus goes back to More rather than to the page.
+                  onClick={() => moreD.close(loc.pathname === to)}
                   className={({ isActive }) => 'nav-more-row' + (isActive ? ' active' : '')}
                 >
                   {icon}<span>{label}</span>
@@ -280,7 +282,7 @@ export default function Layout() {
 
             {switchOpen && (
               <>
-                <div className="nav-more-scrim vault-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
+                <div className="nav-more-scrim vault-scrim" onClick={() => switchD.close(true)} aria-hidden="true" />
                 <div className="vault-pop" {...switchD.panel} aria-label={t('nav.switchVault')}>
                   {vaults.map((v) => (
                     <button
@@ -295,7 +297,7 @@ export default function Layout() {
                       {v.id === vault?.id && <span className="vp-check" aria-hidden="true">✓</span>}
                     </button>
                   ))}
-                  <Link to="/vaults" className="vault-pop-manage" onClick={() => setSwitchOpen(false)}>{t('nav.switchVault')} ▾</Link>
+                  <Link to="/vaults" className="vault-pop-manage" onClick={() => switchD.close(loc.pathname === '/vaults')}>{t('nav.switchVault')} <span aria-hidden="true">▾</span></Link>
                 </div>
               </>
             )}
