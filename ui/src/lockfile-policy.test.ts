@@ -1,0 +1,97 @@
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+import { classify, weakenings, withAbsurdAge, withoutTrustExcludes } from '../../scripts/check-lockfile-policy.mjs'
+
+// The CI check of the lockfile against the supply-chain settings (#820) runs pnpm 12 and reads its
+// answer. These pin how it reads that answer, so that red means "refused", a registry outage is never
+// read as a pass, and its two controls really take the rules away.
+const workspace = readFileSync(fileURLToPath(new URL('../../pnpm-workspace.yaml', import.meta.url)), 'utf8')
+
+describe('reading what pnpm answered', () => {
+  it('passes only on a clean exit that says the lockfile passes', () => {
+    expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries in 4.4s)')).toEqual({ outcome: 'passes' })
+    // A clean exit that did not say it verified anything (a pnpm that skipped the check) is not a pass.
+    expect(classify(0, 'Done in 1.1s using pnpm v12.21.0').outcome).toBe('could not verify')
+  })
+
+  it('reads a named policy violation as refused, with the rule it broke', () => {
+    expect(classify(1, 'Error: ERR_PNPM_TRUST_DOWNGRADE\n undici-types@6.21.0 High-risk trust downgrade')).toEqual({
+      outcome: 'refused',
+      codes: ['ERR_PNPM_TRUST_DOWNGRADE'],
+    })
+    expect(classify(1, 'ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION').outcome).toBe('refused')
+  })
+
+  it('trusts neither half alone: a refusal code with a clean exit, or the pass line with a failed one', () => {
+    expect(classify(0, 'ERR_PNPM_TRUST_DOWNGRADE').outcome).toBe('could not verify')
+    expect(classify(1, '✓ Lockfile passes supply-chain policies (646 entries)').outcome).toBe('could not verify')
+  })
+
+  it('reads a locked tarball the registry does not serve as refused, not as an outage', () => {
+    expect(classify(1, 'ERR_PNPM_TARBALL_URL_MISMATCH').outcome).toBe('refused')
+    expect(classify(1, 'ERR_PNPM_MISSING_TARBALL_INTEGRITY').outcome).toBe('refused')
+  })
+
+  it('reads a registry it could not reach as "could not verify", never as a pass or a refusal', () => {
+    expect(classify(1, 'ERR_PNPM_META_FETCH_FAIL GET http://127.0.0.1:9/semver: connect ECONNREFUSED').outcome).toBe('could not verify')
+    expect(classify(null, '').outcome).toBe('could not verify') // killed by the timeout
+  })
+})
+
+describe('the controls take the rules away', () => {
+  it('removes every trust exclude and nothing else', () => {
+    const out = withoutTrustExcludes(workspace)
+    expect(workspace).toContain('trustPolicyExclude:')
+    expect(out).not.toContain('trustPolicyExclude')
+    expect(out).not.toMatch(/^\s+- (semver|undici-types|"@trickfilm400)/m)
+    for (const key of ['packages:', 'minimumReleaseAge:', 'trustPolicy: no-downgrade', 'blockExoticSubdeps: true']) expect(out).toContain(key)
+  })
+
+  it('sets a ten-year minimum age, which the locked packages cannot all meet, and refuses a workspace without one', () => {
+    expect(withAbsurdAge(workspace)).toMatch(/^minimumReleaseAge: 5256000/m)
+    expect(() => withAbsurdAge('packages:\n  - ui\n')).toThrow(/no minimumReleaseAge/)
+  })
+})
+
+// What `pnpm config list --json` (pnpm 12.21.0) reports for the committed workspace and .npmrc.
+const resolved = {
+  minimumReleaseAge: 1440,
+  trustPolicy: 'no-downgrade',
+  blockExoticSubdeps: true,
+  trustPolicyExclude: ['semver@6.3.1', '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1', 'undici-types@6.21.0'],
+  registry: 'https://registry.npmjs.org/',
+  registries: {
+    'https://npm.jsr.io/': { scopes: ['@jsr'] },
+    'https://npm.pkg.github.com/': { prefix: 'gh' },
+    'https://registry.npmjs.org/': { scopes: ['@'], prefix: 'npmjs' },
+  },
+}
+
+describe('settings weaker than documented are refused, as pnpm itself resolved them', () => {
+  it('accepts the settings as committed', () => {
+    expect(weakenings(resolved)).toEqual([])
+  })
+
+  it('refuses each weakening, naming it', () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ minimumReleaseAge: 1 }, 'minimumReleaseAge'],
+      [{ minimumReleaseAge: undefined }, 'minimumReleaseAge'],
+      [{ trustPolicy: 'off' }, 'trustPolicy'],
+      [{ blockExoticSubdeps: false }, 'blockExoticSubdeps'],
+      [{ trustPolicyExclude: [...resolved.trustPolicyExclude, 'evil-pkg'] }, 'name@exact-version'],
+      [{ trustPolicyExclude: ['evil-*@1.0.0'] }, 'name@exact-version'],
+      [{ minimumReleaseAgeExclude: ['left-pad'] }, 'minimumReleaseAgeExclude'],
+      [{ trustPolicyIgnoreAfter: 60 }, 'trustPolicyIgnoreAfter'],
+      [{ trustLockfile: true }, 'trustLockfile'],
+      [{ registry: 'https://example.invalid/' }, 'registry'],
+      [{ registries: { ...resolved.registries, 'https://example.invalid/': { scopes: ['@evil'] } } }, 'registry'],
+    ]
+    for (const [change, named] of cases) expect(weakenings({ ...resolved, ...change }).join(' '), named).toContain(named)
+  })
+
+  it('removing the excludes fails loudly when there is nothing to remove', () => {
+    expect(() => withoutTrustExcludes('packages:\n  - ui\n')).toThrow(/could not remove/)
+  })
+})
