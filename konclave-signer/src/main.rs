@@ -83,10 +83,10 @@ enum Cmd {
 
 /// The confirmations a vault's build asks of its notes (#870), set here by name so a library update
 /// cannot change them unnoticed: 3 for the wallet's own change and the anchor depth, 10 for notes
-/// received from others. These are ZIP 315's counts. Since NU7 blocks come every 25 seconds, so the
+/// received from others. These are ZIP 315's counts. Since NU7, blocks come every 25 seconds, so the
 /// same counts are about a third of the time they were; they stay ZIP 315's because the library
 /// warns that a policy of one's own can make a wallet's transactions distinguishable, and ZIP 218
-/// does not argue for changing them. Revisit when ZIP 315 is updated for NU7.
+/// does not argue for reducing them. Revisit when ZIP 315 is updated for NU7.
 const TRUSTED_CONFIRMATIONS: u32 = 3;
 const UNTRUSTED_CONFIRMATIONS: u32 = 10;
 
@@ -470,6 +470,10 @@ mod tests {
     // at action index 0 (the signed vector applies that one signature). This is the post-NU6.3
     // replacement for the pre-Ironwood Orchard (v1 PCZT) vectors; see
     // temp/IRONWOOD-PRODUCTIZATION-PLAN.md for how the clean cut at activation is sequenced.
+    const IW_PROVEN: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
+    const IW_SIGNED: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
+    const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
+
     /// #870: the vault's build asks ZIP 315's confirmation counts by name, and the library's default
     /// is still those same counts: a library update that moves either fails here instead of moving
     /// the vault's anchor depth unnoticed.
@@ -489,11 +493,16 @@ mod tests {
         let body = &src[src.find("fn build_payroll(").unwrap()..src.find("#[cfg(test)]").unwrap()];
         assert!(body.contains("vault_confirmations()"));
         assert!(!body.contains(concat!("ConfirmationsPolicy::", "default()")));
+        // The app says the same counts (ui/src/api.ts, the "waiting for confirmations" line): one
+        // rule, so the screen cannot keep a number the build no longer asks.
+        let ui = include_str!("../../ui/src/api.ts");
+        assert!(ui.contains(&format!(
+            "CONFIRMATIONS_TRUSTED = {TRUSTED_CONFIRMATIONS}\n"
+        )));
+        assert!(ui.contains(&format!(
+            "CONFIRMATIONS_UNTRUSTED = {UNTRUSTED_CONFIRMATIONS}\n"
+        )));
     }
-
-    const IW_PROVEN: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
-    const IW_SIGNED: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
-    const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
 
     fn parse(bytes: &[u8]) -> Pczt {
         Pczt::parse(bytes).expect("fixture is a valid PCZT")
