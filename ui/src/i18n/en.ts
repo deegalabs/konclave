@@ -133,7 +133,8 @@ export const en: Record<string, string> = {
 
   'seal.caption': 'Signatures',
   'secret.tarja': 'SEALED',
-  'secret.hidden': 'hidden',
+  'secret.hidden': 'amount hidden',
+  'secret.reveal': 'Reveal amounts',
   'stepper.define': 'Define',
   'stepper.invite': 'Invite',
   'stepper.create': 'Create',
@@ -664,6 +665,7 @@ export const en: Record<string, string> = {
   'dashboard.compConfirming': 'Confirming',
   'dashboard.compAria': 'Free {free} ZEC, reserved {reserved} ZEC, confirming {confirming} ZEC',
   'dashboard.compAriaHidden': 'Balance composition, amounts hidden',
+  'dashboard.spendHidden': 'Amounts are hidden. Reveal them to see spending by month.',
   'dashboard.overCommitted': 'Open proposals add up to more than the vault can spend right now. One of them will not be payable.',
   'dashboard.walletNotConnected': 'Wallet not connected',
   'dashboard.walletNotConnectedNote': 'The balance appears once the vault syncs with the network.',

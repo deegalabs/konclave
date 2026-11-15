@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
-import { Secret } from '../components'
+import { SentenceWithSecret, SECRET_MARK } from '../components'
 import { vaultStatus, readAt, readIsStale, openBadgeKey } from '../vault-status'
 import { TipAnchor, TipButton, TipGroup } from '../card-tip'
 import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
@@ -501,7 +501,6 @@ export default function Vaults() {
                   const at = readAt(st, free)
                   const stale = at !== null && readIsStale(at)
                   // The amount sits under the veil inside the sentence, wherever the language puts it.
-                  const [pre, post] = t('vaults.badgeFree', { amount: '\u0000' }).split('\u0000')
                   return (
                     <div className={'rd-figs' + (stale ? ' stale' : '')}>
                       <div className="rd-badges">
@@ -519,7 +518,7 @@ export default function Vaults() {
                           // The veil is the one control here, so it carries the tip: on a phone it is what a finger taps.
                           <TipAnchor id={tid('free')} tip={t('vaults.tipFree')}>
                             {({ 'aria-describedby': describedBy, ...barEvents }) => (
-                              <span className="rd-badge">{pre}<Secret sm describedBy={describedBy} barEvents={barEvents}><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret>{post}</span>
+                              <span className="rd-badge"><SentenceWithSecret sentence={t('vaults.badgeFree', { amount: SECRET_MARK })} sm describedBy={describedBy} barEvents={barEvents}><span>{fmtZec(zatToZec(st.freeZat!))}</span></SentenceWithSecret></span>
                             )}
                           </TipAnchor>
                         )}

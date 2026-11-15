@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
-import { BannerWarn, Seal, Secret, RevealButton } from '../components'
+import { BannerWarn, Seal, Secret, SentenceWithSecret, SECRET_MARK, RevealButton } from '../components'
 import { SkeletonStat, SkeletonRows, SkeletonDetail } from '../skeleton'
 import { DashboardSkeleton } from '../dashboard-skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
@@ -81,15 +81,6 @@ function lineKey(band: Band, personal: boolean): string {
 /** What a proposal is about, in the member's own words when they left any. */
 function whatOf(p: Proposal, t: (k: string) => string): string {
   return proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
-}
-
-/** A sentence with its amount under the veil, wherever the language puts it. The sentence comes in
- *  with a NUL where the amount goes; `**` around it (the dictionary's bold) becomes a <b>. */
-function aroundAmount(sentence: string, amt: string): ReactNode {
-  const [pre = '', post = ''] = sentence.split('\u0000')
-  const bold = pre.endsWith('**') && post.startsWith('**')
-  const figure = <Secret sm>{amt}</Secret>
-  return <>{bold ? pre.slice(0, -2) : pre}{bold ? <b>{figure}</b> : figure}{bold ? post.slice(2) : post}</>
 }
 
 export default function Dashboard() {
@@ -567,7 +558,9 @@ export default function Dashboard() {
               {spendSeries.length >= 2 && (
                 <section className="panel">
                   <h3>{t('dashboard.spendByMonth')}</h3>
-                  <SpendBars data={spendSeries} />
+                  {/* Each bar's title and the table behind the chart carry every month's figure, so
+                      the chart is drawn only once revealed (as Analyses does), never under a bar. */}
+                  {revealed ? <SpendBars data={spendSeries} /> : <p className="hint">{t('dashboard.spendHidden')}</p>}
                 </section>
               )}
               {part.considered > 0 && (
@@ -650,7 +643,7 @@ export default function Dashboard() {
             <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
               <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
               <span>{hasFree
-                ? aroundAmount(t('dashboard.readyFree', { amt: '\u0000' }), fmtZecExact((parts?.freeZat ?? 0) / 1e8))
+                ? <SentenceWithSecret sentence={t('dashboard.readyFree', { amt: SECRET_MARK })} sm>{fmtZecExact((parts?.freeZat ?? 0) / 1e8)}</SentenceWithSecret>
                 : !hasBal
                   ? t('dashboard.readyFreeUnknown')
                   : t('dashboard.readyNoFree')}</span>
@@ -730,7 +723,7 @@ export default function Dashboard() {
                       same money counted twice, on the balance card. The composition bar (when
                       `parts` is available) shows the split honestly; this is its fallback and has
                       to be equally honest. */}
-                  {!parts && <span className="pd">{aroundAmount(t('dashboard.confirming', { amt: '\u0000' }), fmtZecExact(pendNum))}</span>}
+                  {!parts && <span className="pd"><SentenceWithSecret sentence={t('dashboard.confirming', { amt: SECRET_MARK })} sm>{fmtZecExact(pendNum)}</SentenceWithSecret></span>}
                   {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.
@@ -807,7 +800,7 @@ export default function Dashboard() {
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
               <span className={'kpi-v' + (paidTxt.length > 7 ? ' kpi-long' : '')}><Secret sm><b>{paidTxt}</b></Secret> <span className="kpi-u">ZEC</span></span>
-              {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
+              {usdPaid && <span className="kpi-sub">≈ <Secret sm>{usdPaid}</Secret></span>}
             </div>
           </section>
         )}

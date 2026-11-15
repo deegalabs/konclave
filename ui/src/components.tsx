@@ -1,5 +1,5 @@
 import { LangToggle } from './AppPrefs'
-import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { veil } from './veil'
@@ -165,7 +165,7 @@ export function Letterhead({ right }: { right?: ReactNode }) {
 /** A sensitive value hidden behind the redaction bar (tarja) until revealed.
  *  The bar is a real button so the privacy gesture is keyboard-operable. While hidden the value is
  *  not in the page at all (`veil`, #838): a placeholder of about its width stands in, and a screen
- *  reader hears "hidden" and then the control, and the value only once it is revealed.
+ *  reader hears "amount hidden" and then the control, and the value only once it is revealed.
  *  On paper a hidden value is not drawn at all (lacre.css, print): a bar over drawn text still
  *  leaves the text in the PDF, where it can be selected and copied (#811). */
 export function Secret({ children, sm, label, describedBy, barEvents }: {
@@ -177,10 +177,14 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
 }) {
   const { revealed, toggle } = useReveal()
   const t = useT()
+  const hiddenId = useId()
+  // The spoken word describes the control, so a keyboard user landing on a bar hears the state there
+  // and not only the name; a tip's own id rides beside it.
+  const describedByIds = [revealed ? '' : hiddenId, describedBy ?? ''].filter(Boolean).join(' ') || undefined
   return (
     <span className={'secret' + (sm ? ' sm' : '') + (revealed ? ' on' : '')}>
       <span className="secret-val">{revealed ? children : veil(children)}</span>
-      {!revealed && <span className="visually-hidden">{t('secret.hidden')}</span>}
+      {!revealed && <span id={hiddenId} className="visually-hidden">{t('secret.hidden')}</span>}
       <button
         type="button"
         className="bar"
@@ -188,11 +192,32 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
         {...barEvents}
         onClick={(e) => { toggle(); barEvents?.onClick?.(e) }}
         aria-pressed={revealed}
-        aria-describedby={describedBy}
-        aria-label={(revealed ? t('common.hide') : t('common.reveal')) + (label ? `: ${label}` : '')}
+        aria-describedby={describedByIds}
+        // One name; `aria-pressed` carries the state. A name that flipped to "Hide" while the button
+        // also said "pressed" told the state twice.
+        aria-label={t('secret.reveal') + (label ? `: ${label}` : '')}
       />
     </span>
   )
+}
+
+/** The mark a sentence carries where its amount goes. */
+export const SECRET_MARK = '\u0000'
+
+/** A sentence with its amount under the bar, wherever the language puts it: the ONE rule for it.
+ *  Translate with `{ amount: SECRET_MARK }` and pass the result as `sentence`; `children` is the
+ *  amount, drawn only when revealed. The dictionary's `**` around the mark becomes a <b>. A sentence
+ *  with no mark is said as it is. */
+export function SentenceWithSecret({ sentence, children, ...secret }: {
+  sentence: string; children: ReactNode
+} & Omit<Parameters<typeof Secret>[0], 'children'>) {
+  const at = sentence.indexOf(SECRET_MARK)
+  if (at < 0) return <>{sentence}</>
+  const pre = sentence.slice(0, at)
+  const post = sentence.slice(at + SECRET_MARK.length)
+  const bold = pre.endsWith('**') && post.startsWith('**')
+  const figure = <Secret {...secret}>{children}</Secret>
+  return <>{bold ? pre.slice(0, -2) : pre}{bold ? <b>{figure}</b> : figure}{bold ? post.slice(2) : post}</>
 }
 
 /** The reveal / hide toggle. */

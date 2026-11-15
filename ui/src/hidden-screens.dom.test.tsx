@@ -108,7 +108,7 @@ describe('hidden, no screen carries a figure in its markup (#838)', () => {
     for (const f of ['1.23456789', '2.34567891']) expect(c.innerHTML, f).not.toContain(f)
   })
 
-  it('a proposal: its amount and a payroll line', async () => {
+  it('a proposal: its amount', async () => {
     const c = shell(<Proposal />).container
     await settle()
     expect(c.querySelector('.p-amt .secret')).not.toBeNull()
