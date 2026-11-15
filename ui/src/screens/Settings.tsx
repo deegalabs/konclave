@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
@@ -165,7 +165,15 @@ export default function Settings() {
   const [rotErr, setRotErr] = useState<string | null>(null)
   const [rotDone, setRotDone] = useState(false)
 
+  // A failed rotation re-enables the form: put focus back on the button that was pressed, which
+  // was disabled and lost it (the error line is role="alert"). Same as the /net protect form (#928).
+  const rotBtnRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { if (rotErr && !rotBusy) rotBtnRef.current?.focus() }, [rotErr, rotBusy])
+
   function resetRotate() {
+    // One guard for every way out (Cancel, Esc, backdrop, "export first"): the rotation finishes
+    // either way, and would then report on a dialog the member believes they cancelled.
+    if (rotBusy) return
     setRotOpen(false); setRotOld(''); setRotNew(''); setRotNew2(''); setRotErr(null); setRotDone(false)
   }
 
@@ -613,29 +621,29 @@ export default function Settings() {
                   and error prevention past the commit point prevents nothing. */}
               <div className="dlg-warn">
                 <b>{t('rotate.note')}</b>{' '}
-                <button type="button" className="lnk" onClick={() => { resetRotate(); setXpOpen(true) }}>
+                <button type="button" className="lnk" disabled={rotBusy} onClick={() => { resetRotate(); setXpOpen(true) }}>
                   {t('rotate.exportFirst')}
                 </button>
               </div>
               {rotErr && <div className="unlock-err" role="alert">{rotErr}</div>}
-              <label className="field">
-                <span>{t('rotate.currentLabel')}</span>
-                <PassphraseField value={rotOld} onChange={(v) => { setRotOld(v); setRotErr(null) }}
-                  placeholder={t('rotate.currentPlaceholder')} autoFocus
+              {/* readOnly while it verifies: what is sealed is what was typed at the press (#928). */}
+              <div className="field">
+                <PassphraseField label={t('rotate.currentLabel')} value={rotOld}
+                  onChange={(v) => { setRotOld(v); setRotErr(null) }}
+                  placeholder={t('rotate.currentPlaceholder')} autoFocus readOnly={rotBusy}
                   autoComplete="current-password" choosing={false} invalid={!!rotErr} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.newLabel')}</span>
-                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.new2Label')}</span>
-                <PassphraseField value={rotNew2} onChange={(v) => { setRotNew2(v); setRotErr(null) }}
-                  choosing={false} />
-              </label>
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.newLabel')} value={rotNew} readOnly={rotBusy}
+                  onChange={(v) => { setRotNew(v); setRotErr(null) }} />
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.new2Label')} value={rotNew2} readOnly={rotBusy}
+                  onChange={(v) => { setRotNew2(v); setRotErr(null) }} choosing={false} />
+              </div>
               <div className="unlock-btns">
-                <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
+                <button className="rd-enter" disabled={rotBusy} onClick={resetRotate}>{t('common.cancel')}</button>
+                <button className="rd-enter primary" ref={rotBtnRef} disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>
@@ -660,11 +668,11 @@ export default function Settings() {
             </Link>
           </p>
           {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
-          <label className="field">
-            <span>{t('export.currentLabel')}</span>
-            <PassphraseField value={xpPass} onChange={(v) => { setXpPass(v); setXpErr(null) }}
+          <div className="field">
+            <PassphraseField label={t('export.currentLabel')} value={xpPass}
+              onChange={(v) => { setXpPass(v); setXpErr(null) }}
               autoFocus autoComplete="current-password" choosing={false} invalid={!!xpErr} />
-          </label>
+          </div>
           <div className="unlock-btns">
             <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
               {t('export.copy')}

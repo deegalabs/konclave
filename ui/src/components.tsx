@@ -1,5 +1,5 @@
 import { LangToggle } from './AppPrefs'
-import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useT } from './i18n'
@@ -257,7 +257,7 @@ export function Stepper({ step }: { step: number }) {
  * are the real security lever (not the file format).
  */
 export function PassphraseField({
-  value, onChange, placeholder, inputClassName = 'input', autoFocus,
+  value, onChange, label, labelClassName = 'pf-caption', placeholder, inputClassName = 'input', autoFocus,
   /** `current-password` for a passphrase being VERIFIED, `new-password` for one being chosen.
    *  Without it a password manager cannot tell a rotation from a login and will not offer to
    *  update the stored entry - which matters most on the one vault whose only spare key is an
@@ -274,6 +274,11 @@ export function PassphraseField({
 }: {
   value: string
   onChange: (v: string) => void
+  /** The field's visible name, tied to the input here so no caller can leave it out. Not a
+   *  placeholder: that disappears as soon as the member types. */
+  label: string
+  /** Not `pf-label` (the strength text) or `pf-name` (the folhas list): both are taken. */
+  labelClassName?: string
   placeholder?: string
   inputClassName?: string
   autoFocus?: boolean
@@ -285,11 +290,14 @@ export function PassphraseField({
   invalid?: boolean
 }) {
   const t = useT()
+  const autoId = useId()
+  const inputId = id ?? autoId
   const [show, setShow] = useState(false)
   const s = scorePassphrase(value)
   const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
+      <label htmlFor={inputId} className={labelClassName}>{label}</label>
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
           field was silently inheriting that list's padding, negative margin, pointer cursor and
           hover gradient. Two components, one class prefix, different meanings. */}
@@ -304,7 +312,7 @@ export function PassphraseField({
           readOnly={readOnly}
           autoComplete={autoComplete}
           spellCheck={false}
-          id={id}
+          id={inputId}
           aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
         />

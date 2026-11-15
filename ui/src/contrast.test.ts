@@ -17,14 +17,18 @@ import { readFileSync } from 'node:fs'
 const css = readFileSync(new URL('./lacre.css', import.meta.url), 'utf8')
 const docsCss = readFileSync(new URL('./docs.css', import.meta.url), 'utf8')
 const appCss = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+const netCss = readFileSync(new URL('./net.css', import.meta.url), 'utf8')
 
-/** The declarations of one App.css rule, by its exact selector. */
-function appRule(selector: string): string {
+/** The declarations of one rule that starts its line, by its exact selector. */
+function ruleIn(source: string, file: string, selector: string): string {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const m = new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`).exec(appCss)
-  if (!m) throw new Error(`no rule for ${selector} in App.css`)
+  const m = new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`).exec(source)
+  if (!m) throw new Error(`no rule for ${selector} in ${file}`)
   return m[1]!
 }
+/** The declarations of one App.css rule, by its exact selector. */
+const appRule = (selector: string) => ruleIn(appCss, 'App.css', selector)
+const netRule = (selector: string) => ruleIn(netCss, 'net.css', selector)
 const tokenIn = (decls: string, prop: string) => new RegExp(`(?:^|[;{\\s])${prop}:\\s*var\\(--([a-z0-9-]+)\\)`).exec(decls)?.[1]
 
 /** The token a docs.css rule paints its TEXT with (`color:`, not `border-left-color:`). */
@@ -158,6 +162,41 @@ for (const theme of ['light', 'dark'] as const) {
     // reached 1.68, not the 3.05 it claimed - which is the reason this file exists.
     it('a control has a perceptible edge (1.4.11)', () => {
       for (const [name, bg] of [['page', page()], ['well', well()]] as const) {
+        expect(ratio(t('line-strong'), bg), `--line-strong on ${name}`).toBeGreaterThanOrEqual(3)
+      }
+    })
+
+    // The passphrase strength meter (PassphraseField). The label is 11px text on the dialog cards,
+    // which start at surface-2 and end at surface-1, so both are measured (the page is not where it
+    // renders). Each level paints from a token, never a hex, so a theme change moves it.
+    const LEVELS = [['s1', 'danger-text', 'danger'], ['s2', 'warn', 'warn'], ['s3', 'accent-text', 'accent'], ['s4', 'success-text', 'success']] as const
+    it('the strength label clears AA on both surfaces of the dialog cards', () => {
+      for (const [lvl, text] of LEVELS) {
+        const tok = tokenIn(appRule(`.pf-label.${lvl}`), 'color')
+        expect(tok, `.pf-label.${lvl} paints from a token`).toBe(text)
+        for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
+          expect(ratio(t(tok!), bg), `${lvl} --${tok} on ${name}`).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    })
+    it('the strength bars use the matching tokens and clear 3:1 on both surfaces', () => {
+      for (const [lvl, , bar] of LEVELS) {
+        const tok = tokenIn(appRule(`.pf-bar.on.${lvl}`), 'background')
+        expect(tok, `.pf-bar.on.${lvl} paints from a token`).toBe(bar)
+        for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
+          expect(ratio(t(tok!), bg), `${lvl} --${tok} on ${name}`).toBeGreaterThanOrEqual(3)
+        }
+      }
+    })
+    it('the field label (pf-caption) is muted text that clears AA on the well', () => {
+      expect(tokenIn(appRule('.pf-caption'), 'color')).toBe('text-muted')
+      expect(ratio(t('text-muted'), t('surface-2'))).toBeGreaterThanOrEqual(4.5)
+    })
+    // 1.4.11 for the create dialog's field: its edge is --line-strong (1.1 to 1.4:1 with --line).
+    // Locked, the fill is surface-2 too, so the edge is what keeps the field visible (3.07 minimum).
+    it('the create dialog field has a perceptible edge on both surfaces (1.4.11)', () => {
+      expect(netRule('.cv-input')).toMatch(/border:\s*1px solid var\(--line-strong\)/)
+      for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
         expect(ratio(t('line-strong'), bg), `--line-strong on ${name}`).toBeGreaterThanOrEqual(3)
       }
     })
