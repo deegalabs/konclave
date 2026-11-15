@@ -15,6 +15,39 @@ pub use zcash_protocol::consensus::NetworkType;
 /// address with no Orchard receiver (a shielded vault spend cannot pay it), and anything that is not
 /// a Zcash address.
 pub fn orchard_receiver(address: &str, network: NetworkType) -> Result<[u8; 43], String> {
-    let _ = (address, network);
-    todo!()
+    use zcash_address::unified::{Container, Receiver};
+    use zcash_address::{unified, ConversionError, TryFromAddress, ZcashAddress};
+
+    /// Carries out the one thing wanted: the Orchard receiver's raw bytes. Every other address kind
+    /// is refused, so a Sapling or transparent destination cannot decode to nothing and be read as
+    /// a match.
+    struct OrchardOnly([u8; 43]);
+    impl TryFromAddress for OrchardOnly {
+        type Error = String;
+        fn try_from_unified(
+            _: NetworkType,
+            ua: unified::Address,
+        ) -> Result<Self, ConversionError<Self::Error>> {
+            ua.items()
+                .into_iter()
+                .find_map(|r| match r {
+                    Receiver::Orchard(bytes) => Some(OrchardOnly(bytes)),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    ConversionError::User(
+                        "this unified address has no Orchard receiver, so a shielded vault \
+                         spend cannot pay it"
+                            .into(),
+                    )
+                })
+        }
+    }
+
+    let addr = ZcashAddress::try_from_encoded(address.trim())
+        .map_err(|e| format!("not a Zcash address: {e}"))?;
+    let OrchardOnly(bytes) = addr
+        .convert_if_network::<OrchardOnly>(network)
+        .map_err(|e| format!("no Orchard receiver: {e}"))?;
+    Ok(bytes)
 }
