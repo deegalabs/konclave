@@ -41,7 +41,7 @@ describe('RunwayPanel', () => {
     expect(html).toContain('1.0000 ZEC a month')
     expect(html).toContain('3.5 months')
     expect(html).toContain('<svg')
-    expect(html).toContain(SOURCE.replace("'", '&#x27;'))
+    expect(html).toContain(SOURCE.replaceAll("'", '&#x27;'))
     expect(html).toContain('At this pace the free funds would run out by March 2027.')
   })
 
