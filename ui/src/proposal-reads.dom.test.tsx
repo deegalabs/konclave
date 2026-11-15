@@ -19,11 +19,18 @@ const A = (c: string) => 'u1' + c.repeat(76)
 const OLD = A('o')
 const NEW = A('n')
 const T0 = 1759000000
-const row = (id: string, to: string, state: string, at: number) => ({
-  id, vault_id: VAULT, kind: 'payment', to, amount_zat: 100, proposer: 'Alice', state,
+const row = (id: string, to: string, state: string, at: number, amount_zat = 100) => ({
+  id, vault_id: VAULT, kind: 'payment', to, amount_zat, proposer: 'Alice', state,
   approvals: ['Alice'], refusals: [], threshold: 2, total: 2, created_at_unix: at, expiry_unix: 0,
 })
-const ROWS = [row('p-new', NEW, 'pending', T0 + 100), row('p-sent', OLD, 'sent', T0 + 50), row('old', OLD, 'confirmed', T0)]
+const ROWS = [
+  row('p-new', NEW, 'pending', T0 + 100),
+  // Paid ten times what OLD was paid three times before: only the real book makes this "above usual".
+  row('p-big', OLD, 'pending', T0 + 90, 1000),
+  row('p-sent', OLD, 'sent', T0 + 50),
+  row('old2', OLD, 'confirmed', T0 + 20),
+  row('old', OLD, 'confirmed', T0),
+]
 
 const polls: Array<() => void> = []
 
@@ -67,6 +74,15 @@ describe('the proposal screen reads the vault proposals once when it opens on th
     const s = await setup('p-new')
     // A real finding, not just the note's region: the book (the same list) never paid NEW.
     expect(await screen.findByText(en('unusual.first', { who: s.shortAddr(NEW) }))).toBeTruthy()
+    expect(s.lists()).toBe(1)
+  })
+
+  it('the note reads the real book from that one read: above usual needs the earlier payments', async () => {
+    const s = await setup('p-big')
+    // An empty or wrong book would say "no earlier payment"; only the list's three settled payments
+    // to OLD make 1000 "above usual".
+    expect(await screen.findByText(en('unusual.above', { who: s.shortAddr(OLD) }))).toBeTruthy()
+    expect(screen.queryByText(en('unusual.first', { who: s.shortAddr(OLD) }))).toBeNull()
     expect(s.lists()).toBe(1)
   })
 
