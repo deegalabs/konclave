@@ -4,8 +4,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Secret } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader } from '../page'
-import { Identicon } from '../avatar'
-import { getProposals, getVault, readTransactions, type Proposal, type WalletTx } from '../api'
+import { Identicon, seedForName } from '../avatar'
+import { getProposals, getVault, readTransactions, type Proposal, type Vault, type WalletTx } from '../api'
 import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { rankDesk, expiredByClock, stampKey, type Band } from '../desk'
@@ -23,11 +23,13 @@ import { useVaultReadable } from '../vault-readable'
 const CLOSED = new Set(['rejected', 'expired', 'cancelled', 'superseded'])
 const isClosed = (p: Proposal) => CLOSED.has(p.state) || expiredByClock(p)
 
-type RowProps = { p: Proposal; band?: Band; last?: boolean; personal: boolean; threshold: number; t: TFn; tr: TRichFn; open: (p: Proposal) => void }
+type RowProps = { p: Proposal; band?: Band; last?: boolean; personal: boolean; threshold: number; t: TFn; tr: TRichFn; open: (p: Proposal) => void; who: Who }
+/** The vault and its member list, for the proposer's face (#315). */
+type Who = { vaultId: string | null; list: Vault['member_list'] | null }
 
 // Module-level, so a poll does not remount every row (and drop the focus or hover a member has on
 // one). The title is the link; the whole row answers a click as a convenience, nothing more.
-function Row({ p, band, last, personal, threshold, t, tr, open }: RowProps) {
+function Row({ p, band, last, personal, threshold, t, tr, open, who }: RowProps) {
   const closed = isClosed(p)
   const sent = p.state === 'sent'
   // Neutral wording when the device does not know its member name (stampKey, desk.ts).
@@ -35,7 +37,7 @@ function Row({ p, band, last, personal, threshold, t, tr, open }: RowProps) {
   const tail = sent && p.txid ? `tx ${p.txid.slice(0, 8)}…` : closed ? '' : (p.expiry_unix ? expiryLabel(p.expiry_unix, t) : '')
   return (
     <div className={'plist-row' + (closed ? ' closed' : '')} role="listitem" onClick={() => open(p)}>
-      <Identicon seed={p.proposer} size={34} />
+      <Identicon seed={seedForName(who.vaultId, who.list, p.proposer)} size={34} />
       <div className="plist-main">
         <div className="plist-title">
           <Link to="/proposal" state={{ id: p.id }} className="plist-link" onClick={(e) => e.stopPropagation()}>
@@ -81,6 +83,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [unread, setUnread] = useState(false)
   const [threshold, setThreshold] = useState(2)
+  const [who, setWho] = useState<Who>({ vaultId: null, list: null })
   // The member name THIS device holds, from the on-device record; null when unknown (bridge mode),
   // in which case the groups speak of the vault, not of the person.
   const [me, setMe] = useState<string | null>(null)
@@ -117,6 +120,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
         if (!on) return
         if (v) {
           setThreshold(v.threshold)
+          setWho({ vaultId: v.id, list: v.member_list })
           try {
             const saved = await listVaults()
             if (on) setMe(saved.find((s) => s.id === v.id)?.myName ?? null)
@@ -177,7 +181,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const sentOpen = txs !== null ? sent.filter((p) => !isConfirmed(settlementOf(p, txs))) : []
   const sentUnknown = txsAsked && txs === null ? sent : []
   const closed = all.filter(isClosed)
-  const rowProps = { personal: desk.personal, threshold, t, tr, open }
+  const rowProps = { personal: desk.personal, threshold, t, tr, open, who }
 
   const body = (
     <>

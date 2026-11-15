@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark } from './components'
-import { Identicon } from './avatar'
+import { Identicon, memberSeed } from './avatar'
 import { useT, useI18n } from './i18n'
 import { useSeatRefusalCode } from './seat-registration'
 import { coordinatorCode, refusalKey } from './conclude-registration'
@@ -149,7 +149,7 @@ export default function Layout() {
   // so on every refresh a 2-of-2 vault flashed "2/3" with three strangers' faces under it, and a
   // vault that failed to load kept them. The shell says nothing until it knows.
   const quorum = vault ? `${vault.threshold}/${vault.total}` : null
-  const seeds = vault?.member_list?.length ? vault.member_list.slice(0, 3).map((m) => m.name) : []
+  const seeds = vault?.member_list?.length ? vault.member_list.slice(0, 3).map((_, i) => memberSeed(vault.id, i)) : []
 
   // Rail grouped into intent bands, ordered by the money LIFECYCLE (in -> propose -> govern), so a
   // governance vault reads as its flow rather than a flat wallet (ADR-0009, GSP IA #156, refined):

@@ -6,7 +6,7 @@ import { usePoll } from '../usePoll'
 import { Link, useLocation } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
-import { Identicon } from '../avatar'
+import { Identicon, seedForName } from '../avatar'
 import { fmtZecExact, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
@@ -49,6 +49,8 @@ export default function Proposal() {
   const feeEstimate = useFeeEstimate()
   const [rosterDiffers, setRosterDiffers] = useState(false)
   const [members, setMembers] = useState<string[]>([])
+  // The vault's id and member list, for each person's face (#315).
+  const [who, setWho] = useState<{ vaultId: string; list: { name: string }[] } | null>(null)
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
   // vault record. A device may only ever cast its OWN vote (never another member's).
   const [me, setMe] = useState<string | null>(null)
@@ -74,6 +76,7 @@ export default function Proposal() {
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
+        setWho({ vaultId: v.id, list: v.member_list })
         setRosterDiffers(!!v.roster_differs)
         try {
           const saved = await listVaults()
@@ -363,7 +366,7 @@ export default function Proposal() {
             const s = stance(m)
             return (
               <div className="who-row" key={m}>
-                <Identicon seed={m} size={30} />
+                <Identicon seed={seedForName(who?.vaultId, who?.list, m)} size={30} />
                 <span className="who-name">{m}</span>
                 <span className={'who-st ' + s.cls}>{s.label}</span>
               </div>

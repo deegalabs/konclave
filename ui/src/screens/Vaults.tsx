@@ -23,7 +23,7 @@ import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
 import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
-import { Identicon } from '../avatar'
+import { Identicon, memberSeed } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
 import PlainKeyNotice from '../PlainKeyNotice'
@@ -478,7 +478,7 @@ export default function Vaults() {
                 <h3>{v.name}</h3>
                 {plainKey[v.id] && <PlainKeyNotice vaultId={v.id} onSealed={() => setPlainKey((m) => ({ ...m, [v.id]: false }))} />}
                 <div className="rd-avatars">
-                  {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
+                  {avatars.slice(0, 4).map((_, i) => <Identicon key={i} seed={memberSeed(v.id, i)} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
                 {/* The vault's situation as this device last read it: the list reads nothing itself (a
