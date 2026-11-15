@@ -73,11 +73,12 @@ What is fixed and what is open, by kind of attack:
 
 - **Changing the app itself.** Open: every member using the web app loads it from our web host, so a
   compromised host could serve all of them a modified app at once, and the threshold would not
-  stop that. Since the release that ships it, anyone can check from outside the app that the web
-  app the site serves is a published release, file by file (`node scripts/verify-web.mjs`,
-  [docs/VERIFY-WEB.md](docs/VERIFY-WEB.md)). That is detection, for whoever runs it, at that moment:
-  it does not stop a compromised host, does not prove what another member received, and an
-  installed app (PWA) does not yet refuse an update that is not a release (#605). The desktop
+  stop that. From the first release that publishes a `web-manifest.json` (the release after
+  0.21.0), anyone can check from outside the app that the web app the site serves is that
+  release, file by file (`node scripts/verify-web.mjs`, [docs/VERIFY-WEB.md](docs/VERIFY-WEB.md)).
+  That is detection, for whoever runs it, at that moment: it does not stop a compromised host, does
+  not prove what another member received, and an installed app (PWA) does not yet refuse an update
+  that is not a release (#605). The desktop
   installers are not code-signed (#606).
 - **Changing what a payment pays.** Fixed: a device signs only the message it derives from its
   own copy of the transaction, in both signing rounds, so another member cannot swap the

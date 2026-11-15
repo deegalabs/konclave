@@ -10,6 +10,10 @@
 //     people, or change after this run;
 //   - it cannot see a file nothing references, which a manifest cannot list (a host can serve more
 //     than the build: www.konclave.xyz answers on /_vercel/ paths of its own);
+//   - it trusts the manifest it is given (by default the one attached to the GitHub release; check
+//     it with the attestation, or by rebuilding, docs/VERIFY-WEB.md);
+//   - without --expect-version, an older published release passes too;
+//   - it checks the site, not the copy a member's browser or installed app is already running;
 //   - it does NOT stop a compromised server, and it does not check the desktop app (#606).
 
 import { parseManifest, fingerprint, sha256Hex, isVersion, MANIFEST_FILE } from './web-manifest.mjs'
@@ -18,6 +22,7 @@ import { commitMismatch, WEB_ORIGIN } from './what-is-running.mjs'
 export const REPO = 'deegalabs/konclave'
 export const MAX_FILE_BYTES = 16 * 1024 * 1024
 const TIMEOUT_MS = 20_000
+const LIMITS = 'This is what this fetch received, from this network, now. It cannot see files nothing references, does not prove what another member received, and does not stop a compromised server. On the web, Konclave only lives at www.konclave.xyz: check the address bar too.'
 
 /** Exit codes, as verify-proof.mjs: a mismatch and "could not check" are different answers. */
 export const EXIT = { PASS: 0, FAIL: 1, INCONCLUSIVE: 2, USAGE: 3 }
@@ -64,13 +69,18 @@ async function get(fetchFn, url, { follow = false } = {}) {
 const text = (bytes) => new TextDecoder().decode(bytes)
 
 /**
- * Checks `site` against a release manifest. `manifest` is { text, from } when the caller already has
+ * Checks `site` against a release manifest. `manifest` is { bytes, from } when the caller already has
  * it, or omitted to fetch the release asset of the version the site claims. Returns { code, lines }.
  */
 export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fetchFn = fetch }) {
   const lines = []
   const out = (s) => lines.push(s)
-  const done = (code) => ({ code, lines })
+  // Every run ends with what the answer does not cover, whatever the answer was.
+  const done = (code) => {
+    if (code === EXIT.FAIL) out('On a FAIL: do not unlock a vault with this app, tell the other members of your vault, and report it (SECURITY.md).')
+    out(LIMITS)
+    return { code, lines }
+  }
   const why = badSite(site)
   if (why) { out(`USAGE ${why}`); return done(EXIT.USAGE) }
   if (expectVersion !== undefined && !isVersion(expectVersion)) { out(`USAGE --expect-version ${expectVersion} is not a release version`); return done(EXIT.USAGE) }
@@ -87,9 +97,9 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
       return done(EXIT.FAIL)
     }
 
-    let mText = manifest?.text
+    let mBytes = manifest?.bytes
     let from = manifest?.from
-    if (mText === undefined) {
+    if (mBytes === undefined) {
       from = manifestUrl(claimed.version)
       const mr = await get(fetchFn, from, { follow: true })
       if (mr.status === 404) {
@@ -97,11 +107,11 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
         return done(EXIT.INCONCLUSIVE)
       }
       if (mr.status !== 200 || !mr.bytes) { out(`INCONCLUSIVE ${from} answered HTTP ${mr.status}`); return done(EXIT.INCONCLUSIVE) }
-      mText = text(mr.bytes)
+      mBytes = mr.bytes
     }
     let m
-    try { m = parseManifest(mText) } catch (e) { out(`USAGE ${e.message} (${from})`); return done(EXIT.USAGE) }
-    out(`manifest ${from}: v${m.version}, commit ${m.commit.slice(0, 7)}, ${m.files.length} files, SHA-256 ${await fingerprint(mText)}`)
+    try { m = parseManifest(mBytes) } catch (e) { out(`USAGE ${e.message} (${from})`); return done(EXIT.USAGE) }
+    out(`manifest ${from}: v${m.version}, commit ${m.commit.slice(0, 7)}, ${m.files.length} files, SHA-256 ${await fingerprint(mBytes)}`)
 
     if (claimed.version !== m.version) {
       out(`FAIL the site says ${claimed.version}, the manifest is of ${m.version}`)
@@ -109,16 +119,19 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
     }
     const cm = commitMismatch(claimed.commit, m.commit)
     if (cm !== null) {
-      out(`NOT A RELEASE the site's commit is ${cm}, not release v${m.version}'s. main moves only by a release merge or a tagged hotfix, so this is a deploy outside that rule (main ahead of the latest tag) or a build that is not ours; either way, not a published release`)
+      out(`NOT A RELEASE the site's commit is ${cm}, not release v${m.version}'s. main moves only by a release merge or a tagged hotfix (docs/RELEASING.md), so this is a deploy outside that rule (main ahead of the latest tag) or a build that is not ours; either way, not a published release`)
       return done(EXIT.FAIL)
     }
 
     let failed = 0
     let unknown = 0
+    let headerFailed = 0
     const check = async (label, path, expected) => {
       try {
         const r = await get(fetchFn, `${site}/${path}`)
         if (r.tooBig) { failed++; out(`FAIL ${label} (larger than ${MAX_FILE_BYTES} bytes)`); return null }
+        // A server error says nothing about the bytes: inconclusive, not a mismatch.
+        if (r.status >= 500) { unknown++; out(`INCONCLUSIVE ${label} (HTTP ${r.status})`); return null }
         if (r.status !== 200) { failed++; out(`FAIL ${label} (HTTP ${r.status})`); return null }
         const got = await sha256Hex(r.bytes)
         if (got !== expected.sha256) { failed++; out(`FAIL ${label} (expected ${expected.sha256}, got ${got})`); return null }
@@ -143,13 +156,13 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
         for (const { name, value } of m.headers) {
           const got = root.headers.get(name)
           if (got === value) out(`PASS header ${name}`)
-          else { failed++; out(`FAIL header ${name} (expected ${JSON.stringify(value)}, got ${got === null ? 'none' : JSON.stringify(got)})`) }
+          else { headerFailed++; out(`FAIL header ${name} (expected ${JSON.stringify(value)}, got ${got === null ? 'none' : JSON.stringify(got)})`) }
         }
       }
     }
 
-    out(`${failed ? 'FAIL' : unknown ? 'INCONCLUSIVE' : 'PASS'}: ${m.files.length + 1 - failed - unknown} checked files matched, ${failed} failed, ${unknown} could not be fetched.`)
-    out('This is what this fetch received, from this network, now. It cannot see files nothing references, does not prove what another member received, and does not stop a compromised server. Konclave only lives at www.konclave.xyz: check the address bar too.')
+    out(`${failed || headerFailed ? 'FAIL' : unknown ? 'INCONCLUSIVE' : 'PASS'}: ${m.files.length + 1 - failed - unknown} of ${m.files.length + 1} files matched (/ included), ${failed} failed, ${unknown} could not be fetched; ${m.headers.length - headerFailed} of ${m.headers.length} headers matched.`)
+    failed += headerFailed
     return done(failed ? EXIT.FAIL : unknown ? EXIT.INCONCLUSIVE : EXIT.PASS)
   } catch (e) {
     if (e instanceof Inconclusive) { out(`INCONCLUSIVE ${e.message}`); return done(EXIT.INCONCLUSIVE) }

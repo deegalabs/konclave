@@ -36,7 +36,7 @@ const manifestOf = (s: Site, over: Partial<{ version: string; commit: string }> 
 
 beforeAll(async () => {
   server = createServer((req, res) => {
-    const path = decodeURIComponent((req.url ?? '/').split('?')[0]).replace(/^\//, '') || 'index.html'
+    const path = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '').replace(/^\//, '') || 'index.html'
     if (site.redirect && path === site.redirect) { res.writeHead(308, { Location: 'https://elsewhere.example/' }); res.end(); return }
     const body = site.files[path]
     if (body === undefined) { res.writeHead(404); res.end(); return }
@@ -52,7 +52,7 @@ const run = async (opts: Record<string, unknown> = {}) => {
   const r = await verifyWeb({ site: origin, ...opts })
   return { code: r.code as number, out: (r.lines as string[]).join('\n') }
 }
-const withManifest = (text: string) => ({ manifest: { text, from: 'test' } })
+const withManifest = (text: string) => ({ manifest: { bytes: new TextEncoder().encode(text), from: 'test' } })
 
 describe('verify-web (#605)', () => {
   it('passes a site that serves exactly the release, files and headers', async () => {
@@ -92,6 +92,8 @@ describe('verify-web (#605)', () => {
     site.headers['Content-Security-Policy'] = "default-src *"
     const { code, out } = await run(withManifest(m))
     expect(out).toMatch(/FAIL header Content-Security-Policy \(expected "default-src 'self'", got "default-src \*"\)/)
+    // Files and headers are counted apart: every file matched, one header did not.
+    expect(out).toMatch(/FAIL: 4 of 4 files matched \(\/ included\), 0 failed, 0 could not be fetched; 1 of 2 headers matched\./)
     expect(code).toBe(EXIT.FAIL)
   })
 
@@ -100,6 +102,9 @@ describe('verify-web (#605)', () => {
     const { code, out } = await run(withManifest(manifestOf(site, { commit: 'f'.repeat(40) })))
     expect(out).toMatch(/NOT A RELEASE/)
     expect(out).not.toMatch(/PASS assets/)
+    // An early answer still ends with what to do and what the check does not cover.
+    expect(out).toMatch(/On a FAIL: do not unlock a vault/)
+    expect(out).toMatch(/does not stop a compromised server/)
     expect(code).toBe(EXIT.FAIL)
   })
 
@@ -109,6 +114,16 @@ describe('verify-web (#605)', () => {
     const r = await run(withManifest(manifestOf(site, { version: '0.21.0' })))
     expect(r.out).toMatch(/the site says 0\.22\.0, the manifest is of 0\.21\.0/)
     expect(r.code).toBe(EXIT.FAIL)
+  })
+
+  it('is inconclusive on a server error, which says nothing about the bytes', async () => {
+    site = fresh()
+    const m = manifestOf(site)
+    const fetchFn = (url: string, init: RequestInit) =>
+      url.endsWith('/assets/index-AAAAAAAA.js') ? Promise.resolve(new Response('busy', { status: 503 })) : fetch(url, init)
+    const r = await run({ ...withManifest(m), fetchFn })
+    expect(r.out).toMatch(/INCONCLUSIVE assets\/index-AAAAAAAA\.js \(HTTP 503\)/)
+    expect(r.code).toBe(EXIT.INCONCLUSIVE)
   })
 
   it('treats a malformed manifest as a usage error, not a verdict', async () => {
