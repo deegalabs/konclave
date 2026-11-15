@@ -39,7 +39,8 @@ const RUN_TIMEOUT_MS = 90_000
 export function classify(status, output) {
   // The pass counts only from the pinned pnpm: a manifest can make pnpm hand the install to another
   // release, and that release's answer is not the one this check vouches for.
-  if (status === 0 && PASSED.test(output) && output.includes(`using pnpm v${PNPM_VERIFY_VERSION}`)) return { outcome: 'passes' }
+  const last = output.trim().split('\n').pop() ?? ''
+  if (status === 0 && PASSED.test(output) && last.endsWith(`using pnpm v${PNPM_VERIFY_VERSION}`)) return { outcome: 'passes' }
   const codes = REFUSALS.filter((c) => output.includes(c))
   if (status !== 0 && codes.length > 0) return { outcome: 'refused', codes }
   return { outcome: 'could not verify' }
@@ -91,9 +92,11 @@ export function handoffs(manifests, lock) {
   for (const [path, text] of Object.entries(manifests)) {
     if (JSON.parse(text).devEngines?.packageManager !== undefined) why.push(`${path} sets devEngines.packageManager`)
   }
-  const head = lock.split(/^importers:/m)[0]
+  // pnpm writes those blocks in a first YAML document (`---`, under `importers: .:`); this repository
+  // has none, so a second document and either key anywhere are refused.
+  if (/^---\s*$/m.test(lock)) why.push('pnpm-lock.yaml holds more than one document (a package-manager or config-dependency block)')
   for (const key of ['packageManagerDependencies', 'configDependencies']) {
-    if (new RegExp(`^\\s*${key}:`, 'm').test(head)) why.push(`pnpm-lock.yaml sets ${key}`)
+    if (new RegExp(`^\\s*${key}:`, 'm').test(lock)) why.push(`pnpm-lock.yaml sets ${key}`)
   }
   return why
 }

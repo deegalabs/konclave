@@ -15,6 +15,8 @@ describe('reading what pnpm answered', () => {
     // The same words from another pnpm release, which a manifest can make pnpm hand the install to.
     expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries)\nDone in 1s using pnpm v12.20.0').outcome).toBe('could not verify')
     expect(classify(0, '✓ Lockfile passes supply-chain policies (646 entries)').outcome).toBe('could not verify')
+    // The version line counts only as the last line: the one the release that ran prints.
+    expect(classify(0, 'Done in 1s using pnpm v12.21.0\n✓ Lockfile passes supply-chain policies\nDone in 1s using pnpm v12.20.0').outcome).toBe('could not verify')
     // A clean exit that did not say it verified anything (a pnpm that skipped the check) is not a pass.
     expect(classify(0, 'Done in 1.1s using pnpm v12.21.0').outcome).toBe('could not verify')
   })
@@ -126,9 +128,9 @@ describe('nothing hands the verification to another pnpm', () => {
   it('refuses devEngines.packageManager in any manifest, and a package-manager block in the lockfile', () => {
     const dev = '{"devEngines":{"packageManager":{"name":"pnpm","version":"12.20.0","onFail":"download"}}}'
     expect(handoffs({ 'sdk/package.json': dev }, lock).join(' ')).toContain('sdk/package.json sets devEngines.packageManager')
-    for (const key of ['packageManagerDependencies', 'configDependencies']) {
-      const withBlock = lock.replace('importers:', `${key}:\n  pnpm:\n    specifier: 12.20.0\n\nimporters:`)
-      expect(handoffs({}, withBlock).join(' '), key).toContain(key)
-    }
+    // The shape pnpm 12.21.0 writes: a first document, the keys under `importers: .:`.
+    const written = "---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.20.0\n\n---\n" + lock
+    const why = handoffs({}, written).join(' ')
+    for (const named of ['more than one document', 'packageManagerDependencies', 'configDependencies']) expect(why, named).toContain(named)
   })
 })
