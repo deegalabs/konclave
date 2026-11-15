@@ -269,7 +269,7 @@ export function joinParam(hash: string): string | null {
  *  lookalike or preview host would otherwise send the joiner to itself, and a joiner who opens it
  *  there seals the seat's share in that host's storage. One rule, no exception for localhost: a
  *  developer testing two tabs pastes the code, which the join field accepts as it does a link. */
-const PUBLIC_APP = 'https://www.konclave.xyz/'
+export const PUBLIC_APP = 'https://www.konclave.xyz/'
 function inviteBase(): string {
   return PUBLIC_APP
 }

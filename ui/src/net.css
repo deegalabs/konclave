@@ -421,3 +421,4 @@
    the second signal, --warn-strong being the AA text colour in both themes. */
 .host-notice{margin:0 0 10px; font-size:12.5px; line-height:1.45; color:var(--text); overflow-wrap:anywhere}
 .host-notice.warn{color:var(--warn-strong); background:var(--warn-soft,rgba(181,71,8,.09)); border:1px solid var(--warn-line,rgba(181,71,8,.3)); border-radius:8px; padding:8px 11px}
+.host-notice-host{font-family:var(--font-mono); font-weight:600; overflow-wrap:anywhere}

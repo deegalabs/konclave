@@ -9,6 +9,7 @@ import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
+import { HostNotice, HOST_NOTICE_ID } from '../HostNotice'
 import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { removeVaultFromDevice } from '../remove-vault'
 import { storageErrorKey } from '../storage-errors'
@@ -732,9 +733,10 @@ export default function Vaults() {
       )}
 
       {importing && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={resetImport}>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" describedBy={HOST_NOTICE_ID} onClose={resetImport}>
           <div className="rd-eyebrow">{t('import.eyebrow')}</div>
           <h2 id="import-title">{t('import.title')}</h2>
+          <HostNotice />
 
           {!impParsed ? (
             // Stage A: one field — drop a .konclave OR paste/type the export text (validated live).
@@ -800,9 +802,10 @@ export default function Vaults() {
       )}
 
       {unlocking && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" describedBy={HOST_NOTICE_ID} onClose={() => setUnlocking(null)}>
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="unlock-title">{unlocking.v.name}</h2>
+          <HostNotice />
           <p>{unlocking.src === 'net'
             ? t('vaults.netUnlockPrompt')
             : tr('vaults.unlockPrompt')}</p>
@@ -863,7 +866,7 @@ export default function Vaults() {
       )}
 
       {creating && (
-        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}
+        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" describedBy={HOST_NOTICE_ID} onClose={() => setCreating(false)}
           onDismiss={() => setLeaveAsk((n) => n + 1)}>
           <NetVault embedded initialJoin={joinMode} leaveAsk={leaveAsk} onLeave={() => { setCreating(false); setReload((r) => r + 1) }} />
         </Dialog>

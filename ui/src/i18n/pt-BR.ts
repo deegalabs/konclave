@@ -165,7 +165,7 @@ export const ptBR: Record<string, string> = {
   'vaults.securedHint': 'Um link vazado não abre os livros nem a sala de assinatura.',
   'vaults.openBadge': 'Aberto',
   'vaults.pendingBadge': 'Não terminado.',
-  'host.notice': 'Você está em {host}. O Konclave só fica em www.konclave.xyz',
+  'host.notice': 'Você está em {host}. O Konclave só fica em www.konclave.xyz.',
   'host.notice.warn': 'Confira o endereço: este não é o oficial.',
   'vaults.createDialogTitle': 'Criar ou entrar num cofre',
   'vaults.pendingHint': 'Este aparelho guardou o seu pedaço antes de todos os membros confirmarem que guardaram o deles, então não mostra endereço. Não deposite até confirmar, com cada membro, que ele guardou o pedaço dele.',
