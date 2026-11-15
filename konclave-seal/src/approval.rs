@@ -109,13 +109,14 @@ pub struct SeatKey {
 ///
 /// ```compile_fail
 /// use konclave_seal::approval::{VerifiedVote, VoteAction};
-/// let _forged = VerifiedVote { seat: 1, action: VoteAction::Approve, ts_ms: 0 };
+/// let _forged = VerifiedVote { seat: 1, action: VoteAction::Approve, ts_ms: 0, content_hash: [0; 32] };
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VerifiedVote {
     seat: u16,
     action: VoteAction,
     ts_ms: i64,
+    content_hash: [u8; 32],
 }
 
 impl VerifiedVote {
@@ -128,11 +129,17 @@ impl VerifiedVote {
     pub fn ts_ms(&self) -> i64 {
         self.ts_ms
     }
+    /// The content hash the vote verified over, so a counter records it under that content only.
+    pub fn content_hash(&self) -> &[u8; 32] {
+        &self.content_hash
+    }
 }
 
 /// Verifies `env` as a vote in `vault_id` over `hash`, by the seat it names, with THAT seat's key
-/// from `keys`. `seen_nonce` answers whether the nonce was used before (and records it); a device
-/// checking its own envelope passes a function that answers false. The message is rebuilt here from
+/// from `keys`. `nonce_used` only asks whether the nonce was used before; `burn_nonce` records it,
+/// and is called only once the signature has verified, so a forged envelope can never use up a real
+/// vote's nonce. A device checking its own envelope passes a `nonce_used` that answers false and a
+/// `burn_nonce` that does nothing. The message is rebuilt here from
 /// the hash the caller holds, never from bytes the envelope carries.
 ///
 /// Cheap checks come before any signature verification, as in the v1 rule.
@@ -142,8 +149,10 @@ pub fn verify_vote(
     vault_id: &[u8; 32],
     env: &Envelope,
     hash: &ContentHash,
-    seen_nonce: impl FnOnce(&str) -> bool,
+    nonce_used: impl FnOnce(&str) -> bool,
+    burn_nonce: impl FnOnce(&str),
 ) -> Result<VerifiedVote, EnvelopeError> {
+    let _ = burn_nonce;
     if env.vault_id != *vault_id {
         return Err(EnvelopeError::WrongVault);
     }
@@ -165,7 +174,7 @@ pub fn verify_vote(
         .ok_or(EnvelopeError::UnknownSeat)?;
     let vk = ed25519_dalek::VerifyingKey::from_bytes(&key.write_pub)
         .map_err(|_| EnvelopeError::BadKey)?;
-    if seen_nonce(&env.nonce) {
+    if nonce_used(&env.nonce) {
         return Err(EnvelopeError::Replay);
     }
     let msg = vote_message_v2(
@@ -184,6 +193,7 @@ pub fn verify_vote(
         seat: env.seat,
         action: env.action,
         ts_ms: env.ts_ms,
+        content_hash: env.content_hash,
     })
 }
 

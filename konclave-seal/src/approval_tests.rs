@@ -216,7 +216,7 @@ mod verify {
     }
 
     fn check(env: &Envelope, hash: &ContentHash) -> Result<VerifiedVote, EnvelopeError> {
-        verify_vote(&keys(), &[0x11; 32], env, hash, |_| false)
+        verify_vote(&keys(), &[0x11; 32], env, hash, |_| false, |_| {})
     }
 
     #[test]
@@ -242,17 +242,92 @@ mod verify {
         assert_eq!(check(&stranger, &h), Err(EnvelopeError::UnknownSeat));
     }
 
+    /// Runs `verify_vote` recording which nonce calls were made.
+    fn traced(
+        env: &Envelope,
+        hash: &ContentHash,
+        used: bool,
+    ) -> (Result<VerifiedVote, EnvelopeError>, Vec<String>) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let r = verify_vote(
+            &keys(),
+            &[0x11; 32],
+            env,
+            hash,
+            |n| {
+                calls.borrow_mut().push(format!("used {n}"));
+                used
+            },
+            |n| calls.borrow_mut().push(format!("burn {n}")),
+        );
+        (r, calls.into_inner())
+    }
+
     #[test]
-    fn a_used_nonce_is_refused_before_the_signature_is_checked() {
+    fn a_valid_vote_burns_its_nonce_once_after_it_verified() {
         let h = fixture_hash();
-        let env = envelope(VoteAction::Approve, &h, [0; 32]);
-        let mut asked = None;
-        let r = verify_vote(&keys(), &[0x11; 32], &env, &h, |n| {
-            asked = Some(n.to_string());
-            true
-        });
+        let (r, calls) = traced(&envelope(VoteAction::Approve, &h, [0; 32]), &h, false);
+        assert!(r.is_ok());
+        assert_eq!(calls, vec!["used abcd", "burn abcd"]);
+    }
+
+    #[test]
+    fn a_used_nonce_is_refused_and_nothing_is_burnt() {
+        let h = fixture_hash();
+        let (r, calls) = traced(&envelope(VoteAction::Approve, &h, [0; 32]), &h, true);
         assert_eq!(r, Err(EnvelopeError::Replay));
-        assert_eq!(asked.as_deref(), Some("abcd"));
+        assert_eq!(calls, vec!["used abcd"]);
+    }
+
+    #[test]
+    fn a_forged_vote_never_burns_a_nonce() {
+        // Seat 1's key, naming seat 2, with a nonce a real vote of seat 2 might carry.
+        let h = fixture_hash();
+        let forged = signed(&key1(), 2, VoteAction::Approve, &h, [0; 32], "abcd");
+        let (r, calls) = traced(&forged, &h, false);
+        assert_eq!(r, Err(EnvelopeError::BadSignature));
+        assert!(!calls.iter().any(|c| c.starts_with("burn")), "{calls:?}");
+    }
+
+    #[test]
+    fn a_cheap_refusal_touches_no_nonce() {
+        let h = fixture_hash();
+        let mut e = envelope(VoteAction::Approve, &h, [0; 32]);
+        e.vault_id = [0x12; 32];
+        let (_, calls) = traced(&e, &h, false);
+        assert!(calls.is_empty(), "{calls:?}");
+    }
+
+    #[test]
+    fn the_verified_vote_carries_the_content_it_was_checked_over() {
+        let h = fixture_hash();
+        let v = check(&envelope(VoteAction::Approve, &h, [0; 32]), &h).unwrap();
+        assert_eq!(v.content_hash(), h.as_bytes());
+    }
+
+    #[test]
+    fn seat_zero_and_a_seat_with_two_keys_are_refused() {
+        let h = fixture_hash();
+        let zero = signed(&key2(), 0, VoteAction::Approve, &h, [0; 32], "abcd");
+        let mut ks = keys();
+        ks.push(SeatKey {
+            seat: 0,
+            write_pub: key2().verifying_key().to_bytes(),
+        });
+        assert_eq!(
+            verify_vote(&ks, &[0x11; 32], &zero, &h, |_| false, |_| {}),
+            Err(EnvelopeError::Malformed)
+        );
+        let mut dup = keys();
+        dup.push(SeatKey {
+            seat: 2,
+            write_pub: key1().verifying_key().to_bytes(),
+        });
+        let env = envelope(VoteAction::Approve, &h, [0; 32]);
+        assert_eq!(
+            verify_vote(&dup, &[0x11; 32], &env, &h, |_| false, |_| {}),
+            Err(EnvelopeError::BadKey)
+        );
     }
 
     #[test]
@@ -321,7 +396,7 @@ mod verify {
         let h = fixture_hash();
         let env = envelope(VoteAction::Approve, &h, [0; 32]);
         assert_eq!(
-            verify_vote(&keys(), &[0x12; 32], &env, &h, |_| false),
+            verify_vote(&keys(), &[0x12; 32], &env, &h, |_| false, |_| {}),
             Err(EnvelopeError::WrongVault)
         );
         let with_reason = envelope(VoteAction::Approve, &h, reason_hash("no"));
@@ -355,7 +430,7 @@ mod verify {
             write_pub: not_a_point,
         }];
         assert_eq!(
-            verify_vote(&bad, &[0x11; 32], &env, &h, |_| false),
+            verify_vote(&bad, &[0x11; 32], &env, &h, |_| false, |_| {}),
             Err(EnvelopeError::BadKey)
         );
     }
@@ -375,6 +450,6 @@ mod verify {
             seat: 2,
             write_pub: identity,
         }];
-        assert!(verify_vote(&weak, &[0x11; 32], &env, &h, |_| false).is_err());
+        assert!(verify_vote(&weak, &[0x11; 32], &env, &h, |_| false, |_| {}).is_err());
     }
 }

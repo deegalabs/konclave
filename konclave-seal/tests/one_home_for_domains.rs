@@ -28,8 +28,21 @@ fn without_test_modules(text: &str) -> String {
                 let close = format!("{indent}}}");
                 let mut k = j + 1;
                 while k < lines.len() && lines[k] != close {
+                    // A line that closes at the module's indentation but is not exactly the brace
+                    // (`} // mod tests`) would make the skip run on into production code: stop.
+                    assert!(
+                        !lines[k].starts_with(&close),
+                        "ambiguous end of a test module at line {}: {:?}",
+                        k + 1,
+                        lines[k]
+                    );
                     k += 1;
                 }
+                assert!(
+                    k < lines.len(),
+                    "a test module from line {} never closes",
+                    j + 1
+                );
                 i = k + 1;
                 continue;
             }
@@ -48,7 +61,8 @@ fn domain_literals(text: &str) -> Vec<String> {
         let tail = &rest[at..];
         let end = tail.find('"').unwrap_or(tail.len());
         let lit = &tail[..end];
-        if (lit.ends_with("\\0") || lit.ends_with("\\x00")) && lit.contains("-v") {
+        let nul = ["\\0", "\\x00", "\\u{0}", "\\u{00}", "\\u{0000}"];
+        if nul.iter().any(|z| lit.ends_with(z)) && lit.contains("-v") {
             found.push(lit.to_string());
         }
         rest = &tail["konclave-".len()..];
@@ -138,11 +152,29 @@ fn the_scan_would_see_one() {
     // So is code after an indented test module inside another module.
     let nested = "mod m {\n    #[cfg(test)]\n    mod tests {\n        fn t() {}\n    }\n    fn p() { b\"konclave-pkp-v1\\0\"; }\n}\n";
     assert_eq!(lit(nested), vec!["konclave-pkp-v1\\0"]);
+    assert_eq!(
+        lit("let d = \"konclave-vote-v2\\u{0}\";"),
+        vec!["konclave-vote-v2\\u{0}"]
+    );
     // A `#[path]` test module declaration has no body to skip.
     assert_eq!(
         lit("#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\nfn c() { b\"konclave-room-v1\\0\"; }\n"),
         vec!["konclave-room-v1\\0"]
     );
+}
+
+#[test]
+#[should_panic(expected = "ambiguous end of a test module")]
+fn a_test_module_closed_with_a_trailing_comment_stops_the_scan() {
+    without_test_modules(
+        "#[cfg(test)]\nmod tests {\n    fn t() {}\n} // mod tests\nfn p() {}\n}\n",
+    );
+}
+
+#[test]
+#[should_panic(expected = "never closes")]
+fn a_test_module_that_never_closes_stops_the_scan() {
+    without_test_modules("#[cfg(test)]\nmod tests {\n    fn t() {}\n");
 }
 
 #[test]
