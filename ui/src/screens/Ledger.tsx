@@ -215,8 +215,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         : null
       // Committed is the whole book's open proposals, unclamped (the composition clamps it for the
       // bar); the sheet writes the real figure and says when it exceeds what can be spent.
-      const balance = parts
-        ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved ?? 0)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
+      // `parts` exists only when `reserved` is known, so the unknown case never reaches the sheet.
+      const balance = parts && reserved !== null
+        ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
         : undefined
       const registry = benefs.length ? benefs : (await getBeneficiaries()) ?? []
       return { ...head, items, balance, registry }

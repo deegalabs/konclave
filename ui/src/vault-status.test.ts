@@ -61,12 +61,24 @@ describe('what this device remembers of a vault', () => {
     } finally { spy.mockRestore() }
     expect(vaultStatus('v1')!.freeZat).toBeNull()
   })
+  it('a value-only reserve stored by an older build is never read, and never survives a read with no estimate (#1017)', async () => {
+    localStorage.setItem('konclave.status.v1', JSON.stringify({ totalZat: 10_000, spendableZat: 8_000, reservedZat: 3_000, balanceAt: 1, proposalsAt: 1, openCount: 1 }))
+    expect(vaultStatus('v1')!.freeZat).toBeNull() // the old field is ignored
+    const fe = await import('./fee-estimate')
+    const spy = vi.spyOn(fe, 'readFeeEstimator').mockImplementation(() => { throw new Error('wasm not ready') })
+    try {
+      rememberProposals('v1', [p('a', 'awaiting', 100, 3_000)])
+    } finally { spy.mockRestore() }
+    expect(stored('v1').reservedZat).toBeUndefined() // not carried by the merge
+    expect(stored('v1').heldZat).toBeUndefined()
+    expect(vaultStatus('v1')!.freeZat).toBeNull()
+  })
   it('counts as open only what can still move: past its deadline on this clock it is not', () => {
     rememberProposals('v1', [p('a', 'awaiting', 100, 3_000, { expiry_unix: 1_000 }), p('b', 'ready', 100, 1_000)])
     expect(vaultStatus('v1')!.openCount).toBe(1)
   })
   it('the free figure carries the older of its two reads, and the count its own', () => {
-    localStorage.setItem('konclave.status.v1', JSON.stringify({ totalZat: 10, spendableZat: 10, balanceAt: 1_000, reservedZat: 0, openCount: 0, proposalsAt: 5_000 }))
+    localStorage.setItem('konclave.status.v1', JSON.stringify({ totalZat: 10, spendableZat: 10, balanceAt: 1_000, heldZat: 0, openCount: 0, proposalsAt: 5_000 }))
     const s = vaultStatus('v1')!
     expect(s.freeAt).toBe(1_000)
     expect(s.proposalsAt).toBe(5_000)
@@ -86,7 +98,7 @@ describe('what this device remembers of a vault', () => {
   it('survives a corrupt or tampered record: no NaN reaches the screen', () => {
     localStorage.setItem('konclave.status.v1', '{not json')
     expect(vaultStatus('v1')).toBeNull()
-    localStorage.setItem('konclave.status.v1', JSON.stringify({ totalZat: 'x', spendableZat: 5, balanceAt: 10, reservedZat: null, openCount: 'two', proposalsAt: 'soon' }))
+    localStorage.setItem('konclave.status.v1', JSON.stringify({ totalZat: 'x', spendableZat: 5, balanceAt: 10, heldZat: null, openCount: 'two', proposalsAt: 'soon' }))
     const s = vaultStatus('v1')!
     expect(s.freeZat).toBeNull()
     expect(s.openCount).toBeNull()
@@ -104,7 +116,7 @@ describe('a private vault keeps no amounts on the device', () => {
     const s = stored('v1')
     expect(s.totalZat).toBeUndefined()
     expect(s.spendableZat).toBeUndefined()
-    expect(s.reservedZat).toBeUndefined()
+    expect(s.heldZat).toBeUndefined()
     expect(s.openCount).toBe(1)
     expect(s.private).toBe(true)
     expect(vaultStatus('v1')!.freeZat).toBe(8_000 - 3_000 - feeOf(1)) // from memory, while unlocked here
@@ -114,7 +126,7 @@ describe('a private vault keeps no amounts on the device', () => {
     expect(locked.openCount).toBe(1)
   })
   it('ignores amounts a private record carries anyway', () => {
-    localStorage.setItem('konclave.status.v1', JSON.stringify({ private: true, totalZat: 10, spendableZat: 10, balanceAt: 1, reservedZat: 0, openCount: 0, proposalsAt: 1 }))
+    localStorage.setItem('konclave.status.v1', JSON.stringify({ private: true, totalZat: 10, spendableZat: 10, balanceAt: 1, heldZat: 0, openCount: 0, proposalsAt: 1 }))
     expect(vaultStatus('v1')!.freeZat).toBeNull()
   })
   it('once private, stays private: a read without the secret in this tab writes no amounts', () => {
@@ -124,7 +136,7 @@ describe('a private vault keeps no amounts on the device', () => {
     const s = stored('v1')
     expect(s.totalZat).toBeUndefined()
     expect(s.spendableZat).toBeUndefined()
-    expect(s.reservedZat).toBeUndefined()
+    expect(s.heldZat).toBeUndefined()
     expect(s.private).toBe(true)
     expect(s.balanceAt).toBeGreaterThan(0)
   })
