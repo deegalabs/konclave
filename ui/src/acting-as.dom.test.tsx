@@ -125,7 +125,7 @@ describe('a locked device unlocks right on the proposing screen (#591)', () => {
     ctl.acting = { ok: false, why: 'locked' }
     render(shell(<NewPayment />))
     await fillPayment()
-    fireEvent.change(await screen.findByLabelText(en('payment.actingPassLabel')), { target: { value: 'the word' } })
+    fireEvent.change(await screen.findByLabelText(en('vaults.passphrase')), { target: { value: 'the word' } })
     fireEvent.click(screen.getByRole('button', { name: en('lock.unlock') }))
     expect((await screen.findAllByText('Bia')).length).toBeGreaterThan(0)
     expect(unlock.calls).toEqual([['v', 'net', 'the word']])
@@ -137,7 +137,7 @@ describe('a locked device unlocks right on the proposing screen (#591)', () => {
     ctl.acting = { ok: false, why: 'locked' }
     unlock.result = { ok: false, wrong: true }
     render(shell(<NewPayment />))
-    fireEvent.change(await screen.findByLabelText(en('payment.actingPassLabel')), { target: { value: 'nope' } })
+    fireEvent.change(await screen.findByLabelText(en('vaults.passphrase')), { target: { value: 'nope' } })
     fireEvent.click(screen.getByRole('button', { name: en('lock.unlock') }))
     expect(await screen.findByText(en('vaults.unlockWrong'))).toBeTruthy()
     expect(screen.getByText(en('payment.actingLocked'))).toBeTruthy()
@@ -147,10 +147,10 @@ describe('a locked device unlocks right on the proposing screen (#591)', () => {
     ctl.acting = { ok: false, why: 'list-unread' }
     const first = render(shell(<NewPayroll />))
     await screen.findByText(en('payment.actingListUnread'))
-    expect(screen.queryByLabelText(en('payment.actingPassLabel'))).toBeNull()
+    expect(screen.queryByLabelText(en('vaults.passphrase'))).toBeNull()
     first.unmount()
     ctl.acting = { ok: false, why: 'locked' }
     render(shell(<NewPayroll />))
-    expect(await screen.findByLabelText(en('payment.actingPassLabel'))).toBeTruthy()
+    expect(await screen.findByLabelText(en('vaults.passphrase'))).toBeTruthy()
   })
 })

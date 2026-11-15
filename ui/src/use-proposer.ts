@@ -17,14 +17,25 @@ export const ASK_NAMELESS_EVERY_MS = 60_000
 export function useProposer(vault: { id: string; roster_differs?: boolean; own_members?: string[] } | null) {
   const [acting, setActing] = useState<ActingAs | null>(null)
   const id = vault?.id
-  const inFlight = useRef(false)
-  const ask = useCallback(() => {
-    if (!id || inFlight.current) return
-    inFlight.current = true
+  // Which ask is the latest, and whether the latest has answered. A poll tick is skipped while an ask
+  // is out (never two at once); `refresh` is not skipped, it starts a fresh ask and the older one's
+  // answer, if it ever comes, is ignored. A read that never answers must not freeze the screen or
+  // swallow the refresh that follows an unlock.
+  const gen = useRef(0)
+  const out = useRef(false)
+  const start = useCallback((force: boolean) => {
+    if (!id || (out.current && !force)) return
+    const mine = ++gen.current
+    out.current = true
     void actingAs(id)
-      .then((a) => setActing((prev) => (prev && prev.ok && a.ok && prev.name === a.name && prev.seat === a.seat ? prev : a)))
-      .finally(() => { inFlight.current = false })
+      .then((a) => {
+        if (mine !== gen.current) return
+        setActing((prev) => (prev && prev.ok && a.ok && prev.name === a.name && prev.seat === a.seat ? prev : a))
+      })
+      .finally(() => { if (mine === gen.current) out.current = false })
   }, [id])
+  const ask = useCallback(() => start(false), [start])
+  const refresh = useCallback(() => start(true), [start])
   useEffect(() => { ask() }, [ask])
   const resolved = !!acting && acting.ok
   const nameless = !!acting && !acting.ok && acting.why === 'no-seat-name'
@@ -32,5 +43,5 @@ export function useProposer(vault: { id: string; roster_differs?: boolean; own_m
   // Protocol 3: this device's own roster names the seat differently from what the coordinator serves.
   // Said beside the name, never blocking: nobody here can tell who is right.
   const differs = !!(vault?.roster_differs && acting?.ok && vault.own_members && (vault.own_members[acting.seat - 1] ?? '').trim() !== acting.name)
-  return { acting, name: acting?.ok ? acting.name : null, differs, refresh: ask }
+  return { acting, name: acting?.ok ? acting.name : null, differs, refresh }
 }

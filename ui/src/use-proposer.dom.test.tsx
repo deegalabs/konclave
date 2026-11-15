@@ -72,4 +72,31 @@ describe('useProposer asks again, within limits (#591)', () => {
     expect(answers.calls).toBe(before + 1)
     expect(result.current.name).toBe('Bia')
   })
+
+  // A members read that never answers must not freeze the hook: the member unlocks, `refresh` asks
+  // again, and that answer is the one shown. The old answer, if it ever arrives, is not.
+  it('a first read that never resolves does not swallow the refresh after an unlock', async () => {
+    answers.next = [() => new Promise(() => {})]
+    const { result } = renderHook(() => useProposer(vault))
+    await tick(ASK_EVERY_MS * 3)
+    expect(result.current.name).toBeNull()
+    answers.next = [ok]
+    await act(async () => { result.current.refresh() })
+    await tick(0)
+    expect(result.current.name).toBe('Bia')
+  })
+
+  it('a late answer from an older ask is ignored', async () => {
+    let late: (v: unknown) => void = () => {}
+    answers.next = [() => new Promise((r) => { late = r })]
+    const { result } = renderHook(() => useProposer(vault))
+    await tick(0)
+    answers.next = [ok]
+    await act(async () => { result.current.refresh() })
+    await tick(0)
+    expect(result.current.name).toBe('Bia')
+    late({ ok: true, seat: 2, name: 'Stale' })
+    await tick(0)
+    expect(result.current.name).toBe('Bia')
+  })
 })

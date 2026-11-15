@@ -33,7 +33,7 @@ export function ProposerNotice({ acting, differs, vaultId, onUnlocked }: {
       {acting && !acting.ok && <div className="hint warn mt-sm">{t(ACTING_KEYS[acting.why])}</div>}
       {acting && !acting.ok && acting.why === 'locked' && vaultId && (
         <div className="sign-unlock mt-sm">
-          <input type="password" autoComplete="current-password" value={pass} aria-label={t('payment.actingPassLabel')}
+          <input type="password" autoComplete="current-password" value={pass} placeholder={t('vaults.passphrase')} aria-label={t('vaults.passphrase')}
             onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void unlock() }} />
           {err && <div className="hint err mt-sm" role="alert">{err}</div>}
           <button type="button" className="btn mt-sm" disabled={busy || pass.length < 1} onClick={() => void unlock()}>
