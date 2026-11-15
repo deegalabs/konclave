@@ -16,13 +16,14 @@
 // not downloadable, or a server error); 3 usage, or a malformed manifest. What a PASS does and does
 // not prove is at the top of web-verify.mjs, and every run ends with it.
 import { readFileSync } from 'node:fs'
-import { verifyWeb, fetchManifest, EXIT } from './web-verify.mjs'
+import { verifyWeb, fetchManifest, EXIT, LIMITS } from './web-verify.mjs'
 
 const opt = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
 const known = ['site', 'manifest', 'expect-version']
 const bad = process.argv.slice(2).filter((a) => !known.some((k) => a.startsWith(`--${k}=`)))
 if (bad.length) {
   console.error(`unknown argument ${bad[0]}; use ${known.map((k) => `--${k}=`).join(' ')}`)
+  console.error(LIMITS)
   process.exit(EXIT.USAGE)
 }
 
@@ -31,10 +32,10 @@ const m = opt('manifest')
 if (m !== undefined) {
   if (/^[a-z]+:\/\//i.test(m)) {
     const got = await fetchManifest(m)
-    if (got.line) { console.error(got.line); process.exit(got.code) }
+    if (got.line) { console.error(got.line); console.error(LIMITS); process.exit(got.code) }
     manifest = { bytes: got.bytes, from: m }
   } else {
-    try { manifest = { bytes: new Uint8Array(readFileSync(m)), from: m } } catch (e) { console.error(`USAGE ${e.message}`); process.exit(EXIT.USAGE) }
+    try { manifest = { bytes: new Uint8Array(readFileSync(m)), from: m } } catch (e) { console.error(`USAGE ${e.message}`); console.error(LIMITS); process.exit(EXIT.USAGE) }
   }
 }
 

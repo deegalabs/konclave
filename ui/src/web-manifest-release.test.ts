@@ -80,4 +80,10 @@ describe('the web manifest in the release workflow (#605)', () => {
     expect(c).toMatch(/\[ "\$code" -eq 3 \] && exit 3/)
     expect(c).toMatch(/- name: Production serves this release\n\s+if: github\.event_name == 'push'/)
   })
+
+  it('release.mjs prints the release steps RELEASING.md gives: tag the merge commit, never push main', () => {
+    const rel = readFileSync(new URL('../../scripts/release.mjs', import.meta.url), 'utf8')
+    expect(rel).not.toMatch(/push origin main/)
+    expect(rel).toMatch(/tag that merge commit/)
+  })
 })

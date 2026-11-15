@@ -22,7 +22,7 @@ import { commitMismatch, WEB_ORIGIN } from './what-is-running.mjs'
 export const REPO = 'deegalabs/konclave'
 export const MAX_FILE_BYTES = 16 * 1024 * 1024
 const TIMEOUT_MS = 20_000
-const LIMITS = 'This is what this fetch received, from this network, now. It cannot see files nothing references, does not prove what another member received, and does not stop a compromised server. On the web, Konclave only lives at www.konclave.xyz: check the address bar too.'
+export const LIMITS = 'This is what this fetch received, from this network, now. It cannot see files nothing references, does not prove what another member received, and does not stop a compromised server. On the web, Konclave only lives at www.konclave.xyz: check the address bar too.'
 
 /** Exit codes, as verify-proof.mjs: a mismatch and "could not check" are different answers. */
 export const EXIT = { PASS: 0, FAIL: 1, INCONCLUSIVE: 2, USAGE: 3 }
@@ -50,7 +50,7 @@ class Inconclusive extends Error {}
 /** A manifest from an https URL, with the same time and size limits as every other fetch here.
  *  Returns { bytes } or { code, line } when there is no manifest to read. */
 export async function fetchManifest(url, fetchFn = fetch) {
-  if (!/^https:\/\//.test(url)) return { code: EXIT.USAGE, line: `USAGE --manifest must be a file or an https URL: ${url}` }
+  if (!/^https:\/\//i.test(url)) return { code: EXIT.USAGE, line: `USAGE --manifest must be a file or an https URL: ${url}` }
   try {
     const r = await get(fetchFn, url, { follow: true })
     if (r.tooBig) return { code: EXIT.USAGE, line: `USAGE ${url} is larger than ${MAX_FILE_BYTES} bytes` }
@@ -103,7 +103,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
   const lines = []
   // Whatever the site sent is shown escaped: a control character in a commit or a header must not
   // rewrite the terminal line a reader takes for the verdict.
-  const esc = (s) => String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  const esc = (s) => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
   const out = (s) => lines.push(esc(s))
   // Every run ends with what the answer does not cover, whatever the answer was.
   const done = (code) => {
@@ -117,6 +117,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
 
   try {
     const vr = await get(fetchFn, `${site}/version.json`)
+    if (vr.tooBig) { out(`FAIL version.json is larger than ${MAX_FILE_BYTES} bytes`); return done(EXIT.FAIL) }
     if (vr.status >= 500) { out(`INCONCLUSIVE version.json (HTTP ${vr.status})`); return done(EXIT.INCONCLUSIVE) }
     if (vr.status !== 200 || !vr.bytes) { out(`FAIL version.json (HTTP ${vr.status})`); return done(EXIT.FAIL) }
     let claimed
@@ -132,13 +133,13 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
     let from = manifest?.from
     if (mBytes === undefined) {
       from = manifestUrl(claimed.version)
-      const mr = await get(fetchFn, from, { follow: true })
-      if (mr.status === 404) {
+      const got = await fetchManifest(from, fetchFn)
+      if (got.code === EXIT.INCONCLUSIVE && / HTTP 404$/.test(got.line)) {
         out(`INCONCLUSIVE no published manifest for v${claimed.version} at ${from} (a release from before manifests, 0.21.0 or earlier; not released yet; or the release is still a draft)`)
         return done(EXIT.INCONCLUSIVE)
       }
-      if (mr.status !== 200 || !mr.bytes) { out(`INCONCLUSIVE ${from} answered HTTP ${mr.status}`); return done(EXIT.INCONCLUSIVE) }
-      mBytes = mr.bytes
+      if (got.line) { out(got.line); return done(got.code) }
+      mBytes = got.bytes
     }
     let m
     try { m = parseManifest(mBytes) } catch (e) { out(`USAGE ${e.message} (${from})`); return done(EXIT.USAGE) }

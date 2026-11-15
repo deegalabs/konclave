@@ -163,6 +163,8 @@ describe('verify-web (#605)', () => {
     const r = await run(withManifest(manifestOf(site)))
     expect(r.out).not.toMatch(/\u001b/)
     expect(r.out).toMatch(/\\u001b\[2K\\u000dPASS/)
+    site.files['version.json'] = JSON.stringify({ version: '0.22.0', commit: 'abc\u202eSSAP' })
+    expect((await run(withManifest(manifestOf(site)))).out).toMatch(/abc\\u202eSSAP/)
   })
 
   it('reports files in the manifest order, whatever order they arrive in', async () => {
@@ -177,6 +179,8 @@ describe('verify-web (#605)', () => {
 
   it('fetches a manifest URL with the same limits, https only', async () => {
     expect((await fetchManifest('http://example.com/m.json')).code).toBe(EXIT.USAGE)
+    const ok = await fetchManifest('HTTPS://example.invalid/m.json', () => Promise.resolve(new Response('x', { status: 200 })))
+    expect(ok.bytes).toBeInstanceOf(Uint8Array)
     const r = await fetchManifest('https://example.invalid/m.json', () => Promise.resolve(new Response(null, { status: 404 })))
     expect(r.code).toBe(EXIT.INCONCLUSIVE)
   })

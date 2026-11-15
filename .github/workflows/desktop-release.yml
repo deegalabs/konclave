@@ -244,8 +244,9 @@ jobs:
         run: |
           set -uo pipefail
           for i in 1 2 3 4 5 6; do
-            node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}"
-            code=$?
+            # `|| code=$?`: GitHub runs bash with -e, so a bare failing command would end the step here.
+            code=0
+            node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}" || code=$?
             [ "$code" -eq 0 ] && exit 0
             # 3 is a usage or manifest error: trying again cannot change it.
             [ "$code" -eq 3 ] && exit 3
