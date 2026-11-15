@@ -1465,6 +1465,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 }
 
 /* Passphrase field: strength meter + magic generate (#221). Style-agnostic wrapper. */
+.vp-form{display:contents}
 .pf{width:100%}
 .pf-field{position:relative; display:flex; align-items:center}
 /* Room for the controls themselves and nothing more: two 28px buttons plus the gaps. The old 112px

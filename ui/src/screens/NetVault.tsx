@@ -26,7 +26,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
 import { useT, useTr, useI18n } from '../i18n'
-import { Letterhead, PassphraseField } from '../components'
+import { Letterhead, PassphraseField, VaultPassForm, VaultPassInput } from '../components'
 import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
@@ -259,6 +259,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
+  // What a password manager files the new passphrase under (#929): the SAME name `doSave` stores
+  // (`config.vn`, the creation name, equal on every member's device) and the vault id, so the
+  // unlock screen later builds the same username from the record. Hoisted: refs are read at call time.
+  function createPassVault() {
+    return groupVk ? { name: ceremonyRef.current?.config?.vn, id: groupVk } : null
+  }
   // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band (short,
   // human-comparable code of the group verifying key). Shown on the create-done step - the moment
   // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
@@ -1770,12 +1776,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
               </div>
             )}
-            <div className="cv-join">
-              <PassphraseField inputClassName="cv-input" autoFocus
+            <VaultPassForm vault={createPassVault()} className="cv-join">
+              <PassphraseField inputClassName="cv-input" autoFocus autoComplete="new-password"
                 placeholder={pe('Frase-senha (mínimo 12 caracteres)', 'Passphrase (at least 12 characters)')}
                 value={savePass} onChange={setSavePass} />
               {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || saveState !== 'idle' || !hasSecret}
+              <button type="button" className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? pe('A chave de acesso não chegou. Peça a quem criou para conferir a conexão, ou comecem de novo.', 'The access key has not arrived. Ask the creator to check their connection, or start again.')
@@ -1786,7 +1792,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </button>
               <WaitLine busy={!!saveWait}>{saveWait}</WaitLine>
 
-            </div>
+            </VaultPassForm>
           </>
         )}
       </Shell>
@@ -1922,9 +1928,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             ) : (
               <>
                 {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
-                <input
+                <VaultPassForm vault={createPassVault()}>
+                <VaultPassInput
                   className="net-input"
-                  type="password"
+                  autoComplete="new-password"
                   placeholder={L.savePlaceholder}
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
@@ -1933,12 +1940,14 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
                 )}
                 <button
+                  type="button"
                   className="net-btn"
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || !hasSecret}
                   onClick={() => void doSave()}
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}
                 </button>
+                </VaultPassForm>
               </>
             )}
           </div>

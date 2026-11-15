@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useToast } from '../toast'
 import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
-import { Dialog, PassphraseField, Secret } from '../components'
+import { Dialog, PassphraseField, Secret, VaultPassForm } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { newPassphraseProblem } from '../passphrase'
@@ -111,6 +111,8 @@ export default function Settings() {
   // #468: the passkey shortcut, enrolled from here. `S` only - signing still asks for the
   // passphrase, which is the separation the whole thing exists for.
   const vaultId = getSelectedVault()
+  // The record's RAW name, not the card's display fallback (vault-username.ts).
+  const passVault = localRec ? { name: localRec.name, id: localRec.id } : null
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
@@ -618,6 +620,7 @@ export default function Settings() {
                 </button>
               </div>
               {rotErr && <div className="unlock-err" role="alert">{rotErr}</div>}
+              <VaultPassForm vault={passVault}>
               <label className="field">
                 <span>{t('rotate.currentLabel')}</span>
                 <PassphraseField value={rotOld} onChange={(v) => { setRotOld(v); setRotErr(null) }}
@@ -626,20 +629,21 @@ export default function Settings() {
               </label>
               <label className="field">
                 <span>{t('rotate.newLabel')}</span>
-                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} />
+                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} autoComplete="new-password" />
               </label>
               <label className="field">
                 <span>{t('rotate.new2Label')}</span>
                 <PassphraseField value={rotNew2} onChange={(v) => { setRotNew2(v); setRotErr(null) }}
-                  choosing={false} />
+                  autoComplete="new-password" choosing={false} />
               </label>
               <div className="unlock-btns">
-                <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
+                <button type="button" className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
+                <button type="button" className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>
               </div>
+              </VaultPassForm>
             </>
           )}
         </Dialog>
@@ -660,19 +664,21 @@ export default function Settings() {
             </Link>
           </p>
           {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
+          <VaultPassForm vault={passVault}>
           <label className="field">
             <span>{t('export.currentLabel')}</span>
             <PassphraseField value={xpPass} onChange={(v) => { setXpPass(v); setXpErr(null) }}
               autoFocus autoComplete="current-password" choosing={false} invalid={!!xpErr} />
           </label>
           <div className="unlock-btns">
-            <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
+            <button type="button" className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
               {t('export.copy')}
             </button>
-            <button className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
+            <button type="button" className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
               {xpBusy ? t('export.busy') : t('export.download')}
             </button>
           </div>
+          </VaultPassForm>
         </Dialog>
       )}
 
