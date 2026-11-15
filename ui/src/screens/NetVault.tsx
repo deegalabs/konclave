@@ -1752,10 +1752,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               <PassphraseField inputClassName="cv-input" autoFocus
                 placeholder={tt('net.save.passLabel')}
                 value={savePass} onChange={setSavePass} />
-              <PassphraseField inputClassName="cv-input"
+              {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
+              <PassphraseField inputClassName="cv-input" choosing={false}
                 placeholder={tt('net.save.passConfirm')}
                 value={savePass2} onChange={setSavePass2} />
-              {savePass2 && savePass !== savePass2 && <p className="set-err" aria-live="polite">{tt('net.save.passMismatch')}</p>}
+              <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
               {saveErr && <p className="set-err">{saveErr}</p>}
               <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
@@ -1901,6 +1902,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <input
                   className="net-input"
                   type="password"
+                  autoComplete="new-password"
+                  aria-label={L.savePlaceholder}
                   placeholder={L.savePlaceholder}
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
@@ -1911,11 +1914,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <input
                   className="net-input"
                   type="password"
+                  autoComplete="new-password"
+                  aria-label={tt('net.save.passConfirm')}
                   placeholder={tt('net.save.passConfirm')}
                   value={savePass2}
                   onChange={(e) => setSavePass2(e.target.value)}
                 />
-                {savePass2 && savePass !== savePass2 && <p className="dim" aria-live="polite">{tt('net.save.passMismatch')}</p>}
+                <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
                   className="net-btn"
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}

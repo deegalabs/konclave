@@ -13,7 +13,11 @@ describe('protecting the vault asks for the passphrase twice (#927)', () => {
     // The save button of each form is disabled while they differ, and the save itself refuses too.
     expect(src.match(/disabled=\{[^}]*savePass !== savePass2/g) ?? []).toHaveLength(2)
     expect(src).toMatch(/if \(newPassphraseProblem\(savePass\) \|\| savePass !== savePass2\) return/)
-    expect(src).toMatch(/savePass2 && savePass !== savePass2/)
+    expect(src.match(/savePass2 && savePass !== savePass2 \? tt\('net\.save\.passMismatch'\) : ''/g) ?? []).toHaveLength(2)
+    // The strength meter and the generator stay on the first field only.
+    expect(src).toMatch(/<PassphraseField inputClassName="cv-input" choosing=\{false\}\s*placeholder=\{tt\('net\.save\.passConfirm'\)\}/)
+    // A password manager is told both are a new passphrase (it must not fill the confirmation for you).
+    expect(src.match(/autoComplete="new-password"/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
   it('says so in both languages', () => {
     for (const d of [en, ptBR]) {
