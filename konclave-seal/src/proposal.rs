@@ -245,6 +245,11 @@ pub fn validate(content: Content, ctx: &Context) -> Result<ValidContent, Content
     if c.fee_cap < fee_cap_floor() || c.fee_cap > fee_cap_ceiling() {
         return Err(ContentError::FeeCap);
     }
+    // Reserved for optional fields no device shows yet: an honest device could neither approve nor
+    // refuse a content carrying them, so it is not valid. The one place this is decided.
+    if c.extra != [0u8; 32] {
+        return Err(ContentError::Extra);
+    }
     Ok(ValidContent(content))
 }
 
