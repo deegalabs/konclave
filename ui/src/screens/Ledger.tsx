@@ -213,7 +213,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       const parts = bal && bal.total_zat != null && reserved != null
         ? balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
         : null
-      // Committed is the whole book's open proposals, unclamped (the composition clamps it for the
+      // Committed is the whole book's open proposals, each with its fee estimate, unclamped (the composition clamps it for the
       // bar); the sheet writes the real figure and says when it exceeds what can be spent.
       // `parts` exists only when `reserved` is known, so the unknown case never reaches the sheet.
       const balance = parts && reserved !== null

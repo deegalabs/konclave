@@ -10,13 +10,19 @@ import { codeAt, stripComments } from './source-scan'
 // and a `for` loop takes anything. So this reads the code. Outside the two files that own the rule, a
 // line that accumulates `value_zat`, or calls `sumZat`, must be one of the listed exceptions, each
 // with the reason it is a different figure and not a reservation.
+//
+// The scan is LINE-BASED: it sees one line of comment-free code at a time, so it catches the usual
+// shapes (a reduce, `+=`, a `+`, `sumZat(`, or the amounts mapped out for an alias) and not a sum
+// split so that no one line names `value_zat` and an addition together. It is a net, not a proof.
 const SRC = fileURLToPath(new URL('.', import.meta.url))
 const OWNERS = new Set(['balance-parts.ts', 'proposal-cost.ts'])
 
 /** A line that adds `value_zat` up, or calls the generic sum. */
 export const ACCUMULATES = [
   /value_zat[^\n]*(reduce\(|\+=)|(reduce\(|\+=)[^\n]*value_zat/,
-  /(?<![\w.])\+\s*[\w.?!]*value_zat\b|\bvalue_zat\s*\+(?!\+)/,
+  /(?<![\w.])\+\s*[\w.?!(]*value_zat\b|\bvalue_zat\)?\s*\+(?!\+)/,
+  // The amounts pulled out on their own, to be added up on a later line through an alias.
+  /\.map\(\s*\(?\w+\)?\s*=>\s*[\w.?!]*value_zat\s*\)/,
   /\bsumZat\(/,
 ]
 
@@ -83,6 +89,9 @@ describe('what open proposals hold is summed in one place (#1017)', () => {
       'held = held + p.value_zat',
       'const held = sumZat(proposals.filter(isOpen))',
       'total += proposal.value_zat ?? 0',
+      // the second line of a two-line reduce
+      '  (a, p) => a + Number(p.value_zat), 0)',
+      'const amounts = open.map((p) => p.value_zat)',
     ]) {
       expect(offenders('screens/Somewhere.tsx', planted), planted).toHaveLength(1)
     }

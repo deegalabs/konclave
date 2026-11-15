@@ -46,7 +46,7 @@ export interface LedgerXlsxData {
   generatedAt: Date
   items: LedgerXlsxItem[]
   /** The vault's balance when the export was made, in ZEC: left out when it could not be read.
-   *  `reservedZec` is the whole book's open proposals, unclamped; `overCommitted` says they exceed
+   *  `reservedZec` is the whole book's open proposals, each with its fee estimate, unclamped; `overCommitted` says they exceed
    *  what can be spent. Available is written as a formula over the three, so it can go negative. */
   balance?: { totalZec: number; reservedZec: number; confirmingZec: number; overCommitted: boolean }
   /** The registry (Pessoas): its name for an address wins over the line's label, as on the screen. */
