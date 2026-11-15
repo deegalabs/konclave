@@ -491,7 +491,7 @@ export default function Dashboard() {
               {desk.open > 1 && <span className="desk-count">{t('desk.openCount', { n: desk.open })}</span>}
             </div>
             <div className="ny-body">
-              <Identicon seed={seedForName(vault?.id, roster, lead.p.proposer)} size={38} />
+              <Identicon seed={seedForName(vault?.id, vault?.members_read === false ? null : roster, lead.p.proposer)} size={38} />
               <div className="ny-main">
                 <div className="ny-amt"><Secret>{fmtZecExact(lead.p.value_zat / 1e8)}</Secret> <span className="dim small">ZEC</span></div>
                 <div className="a-to">{tr('dashboard.whatProposedBy', { what: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>

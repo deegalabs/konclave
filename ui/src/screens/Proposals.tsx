@@ -120,7 +120,8 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
         if (!on) return
         if (v) {
           setThreshold(v.threshold)
-          setWho({ vaultId: v.id, list: v.member_list })
+          // A list the coordinator did not answer is placeholders: it places nobody (#315).
+          setWho({ vaultId: v.id, list: v.members_read === false ? null : v.member_list })
           try {
             const saved = await listVaults()
             if (on) setMe(saved.find((s) => s.id === v.id)?.myName ?? null)

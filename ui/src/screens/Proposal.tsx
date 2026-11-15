@@ -76,7 +76,7 @@ export default function Proposal() {
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
-        setWho({ vaultId: v.id, list: v.member_list })
+        setWho({ vaultId: v.id, list: v.members_read === false ? [] : v.member_list })
         setRosterDiffers(!!v.roster_differs)
         try {
           const saved = await listVaults()

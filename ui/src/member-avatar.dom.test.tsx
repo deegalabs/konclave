@@ -8,11 +8,15 @@ import { render } from '@testing-library/react'
 import { Identicon, memberSeed, seedForName, NEUTRAL } from './avatar'
 import { codeOf } from './source-scan'
 
-const face = (seed: string) => render(<Identicon seed={seed} size={40} />).container.innerHTML
+// The DRAWING only (which cells are filled), not the colour: a repeated pattern in another hue is
+// still the same face to a reader.
+const face = (seed: string) =>
+  [...render(<Identicon seed={seed} size={40} />).container.querySelectorAll('rect')].slice(1).map((r) => `${r.getAttribute('x')},${r.getAttribute('y')}`).sort().join(' ')
 
 describe('a member face is the seat, not the name (#315)', () => {
   it('every seat of a vault has its own face, and the name plays no part', () => {
-    for (const vault of ['ab'.repeat(32), 'cd'.repeat(32), '0123456789abcdef'.repeat(4)]) {
+    // The last id draws seats 9 and 12 alike under a seed written in decimal ("id:9", "id:12").
+    for (const vault of ['ab'.repeat(32), 'cd'.repeat(32), '0123456789abcdef'.repeat(4), '0505e63b335075c4fc44526a3c96937829e993a0ffbc818a8f5ece03503f3948']) {
       const faces = Array.from({ length: 15 }, (_, seat) => face(memberSeed(vault, seat)))
       expect(new Set(faces).size).toBe(15)
     }
@@ -48,8 +52,12 @@ describe('every member avatar goes through the seat rule (#315)', () => {
       const seeds = [...src.matchAll(/<Identicon[^>]*?seed=(\{[^}]*\}|"[^"]*")/g)].map((m) => `seed=${m[1]}`)
       const members = seeds.filter((s) => !NOT_MEMBERS.includes(s))
       expect(members.length).toBeGreaterThan(0)
-      for (const s of members) expect(s, f).toMatch(/memberSeed\(|seedForName\(|NEUTRAL|\{s\}/)
-      expect(src, f).not.toMatch(/\.map\(\(m\) => m\.name\)\s*:\s*\[\]/)
+      // The expression starts with the rule: nothing seeded by a name, with the rule as a fallback.
+      const allowed = f === 'Layout.tsx' ? /^seed=\{(memberSeed\(|seedForName\(|NEUTRAL\}|s\})/ : /^seed=\{(memberSeed\(|seedForName\(|NEUTRAL\})/
+      for (const s of members) expect(s, f).toMatch(allowed)
     })
   }
+  it('the rail\'s faces in Layout.tsx are the seats', () => {
+    expect(codeOf('Layout.tsx')).toMatch(/const seeds = vault\?\.member_list\?\.length \? vault\.member_list\.slice\(0, 3\)\.map\(\(_, i\) => memberSeed\(vault\.id, i\)\) : \[\]/)
+  })
 })

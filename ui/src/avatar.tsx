@@ -44,7 +44,7 @@ export const NEUTRAL = 'konclave-member-unplaced'
  *  list (the coordinator's, the one votes are recorded under) exactly once; otherwise NEUTRAL, never
  *  a face seeded by the name. */
 export function seedForName(vaultId: string | null | undefined, list: readonly { name: string }[] | null | undefined, name: string): string {
-  if (!vaultId || !list) return NEUTRAL
+  if (!vaultId || !list || list.length === 0) return NEUTRAL
   const n = name.trim()
   const seats = list.flatMap((m, i) => (m.name.trim() === n ? [i] : []))
   return seats.length === 1 ? memberSeed(vaultId, seats[0]!) : NEUTRAL

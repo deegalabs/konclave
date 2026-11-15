@@ -821,7 +821,7 @@ export default function SigningPanel() {
               {roster.map((m, i) => (
                 <span
                   className={'sign-seat' + (presentFlags[i] ? ' on' : '') + (rosterSigned.includes(i + 1) ? ' signed' : '')}
-                  key={m.pubkey || m.name}
+                  key={i}
                 >
                   <Identicon seed={memberSeed(vault?.id ?? '', i)} size={22} />
                   <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
