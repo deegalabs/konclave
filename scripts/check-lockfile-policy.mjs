@@ -6,8 +6,8 @@
 // false by default), so this runs pnpm 12, pinned by tarball integrity and installed without its
 // install scripts, ONLY to verify, in a temporary copy of the manifests with a fresh store and cache.
 // The rule is pnpm's; this file runs it and reads the answer. Before verifying it refuses settings
-// weaker than documented, as pnpm itself resolves them (`config list --json`, not a second YAML
-// reader). After, two controls must be refused (no trust excludes; an absurd minimum age), so a
+// weaker than documented: the keys pnpm itself resolves (`config list --json`, not a second YAML
+// reader) must be on an allowlist, .npmrc may hold nothing but engine-strict, and no pnpmfile runs. After, two controls must be refused (no trust excludes; an absurd minimum age), so a
 // pnpm that skipped the verification fails. Outcomes: passes / refused (pnpm named a policy or
 // integrity violation) / could not verify (anything else; never a pass). Runs on linux-x64.
 //
@@ -53,9 +53,22 @@ const DEFAULT_REGISTRIES = {
 }
 const EXACT = /^(@[a-z0-9._-]+\/)?[a-z0-9._-]+@\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/
 
-/** Why the settings pnpm resolved (`pnpm config list --json`) are weaker than documented; empty when not. */
-export function weakenings(config) {
+// Every key `config list --json` may report for this repository. Anything else (a proxy, TLS off, a
+// pnpmfile, another policy knob) is refused rather than judged: an allowlist, not a list of bad keys.
+const ALLOWED_KEYS = new Set(['@jsr:registry', 'blockExoticSubdeps', 'ignorePnpmfile', 'minimumReleaseAge', 'packages', 'registries', 'registry', 'trustPolicy', 'trustPolicyExclude', 'userAgent'])
+
+/**
+ * Why the settings are weaker than documented; empty when they are not. `config` is what the pinned
+ * pnpm resolved (`config list --json`, run with --ignore-pnpmfile); `npmrc` is the committed .npmrc,
+ * read too because some of its keys (a proxy, TLS) never show in that list.
+ */
+export function weakenings(config, npmrc) {
   const why = []
+  for (const key of Object.keys(config)) if (!ALLOWED_KEYS.has(key)) why.push(`the setting "${key}" is not allowed`)
+  if (config.ignorePnpmfile !== true) why.push('the pnpmfile must be ignored')
+  for (const line of npmrc.split('\n').map((l) => l.trim())) {
+    if (line && !line.startsWith('#') && !line.startsWith(';') && line !== 'engine-strict=true') why.push(`.npmrc line "${line}" is not allowed`)
+  }
   if (!(Number(config.minimumReleaseAge) >= MIN_AGE_MINUTES)) why.push(`minimumReleaseAge must be at least ${MIN_AGE_MINUTES}`)
   if (config.trustPolicy !== 'no-downgrade') why.push('trustPolicy must be no-downgrade')
   if (config.blockExoticSubdeps !== true) why.push('blockExoticSubdeps must be true')
@@ -134,14 +147,14 @@ function main() {
     }
     const run = (name, ws) => {
       const dir = copy(name, ws)
-      const r = spawnSync(pnpm, ['install', '--frozen-lockfile', '--lockfile-only', '--store-dir', join(dir, '.store'), `--config.cache-dir=${join(dir, '.cache')}`], { cwd: dir, encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
+      const r = spawnSync(pnpm, ['install', '--frozen-lockfile', '--lockfile-only', '--ignore-pnpmfile', '--store-dir', join(dir, '.store'), `--config.cache-dir=${join(dir, '.cache')}`], { cwd: dir, encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
       const output = `${r.stdout ?? ''}${r.stderr ?? ''}`
       return { ...classify(r.status, output), output, rewrote: readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8') !== lock }
     }
 
     const configDir = copy('config', workspace)
-    const config = JSON.parse(execFileSync(pnpm, ['config', 'list', '--json'], { cwd: configDir, encoding: 'utf8', timeout: 30_000 }))
-    const weak = weakenings(config)
+    const config = JSON.parse(execFileSync(pnpm, ['config', 'list', '--json', '--ignore-pnpmfile'], { cwd: configDir, encoding: 'utf8', timeout: 30_000 }))
+    const weak = weakenings(config, readFileSync(join(repo, '.npmrc'), 'utf8'))
     if (weak.length) throw new Failure(`the supply-chain settings are weaker than documented: ${weak.join('; ')}`)
 
     const real = run('real', workspace)

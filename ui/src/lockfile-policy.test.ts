@@ -57,6 +57,10 @@ describe('the controls take the rules away', () => {
 
 // What `pnpm config list --json` (pnpm 12.21.0) reports for the committed workspace and .npmrc.
 const resolved = {
+  '@jsr:registry': 'https://npm.jsr.io/',
+  ignorePnpmfile: true,
+  packages: ['ui', 'mcp-server', 'sdk'],
+  userAgent: 'pnpm/12.21.0 npm/? node/? linux x64',
   minimumReleaseAge: 1440,
   trustPolicy: 'no-downgrade',
   blockExoticSubdeps: true,
@@ -69,9 +73,11 @@ const resolved = {
   },
 }
 
+const npmrc = 'engine-strict=true\n'
+
 describe('settings weaker than documented are refused, as pnpm itself resolved them', () => {
   it('accepts the settings as committed', () => {
-    expect(weakenings(resolved)).toEqual([])
+    expect(weakenings(resolved, npmrc)).toEqual([])
   })
 
   it('refuses each weakening, naming it', () => {
@@ -87,8 +93,20 @@ describe('settings weaker than documented are refused, as pnpm itself resolved t
       [{ trustLockfile: true }, 'trustLockfile'],
       [{ registry: 'https://example.invalid/' }, 'registry'],
       [{ registries: { ...resolved.registries, 'https://example.invalid/': { scopes: ['@evil'] } } }, 'registry'],
+      // Not on the allowlist: refused without being judged.
+      [{ pnpmfile: '/somewhere/hook.cjs' }, '"pnpmfile" is not allowed'],
+      [{ httpsProxy: 'http://127.0.0.1:8080' }, '"httpsProxy" is not allowed'],
+      [{ strictSsl: false }, '"strictSsl" is not allowed'],
+      [{ ignorePnpmfile: undefined }, 'pnpmfile must be ignored'],
     ]
-    for (const [change, named] of cases) expect(weakenings({ ...resolved, ...change }).join(' '), named).toContain(named)
+    for (const [change, named] of cases) expect(weakenings({ ...resolved, ...change }, npmrc).join(' '), named).toContain(named)
+  })
+
+  it('reads .npmrc for what never shows in the resolved list, and allows only engine-strict there', () => {
+    expect(weakenings(resolved, '# a comment\n\nengine-strict=true\n')).toEqual([])
+    for (const line of ['https-proxy=http://127.0.0.1:8080', 'strict-ssl=false', 'registry=https://example.invalid/']) {
+      expect(weakenings(resolved, `engine-strict=true\n${line}\n`).join(' '), line).toContain(line)
+    }
   })
 
   it('removing the excludes fails loudly when there is nothing to remove', () => {
