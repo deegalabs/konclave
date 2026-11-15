@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createHash } from 'node:crypto'
 // @ts-expect-error - plain .mjs scripts, deliberately not part of the app's TS build
-import { verifyWeb, manifestUrl, badSite, EXIT } from '../../scripts/web-verify.mjs'
+import { verifyWeb, manifestUrl, badSite, fetchManifest, EXIT, MAX_FILE_BYTES } from '../../scripts/web-verify.mjs'
 // @ts-expect-error - plain .mjs script
 import { buildManifest, serializeManifest } from '../../scripts/web-manifest.mjs'
 
@@ -12,7 +12,7 @@ const COMMIT = '0123456789abcdef0123456789abcdef01234567'
 const HEADERS = { 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'self'" }
 const sha = (b: string) => createHash('sha256').update(b).digest('hex')
 
-type Site = { files: Record<string, string>; headers: Record<string, string>; redirect?: string }
+type Site = { files: Record<string, string>; headers: Record<string, string>; redirect?: string; root?: string }
 let site: Site
 let server: Server
 let origin: string
@@ -38,7 +38,7 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     const path = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '').replace(/^\//, '') || 'index.html'
     if (site.redirect && path === site.redirect) { res.writeHead(308, { Location: 'https://elsewhere.example/' }); res.end(); return }
-    const body = site.files[path]
+    const body = (req.url === '/' && site.root !== undefined) ? site.root : site.files[path]
     if (body === undefined) { res.writeHead(404); res.end(); return }
     res.writeHead(200, site.headers)
     res.end(body)
@@ -124,6 +124,102 @@ describe('verify-web (#605)', () => {
     const r = await run({ ...withManifest(m), fetchFn })
     expect(r.out).toMatch(/INCONCLUSIVE assets\/index-AAAAAAAA\.js \(HTTP 503\)/)
     expect(r.code).toBe(EXIT.INCONCLUSIVE)
+  })
+
+  it('stops reading a body at the size cap, even with no length announced', async () => {
+    site = fresh()
+    const m = manifestOf(site)
+    let pulled = 0
+    const chunk = new Uint8Array(1024 * 1024)
+    const endless = () => new Response(new ReadableStream({ pull(c) { pulled++; c.enqueue(chunk) } }), { status: 200 })
+    const fetchFn = (url: string, init: RequestInit) =>
+      url.endsWith('/assets/index-AAAAAAAA.js') ? Promise.resolve(endless()) : fetch(url, init)
+    const r = await run({ ...withManifest(m), fetchFn })
+    expect(r.out).toMatch(/FAIL assets\/index-AAAAAAAA\.js \(larger than \d+ bytes\)/)
+    expect(pulled).toBeLessThan(MAX_FILE_BYTES / chunk.length + 4)
+    expect(r.code).toBe(EXIT.FAIL)
+  })
+
+  it('is inconclusive when version.json itself is a server error', async () => {
+    const fetchFn = (url: string, init: RequestInit) =>
+      url.endsWith('/version.json') ? Promise.resolve(new Response('down', { status: 502 })) : fetch(url, init)
+    const r = await run({ ...withManifest(manifestOf(fresh())), fetchFn })
+    expect(r.out).toMatch(/INCONCLUSIVE version\.json \(HTTP 502\)/)
+    expect(r.out).not.toMatch(/do not unlock/)
+    expect(r.code).toBe(EXIT.INCONCLUSIVE)
+  })
+
+  it('says when the headers were not checked', async () => {
+    site = fresh()
+    const m = manifestOf(site)
+    site.files['index.html'] = 'changed'
+    const r = await run(withManifest(m))
+    expect(r.out).toMatch(/headers not checked \(\/ did not pass\)/)
+  })
+
+  it('shows what the site sent escaped, so it cannot rewrite the verdict line', async () => {
+    site = fresh()
+    site.files['version.json'] = JSON.stringify({ version: '0.22.0', commit: '\u001b[2K\rPASS' })
+    const r = await run(withManifest(manifestOf(site)))
+    expect(r.out).not.toMatch(/\u001b/)
+    expect(r.out).toMatch(/\\u001b\[2K\\u000dPASS/)
+  })
+
+  it('reports files in the manifest order, whatever order they arrive in', async () => {
+    site = fresh()
+    for (let i = 0; i < 20; i++) site.files[`assets/f${String(i).padStart(2, '0')}.js`] = `x${i}`
+    const m = manifestOf(site)
+    const slow = (url: string, init: RequestInit) => new Promise<Response>((res) => setTimeout(() => res(fetch(url, init)), Math.random() * 20))
+    const a = (await run({ ...withManifest(m), fetchFn: slow })).out
+    const b = (await run({ ...withManifest(m), fetchFn: slow })).out
+    expect(a).toBe(b)
+  })
+
+  it('fetches a manifest URL with the same limits, https only', async () => {
+    expect((await fetchManifest('http://example.com/m.json')).code).toBe(EXIT.USAGE)
+    const r = await fetchManifest('https://example.invalid/m.json', () => Promise.resolve(new Response(null, { status: 404 })))
+    expect(r.code).toBe(EXIT.INCONCLUSIVE)
+  })
+
+  it('fails a security header that is missing, not only one that changed', async () => {
+    site = fresh()
+    const m = manifestOf(site)
+    delete site.headers['X-Frame-Options']
+    const r = await run(withManifest(m))
+    expect(r.out).toMatch(/FAIL header X-Frame-Options \(expected "DENY", got none\)/)
+    expect(r.code).toBe(EXIT.FAIL)
+  })
+
+  it('compares / itself, not only /index.html', async () => {
+    site = fresh()
+    const m = manifestOf(site)
+    site.root = '<!doctype html><script src="https://evil.example/x.js"></script>'
+    const r = await run(withManifest(m))
+    expect(r.out).toMatch(/PASS index\.html/)
+    expect(r.out).toMatch(/FAIL \/ \(index\.html\)/)
+    expect(r.code).toBe(EXIT.FAIL)
+  })
+
+  it('fails a manifest that lists no index.html', async () => {
+    site = fresh()
+    const noIndex = { ...site, files: { ...site.files } }
+    delete noIndex.files['index.html']
+    const r = await run(withManifest(manifestOf(noIndex)))
+    expect(r.out).toMatch(/FAIL the manifest lists no index\.html/)
+    expect(r.code).toBe(EXIT.FAIL)
+  })
+
+  it('follows the release download redirect for the manifest, and only for it', async () => {
+    site = fresh()
+    const text = manifestOf(site)
+    const modes: Record<string, string | undefined> = {}
+    const fetchFn = (url: string, init: RequestInit) => {
+      modes[url.startsWith('https://github.com/') ? 'manifest' : 'site'] = init.redirect
+      return url.startsWith('https://github.com/') ? Promise.resolve(new Response(text, { status: 200 })) : fetch(url, init)
+    }
+    const r = await run({ fetchFn })
+    expect(modes).toEqual({ manifest: 'follow', site: 'manual' })
+    expect(r.code).toBe(EXIT.PASS)
   })
 
   it('treats a malformed manifest as a usage error, not a verdict', async () => {

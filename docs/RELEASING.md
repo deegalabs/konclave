@@ -23,8 +23,8 @@ and the git tag never disagree:
    ```
 
 `main` moves only by a release merge or a tagged hotfix (`vX.Y.Z+1`); docs-only changes go to
-`staging` (decided 2026-11-15). The host deploys `main`, so this is what makes the live web app
-always a published release, and what lets `scripts/verify-web.mjs` call any other commit
+`staging` (decided 2026-11-15). The host deploys `main`, so this is what keeps the live web app on
+a release's commit, and what lets `scripts/verify-web.mjs` call any other commit
 `NOT A RELEASE`.
 
 Pushing the tag triggers

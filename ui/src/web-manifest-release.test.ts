@@ -74,6 +74,10 @@ describe('the web manifest in the release workflow (#605)', () => {
     const attach = c.indexOf('gh release upload "$TAG" web-manifest.json')
     const prod = c.indexOf('node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}"')
     expect(prod).toBeGreaterThan(attach)
+    // Last: a red production check never leaves the release without its sums, and a usage error
+    // (exit 3) is not retried.
+    expect(prod).toBeGreaterThan(c.indexOf('sha256sum -- *'))
+    expect(c).toMatch(/\[ "\$code" -eq 3 \] && exit 3/)
     expect(c).toMatch(/- name: Production serves this release\n\s+if: github\.event_name == 'push'/)
   })
 })

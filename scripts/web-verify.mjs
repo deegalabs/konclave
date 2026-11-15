@@ -16,7 +16,7 @@
 //   - it checks the site, not the copy a member's browser or installed app is already running;
 //   - it does NOT stop a compromised server, and it does not check the desktop app (#606).
 
-import { parseManifest, fingerprint, sha256Hex, isVersion, MANIFEST_FILE } from './web-manifest.mjs'
+import { parseManifest, fingerprint, sha256Hex, isVersion, shortCommit, MANIFEST_FILE } from './web-manifest.mjs'
 import { commitMismatch, WEB_ORIGIN } from './what-is-running.mjs'
 
 export const REPO = 'deegalabs/konclave'
@@ -47,6 +47,21 @@ export function badSite(site) {
 
 class Inconclusive extends Error {}
 
+/** A manifest from an https URL, with the same time and size limits as every other fetch here.
+ *  Returns { bytes } or { code, line } when there is no manifest to read. */
+export async function fetchManifest(url, fetchFn = fetch) {
+  if (!/^https:\/\//.test(url)) return { code: EXIT.USAGE, line: `USAGE --manifest must be a file or an https URL: ${url}` }
+  try {
+    const r = await get(fetchFn, url, { follow: true })
+    if (r.tooBig) return { code: EXIT.USAGE, line: `USAGE ${url} is larger than ${MAX_FILE_BYTES} bytes` }
+    if (r.status !== 200) return { code: EXIT.INCONCLUSIVE, line: `INCONCLUSIVE ${url} answered HTTP ${r.status}` }
+    return { bytes: r.bytes }
+  } catch (e) {
+    if (e instanceof Inconclusive) return { code: EXIT.INCONCLUSIVE, line: `INCONCLUSIVE ${e.message}` }
+    throw e
+  }
+}
+
 /** One GET with no redirects followed, a time limit and a size cap. Returns { status, headers,
  *  bytes } or throws Inconclusive when the network gave no answer. */
 async function get(fetchFn, url, { follow = false } = {}) {
@@ -54,10 +69,22 @@ async function get(fetchFn, url, { follow = false } = {}) {
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS)
   try {
     const res = await fetchFn(url, { redirect: follow ? 'follow' : 'manual', cache: 'no-store', signal: ctl.signal })
-    const len = Number(res.headers.get('content-length') ?? 0)
-    if (len > MAX_FILE_BYTES) return { status: res.status, headers: res.headers, bytes: null, tooBig: true }
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    if (bytes.length > MAX_FILE_BYTES) return { status: res.status, headers: res.headers, bytes: null, tooBig: true }
+    const tooBig = () => { ctl.abort(); return { status: res.status, headers: res.headers, bytes: null, tooBig: true } }
+    if (Number(res.headers.get('content-length') ?? 0) > MAX_FILE_BYTES) return tooBig()
+    // Read in chunks and stop at the cap: a body with no length (chunked) is never held whole.
+    const chunks = []
+    let total = 0
+    if (res.body) {
+      const reader = res.body.getReader()
+      for (let r = await reader.read(); !r.done; r = await reader.read()) {
+        total += r.value.length
+        if (total > MAX_FILE_BYTES) { await reader.cancel().catch(() => {}); return tooBig() }
+        chunks.push(r.value)
+      }
+    }
+    const bytes = new Uint8Array(total)
+    let at = 0
+    for (const c of chunks) { bytes.set(c, at); at += c.length }
     return { status: res.status, headers: res.headers, bytes }
   } catch (e) {
     throw new Inconclusive(`${url}: ${e?.name === 'AbortError' ? 'timed out' : (e?.message ?? e)}`)
@@ -74,7 +101,10 @@ const text = (bytes) => new TextDecoder().decode(bytes)
  */
 export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fetchFn = fetch }) {
   const lines = []
-  const out = (s) => lines.push(s)
+  // Whatever the site sent is shown escaped: a control character in a commit or a header must not
+  // rewrite the terminal line a reader takes for the verdict.
+  const esc = (s) => String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  const out = (s) => lines.push(esc(s))
   // Every run ends with what the answer does not cover, whatever the answer was.
   const done = (code) => {
     if (code === EXIT.FAIL) out('On a FAIL: do not unlock a vault with this app, tell the other members of your vault, and report it (SECURITY.md).')
@@ -87,6 +117,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
 
   try {
     const vr = await get(fetchFn, `${site}/version.json`)
+    if (vr.status >= 500) { out(`INCONCLUSIVE version.json (HTTP ${vr.status})`); return done(EXIT.INCONCLUSIVE) }
     if (vr.status !== 200 || !vr.bytes) { out(`FAIL version.json (HTTP ${vr.status})`); return done(EXIT.FAIL) }
     let claimed
     try { claimed = JSON.parse(text(vr.bytes)) } catch { out('FAIL version.json is not JSON'); return done(EXIT.FAIL) }
@@ -103,7 +134,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
       from = manifestUrl(claimed.version)
       const mr = await get(fetchFn, from, { follow: true })
       if (mr.status === 404) {
-        out(`INCONCLUSIVE no published manifest for v${claimed.version} at ${from} (not released yet, or the release is still a draft)`)
+        out(`INCONCLUSIVE no published manifest for v${claimed.version} at ${from} (a release from before manifests, 0.21.0 or earlier; not released yet; or the release is still a draft)`)
         return done(EXIT.INCONCLUSIVE)
       }
       if (mr.status !== 200 || !mr.bytes) { out(`INCONCLUSIVE ${from} answered HTTP ${mr.status}`); return done(EXIT.INCONCLUSIVE) }
@@ -111,7 +142,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
     }
     let m
     try { m = parseManifest(mBytes) } catch (e) { out(`USAGE ${e.message} (${from})`); return done(EXIT.USAGE) }
-    out(`manifest ${from}: v${m.version}, commit ${m.commit.slice(0, 7)}, ${m.files.length} files, SHA-256 ${await fingerprint(mBytes)}`)
+    out(`manifest ${from}: v${m.version}, commit ${shortCommit(m.commit)}, ${m.files.length} files, SHA-256 ${await fingerprint(mBytes)}`)
 
     if (claimed.version !== m.version) {
       out(`FAIL the site says ${claimed.version}, the manifest is of ${m.version}`)
@@ -126,33 +157,42 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
     let failed = 0
     let unknown = 0
     let headerFailed = 0
-    const check = async (label, path, expected) => {
+    const check = async (label, path, expected, emit = out) => {
       try {
         const r = await get(fetchFn, `${site}/${path}`)
-        if (r.tooBig) { failed++; out(`FAIL ${label} (larger than ${MAX_FILE_BYTES} bytes)`); return null }
+        if (r.tooBig) { failed++; emit(`FAIL ${label} (larger than ${MAX_FILE_BYTES} bytes)`); return null }
         // A server error says nothing about the bytes: inconclusive, not a mismatch.
-        if (r.status >= 500) { unknown++; out(`INCONCLUSIVE ${label} (HTTP ${r.status})`); return null }
-        if (r.status !== 200) { failed++; out(`FAIL ${label} (HTTP ${r.status})`); return null }
+        if (r.status >= 500) { unknown++; emit(`INCONCLUSIVE ${label} (HTTP ${r.status})`); return null }
+        if (r.status !== 200) { failed++; emit(`FAIL ${label} (HTTP ${r.status})`); return null }
         const got = await sha256Hex(r.bytes)
-        if (got !== expected.sha256) { failed++; out(`FAIL ${label} (expected ${expected.sha256}, got ${got})`); return null }
-        out(`PASS ${label}`)
+        if (got !== expected.sha256) { failed++; emit(`FAIL ${label} (expected ${expected.sha256}, got ${got})`); return null }
+        emit(`PASS ${label}`)
         return r
       } catch (e) {
         if (!(e instanceof Inconclusive)) throw e
-        unknown++; out(`INCONCLUSIVE ${label}: ${e.message}`); return null
+        unknown++; emit(`INCONCLUSIVE ${label}: ${e.message}`); return null
       }
     }
-    const queue = [...m.files]
+    // Eight at a time, reported in the manifest's order so two runs read the same.
+    const results = new Array(m.files.length)
+    let next = 0
     const workers = Array.from({ length: 8 }, async () => {
-      for (let f = queue.shift(); f; f = queue.shift()) await check(f.path, f.path, f)
+      for (let i = next++; i < m.files.length; i = next++) {
+        const mine = []
+        await check(m.files[i].path, m.files[i].path, m.files[i], (line) => mine.push(esc(line)))
+        results[i] = mine
+      }
     })
     await Promise.all(workers)
+    for (const r of results) lines.push(...r)
 
+    let headersChecked = false
     const index = m.files.find((f) => f.path === 'index.html')
     if (!index) { failed++; out('FAIL the manifest lists no index.html') }
     else {
       const root = await check('/ (index.html)', '', index)
       if (root) {
+        headersChecked = true
         for (const { name, value } of m.headers) {
           const got = root.headers.get(name)
           if (got === value) out(`PASS header ${name}`)
@@ -161,7 +201,7 @@ export async function verifyWeb({ site = WEB_ORIGIN, manifest, expectVersion, fe
       }
     }
 
-    out(`${failed || headerFailed ? 'FAIL' : unknown ? 'INCONCLUSIVE' : 'PASS'}: ${m.files.length + 1 - failed - unknown} of ${m.files.length + 1} files matched (/ included), ${failed} failed, ${unknown} could not be fetched; ${m.headers.length - headerFailed} of ${m.headers.length} headers matched.`)
+    out(`${failed || headerFailed ? 'FAIL' : unknown ? 'INCONCLUSIVE' : 'PASS'}: ${m.files.length + 1 - failed - unknown} of ${m.files.length + 1} files matched (/ included), ${failed} failed, ${unknown} could not be fetched; ${headersChecked ? `${m.headers.length - headerFailed} of ${m.headers.length} headers matched` : 'headers not checked (/ did not pass)'}.`)
     failed += headerFailed
     return done(failed ? EXIT.FAIL : unknown ? EXIT.INCONCLUSIVE : EXIT.PASS)
   } catch (e) {

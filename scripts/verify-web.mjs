@@ -16,7 +16,7 @@
 // not downloadable, or a server error); 3 usage, or a malformed manifest. What a PASS does and does
 // not prove is at the top of web-verify.mjs, and every run ends with it.
 import { readFileSync } from 'node:fs'
-import { verifyWeb, EXIT } from './web-verify.mjs'
+import { verifyWeb, fetchManifest, EXIT } from './web-verify.mjs'
 
 const opt = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
 const known = ['site', 'manifest', 'expect-version']
@@ -29,10 +29,10 @@ if (bad.length) {
 let manifest
 const m = opt('manifest')
 if (m !== undefined) {
-  if (/^https:\/\//.test(m)) {
-    const res = await fetch(m).catch((e) => { console.error(`INCONCLUSIVE ${m}: ${e.message}`); process.exit(EXIT.INCONCLUSIVE) })
-    if (res.status !== 200) { console.error(`INCONCLUSIVE ${m} answered HTTP ${res.status}`); process.exit(EXIT.INCONCLUSIVE) }
-    manifest = { bytes: new Uint8Array(await res.arrayBuffer()), from: m }
+  if (/^[a-z]+:\/\//i.test(m)) {
+    const got = await fetchManifest(m)
+    if (got.line) { console.error(got.line); process.exit(got.code) }
+    manifest = { bytes: got.bytes, from: m }
   } else {
     try { manifest = { bytes: new Uint8Array(readFileSync(m)), from: m } } catch (e) { console.error(`USAGE ${e.message}`); process.exit(EXIT.USAGE) }
   }

@@ -214,23 +214,6 @@ jobs:
           fi
           mv web-manifest.json "$RUNNER_TEMP/web-manifest.json"
 
-      # Does production serve this release? Vercel deployed `main` on its own before the tag; this is
-      # where a build that stopped matching CI's shows, on our job rather than on members' machines.
-      # On a tag push only: a manual re-run of an older tag would meet a newer production.
-      - name: Production serves this release
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -uo pipefail
-          for i in 1 2 3 4 5 6; do
-            node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}" && exit 0
-            echo "attempt $i did not pass; trying again in 60 s"
-            sleep 60
-          done
-          exit 1
-
       - name: SHA256SUMS
         shell: bash
         # The tag is untrusted input; it reaches the shell only as data, through env.
@@ -248,6 +231,28 @@ jobs:
           sha256sum -- * > ../SHA256SUMS
           cat ../SHA256SUMS
           gh release upload "$TAG" ../SHA256SUMS --clobber
+
+      # Last, after SHA256SUMS, so a red check here never leaves the release without its sums.
+      # Does production serve this release? Vercel deployed `main` on its own before the tag; this is
+      # where a build that stopped matching CI's shows, on our job rather than on members' machines.
+      # On a tag push only: a manual re-run of an older tag would meet a newer production.
+      - name: Production serves this release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          for i in 1 2 3 4 5 6; do
+            node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}"
+            code=$?
+            [ "$code" -eq 0 ] && exit 0
+            # 3 is a usage or manifest error: trying again cannot change it.
+            [ "$code" -eq 3 ] && exit 3
+            echo "attempt $i did not pass (exit $code); trying again in 60 s"
+            sleep 60
+          done
+          exit 1
 
   # The web manifest of this release (#605): the SHA-256 of every file the web app serves, so anyone
   # can compare the live site with it (scripts/verify-web.mjs) or rebuild the commit and compare.

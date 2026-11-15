@@ -82,4 +82,5 @@ cmp mine.json web-manifest.json
 ```
 
 The two files should be identical. The toolchain is part of the input: the commit pins the lockfile
-and the pnpm version (`packageManager` in `package.json`); the release workflow builds with Node 24.
+and the pnpm version (`packageManager` in `package.json`); the release workflow builds with Node 24
+on Ubuntu 22.04.
