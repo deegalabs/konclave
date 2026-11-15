@@ -206,16 +206,60 @@ for (const theme of ['light', 'dark'] as const) {
     // the surface-2 fill, so the edge against it (3.07 in dark, the thinnest pair here) is what holds.
     it('Settings field edge, hover and read-only clear 3:1 on both surfaces', () => {
       const input = lruleIn('.input')
-      expect(input).toMatch(/border:\s*1\.5px solid var\(--line-strong\)/)
+      expect(input).toMatch(/border:\s*1px solid var\(--line-strong\)/)
+      expect(input).toMatch(/padding:\s*11\.5px 13\.5px/)
       const hover = tokenIn(lruleIn('.input:hover'), 'border-color')
       expect(hover, '.input:hover paints its edge from a token').toBeTruthy()
       const ro = lruleIn('.input[readonly]')
-      expect(tokenIn(ro, 'background')).toBe('surface-2')
+      // The base fill is already surface-2, so a surface-2 fill would change nothing; the lock must
+      // show without colour (dashed edge) and without a surface-3 fill (--line-strong is 2.8 there).
+      expect(ro).toMatch(/border-style:\s*dashed/)
+      expect(tokenIn(ro, 'color')).toBe('text-muted')
+      expect(ro).not.toMatch(/surface-3/)
       expect(ro).toMatch(/cursor:\s*default/)
+      expect(tokenIn(lruleIn('.input[readonly]:hover'), 'border-color')).toBe('line-strong')
+      for (const sel of ['.cv-input[readonly], .net-input[readonly]']) {
+        const r = netRule(sel)
+        expect(r, sel).toMatch(/border-style:\s*dashed/)
+        expect(tokenIn(r, 'color'), sel).toBe('text-muted')
+        expect(r).not.toMatch(/surface-3/)
+      }
+      expect(tokenIn(netRule('.cv-input[readonly]:hover, .net-input[readonly]:hover'), 'border-color')).toBe('line-strong')
       for (const [name, bg] of [['surface-1', t('surface-1')], ['surface-2', t('surface-2')]] as const) {
         expect(ratio(t('line-strong'), bg), `edge on ${name}`).toBeGreaterThanOrEqual(3)
         expect(ratio(t(hover!), bg), `hover --${hover} on ${name}`).toBeGreaterThanOrEqual(3)
       }
+    })
+
+    // The text fields that are not `.input` (recipient, amount, payroll line, phone payroll cell, the
+    // create dialog's name and the pairing-code field) must carry the same edge, or one form shows two weights.
+    it('every other text field edge is --line-strong, with a --text-muted hover, on both surfaces', () => {
+      const edge = (decls: string) => /border(?:-color)?:\s*(?:[\d.]+px solid )?var\(--([a-z-]+)\)/.exec(decls)?.[1]
+      const fields: Array<[string, string, string?]> = [
+        ['.rcb-field', 'app', '.rcb-field:hover'],
+        ['.payamt', 'app', '.payamt:hover'],
+        ['.plr-val, .plr-memo', 'app', '.plr-val:hover, .plr-memo:hover'],
+        ['  .tbl.folha .cell-input', 'app'],
+        ['.cv-nameinput', 'net', '.cv-nameinput:hover'],
+        ['.net-input', 'net', '.net-input:hover'],
+      ]
+      for (const [sel, file, hov] of fields) {
+        const trimmed = sel.trim()
+        const decls = file === 'app'
+          ? (sel.startsWith('  ') ? /\n  \.tbl\.folha \.cell-input\{([^}]*)\}/.exec(appCss)![1]! : appRule(trimmed))
+          : netRule(trimmed)
+        expect(edge(decls), `${trimmed} edge`).toBe('line-strong')
+        if (hov) {
+          const h = file === 'app' ? appRule(hov) : netRule(hov)
+          expect(tokenIn(h, 'border-color'), `${hov}`).toBe('text-muted')
+        }
+      }
+      for (const bg of [t('surface-1'), t('surface-2'), page()]) {
+        expect(ratio(t('line-strong'), bg)).toBeGreaterThanOrEqual(3)
+        expect(ratio(t('text-muted'), bg)).toBeGreaterThanOrEqual(3)
+      }
+      // The amount box marks focus the way .input does: a 2px accent outline, not only a faint halo.
+      expect(appRule('.payamt:focus-within')).toMatch(/outline:\s*2px solid var\(--accent\)/)
     })
 
     it('the focus ring is visible against what surrounds it', () => {
