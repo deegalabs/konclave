@@ -271,6 +271,11 @@ jobs:
       # self-destroying one. Rule and tests: scripts/check-sw.mjs.
       - name: Check the service worker is the web one
         run: node scripts/check-sw-cli.mjs web ui/dist/sw.js
+      # No env key name in the built JavaScript (#605): a key name means an env object was inlined,
+      # with every variable the host adds, and the release's rebuild could no longer match what the
+      # host serves. The rule and its tests: scripts/check-desktop-bundle.mjs.
+      - name: Check the bundle inlined no env object
+        run: node scripts/check-desktop-bundle-cli.mjs --web ui/dist
 
   e2e:
     name: UI e2e (Playwright)

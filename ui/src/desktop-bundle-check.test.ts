@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
-import { bundleProblems, carries, invalidBase, REQUIRED } from '../../scripts/check-desktop-bundle.mjs'
+import { bundleProblems, carries, envKeysIn, invalidBase, REQUIRED } from '../../scripts/check-desktop-bundle.mjs'
 
 // #664: the desktop release built the app with no coordinator and no relay address, and nothing
 // failed. The rule that now fails that build lives in a script so it can be run here; a check that
@@ -10,10 +10,13 @@ import { bundleProblems, carries, invalidBase, REQUIRED } from '../../scripts/ch
 const HELPER = 'https://helper.konclave.xyz'
 const RELAY = 'https://relay.konclave.xyz'
 const good = { VITE_HELPER_BASE: HELPER, VITE_RELAY_BASE: RELAY }
-// The shape Vite 8 writes: `import.meta.env` replaced by an object literal, values in backticks.
-const bundle = [`const e={MODE:\`production\`,VITE_HELPER_BASE:\`${HELPER}\`,VITE_RELAY_BASE:\`${RELAY}\`}`]
+// The shape Vite 8 writes for a static read (`import.meta.env.VITE_HELPER_BASE`): the value alone, as
+// a string literal. No env object and no key name: a bundle that carries a key name inlined the whole
+// env object, and with it every variable the host injects (Vercel adds its own), so its bytes stop
+// being reproducible from the repository (#605).
+const bundle = [`const h=\`${HELPER}\`,r=\`${RELAY}\``]
 
-describe('the desktop bundle check (#664)', () => {
+describe('the desktop bundle check (#664, #605)', () => {
   it('passes a bundle that carries both addresses', () => {
     expect(bundleProblems(good, bundle)).toEqual([])
   })
@@ -35,21 +38,41 @@ describe('the desktop bundle check (#664)', () => {
     ])
   })
 
-  it('counts a value only where Vite inlined it, under its own key and exactly', () => {
-    expect(carries(`{VITE_HELPER_BASE:\`${HELPER}\`}`, 'VITE_HELPER_BASE', HELPER)).toBe(true)
-    expect(carries(`{"VITE_HELPER_BASE":"${HELPER}"}`, 'VITE_HELPER_BASE', HELPER)).toBe(true)
-    expect(carries(`{VITE_HELPER_BASE: '${HELPER}'}`, 'VITE_HELPER_BASE', HELPER)).toBe(true)
-    // In a comment, or as a string with no key: not inlined.
-    expect(carries(`/* see ${HELPER} */ const e={}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
-    expect(carries(`const u="${HELPER}"`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
+  it('counts a value only as a whole string literal, exactly', () => {
+    expect(carries(`const h=\`${HELPER}\``, HELPER)).toBe(true)
+    expect(carries(`const h="${HELPER}"`, HELPER)).toBe(true)
+    expect(carries(`const h='${HELPER}'`, HELPER)).toBe(true)
+    // In a comment, or inside a longer string: not the inlined value.
+    expect(carries(`/* see ${HELPER} */ const e={}`, HELPER)).toBe(false)
+    expect(carries(`const u="go to ${HELPER}"`, HELPER)).toBe(false)
     // A longer host, or a path after it: not this value.
-    expect(carries(`{VITE_HELPER_BASE:"${HELPER}.evil.example"}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
-    expect(carries(`{VITE_HELPER_BASE:"${HELPER}/x"}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
-    // Under another key, or a key that only ends with the name.
-    expect(carries(`{VITE_RELAY_BASE:"${HELPER}"}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
-    expect(carries(`{XVITE_HELPER_BASE:"${HELPER}"}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
+    expect(carries(`"${HELPER}.evil.example"`, HELPER)).toBe(false)
+    expect(carries(`"${HELPER}/x"`, HELPER)).toBe(false)
+    // Mismatched quotes are not one literal.
+    expect(carries(`"${HELPER}'`, HELPER)).toBe(false)
     // The dot in the host is a dot, not "any character".
-    expect(carries(`{VITE_HELPER_BASE:"https://helperXkonclave.xyz"}`, 'VITE_HELPER_BASE', HELPER)).toBe(false)
+    expect(carries(`"https://helperXkonclave.xyz"`, HELPER)).toBe(false)
+  })
+
+  it('fails a bundle that inlined an env object, naming each key it carries', () => {
+    // What v0.21.0 shipped: three files aliased `import.meta.env`, so Vite wrote the whole object,
+    // including a variable only Vercel sets.
+    const inlined = [`const e={VITE_HELPER_BASE:\`${HELPER}\`,VITE_RELAY_BASE:\`${RELAY}\`,VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG:\`{}\`}`]
+    expect(bundleProblems(good, inlined)).toEqual([
+      'the bundle carries the env key VITE_HELPER_BASE: an env object was inlined, so its bytes depend on whatever variables the host sets (read import.meta.env.VITE_<NAME> directly)',
+      'the bundle carries the env key VITE_RELAY_BASE: an env object was inlined, so its bytes depend on whatever variables the host sets (read import.meta.env.VITE_<NAME> directly)',
+      'the bundle carries the env key VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG: an env object was inlined, so its bytes depend on whatever variables the host sets (read import.meta.env.VITE_<NAME> directly)',
+    ])
+  })
+
+  it('finds a key name only as a whole word', () => {
+    expect(envKeysIn('INVITE_LENGTH=8; xVITE_A; VITE_A_B1 VITE_A_B1 $VITE_C')).toEqual(['VITE_A_B1'])
+    expect(envKeysIn('const a=1')).toEqual([])
+  })
+
+  it('checks only the key names for the web build, which has no addresses to require', () => {
+    expect(bundleProblems({}, bundle, { web: true })).toEqual([])
+    expect(bundleProblems({}, ['{VITE_X:1}'], { web: true })).toHaveLength(1)
   })
 
   it('accepts only an https origin, spelled as the coordinator matches it', () => {
