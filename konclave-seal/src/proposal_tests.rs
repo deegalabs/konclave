@@ -358,6 +358,17 @@ fn check_expiry_refuses_expired_and_too_far_and_takes_the_margin() {
         check_expiry(&expiring(last_ok + 1), ts, ts),
         Err(ContentError::ExpiryTooFar)
     );
+    // The limit itself is accepted and one millisecond past it refused: an approval time whose
+    // limit falls on a whole second, and one whose limit sits 1 ms before a whole second.
+    let ts_even = 1_800_000_000_000i64;
+    let at_limit = ((ts_even + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS) / 1000) as u64;
+    assert_eq!(check_expiry(&expiring(at_limit), ts_even, ts_even), Ok(()));
+    let ts_999 = 1_800_000_000_999i64;
+    let just_past = ((ts_999 + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS + 1) / 1000) as u64;
+    assert_eq!(
+        check_expiry(&expiring(just_past), ts_999, ts_999),
+        Err(ContentError::ExpiryTooFar)
+    );
     // Expired at now == expiry, and after; open one millisecond before.
     let e = 1_800_003_600u64;
     let at = (e as i64) * 1000;
