@@ -18,6 +18,7 @@ import { dateRange, periodWindow, periodLabel, inPeriod, offsetFor, type PeriodK
 import { useLoading } from '../loading'
 import ReadState from '../ReadState'
 import { useT, useI18n } from '../i18n'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { useVaultReadable } from '../vault-readable'
 import { useReveal } from '../reveal'
 
@@ -30,6 +31,7 @@ const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
 // total and filter, and the export, so a refused or expired row cannot count as open in one of them.
 
 export default function Ledger({ embedded = false }: { embedded?: boolean }) {
+  const estimate = estimatorOf(useFeeEstimate())
   const t = useT()
   const { locale } = useI18n()
   const { begin, end } = useLoading()
@@ -207,7 +209,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       // The balance as of the export, read once: the position, what open proposals of the WHOLE
       // book hold, what is free, what is confirming. Left out, and said so, when the read brings nothing.
       const bal = await getBalance()
-      const reserved = reservedZatOf(ledger)
+      const reserved = reservedZatOf(ledger, estimate)
       const parts = bal && bal.total_zat != null && reserved != null
         ? balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
         : null

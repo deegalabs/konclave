@@ -2,56 +2,101 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { freeZatOf, reservedZatOf } from './balance-parts'
 import type { Proposal } from './api'
+import type { FeeEstimator } from './fee-estimate'
+import { proposalCostZat } from './proposal-cost'
 
 // The Dashboard and the payment screen used different words for "available", and the screen that
 // CREATES payments held the more permissive one: `spendable`, with nothing subtracted. So the
 // Dashboard could say the vault cannot pay while the payment screen accepted the amount, carried it
 // to a quorum, and let it die at signing - or killed the earlier proposal that had the funds first.
-const p = (state: string, zat: number): Proposal =>
-  ({ id: String(zat), state, value_zat: zat } as unknown as Proposal)
+// An injected estimator with a per-destination part, so a test can tell estimate(1) from estimate(N).
+// No number of the real fee rule is typed here: every expectation is built from the estimator.
+const est: FeeEstimator = (n) => 10 * (n + 2)
+const p = (state: string, zat: number, destinations: number | null = 1, kind: Proposal['kind'] = 'payment'): Proposal =>
+  ({ id: String(zat), state, kind, value_zat: zat, destinations } as unknown as Proposal)
+const cost = (zat: number, n = 1) => zat + est(n)!
 
 describe('what a new payment may draw on', () => {
-  it('subtracts every proposal that can still move', () => {
+  it('subtracts every proposal that can still move, with its fee estimate', () => {
     // `isOpen` is the rule, and its own doc calls these "still consuming vault funds".
-    expect(reservedZatOf([p('awaiting', 100), p('ready', 50)])).toBe(150)
+    expect(reservedZatOf([p('awaiting', 100), p('ready', 50)], est)).toBe(cost(100) + cost(50))
+  })
+
+  it('an open N-line payroll reserves its value plus the estimate for N, not for one', () => {
+    const roll = p('awaiting', 10_000, 7, 'payroll')
+    expect(reservedZatOf([roll], est)).toBe(cost(10_000, 7))
+    expect(reservedZatOf([roll], est)).not.toBe(cost(10_000, 1))
   })
 
   it('subtracts nothing for a proposal that has stopped', () => {
     for (const state of ['sent', 'confirmed', 'refused', 'expired', 'cancelled', 'superseded']) {
-      expect(reservedZatOf([p(state, 100)]), `${state} should release its funds`).toBe(0)
+      expect(reservedZatOf([p(state, 100)], est), `${state} should release its funds`).toBe(0)
     }
   })
 
-  it('is spendable minus what is held', () => {
-    expect(freeZatOf({ total_zat: 1000, spendable_zat: 800 }, [p('awaiting', 300)])).toBe(500)
+  it('is spendable minus what is held, fee estimate included', () => {
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 800 }, [p('awaiting', 300)], est)).toBe(800 - cost(300))
   })
 
   it('never goes below zero when more is committed than the vault can spend', () => {
     // Over-commitment is possible - a proposal made before funds moved - and a negative "free"
     // would flow into an amount field.
-    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [p('awaiting', 900)])).toBe(0)
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [p('awaiting', 900)], est)).toBe(0)
   })
 
   it('is null, not zero, when the balance is unknown', () => {
     // The difference the whole guard rests on: zero reads as "the vault is empty" and sends the
     // member looking for money that is there. Unknown has to stay unknown.
-    expect(freeZatOf(null, [])).toBeNull()
-    expect(freeZatOf({ total_zat: null }, [])).toBeNull()
+    expect(freeZatOf(null, [], est)).toBeNull()
+    expect(freeZatOf({ total_zat: null }, [], est)).toBeNull()
   })
 
   it('treats confirming funds as not yet drawable', () => {
     // 1000 held, 400 confirmed: a payment can draw on 400, whatever the headline says.
-    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [])).toBe(400)
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [], est)).toBe(400)
   })
 
   it('an open-proposal list not read yet is unknown, never "nothing reserved"', () => {
-    expect(reservedZatOf(null)).toBeNull()
-    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, null)).toBeNull()
+    expect(reservedZatOf(null, est)).toBeNull()
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, null, est)).toBeNull()
   })
 
   it('a proposal whose deadline passed on this clock holds nothing', () => {
     const late = { ...p('awaiting', 100), expiry_unix: 1 } as Proposal
-    expect(reservedZatOf([late, p('ready', 50)])).toBe(50)
+    expect(reservedZatOf([late, p('ready', 50)], est)).toBe(cost(50))
+  })
+
+  it('fails closed: an unknown estimate or unread destinations make the reservation unknown', () => {
+    expect(reservedZatOf([p('awaiting', 100)], null)).toBeNull()
+    expect(reservedZatOf([p('awaiting', 100), p('ready', 5, null, 'payroll')], est)).toBeNull()
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 800 }, [p('awaiting', 300)], null)).toBeNull()
+  })
+
+  it('with no open proposal the answer is 0 whatever the estimator is', () => {
+    expect(reservedZatOf([], null)).toBe(0)
+    expect(reservedZatOf([p('sent', 100)], null)).toBe(0)
+    expect(freeZatOf({ total_zat: 1000, spendable_zat: 400 }, [], null)).toBe(400)
+  })
+
+  it('a second payment that fits only without the first one\'s fee is refused as reserved (#1017)', () => {
+    // Vault of 1000 spendable, one open payment of 300. Without its fee the second may take 700;
+    // with it, only 700 - est(1). Ask for a value that needs that room plus the second one's own fee.
+    const bal = { total_zat: 1000, spendable_zat: 1000 }
+    const open = [p('awaiting', 300)]
+    const free = freeZatOf(bal, open, est)!
+    const feeZat = est(1)!
+    const amountZat = 700 - feeZat // fits if the first proposal's fee were not counted
+    expect(amountZat + feeZat).toBeLessThanOrEqual(1000 - 300)
+    expect(proposeBlock({ amountZat, availableZat: free, feeZat, reservedZat: reservedZatOf(open, est) })).toBe('reserved')
+    // And with the fee left out of the reservation it would have been accepted: the bug.
+    expect(proposeBlock({ amountZat, availableZat: 700, feeZat, reservedZat: 300 })).toBeNull()
+  })
+
+  it('what the guard admits grows the reservation by exactly proposalCostZat of the proposal made', () => {
+    for (const [n, kind] of [[1, 'payment'], [4, 'payroll']] as const) {
+      const made = p('awaiting', 5_000, n, kind)
+      expect(reservedZatOf([made], est)).toBe(proposalCostZat(made, est))
+    }
   })
 })
 

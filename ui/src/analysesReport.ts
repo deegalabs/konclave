@@ -8,6 +8,7 @@
 // enough history and carries no pace, no runway and no projection, as the screen does.
 import type { Workbook } from 'exceljs'
 import type { Balance, Proposal } from './api'
+import type { FeeEstimator } from './fee-estimate'
 import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from './balance-parts'
 import { downloadBlob } from './download'
 import { zatToZec } from './format'
@@ -35,16 +36,18 @@ export function analysesReport(input: {
   busy?: boolean
   unwired?: boolean
   rows: readonly Proposal[]
+  /** The fee estimator the screen holds (`null` while unknown): what an open proposal reserves. */
+  estimate: FeeEstimator | null
   vaultName: string
   now: Date
   t: TFn
   locale: Locale
 }): AnalysesReport {
-  const { bal, rows, now, t, locale } = input
+  const { bal, rows, now, t, locale, estimate } = input
   const zec = (zat: number, label: string, source: string): ReportRow => ({ label, value: zatToZec(zat), unit: 'ZEC', source })
   const sections: ReportSection[] = []
 
-  const reserved = reservedZatOf(rows)
+  const reserved = reservedZatOf(rows, estimate)
   const balNote = balanceNoteKey(!!bal && bal.total_zat != null, input.busy ?? false, input.unwired ?? false)
   if (bal && bal.total_zat != null && reserved !== null) {
     const p = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
@@ -72,13 +75,13 @@ export function analysesReport(input: {
       rows: months.map((m) => zec(m.outZat, monthAt(m.from, locale), t('analyses.srcMonth'))),
       note: burn.undated > 0 ? t(burn.undated === 1 ? 'analyses.undatedOne' : 'analyses.undated', { n: burn.undated }) : undefined,
     })
-    const run = runway(bal, rows, burn)
+    const run = runway(bal, rows, burn, estimate)
     const runRow: ReportRow = run.kind === 'months'
       ? { label: t('analyses.runway'), value: (run.tenths / 10).toFixed(1), unit: t('analyses.unitMonths'), source: t(runwayNoteKey(run)) }
       : { label: t('analyses.runway'), value: '-', unit: '', source: t(runwayNoteKey(run)) }
     sections.push({ title: pace, rows: [zec(burn.zatPerMonth, t('analyses.pace'), t('analyses.paceHow')), runRow] })
-    const proj = run.kind === 'months' ? projection(bal, rows, burn, now) : null
-    const free = freeZatOf(bal, rows)
+    const proj = run.kind === 'months' ? projection(bal, rows, burn, estimate, now) : null
+    const free = freeZatOf(bal, rows, estimate)
     if (proj && free !== null) {
       sections.push({
         title: t('analyses.secProjection'),

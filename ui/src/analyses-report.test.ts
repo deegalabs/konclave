@@ -1,6 +1,7 @@
 // The Analyses export: one list of rows, two files. These pin that every number travels with where
 // it came from and the limits sentence, that the spreadsheet and the page say the same thing, and
 // that the file stays as quiet as the screen when the history or the balance is missing.
+import type { FeeEstimator } from './fee-estimate'
 import { describe, expect, it } from 'vitest'
 import type { Balance, Proposal } from './api'
 import { analysesHtml, analysesReport, analysesWorkbook, type AnalysesReport } from './analysesReport'
@@ -12,14 +13,16 @@ const at = (y: number, m: number, d = 15) => Math.floor(new Date(y, m, d).getTim
 let n = 0
 const p = (state: string, zat: number, created_at: number | undefined): Proposal => ({
   id: `p${n++}`, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat: zat, value_zec: '',
-  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0,
+  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0, destinations: 1,
 })
+// These tests are about words, not fees: an estimator that adds nothing keeps their figures as they were.
+const NO_FEE: FeeEstimator = () => 0
 const NOW = new Date(2026, 10, 10)
 const t: TFn = (k, v) => translateStatic(k, v, 'en')
 const bal = (zat: number, spendable = zat): Balance => ({ configured: true, total_zat: zat, spendable_zat: spendable })
 const book = [p('confirmed', ZEC, at(2026, 6)), p('sent', ZEC, at(2026, 7)), p('sent', 2 * ZEC, at(2026, 8)), p('confirmed', ZEC, at(2026, 9)), p('rejected', 9 * ZEC, at(2026, 9))]
 const report = (o: Partial<Parameters<typeof analysesReport>[0]> = {}) =>
-  analysesReport({ bal: bal(5 * ZEC), rows: book, vaultName: 'Caixa <da> comunidade', now: NOW, t, locale: 'en', ...o })
+  analysesReport({ bal: bal(5 * ZEC), rows: book, estimate: NO_FEE, vaultName: 'Caixa <da> comunidade', now: NOW, t, locale: 'en', ...o })
 const rowsOf = (r: AnalysesReport) => r.sections.flatMap((s) => s.rows)
 
 describe('analysesReport', () => {

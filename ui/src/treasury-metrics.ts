@@ -20,6 +20,7 @@
 // Whole zatoshi throughout (#303).
 import type { Proposal } from './api'
 import { freeZatOf } from './balance-parts'
+import type { FeeEstimator } from './fee-estimate'
 import { sumZat } from './format'
 import { SETTLED } from './ledger-state'
 import { createdAt, dateRange, periodWindow } from './period'
@@ -79,8 +80,8 @@ export type Runway =
   | { kind: 'months'; tenths: number }
 
 /** How long the free funds last at the pace. */
-export function runway(bal: Bal, proposals: readonly Proposal[] | null, burn: Burn): Runway {
-  const free = freeZatOf(bal, proposals)
+export function runway(bal: Bal, proposals: readonly Proposal[] | null, burn: Burn, estimate: FeeEstimator | null): Runway {
+  const free = freeZatOf(bal, proposals, estimate)
   if (burn.kind !== 'rate' || free === null) return { kind: 'unknown' }
   if (burn.zatPerMonth <= 0) return { kind: 'no-spend' }
   const f = Math.max(0, free)
@@ -111,10 +112,11 @@ export function projection(
   bal: Bal,
   proposals: readonly Proposal[] | null,
   burn: Burn,
+  estimate: FeeEstimator | null,
   now: Date = new Date(),
   horizon = 6,
 ): { points: ProjectionPoint[]; runsOutIndex: number | null } | null {
-  const free = freeZatOf(bal, proposals)
+  const free = freeZatOf(bal, proposals, estimate)
   if (burn.kind !== 'rate' || free === null) return null
   const points: ProjectionPoint[] = []
   for (let k = 1; k <= horizon; k++) points.push({ from: month(now, k).from, balanceZat: free - k * burn.zatPerMonth })

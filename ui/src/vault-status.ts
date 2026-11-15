@@ -10,6 +10,7 @@
 // of open proposals and the times. Its amounts live in this tab's memory and are shown only while
 // its secret is held here, that is, while it is unlocked. An open vault keeps its figures.
 import { balanceParts, reservedZatOf } from './balance-parts'
+import { readFeeEstimator } from './fee-estimate'
 import { isOpen } from './desk'
 import { readSecretFor } from './session'
 import type { Proposal } from './api'
@@ -89,7 +90,13 @@ export function rememberProposals(vault: string, proposals: readonly Proposal[] 
   if (!proposals) return
   const last = proposals.reduce<number>((m, p) => Math.max(m, p.created_at ?? 0), 0)
   // Open is the desk's own rule (`isOpen`): a proposal past its deadline on this clock is not open.
-  keep(vault, { reservedZat: reservedZatOf(proposals) ?? 0 },
+  // The reservation includes each proposal's fee estimate, which needs the wasm. Called before it is
+  // ready the estimator throws: then the reservation is unknown, and an unknown one is WRITTEN as
+  // unknown (explicit undefined, which also clears an older figure) so the list shows no free amount
+  // rather than one that includes held money. PR 3 of #1017 replaces this with a field of its own.
+  let estimate: ReturnType<typeof readFeeEstimator> = null
+  try { estimate = readFeeEstimator() } catch { /* wasm not ready: unknown */ }
+  keep(vault, { reservedZat: reservedZatOf(proposals, estimate) ?? undefined },
     { openCount: proposals.filter(isOpen).length, lastActivity: last || undefined, proposalsAt: now() })
 }
 

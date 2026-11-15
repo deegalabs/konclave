@@ -11,6 +11,7 @@ import { fmtZecExact, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -227,10 +228,11 @@ export default function Proposal() {
   const feeEstimator = estimatorOf(feeEstimate)
   const cost = (() => {
     const amountZat = plan.totalZat
-    if (!feeEstimator) return null
-    const feeZat = feeEstimator(Math.max(1, plan.lines.length))
-    if (feeZat === null) return null
-    const totalZat = amountZat + feeZat
+    // The one addition (`costZat`). Lines not read (none) is unknown, never one destination: that
+    // would show the floor as the fee of a payroll whose size is not known.
+    const totalZat = costZat(amountZat, plan.lines.length, feeEstimator)
+    if (totalZat === null) return null
+    const feeZat = totalZat - amountZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }
   })()

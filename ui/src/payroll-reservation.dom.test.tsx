@@ -36,7 +36,7 @@ const ONE_ZEC = 100_000_000
 // An open proposal (awaiting) holding 0.9 of the vault's 1 ZEC.
 const holding = {
   id: 'h', vault_id: 'v', kind: 'payment', state: 'awaiting', proposer: 'Alice', memo: 'Rent', is_public: false,
-  approvals: ['Alice'], refusals: [], approvals_count: 1, value_zat: 90_000_000, value_zec: '0.9', to_address: ADDR,
+  approvals: ['Alice'], refusals: [], approvals_count: 1, value_zat: 90_000_000, value_zec: '0.9', to_address: ADDR, destinations: 1,
 }
 
 const mount = () => render(<MemoryRouter><I18nProvider><NewPayroll /></I18nProvider></MemoryRouter>)

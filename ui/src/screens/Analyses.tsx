@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { getLedger, getVault, ledgerReadFailure, readBalance, type Balance, type Proposal } from '../api'
 import { analysesReport, exportAnalyses } from '../analysesReport'
 import { balanceNoteKey, balanceParts, freeZatOf, reservedZatOf } from '../balance-parts'
+import { estimatorOf, useFeeEstimate, type FeeEstimator } from '../fee-estimate'
 import { FundsLine } from '../charts'
 import { RevealButton, Secret } from '../components'
 import { fmtZatExact } from '../format'
@@ -32,13 +33,13 @@ const month = (unix: number, locale: Locale) => monthShort(new Date(unix * 1000)
 
 /** The vault's balance in its parts. Nothing is drawn from a balance that was not read, and what
  *  stopped the read is named: the vault busy with a send, no wallet connected, or a failed read. */
-export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
-  bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; t: TFn
+export function BalanceBand({ bal, busy = false, unwired = false, rows, estimate, t }: {
+  bal: Balance | null; busy?: boolean; unwired?: boolean; rows: readonly Proposal[] | null; estimate: FeeEstimator | null; t: TFn
 }) {
   const note = balanceNoteKey(!!bal && bal.total_zat != null, busy, unwired)
   if (!bal || bal.total_zat == null) return <p className="hint" role="status">{t(note!)}</p>
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
-  const reserved = reservedZatOf(rows)
+  const reserved = reservedZatOf(rows, estimate)
   if (reserved === null) return null
   const parts = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
   const cell = (label: string, zat: number) => (
@@ -63,9 +64,10 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, t }: {
 }
 
 /** Pace, runway and the projection of free funds, or the plain reason they are not shown. */
-export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
+export function RunwayPanel({ bal, rows, estimate, now, revealed, t, locale }: {
   bal: Balance | null
   rows: readonly Proposal[] | null
+  estimate: FeeEstimator | null
   now: Date
   revealed: boolean
   t: TFn
@@ -75,9 +77,9 @@ export function RunwayPanel({ bal, rows, now, revealed, t, locale }: {
   const burn = burnRate(rows, now)
   if (burn.kind === 'unknown') return <p className="hint">{t('analyses.unknown')}</p>
   if (burn.kind === 'not-enough-history') return <p className="hint">{t('analyses.notEnough')}</p>
-  const run = runway(bal, rows, burn)
-  const proj = projection(bal, rows, burn, now)
-  const free = freeZatOf(bal, rows)
+  const run = runway(bal, rows, burn, estimate)
+  const proj = projection(bal, rows, burn, estimate, now)
+  const free = freeZatOf(bal, rows, estimate)
   const runsOut = proj && proj.runsOutIndex !== null ? monthLong(new Date(proj.points[proj.runsOutIndex]!.from * 1000), locale) : null
   return (
     <>
@@ -132,6 +134,7 @@ export default function Analyses() {
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
   const { revealed } = useReveal()
+  const estimate = estimatorOf(useFeeEstimate())
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [view, setView] = useState<BalanceView>({ bal: null, busy: false })
   const [unwired, setUnwired] = useState(false)
@@ -184,7 +187,7 @@ export default function Analyses() {
     setExported(false)
     try {
       const report = analysesReport({
-        bal: view.bal, busy: view.busy, unwired, rows, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale,
+        bal: view.bal, busy: view.busy, unwired, rows, estimate, vaultName: vaultName ?? 'Konclave', now: new Date(), t, locale,
       })
       if (await exportAnalyses(report, kind, locale)) setExported(true)
       else setExportFailed(true)
@@ -219,11 +222,11 @@ export default function Analyses() {
       {rows === null && unread && (
         <ReadState title={t('ledger.unreadTitle')} failure={ledgerReadFailure()} onRetry={() => setAttempt((a) => a + 1)} />
       )}
-      {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} t={t} />}
+      {loaded && <BalanceBand bal={view.bal} busy={view.busy} unwired={unwired} rows={rows} estimate={estimate} t={t} />}
       {loaded && (
         <section className="an-sec mt" aria-labelledby="an-runway">
           <h2 className="klab" id="an-runway">{t('analyses.runwayTitle')}</h2>
-          <RunwayPanel bal={view.bal} rows={rows} now={new Date()} revealed={revealed} t={t} locale={locale} />
+          <RunwayPanel bal={view.bal} rows={rows} estimate={estimate} now={new Date()} revealed={revealed} t={t} locale={locale} />
         </section>
       )}
       <PageFooter>

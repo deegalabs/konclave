@@ -10,6 +10,7 @@ import { PageHeader } from '../page'
 import { proposalName, titleProblem, PAYROLL_TITLE_MAX } from '../proposal-name'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -169,9 +170,11 @@ export default function NewPayroll() {
   // minus what open proposals already hold. This screen read `spendable_zat` on its own, so two
   // payrolls against the same funds both validated and the second died at build.
   const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
-  const reservedZat = reservedZatOf(openProps)
+  const feeEstimate = useFeeEstimate()
+  const feeEstimator = estimatorOf(feeEstimate)
+  const reservedZat = reservedZatOf(openProps, feeEstimator)
   const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
-  const balanceZat = freeZatOf(bal, openProps)
+  const balanceZat = freeZatOf(bal, openProps, feeEstimator)
   // Funds that are merely confirming, derived (total minus spendable): never `pending_zat`, which
   // the web path does not fill (#352).
   const confirmingZat = confirmingZatOf(bal)
@@ -181,7 +184,6 @@ export default function NewPayroll() {
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const feeEstimate = useFeeEstimate()
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
@@ -349,7 +351,6 @@ export default function NewPayroll() {
   // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
   // can actually be right is the helper's, using build_unproven before anyone signs (#293). `null`
   // while the estimate is unknown: the gate blocks with `fee-unknown`.
-  const feeEstimator = estimatorOf(feeEstimate)
   const feeZat = count === 0 ? 0 : feeEstimator ? feeEstimator(count) : null
   // What batching is worth, in the vault's own money. Paying these N people one at a time is N
   // single payments, each estimated by the same rule; one payroll is a single spend, N outputs and
@@ -358,7 +359,8 @@ export default function NewPayroll() {
   const soloFeeZat = count > 0 && feeEstimator ? count * (feeEstimator(1) ?? 0) : 0
   const savedZat = feeZat == null ? 0 : Math.max(0, soloFeeZat - feeZat)
 
-  const afterZat = balanceZat === null || feeZat == null ? null : balanceZat - totalZat - feeZat
+  const costNowZat = count === 0 ? totalZat : costZat(totalZat, count, feeEstimator)
+  const afterZat = balanceZat === null || costNowZat == null ? null : balanceZat - costNowZat
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.

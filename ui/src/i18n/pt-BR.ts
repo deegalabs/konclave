@@ -857,7 +857,7 @@ export const ptBR: Record<string, string> = {
   // Reserva \u00e9 regra NOSSA, n\u00e3o da rede (\u00a76.14) - o dinheiro existe e o engine gastaria. Ent\u00e3o a
   // mensagem deve a aritm\u00e9tica e o nome de quem est\u00e1 segurando: "voc\u00ea n\u00e3o tem saldo" seria mentira,
   // e esconderia a \u00fanica coisa em que o membro pode agir.
-  'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}). Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
+  'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}), taxas inclu\u00eddas. Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
   'money.blockConfirming': 'O cofre tem o valor, mas {confirming} ZEC ainda estão confirmando. Proponha quando confirmar.',
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
@@ -1234,7 +1234,7 @@ export const ptBR: Record<string, string> = {
   'analyses.secProjection': 'Projeção',
   'analyses.srcInVault': 'O saldo que o cofre leu quando este arquivo foi gerado.',
   'analyses.srcFree': 'No cofre, menos o que está confirmando e o que as propostas abertas reservam.',
-  'analyses.srcReserved': 'A soma das propostas ainda aguardando aprovação ou prontas para envio, limitada ao que pode ser gasto.',
+  'analyses.srcReserved': 'A soma das propostas ainda aguardando aprovação ou prontas para envio, cada uma com a estimativa da taxa, limitada ao que pode ser gasto.',
   'analyses.srcConfirming': 'Recebido, ainda não disponível para gastar.',
   'analyses.srcMonth': 'Pagamentos enviados ou confirmados, pela data em que foram propostos.',
   'analyses.srcProjected': 'O disponível menos o ritmo a cada mês à frente. Projetado, não registrado.',
