@@ -29,6 +29,13 @@ export function activateOnKey(fn: () => void) {
   }
 }
 
+
+/** What a focus trap may land on. `tabindex="-1"` is out of every kind, not only of the bare
+ *  `[tabindex]` one: the hidden username of a passphrase form (#929) is an input with it, and as the
+ *  first control it took the opening focus and broke the Shift+Tab wrap. The ONLY definition: the
+ *  Dialog and the signing sheet both read it, and a scan fails on a second copy. */
+export const FOCUSABLE = 'a[href]:not([tabindex="-1"]),button:not([disabled]):not([tabindex="-1"]),input:not([disabled]):not([tabindex="-1"]),select:not([disabled]):not([tabindex="-1"]),textarea:not([disabled]):not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])'
+
 /** Accessible modal dialog: role/aria-modal/aria-labelledby, focus moved inside
  *  on open, a Tab focus-trap, Esc to close, and focus returned to the trigger on
  *  close. Backdrop click and Esc call `onDismiss` (by default `onClose`), so a dialog holding work
@@ -60,10 +67,7 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
   if (openerRef.current === undefined) openerRef.current = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
   useEffect(() => {
     const node = ref.current
-    // `tabindex="-1"` is out of every kind, not only of the bare `[tabindex]` one: the hidden username
-    // of a passphrase form (#929) is an input with it, and as `first` it took the opening focus and
-    // broke the Shift+Tab wrap.
-    const sel = 'a[href]:not([tabindex="-1"]),button:not([disabled]):not([tabindex="-1"]),input:not([disabled]):not([tabindex="-1"]),select:not([disabled]):not([tabindex="-1"]),textarea:not([disabled]):not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])'
+    const sel = FOCUSABLE
     const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
     // Focus moves inside, unless something inside already took it (an autofocused field); opened on
     // the card itself (focusCard), it lands there so what the dialog says is heard first.

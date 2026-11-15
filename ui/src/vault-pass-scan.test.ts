@@ -71,4 +71,12 @@ describe('passphrase fields (#929)', () => {
     expect(ac('screens/NetVault.tsx')).toEqual(['new', 'new'])
     expect(ac('screens/Settings.tsx')).toEqual(['current', 'new', 'new', 'current'])
   })
+
+  it('the focus-trap selector is defined in components.tsx only', () => {
+    const copies = all.filter((f) => f.text.includes('[tabindex]:not([tabindex="-1"])')).map((f) => f.rel)
+    // Docs.tsx has its own, narrower list (no form controls); it carries no passphrase field.
+    expect(copies.sort()).toEqual(['components.tsx', 'screens/Docs.tsx'])
+    const sheet = all.find((f) => f.rel === 'screens/SigningPanel.tsx')!.text
+    expect(sheet).toContain('FOCUSABLE')
+  })
 })

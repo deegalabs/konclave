@@ -68,7 +68,8 @@ test('the passphrase is paired with this vault\'s hidden username, outside the t
   const user = dialog.locator('form input[autocomplete="username"]')
   await expect(user).toHaveCount(1)
   await expect(user).toHaveValue(/^Common Treasury · [0-9a-f]{4}$/)
-  // The opening focus is the real field, and Tab never lands on the hidden one.
+  // The opening focus is the real field (it comes from autoFocus; no Tab is pressed here, so this
+  // does not prove Tab skips the hidden one, which the Dialog's dom test does).
   await expect(dialog.locator('input[type="password"]').first()).toBeFocused()
   await expect(dialog.locator('form > :first-child')).toHaveAttribute('autocomplete', 'username')
   // Enter in a rotation field does nothing either.
