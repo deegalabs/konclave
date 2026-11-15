@@ -48,6 +48,11 @@ pub fn orchard_receiver(address: &str, network: NetworkType) -> Result<[u8; 43],
         .map_err(|e| format!("not a Zcash address: {e}"))?;
     let OrchardOnly(bytes) = addr
         .convert_if_network::<OrchardOnly>(network)
-        .map_err(|e| format!("no Orchard receiver: {e}"))?;
+        .map_err(|e| match e {
+            ConversionError::IncorrectNetwork { expected, actual } => format!(
+                "this address is for {actual:?}, not {expected:?}: a vault on one network cannot pay it"
+            ),
+            e => format!("no Orchard receiver: {e}"),
+        })?;
     Ok(bytes)
 }

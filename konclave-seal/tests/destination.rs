@@ -1,7 +1,8 @@
 //! The destination decoder, read against the SAME proven vectors konclave-wasm's `ua_receiver`
 //! tests use: the address a person typed (the output's `user_address`, set by an Updater) must
-//! decode to the receiver the prover bound into the note (`recipient`). Both come from mainnet
-//! sends; neither is produced by the code under test.
+//! decode to the receiver the prover bound into the note (`recipient`). Both come from real sends
+//! (the Orchard vectors on mainnet, the Ironwood one on testnet); neither is produced by the code
+//! under test.
 #![cfg(all(feature = "receivers", feature = "pczt"))]
 
 mod support;
@@ -56,7 +57,7 @@ fn it_reproduces_what_the_prover_bound_into_the_note() {
             seen += 1;
         }
     }
-    assert!(seen >= 1, "the vectors carry at least one labelled output");
+    assert_eq!(seen, 3, "one labelled output in each of the three vectors");
 }
 
 #[test]
@@ -78,7 +79,8 @@ fn it_refuses_an_address_of_another_network() {
     // The address of a testnet send, read as mainnet, and the reverse.
     let (test_ua, test_r) = one("ironwood_single_spend.proven.pczt", Pool::Ironwood);
     assert_eq!(orchard_receiver(&test_ua, NetworkType::Test), Ok(test_r));
-    assert!(orchard_receiver(&test_ua, NetworkType::Main).is_err());
+    let refused = orchard_receiver(&test_ua, NetworkType::Main).unwrap_err();
+    assert!(refused.contains("not Main"), "{refused}");
     let (main_ua, main_r) = one("orchard_mainnet_two_spend.proven.pczt", Pool::Orchard);
     assert_eq!(orchard_receiver(&main_ua, NetworkType::Main), Ok(main_r));
     assert!(orchard_receiver(&main_ua, NetworkType::Test).is_err());
@@ -91,6 +93,7 @@ fn it_refuses_a_unified_address_with_no_orchard_receiver() {
 
 #[test]
 fn surrounding_whitespace_is_ignored_as_the_wasm_decoder_does() {
+    // zcash_address trims too; this pins the behaviour, not who provides it.
     let (ua, r) = one("orchard_mainnet_two_spend.proven.pczt", Pool::Orchard);
     assert_eq!(
         orchard_receiver(&format!("  {ua}\n"), NetworkType::Main),
