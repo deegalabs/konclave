@@ -138,9 +138,6 @@ fn changing_any_field_changes_the_hash() {
     c.fee_cap += 1;
     variants.push(("fee_cap", c));
     let mut c = sample();
-    c.extra[0] = 1;
-    variants.push(("extra", c));
-    let mut c = sample();
     c.kind = KIND_PAYROLL;
     variants.push(("kind", c));
     for (name, v) in variants {
@@ -427,4 +424,17 @@ fn memo_bytes_cannot_slide_between_lines() {
     let mut b = a.clone();
     b.lines = vec![line(0x22, 1, "ab"), line(0x22, 1, "c")];
     assert_ne!(encode(&valid(a)), encode(&valid(b)));
+}
+
+#[test]
+fn a_non_zero_extra_is_refused_until_a_device_can_show_it() {
+    // `extra` is reserved for optional fields no screen shows yet: a content carrying them could be
+    // neither approved nor refused by an honest device, so it is not a valid content.
+    let mut c = sample();
+    c.extra[0] = 1;
+    assert_eq!(refused(c), ContentError::Extra);
+    assert!(
+        validate(sample(), &ctx()).is_ok(),
+        "the twin: all-zero extra"
+    );
 }

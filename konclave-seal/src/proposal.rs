@@ -166,6 +166,8 @@ pub enum ContentError {
     Expiry,
     Expired,
     ExpiryTooFar,
+    /// Optional fields (`extra`) no device can show yet.
+    Extra,
 }
 
 /// The lowest fee cap a content may carry: ZIP 317's floor at the lowest rate any era accepts.
