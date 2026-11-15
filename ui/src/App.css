@@ -309,9 +309,6 @@
 .doc-head{display:flex; gap:22px; flex-wrap:wrap; margin-top:14px}
 .field.inline{flex:1 1 220px}
 .field.inline span{display:block; font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em}
-.cell-input{width:100%; border:1px solid transparent; background:transparent; font:inherit; font-size:13px; padding:6px 6px; color:var(--text)}
-.cell-input:focus{border-color:var(--line); background:var(--surface-2); outline:2px solid var(--accent-line); outline-offset:-1px}
-.cell-input.num-input{text-align:right}
 .cell-warn{font-family:var(--font-mono); font-size:10.5px; color:var(--warn); margin-top:2px}
 .cell-warn.err{font-weight:600}
 .folha .row-bad td{background:rgba(255,110,110,.06)}
@@ -330,10 +327,6 @@
   .tbl.folha td:nth-child(3){order:3; grid-column:1 / -1}
   .tbl.folha td:nth-child(4){order:4; grid-column:1 / -1}
   .tbl.folha td:nth-child(5){order:5; grid-column:1 / -1}
-  .tbl.folha .cell-input{width:100%; border:1px solid var(--line-strong); border-radius:8px;
-    background:var(--surface-0); padding:11px 12px; font-size:14px}
-  .tbl.folha .cell-input:hover{border-color:var(--text-muted)}
-  .tbl.folha .cell-input.num-input{text-align:right}
   .tbl.folha .row-bad{border-color:var(--danger)}
   .tbl.folha .row-bad td{background:transparent}
 }
@@ -1277,10 +1270,10 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
    One field: search saved payees, paste an address, add inline, link to the full list.
    ============================================================ */
 .rcb{position:relative}
-.rcb-field{display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1.5px solid var(--line-strong);
-  border-radius:var(--radius-sm); padding:0 12px; transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+.rcb-field{display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm); padding:0 12.5px; transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
 .rcb-field:hover{border-color:var(--text-muted)}
-.rcb.open .rcb-field, .rcb-field:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
+.rcb.open .rcb-field, .rcb-field:focus-within{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent); outline-offset:1px}
 .rcb-lupa{flex:none; color:var(--text-muted)}
 .rcb-input{flex:1; min-width:0; border:0; background:transparent; outline:none; font-size:14px; color:var(--text); padding:11px 0}
 .rcb-input::placeholder{color:var(--text-muted)}
@@ -1325,15 +1318,15 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
 
 /* compact variant for payroll rows */
-.rcb.compact .rcb-field{padding:0 9px}
+.rcb.compact .rcb-field{padding:0 9.5px}
 .rcb.compact .rcb-input{font-size:13px; padding:8px 0}
 .rcb.compact .rcb-picked{padding:6px 0}
 .rcb.compact .rcb-picked .rcb-nm{font-size:13px}
 
 /* Pay amount with a live USD echo (opt-in). ZEC is the authoritative figure; $ is a muted echo. */
-.payamt{display:flex; align-items:baseline; gap:10px; background:var(--surface-2); border:1.5px solid var(--line-strong); border-radius:var(--radius-sm); padding:10px 13px}
+.payamt{display:flex; align-items:baseline; gap:10px; background:var(--surface-2); border:1px solid var(--line-strong); border-radius:var(--radius-sm); padding:10.5px 13.5px}
 .payamt:hover{border-color:var(--text-muted)}
-.payamt:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft); outline:2px solid var(--accent); outline-offset:1px}
+.payamt:focus-within{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent); outline-offset:1px}
 .payamt-in{flex:1; min-width:0; border:0; background:transparent; outline:none; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:600; font-size:24px; letter-spacing:-.01em; color:var(--text)}
 .payamt-in::placeholder{color:var(--text-muted); opacity:.7}
 .payamt-unit{flex:none; font-family:var(--font-num); font-weight:600; font-size:13px; color:var(--text-muted)}
@@ -1362,15 +1355,15 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .plr-line{padding:1px 0}
 .plr-line .plr-n{color:var(--text-muted); font-size:12px; padding-top:12px; text-align:center}
 .plr-to{min-width:0}
-.plr-val, .plr-memo{width:100%; font-size:13px; color:var(--text); background:var(--surface-2); border:1.5px solid var(--line-strong);
-  border-radius:var(--radius-sm); padding:10px 11px; outline:none; font-family:var(--font-sans)}
+.plr-val, .plr-memo{width:100%; font-size:13px; color:var(--text); background:var(--surface-2); border:1px solid var(--line-strong);
+  border-radius:var(--radius-sm); padding:10.5px 11.5px; font-family:var(--font-sans)}
 .plr-val:hover, .plr-memo:hover{border-color:var(--text-muted)}
 /* The unit sits inside the field, so the column reads as money and the figure keeps the whole box. */
 .plr-valwrap{position:relative; display:block; min-width:0}
-.plr-val{font-family:var(--font-num); text-align:right; padding-right:42px}
+.plr-val{font-family:var(--font-num); text-align:right; padding-right:42.5px}
 .plr-unit{position:absolute; right:11px; top:50%; transform:translateY(-50%); pointer-events:none;
   font-family:var(--font-mono); font-size:10px; letter-spacing:.06em; color:var(--text-muted)}
-.plr-val:focus, .plr-memo:focus{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
+.plr-val:focus, .plr-memo:focus{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent); outline-offset:1px}
 .plr-memo:disabled{opacity:.5}
 .plr-del{justify-self:center; align-self:start; margin-top:6px}
 .plr-issue{grid-column:2 / -2; color:var(--danger-text,var(--danger)); font-family:var(--font-mono); font-size:11px; margin-top:2px}

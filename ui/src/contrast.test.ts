@@ -204,7 +204,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     // Settings' fields (`.input`, about 20 uses): the same edge, read-only included. Read-only keeps
     // the surface-2 fill, so the edge against it (3.07 in dark, the thinnest pair here) is what holds.
-    it('Settings field edge, hover and read-only clear 3:1 on both surfaces', () => {
+    it('the app-wide field edge (.input: Settings and the dialogs), hover and read-only clear 3:1 on both surfaces', () => {
       const input = lruleIn('.input')
       expect(input).toMatch(/border:\s*1px solid var\(--line-strong\)/)
       expect(input).toMatch(/padding:\s*11\.5px 13\.5px/)
@@ -231,7 +231,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
     })
 
-    // The text fields that are not `.input` (recipient, amount, payroll line, phone payroll cell, the
+    // The text fields that are not `.input` (recipient, amount, payroll line, the
     // create dialog's name and the pairing-code field) must carry the same edge, or one form shows two weights.
     it('every other text field edge is --line-strong, with a --text-muted hover, on both surfaces', () => {
       const edge = (decls: string) => /border(?:-color)?:\s*(?:[\d.]+px solid )?var\(--([a-z-]+)\)/.exec(decls)?.[1]
@@ -239,16 +239,16 @@ for (const theme of ['light', 'dark'] as const) {
         ['.rcb-field', 'app', '.rcb-field:hover'],
         ['.payamt', 'app', '.payamt:hover'],
         ['.plr-val, .plr-memo', 'app', '.plr-val:hover, .plr-memo:hover'],
-        ['  .tbl.folha .cell-input', 'app'],
         ['.cv-nameinput', 'net', '.cv-nameinput:hover'],
         ['.net-input', 'net', '.net-input:hover'],
       ]
       for (const [sel, file, hov] of fields) {
         const trimmed = sel.trim()
         const decls = file === 'app'
-          ? (sel.startsWith('  ') ? /\n  \.tbl\.folha \.cell-input\{([^}]*)\}/.exec(appCss)![1]! : appRule(trimmed))
+          ? appRule(trimmed)
           : netRule(trimmed)
         expect(edge(decls), `${trimmed} edge`).toBe('line-strong')
+        if (file === 'app') expect(decls, `${trimmed} is a 1px edge`).toMatch(/border:\s*1px solid/)
         if (hov) {
           const h = file === 'app' ? appRule(hov) : netRule(hov)
           expect(tokenIn(h, 'border-color'), `${hov}`).toBe('text-muted')
@@ -260,6 +260,9 @@ for (const theme of ['light', 'dark'] as const) {
       }
       // The amount box marks focus the way .input does: a 2px accent outline, not only a faint halo.
       expect(appRule('.payamt:focus-within')).toMatch(/outline:\s*2px solid var\(--accent\)/)
+      expect(appRule('.rcb.open .rcb-field, .rcb-field:focus-within')).toMatch(/outline:\s*2px solid var\(--accent\)/)
+      expect(appRule('.plr-val:focus, .plr-memo:focus')).toMatch(/outline:\s*2px solid var\(--accent\)/)
+      expect(appRule('.plr-val, .plr-memo')).not.toMatch(/outline:\s*none/)
     })
 
     it('the focus ring is visible against what surrounds it', () => {
