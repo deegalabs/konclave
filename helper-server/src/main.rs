@@ -28,12 +28,13 @@
 
 mod admission;
 mod concurrency;
+mod oblivious;
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use konclave_http::ClientAddress;
+use konclave_http::{ClientAddress, Origin};
 use orchestrator::helper::recipients_for;
 use orchestrator::helper::{
     claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
@@ -2011,14 +2012,21 @@ fn cors_allow_headers() -> String {
     names.join(", ")
 }
 
-fn with_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
+fn with_cors(r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
+    let mut r = add_cors(r);
+    r.add_header(header("Content-Type", "application/json"));
+    r
+}
+
+/// The CORS headers every answer carries, with no content type: the oblivious endpoint answers in
+/// `message/ohttp-res` and `application/ohttp-keys`, not JSON.
+fn add_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
     r.add_header(header("Access-Control-Allow-Origin", "*"));
     r.add_header(header("Access-Control-Allow-Methods", "GET, POST, OPTIONS"));
     r.add_header(header(
         "Access-Control-Allow-Headers",
         &cors_allow_headers(),
     ));
-    r.add_header(header("Content-Type", "application/json"));
     r
 }
 
@@ -2498,6 +2506,27 @@ fn http_response(r: Resp) -> Response<std::io::Cursor<Vec<u8>>> {
     with_cors(Response::from_data(r.body.into_bytes()).with_status_code(r.status))
 }
 
+/// The HTTP response for an oblivious-endpoint answer: its own content type and NO CORS header of
+/// any kind. The only caller of `/api/ohttp` is the OHTTP relay, server to server; an
+/// `Access-Control-Allow-Origin` here would let a page reach the gateway directly, handing the
+/// coordinator its address in a request that claims to hide it.
+fn non_json_response(a: oblivious::Answer) -> Response<std::io::Cursor<Vec<u8>>> {
+    let mut r = Response::from_data(a.body).with_status_code(a.status);
+    r.add_header(header("Content-Type", a.content_type));
+    r
+}
+
+/// The answer to a preflight. For the gateway's own paths (when it is on) there is nothing to
+/// allow, so there is no CORS header; everywhere else it is what it always was.
+fn options_response(gate_on: bool, path: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+    let r = Response::from_data(Vec::new()).with_status_code(204);
+    if oblivious::owns_path(gate_on, path) {
+        r
+    } else {
+        with_cors(r)
+    }
+}
+
 /// What the one count of a NEW vault's bundle decided, before admission and the vault's lock.
 enum NewRegistration {
     /// Not a registration of a vault the coordinator does not know yet: nothing to count here.
@@ -2798,6 +2827,181 @@ fn serve(
     handle_request(state, cfg, locks, method, path, body, read_token)
 }
 
+/// What the one entry needs from the process, bundled so the worker loop and the tests build it once.
+struct Ctx<'a> {
+    state: &'a HelperState,
+    cfg: &'a HelperConfig,
+    locks: &'a concurrency::VaultLocks,
+    limits: &'a admission::Limits,
+    /// The oblivious gateway, when the switch is on.
+    gate: Option<&'a oblivious::Gate>,
+}
+
+/// What the worker read from the wire before the body: who, when, what, and the two credentials a
+/// request may carry.
+struct Incoming<'a> {
+    client: &'a ClientAddress,
+    now: i64,
+    method: &'a Method,
+    path: &'a str,
+    read_token: Option<&'a str>,
+    /// The OHTTP relay's secret, from its own header; read by the gateway endpoint and no one else.
+    relay_secret: Option<&'a str>,
+}
+
+/// What a request is answered with: the coordinator's JSON, or one of the gateway's own answers
+/// (a key configuration, an encapsulated response), which are not JSON and carry no CORS.
+enum Reply {
+    Json(Resp),
+    Raw(oblivious::Answer),
+}
+
+/// The ONE place a request is admitted: counted against its origin's limit and told no if it is
+/// spent. `Direct` is counted in its address's bucket (`refuse_flood`); `Oblivious` has no address
+/// and is counted in the global oblivious budget (`refuse_oblivious`) and in no address bucket.
+/// Nothing else in this file counts a request, so none is counted twice.
+fn admit(
+    limits: &admission::Limits,
+    origin: &Origin,
+    path: &str,
+    now: i64,
+) -> Option<admission::Refused> {
+    // Refusals are deliberately not logged: a line per refused request would turn a flood of
+    // requests into a flood of log, and would write client addresses to disk.
+    match origin {
+        Origin::Direct(client) => admission::refuse_flood(limits, client, path, now),
+        Origin::Oblivious => admission::refuse_oblivious(limits, now),
+    }
+}
+
+/// The ONE entry for a request: admission, the body, the gateway's endpoints, the route rule
+/// for oblivious traffic, `guarded`, and `serve`. The worker loop calls this and nothing else, so
+/// what a request is subject to cannot differ by the road it came in on. A test scans the worker
+/// loop for the calls it must not make itself.
+///
+/// The body is read by `read_body`, AFTER the limits: a refused request costs a map lookup, not the
+/// megabytes the read would buffer (#269).
+///
+/// The gateway's two endpoints (`/api/ohttp-keys`, `/api/ohttp`) exist only with the switch on, and
+/// run in the same envelope as everything else: counted first, and under a panic guard, so a
+/// failure in HPKE or the message parser is an answer and the worker lives.
+fn dispatch(c: &Ctx, rq: &Incoming, read_body: impl FnOnce() -> Vec<u8>) -> Reply {
+    let direct = Origin::Direct(*rq.client);
+    match oblivious::endpoint(c.gate, rq.method, rq.path) {
+        None => {
+            if let Some(refused) = admit(c.limits, &direct, rq.path, rq.now) {
+                return Reply::Json(refusal(refused));
+            }
+            Reply::Json(run_request(
+                c,
+                &direct,
+                rq.now,
+                rq.method,
+                rq.path,
+                rq.read_token,
+                read_body,
+            ))
+        }
+        Some(endpoint) => guarded_gateway(|| {
+            let Some(gate) = c.gate else {
+                return Reply::Raw(oblivious::failed());
+            };
+            match endpoint {
+                // Operator and debug aid (the app never calls it; its key is pinned in the bundle).
+                oblivious::Endpoint::Keys => match admit(c.limits, &direct, rq.path, rq.now) {
+                    Some(refused) => Reply::Json(refusal(refused)),
+                    None => Reply::Raw(oblivious::keys(gate)),
+                },
+                oblivious::Endpoint::Exchange => {
+                    Reply::Raw(exchange_endpoint(c, gate, rq, read_body))
+                }
+            }
+        }),
+    }
+}
+
+/// `POST /api/ohttp`, in the order that makes nothing expensive free:
+/// 1. the relay's secret, compared in constant time. Missing or wrong: 403, nothing read, nothing
+///    opened, and it is counted against the caller's own address, so a stranger guessing at it is
+///    rate limited like any other client and cannot spend the oblivious budget.
+/// 2. the oblivious budget, BEFORE the body is read and decapsulated. A spent budget costs a map
+///    lookup, and the replay set can only be filled by requests that paid.
+/// 3. the body, up to the one ceiling; decapsulation; a typed refusal or the inner request.
+/// 4. the inner request through `run_request`, which does not count it again.
+fn exchange_endpoint(
+    c: &Ctx,
+    gate: &oblivious::Gate,
+    rq: &Incoming,
+    read_body: impl FnOnce() -> Vec<u8>,
+) -> oblivious::Answer {
+    if !gate.secret_ok(rq.relay_secret) {
+        let direct = Origin::Direct(*rq.client);
+        return match admit(c.limits, &direct, rq.path, rq.now) {
+            Some(_) => oblivious::budget_spent(),
+            None => oblivious::forbidden(),
+        };
+    }
+    if admit(c.limits, &Origin::Oblivious, rq.path, rq.now).is_some() {
+        return oblivious::budget_spent();
+    }
+    let enc = read_body();
+    oblivious::exchange(gate, rq.now, &enc, |inner| {
+        let Ok(m) = inner.method.parse::<Method>() else {
+            return resp(400, json!({ "error": "bad request" }).to_string());
+        };
+        run_request(
+            c,
+            &Origin::Oblivious,
+            rq.now,
+            &m,
+            &inner.path,
+            inner.read_key.as_deref(),
+            || inner.body.clone(),
+        )
+    })
+}
+
+/// Run one ADMITTED request: for an oblivious origin the route must be on
+/// `konclave_http::OBLIVIOUS_ROUTES` (anything else, vault creation included, is refused with 403
+/// before the body is read), then `serve` under `guarded`. The one call of each. `serve` is given
+/// the one address value that names nobody, which only vault creation reads, and creation cannot
+/// get this far.
+fn run_request(
+    c: &Ctx,
+    origin: &Origin,
+    now: i64,
+    method: &Method,
+    path: &str,
+    read_token: Option<&str>,
+    read_body: impl FnOnce() -> Vec<u8>,
+) -> Resp {
+    let client = match origin {
+        Origin::Direct(client) => *client,
+        Origin::Oblivious => {
+            if !konclave_http::route_is_oblivious(method.as_str(), path) {
+                return resp(403, json!({ "error": OBLIVIOUS_REFUSED_TEXT }).to_string());
+            }
+            ClientAddress::unknown()
+        }
+    };
+    let body = read_body();
+    guarded(method, path, || {
+        serve(
+            c.state, c.cfg, c.locks, c.limits, &client, now, method, path, &body, read_token,
+        )
+    })
+}
+
+/// [`guarded`] for the gateway's own endpoints: an unplanned failure is a bare 500 and the worker
+/// goes on. The answer says nothing, as the gateway's answers do.
+fn guarded_gateway(work: impl FnOnce() -> Reply) -> Reply {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+        .unwrap_or_else(|_| Reply::Raw(oblivious::failed()))
+}
+
+/// What an oblivious request for a route that must be direct is told.
+const OBLIVIOUS_REFUSED_TEXT: &str = "this request is not available obliviously";
+
 fn main() {
     // Which value of `X-Forwarded-For` names the client for the limits. First, before a migration
     // or a bind: a setting that is not understood stops the coordinator (exit 2), and a restart loop
@@ -2962,21 +3166,26 @@ fn main() {
 
     let server = Arc::new(server);
     let limits = Arc::new(admission::Limits::new());
+    // Off unless KONCLAVE_OHTTP=1. On, it needs a key FILE and the relay's secret, or the
+    // coordinator does not start (exit 2); a key is never made at boot.
+    let gateway =
+        oblivious::boot_from_env(i64::try_from(now_unix()).unwrap_or(i64::MAX)).map(Arc::new);
     let mut pool = Vec::with_capacity(workers);
     for _ in 0..workers {
-        let (server, state, cfg, locks, limits) = (
+        let (server, state, cfg, locks, limits, gateway) = (
             Arc::clone(&server),
             Arc::clone(&state),
             Arc::clone(&cfg),
             Arc::clone(&locks),
             Arc::clone(&limits),
+            gateway.clone(),
         );
         pool.push(std::thread::spawn(move || loop {
             // `recv` fails only when the server is gone; then the worker retires.
             let Ok(mut req) = server.recv() else { return };
             if req.method() == &Method::Options {
-                let _ =
-                    req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
+                let answer = options_response(gateway.is_some(), req.url());
+                let _ = req.respond(answer);
                 continue;
             }
             let method = req.method().clone();
@@ -2987,6 +3196,12 @@ fn main() {
                 .headers()
                 .iter()
                 .find(|h| h.field.equiv(READ_TOKEN_HEADER))
+                .map(|h| h.value.as_str().to_string());
+            // The OHTTP relay's secret, for the gateway's endpoint and for nothing else.
+            let relay_secret = req
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv(oblivious::RELAY_SECRET_HEADER))
                 .map(|h| h.value.as_str().to_string());
             // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
             // the proxy, so the address comes from the forwarded header, and which value of it to
@@ -3000,44 +3215,50 @@ fn main() {
                 remote.as_deref(),
             );
             let now = i64::try_from(now_unix()).unwrap_or(i64::MAX);
-            // BEFORE the body is read. A refused request should cost a map lookup, not two
-            // megabytes of buffering and the worker that reads them. Refusals are deliberately not
-            // logged: a line per refused request would turn a flood of requests into a flood of
-            // log, and would write client addresses to disk, which nothing here needs.
-            if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
-                let _ = req.respond(http_response(refusal(refused)));
-                continue;
-            }
-            // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
-            // has capped since #390; the helper did not, because the rule lived in the relay's own
-            // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
-            let mut body = Vec::new();
-            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-                konclave_http::ReadPlan::Read(limit) => {
-                    // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
-                    // `take` needs a sized receiver, so calling it inline resolves against the
-                    // trait object itself and does not compile.
-                    let reader = req.as_reader();
-                    let _ = reader.take(limit).read_to_end(&mut body);
+            let body_length = req.body_length().map(|n| n as u64);
+            // Reads the request's body up to the one ceiling. A public POST with no ceiling is memory
+            // exhaustion by one request (#269). The relay has capped since #390; the helper did not,
+            // because the rule lived in the relay's own file. It lives in `konclave-http` now, so
+            // there is one ceiling and both servers read it. Called by `dispatch`, after the limits.
+            let read_cap = || {
+                let mut body = Vec::new();
+                match konclave_http::body_read_cap(body_length) {
+                    konclave_http::ReadPlan::Read(limit) => {
+                        // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
+                        // `take` needs a sized receiver, so calling it inline resolves against
+                        // the trait object itself and does not compile.
+                        let reader = req.as_reader();
+                        let _ = reader.take(limit).read_to_end(&mut body);
+                    }
+                    konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
                 }
-                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
-            }
+                body
+            };
 
-            let r = guarded(&method, &path, || {
-                serve(
-                    &state,
-                    &cfg,
-                    &locks,
-                    &limits,
-                    &client,
+            // Everything a request is subject to happens inside `dispatch`, for a direct request and
+            // for the oblivious gateway's endpoints alike (which exist only with the switch on).
+            let reply = dispatch(
+                &Ctx {
+                    state: &state,
+                    cfg: &cfg,
+                    locks: &locks,
+                    limits: &limits,
+                    gate: gateway.as_deref(),
+                },
+                &Incoming {
+                    client: &client,
                     now,
-                    &method,
-                    &path,
-                    &body,
-                    read_token.as_deref(),
-                )
-            });
-            let _ = req.respond(http_response(r));
+                    method: &method,
+                    path: &path,
+                    read_token: read_token.as_deref(),
+                    relay_secret: relay_secret.as_deref(),
+                },
+                read_cap,
+            );
+            let _ = match reply {
+                Reply::Json(r) => req.respond(http_response(r)),
+                Reply::Raw(a) => req.respond(non_json_response(a)),
+            };
         }));
     }
     for w in pool {
@@ -3722,16 +3943,21 @@ mod tests {
             resp(200, json!({ "ok": true }).to_string())
         });
         assert_eq!(next.status, 200);
-        // And not by a convention of the caller: the serving loop's own call goes through it, the hook is
-        // installed as a statement of its own (a comment does not count), and the hook reads the
-        // panic's location and never its payload.
+        // And not by a convention of the caller: the one place every request is run,
+        // `run_request` (which `dispatch` calls for a direct request and for the one inside an
+        // oblivious seal), runs `serve` through it, the hook is installed as a statement of its own (a comment does not count),
+        // and the hook reads the panic's location and never its payload.
         let src = include_str!("main.rs");
-        let call = src
-            .find(concat!("let r = guarded(&method, &path, ", "|| {"))
-            .expect("the serving loop must run `serve` through `guarded`");
+        let entry = src
+            .find("\nfn run_request(")
+            .expect("the one place a request is run is `run_request`");
+        let call = entry
+            + src[entry..]
+                .find(concat!("guarded(method, path, ", "|| {"))
+                .expect("`run_request` must run `serve` through `guarded`");
         // `serve` is INSIDE that closure (before the answer is sent), not run beside it.
         let after = &src[call..];
-        let closure = &after[..after.find("req.respond").unwrap()];
+        let closure = &after[..after.find("\n}\n").unwrap()];
         assert!(
             closure.contains("serve("),
             "the closure the guard runs must be the one that calls `serve`"
@@ -4078,7 +4304,7 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// V1: a member who can see a device's comms key (every member can) re-registers it with a write
+    /// A member who can see a device's comms key (every member can) re-registers it with a write
     /// key of their own. The record must keep the key it was registered with.
     #[test]
     fn a_member_cannot_swap_the_write_key_of_a_registered_seat() {
@@ -4098,7 +4324,7 @@ mod tests {
         assert!(!registry(&c, &v).contains(&w_attacker));
     }
 
-    /// V2: the same device record moved to another seat with the attacker's key.
+    /// The same device record moved to another seat with the attacker's key.
     #[test]
     fn a_member_cannot_move_a_registered_device_to_another_seat() {
         let st = HelperState::new();
@@ -4200,7 +4426,7 @@ mod tests {
         );
     }
 
-    /// A3: a small-order comms key makes every sealed send and `/ufvk` fail until someone edits the
+    /// A small-order comms key makes every sealed send and `/ufvk` fail until someone edits the
     /// file by hand. It is refused at registration.
     #[test]
     fn a_low_order_comms_key_is_refused_at_registration() {
@@ -12017,5 +12243,748 @@ mod tests {
                 &script[to..]
             )
         }
+    }
+}
+
+/// The oblivious path against the direct one: everything goes through `dispatch`, and only the
+/// origin differs. Each test names the rule it holds.
+#[cfg(test)]
+mod oblivious_dispatch {
+    use super::*;
+    use konclave_http::{OBLIVIOUS_MAX, OBLIVIOUS_ROUTES};
+    use konclave_ohttp::{open_response, seal_request, ClientConfig, ClientCtx, InnerRequest};
+    use std::cell::Cell;
+
+    const T0: i64 = 1_800_000_000;
+    const CLIENT: ClientAddress = ClientAddress::from_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(203, 0, 113, 7),
+    ));
+    const OTHER: ClientAddress = ClientAddress::from_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(198, 51, 100, 9),
+    ));
+    /// Starts with the gateway's key id, so it is refused as a body that does not open, not as a
+    /// key mismatch.
+    const GARBAGE: [u8; 3] = [7, 2, 3];
+    const SECRET: &str = "a-relay-secret-of-enough-length";
+    /// The gateway test key file, from the one list of known test keys (never written out here).
+    fn key_file() -> String {
+        konclave_ohttp::test_key_text(1, 7)
+    }
+
+    fn cfg() -> HelperConfig {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "konclave-helper-oblivious-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        HelperConfig {
+            zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
+            devtool: PathBuf::from("/nonexistent/zcash-devtool"),
+            lightwalletd: "testnet.zec.rocks:443".into(),
+            network: "test".into(),
+            konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
+            vaults_dir: dir,
+            relays: vec!["https://relay.test".into()],
+            send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
+            fee_switch: Default::default(),
+        }
+    }
+
+    fn gate() -> oblivious::Gate {
+        match oblivious::boot_with_test_keys(
+            Some("1"),
+            Some("key"),
+            Some(SECRET),
+            |_| Ok(key_file()),
+            T0 - 10,
+        ) {
+            oblivious::Boot::On(g) => g,
+            _ => panic!("the gateway did not boot"),
+        }
+    }
+
+    struct Rig {
+        state: HelperState,
+        cfg: HelperConfig,
+        locks: concurrency::VaultLocks,
+        limits: admission::Limits,
+        gate: Option<oblivious::Gate>,
+    }
+
+    fn rig() -> Rig {
+        Rig {
+            state: HelperState::new(),
+            cfg: cfg(),
+            locks: concurrency::VaultLocks::new(),
+            limits: admission::Limits::new(),
+            gate: Some(gate()),
+        }
+    }
+
+    impl Rig {
+        fn ctx(&self) -> Ctx<'_> {
+            Ctx {
+                state: &self.state,
+                cfg: &self.cfg,
+                locks: &self.locks,
+                limits: &self.limits,
+                gate: self.gate.as_ref(),
+            }
+        }
+
+        /// What the bundle would pin: the gateway's configuration, taken straight from the gate and
+        /// not through the endpoint, so building a request charges nobody.
+        fn client_config(&self) -> ClientConfig {
+            let g = self.gate.as_ref().expect("a gate");
+            ClientConfig::parse(&g.gateway.config_list().unwrap()).expect("it parses")
+        }
+
+        fn get_keys(&self, from: &ClientAddress) -> Reply {
+            dispatch(
+                &self.ctx(),
+                &Incoming {
+                    client: from,
+                    now: T0,
+                    method: &Method::Get,
+                    path: "/api/ohttp-keys",
+                    read_token: None,
+                    relay_secret: None,
+                },
+                Vec::new,
+            )
+        }
+
+        /// A direct request.
+        fn direct(&self, from: &ClientAddress, method: &Method, path: &str, body: &[u8]) -> Resp {
+            match dispatch(
+                &self.ctx(),
+                &Incoming {
+                    client: from,
+                    now: T0,
+                    method,
+                    path,
+                    read_token: None,
+                    relay_secret: None,
+                },
+                || body.to_vec(),
+            ) {
+                Reply::Json(r) => r,
+                Reply::Raw(a) => panic!("a direct request got a gateway answer: {a:?}"),
+            }
+        }
+
+        /// What the relay does: a POST to `/api/ohttp` with `secret` in its header. Returns the
+        /// answer and whether the body was read.
+        fn exchange(&self, secret: Option<&str>, wire: &[u8]) -> (oblivious::Answer, bool) {
+            let read = Cell::new(false);
+            let reply = dispatch(
+                &self.ctx(),
+                &Incoming {
+                    client: &CLIENT,
+                    now: T0,
+                    method: &Method::Post,
+                    path: "/api/ohttp",
+                    read_token: None,
+                    relay_secret: secret,
+                },
+                || {
+                    read.set(true);
+                    wire.to_vec()
+                },
+            );
+            match reply {
+                Reply::Raw(a) => (a, read.get()),
+                Reply::Json(r) => panic!("the gateway answered as JSON: {}", r.status),
+            }
+        }
+
+        /// A sealed request through the relay's door, opened again. The status and body of the
+        /// INNER answer, or the outer answer when the gateway refused outside the seal.
+        fn ask(
+            &self,
+            method: &str,
+            path: &str,
+            date: i64,
+        ) -> Result<(u16, String, String), (u16, String)> {
+            let (wire, ctx) = self.seal(method, path, date);
+            let (a, _) = self.exchange(Some(SECRET), &wire);
+            if a.content_type != "message/ohttp-res" {
+                return Err((a.status, String::from_utf8_lossy(&a.body).into_owned()));
+            }
+            let (status, ct, body) = open_response(ctx, &a.body).unwrap();
+            Ok((status, ct, String::from_utf8(body).unwrap()))
+        }
+
+        fn seal(&self, method: &str, path: &str, date: i64) -> (Vec<u8>, ClientCtx) {
+            seal_request(
+                &self.client_config(),
+                InnerRequest {
+                    method: method.into(),
+                    path: path.into(),
+                    content_type: String::new(),
+                    read_key: None,
+                    body: Vec::new(),
+                    date_unix: date,
+                },
+            )
+            .unwrap()
+        }
+    }
+
+    /// The same request, direct and oblivious, gets the same answer: status and body. And there
+    /// is no second path: a scan of the worker loop and of who calls what.
+    #[test]
+    fn one_dispatch_fn_shared_with_serve() {
+        let r = rig();
+        for path in [
+            "/api/health",
+            "/api/vault/balance?vault=zz",
+            "/api/vault/members?vault=0000",
+        ] {
+            let d = r.direct(&OTHER, &Method::Get, path, b"");
+            let (status, _, body) = r.ask("GET", path, T0).unwrap();
+            assert_eq!((d.status, d.body), (status, body), "{path}");
+        }
+        let src = include_str!("main.rs");
+        let prod = &src[..src
+            .find("#[cfg(test)]\nuse orchestrator::helper::set_read_key")
+            .unwrap()];
+        let main_fn = &prod[prod.find("\nfn main()").unwrap()..];
+        for direct_call in [
+            "serve(",
+            "refuse_flood(",
+            "refuse_oblivious(",
+            "guarded(",
+            "guarded_gateway(",
+            "oblivious::exchange(",
+            "oblivious::keys(",
+            "run_request(",
+            "admit(",
+        ] {
+            assert!(
+                !main_fn.contains(direct_call),
+                "the worker loop calls {direct_call} itself instead of dispatch"
+            );
+        }
+        let calls = |needle: &str| {
+            prod.lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .filter(|l| l.contains(needle) && !l.contains(&format!("fn {needle}")))
+                .count()
+        };
+        assert_eq!(calls("serve("), 1, "serve is called once outside tests");
+        assert_eq!(calls("guarded("), 1, "guarded is called once outside tests");
+        // Counted in ONE place: `admit` is the only caller of either limit.
+        assert_eq!(
+            calls("refuse_flood("),
+            1,
+            "refuse_flood is called by admit alone"
+        );
+        assert_eq!(
+            calls("refuse_oblivious("),
+            1,
+            "refuse_oblivious is called by admit alone"
+        );
+        let part = |from: &str, to: &str| {
+            let a = prod.find(from).unwrap();
+            &prod[a..a + prod[a..].find(to).unwrap()]
+        };
+        let admit_fn = part("\nfn admit(", "\n}\n");
+        assert!(admit_fn.contains("refuse_flood(") && admit_fn.contains("refuse_oblivious("));
+        let run = part("\nfn run_request(", "\n}\n");
+        assert!(run.contains("serve(") && run.contains("guarded("));
+        // The gateway's endpoints are INSIDE dispatch's envelope, not beside it.
+        let dispatch_fn = part("\nfn dispatch(", "\n}\n");
+        assert!(
+            dispatch_fn.contains("guarded_gateway("),
+            "the endpoints run under the panic guard"
+        );
+        assert!(
+            dispatch_fn.contains("exchange_endpoint(") && dispatch_fn.contains("oblivious::keys(")
+        );
+        // No other route to the gateway's functions.
+        assert_eq!(calls("exchange_endpoint("), 1);
+    }
+
+    /// The gateway's key is a file's. No code path that serves people generates one.
+    #[test]
+    fn the_gateway_never_makes_a_key_at_boot() {
+        let src = include_str!("oblivious.rs");
+        let prod = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+        assert!(
+            !prod.contains("generate_key_config"),
+            "a key is made at boot"
+        );
+        assert!(prod.contains("key_config_from_text"));
+    }
+
+    /// Without the relay's secret NOTHING is read, opened or counted against the
+    /// oblivious budget. The caller is counted in its own address bucket like any stranger.
+    #[test]
+    fn relay_secret_required_before_read() {
+        let r = rig();
+        let (wire, _ctx) = r.seal("GET", "/api/health", T0);
+        for secret in [
+            None,
+            Some(""),
+            Some("wrong"),
+            Some("a-relay-secret-of-enough-lengtH"),
+            Some("a-relay-secret-of-enough-length-and-more"),
+        ] {
+            let (a, read) = r.exchange(secret, &wire);
+            assert_eq!(a.status, 403, "{secret:?}");
+            assert!(!read, "the body was read for {secret:?}");
+            assert!(a.body.len() < 40, "{secret:?}");
+        }
+        // The oblivious budget is whole: all of it is still there for the relay.
+        for i in 0..OBLIVIOUS_MAX {
+            let (a, _) = r.exchange(Some(SECRET), &GARBAGE);
+            assert_eq!(
+                a.status, 400,
+                "request {i} was refused, the budget was spent by strangers"
+            );
+        }
+        // And a stranger is a bucket of its own: at its number it is rate limited, not forbidden.
+        let r = rig();
+        let mut last = 0;
+        for _ in 0..=admission::FLOOD_MAX {
+            last = r.exchange(None, &wire).0.status;
+        }
+        assert_eq!(last, 429);
+        assert_eq!(
+            r.direct(&OTHER, &Method::Get, "/api/health", b"").status,
+            200
+        );
+        // The right secret is accepted.
+        let r = rig();
+        let (wire, ctx) = r.seal("GET", "/api/health", T0);
+        let (a, read) = r.exchange(Some(SECRET), &wire);
+        assert!(read && a.status == 200, "{}", a.status);
+        assert_eq!(open_response(ctx, &a.body).unwrap().0, 200);
+    }
+
+    #[test]
+    fn the_secret_is_compared_over_every_byte() {
+        let g = gate();
+        assert!(g.secret_ok(Some(SECRET)));
+        assert!(!g.secret_ok(None));
+        assert!(!g.secret_ok(Some("")));
+        assert!(!g.secret_ok(Some(&SECRET[..SECRET.len() - 1])));
+        assert!(!g.secret_ok(Some(&format!("{SECRET}x"))));
+        let mut flipped = SECRET.to_string().into_bytes();
+        flipped[0] ^= 1;
+        assert!(!g.secret_ok(Some(std::str::from_utf8(&flipped).unwrap())));
+    }
+
+    /// The budget is charged BEFORE the body is read and decapsulated, so a
+    /// spent budget costs neither, and the replay set can only be spent by requests that paid.
+    #[test]
+    fn budget_before_decapsulate() {
+        let r = rig();
+        for i in 0..OBLIVIOUS_MAX {
+            let (a, _) = r.exchange(Some(SECRET), &GARBAGE);
+            assert_eq!(a.status, 400, "request {i}");
+        }
+        let (wire, _ctx) = r.seal("GET", "/api/health", T0);
+        let before = r.gate.as_ref().unwrap().gateway.replay_len();
+        let (a, read) = r.exchange(Some(SECRET), &wire);
+        assert_eq!(a.status, 429);
+        assert!(!read, "the body was read after the budget was spent");
+        assert_eq!(
+            r.gate.as_ref().unwrap().gateway.replay_len(),
+            before,
+            "a request that did not pay entered the replay set"
+        );
+        // A valid request that paid is remembered once and ends in the set once.
+        let r = rig();
+        let (wire, _ctx) = r.seal("GET", "/api/health", T0);
+        assert_eq!(r.exchange(Some(SECRET), &wire).0.status, 200);
+        assert_eq!(r.gate.as_ref().unwrap().gateway.replay_len(), 1);
+        // Counted once: one request, one unit of budget (the 120th still passes, the 121st does not).
+        let r = rig();
+        for i in 0..OBLIVIOUS_MAX {
+            let s = r.ask("GET", "/api/health", T0);
+            assert!(s.is_ok(), "request {i} was refused: {s:?}");
+        }
+        assert_eq!(r.ask("GET", "/api/health", T0).unwrap_err().0, 429);
+    }
+
+    /// All oblivious traffic shares one budget, and it is not an address bucket: spending it leaves
+    /// the direct path whole, and spending a direct address's allowance leaves it whole.
+    #[test]
+    fn oblivious_budget_does_not_starve_direct() {
+        let r = rig();
+        for i in 0..OBLIVIOUS_MAX {
+            r.ask("GET", "/api/vault/balance?vault=zz", T0)
+                .unwrap_or_else(|e| panic!("request {i}: {e:?}"));
+        }
+        assert_eq!(r.ask("GET", "/api/health", T0).unwrap_err().0, 429);
+        for i in 0..admission::FLOOD_MAX {
+            let a = r.direct(&CLIENT, &Method::Get, "/api/vault/balance?vault=zz", b"");
+            assert_ne!(
+                a.status, 429,
+                "direct request {i} refused after the oblivious budget was spent"
+            );
+        }
+        assert_eq!(
+            r.direct(&CLIENT, &Method::Get, "/api/vault/balance?vault=zz", b"")
+                .status,
+            429,
+            "the direct allowance is its own, and ends at its own number"
+        );
+        assert_ne!(
+            r.direct(
+                &ClientAddress::unknown(),
+                &Method::Get,
+                "/api/vault/balance?vault=zz",
+                b""
+            )
+            .status,
+            429,
+            "the shared `unknown` bucket was never charged for oblivious traffic"
+        );
+        // The other way round.
+        let r = rig();
+        for _ in 0..=admission::FLOOD_MAX {
+            r.direct(&CLIENT, &Method::Get, "/api/vault/balance?vault=zz", b"");
+        }
+        assert!(r.ask("GET", "/api/health", T0).is_ok());
+    }
+
+    /// The gateway's answers carry no CORS header of any kind: only the relay calls them.
+    #[test]
+    fn no_cors_on_gateway() {
+        let r = rig();
+        let (a, _) = r.exchange(Some(SECRET), &GARBAGE);
+        let wire = non_json_response(a);
+        let Reply::Raw(keys) = r.get_keys(&CLIENT) else {
+            panic!()
+        };
+        let keys = non_json_response(keys);
+        let no_cors = |resp: &Response<std::io::Cursor<Vec<u8>>>| {
+            resp.headers().iter().all(|h| {
+                !h.field
+                    .as_str()
+                    .as_str()
+                    .to_ascii_lowercase()
+                    .starts_with("access-control")
+            })
+        };
+        assert!(no_cors(&wire) && no_cors(&keys));
+        for path in ["/api/ohttp", "/api/ohttp?x=1", "/api/ohttp-keys"] {
+            assert!(no_cors(&options_response(true, path)), "{path}");
+        }
+        // Everything else, and the switch off, is as it was.
+        assert!(!no_cors(&options_response(true, "/api/vault")));
+        assert!(!no_cors(&options_response(false, "/api/ohttp")));
+        assert!(!no_cors(&http_response(resp(200, "{}".to_string()))));
+        // And the source never adds them to the gateway's answer.
+        let src = include_str!("main.rs");
+        let f = &src[src.find("\nfn non_json_response(").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(!f.contains("add_cors") && !f.contains("Access-Control"));
+    }
+
+    /// A date outside the window gets a typed answer, sealed, that a client can read; a
+    /// replay and an unknown key id likewise; garbage gets a bare 400.
+    #[test]
+    fn typed_date_refusal() {
+        let r = rig();
+        for date in [T0 - 400, T0 + 400] {
+            let (status, ct, body) = r.ask("GET", "/api/health", date).unwrap();
+            assert_eq!((status, ct.as_str()), (400, "application/problem+json"));
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(v["type"], "clock_skew", "{body}");
+            assert_eq!(v["server_time"], T0, "{body}");
+        }
+        let (wire, ctx) = r.seal("GET", "/api/health", T0);
+        assert_eq!(r.exchange(Some(SECRET), &wire).0.status, 200);
+        let (a, _) = r.exchange(Some(SECRET), &wire);
+        let (status, ct, body) = open_response(ctx, &a.body).unwrap();
+        assert_eq!((status, ct.as_str()), (409, "application/problem+json"));
+        assert!(String::from_utf8(body).unwrap().contains("replayed"));
+        // An unknown key id: outside the seal, typed, 401.
+        let other = konclave_ohttp::Gateway::new(
+            konclave_ohttp::key_config_from_text_for_tests(&key_file().replacen('7', "8", 1))
+                .unwrap(),
+            0,
+        )
+        .unwrap();
+        let oc = ClientConfig::parse(&other.config_list().unwrap()).unwrap();
+        let (wire, _) = seal_request(
+            &oc,
+            InnerRequest {
+                method: "GET".into(),
+                path: "/api/health".into(),
+                content_type: String::new(),
+                read_key: None,
+                body: Vec::new(),
+                date_unix: T0,
+            },
+        )
+        .unwrap();
+        let (a, _) = r.exchange(Some(SECRET), &wire);
+        assert_eq!((a.status, a.content_type), (401, oblivious::PROBLEM_TYPE));
+        assert!(String::from_utf8_lossy(&a.body).contains("key_mismatch"));
+        // Garbage says nothing.
+        let (a, _) = r.exchange(Some(SECRET), &GARBAGE);
+        assert_eq!((a.status, a.body.len()), (400, 0));
+    }
+
+    /// A failure inside the gateway's work is an answer, and the worker lives.
+    #[test]
+    fn gateway_under_guarded() {
+        let r = rig();
+        let reply = dispatch(
+            &r.ctx(),
+            &Incoming {
+                client: &CLIENT,
+                now: T0,
+                method: &Method::Post,
+                path: "/api/ohttp",
+                read_token: None,
+                relay_secret: Some(SECRET),
+            },
+            || panic!("a failure while reading the body"),
+        );
+        match reply {
+            Reply::Raw(a) => assert_eq!((a.status, a.body.len()), (500, 0)),
+            Reply::Json(_) => panic!("not the gateway's answer"),
+        }
+        // The same thread goes on, and the gateway still works.
+        assert!(r.ask("GET", "/api/health", T0).is_ok());
+    }
+
+    /// The gateway endpoints are counted like any other route: `/api/ohttp-keys` is rate limited by address.
+    #[test]
+    fn the_keys_endpoint_is_rate_limited_by_address() {
+        let r = rig();
+        for _ in 0..admission::FLOOD_MAX {
+            assert!(matches!(r.get_keys(&CLIENT), Reply::Raw(_)));
+        }
+        assert!(matches!(r.get_keys(&CLIENT), Reply::Json(x) if x.status == 429));
+        assert!(matches!(r.get_keys(&OTHER), Reply::Raw(_)));
+    }
+
+    /// Vault creation is direct-only. Not on the list, refused at the dispatch before its
+    /// body is read, and it never reaches the new-vault allowance or the registry.
+    #[test]
+    fn oblivious_creation_refused() {
+        let r = rig();
+        let (status, _, body) = r.ask("POST", "/api/vault", T0).unwrap();
+        assert_eq!(status, 403);
+        assert!(body.contains("not available obliviously"), "{body}");
+        let d = r.direct(
+            &CLIENT,
+            &Method::Post,
+            "/api/vault",
+            br#"{"group_key":"00","ufvk":"x"}"#,
+        );
+        assert!(!d.body.contains("not available obliviously"), "{}", d.body);
+        assert_eq!(r.state.len(), 0);
+    }
+
+    /// A route outside the list is refused, for every method and spelling the list does not name;
+    /// the listed ones are let through to the router.
+    #[test]
+    fn a_route_outside_the_list_is_refused_at_the_dispatch() {
+        let r = rig();
+        for (m, p) in [
+            ("POST", "/api/vault/send"),
+            ("POST", "/api/vault/proposals"),
+            ("GET", "/api/vault/ufvk"),
+            ("GET", "/api/vault/ledger.csv"),
+            ("GET", "/api/vault/balance/"),
+            ("GET", "/api/vault/balance/../send"),
+            ("GET", "/api/vault"),
+            ("GET", "/api/ohttp"),
+        ] {
+            let (status, _, body) = r.ask(m, p, T0).unwrap();
+            assert_eq!(status, 403, "{m} {p}: {body}");
+        }
+        for (m, p) in OBLIVIOUS_ROUTES {
+            let (status, _, body) = r.ask(m, p, T0).unwrap();
+            assert_ne!(status, 403, "{m} {p}: {body}");
+        }
+    }
+
+    /// The switch is off: no gateway, `/api/ohttp` is an unknown route answered exactly as any
+    /// other, and it is counted in the sender's own address bucket as before.
+    #[test]
+    fn feature_off_changes_nothing() {
+        for switch in [None, Some("0"), Some("true"), Some("")] {
+            assert!(
+                matches!(
+                    oblivious::boot_with(switch, None, None, |_| unreachable!(), T0),
+                    oblivious::Boot::Off
+                ),
+                "{switch:?}"
+            );
+        }
+        let mut r = rig();
+        r.gate = None;
+        for (m, p) in [
+            (Method::Post, "/api/ohttp"),
+            (Method::Get, "/api/ohttp-keys"),
+        ] {
+            assert_eq!(oblivious::endpoint(None, &m, p), None, "{m} {p}");
+            let a = match dispatch(
+                &r.ctx(),
+                &Incoming {
+                    client: &CLIENT,
+                    now: T0,
+                    method: &m,
+                    path: p,
+                    read_token: None,
+                    relay_secret: Some(SECRET),
+                },
+                Vec::new,
+            ) {
+                Reply::Json(x) => x,
+                Reply::Raw(_) => panic!("a gateway answer with the switch off"),
+            };
+            let nowhere = r.direct(&CLIENT, &m, "/api/nothing-here", b"");
+            assert_eq!(
+                (a.status, &a.body),
+                (nowhere.status, &nowhere.body),
+                "{m} {p}"
+            );
+            assert_eq!(a.status, 404, "{m} {p}: {}", a.body);
+        }
+        // With it on, the same two requests are the gateway's.
+        let g = gate();
+        assert_eq!(
+            oblivious::endpoint(Some(&g), &Method::Post, "/api/ohttp"),
+            Some(oblivious::Endpoint::Exchange)
+        );
+        assert_eq!(
+            oblivious::endpoint(Some(&g), &Method::Get, "/api/ohttp-keys"),
+            Some(oblivious::Endpoint::Keys)
+        );
+        assert_eq!(
+            oblivious::endpoint(Some(&g), &Method::Get, "/api/ohttp"),
+            None
+        );
+    }
+
+    /// A key file that group or others can read stops the boot, and so does a
+    /// missing or invalid one: the operator asked for the gateway, and a boot that quietly leaves it
+    /// off looks like a gateway that is on.
+    #[test]
+    fn a_key_file_open_to_others_stops_the_boot() {
+        let line = match oblivious::boot_with(
+            Some("1"),
+            Some("k"),
+            Some(SECRET),
+            |_| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            T0,
+        ) {
+            oblivious::Boot::Refuse(line) => line,
+            _ => panic!("an unreadable or too-open key file must refuse to start"),
+        };
+        assert!(!line.contains(SECRET) && !line.contains('\n'), "{line}");
+    }
+
+    /// The reader the real boot uses: mode 0600 reads, anything open to group or others does not.
+    #[cfg(unix)]
+    #[test]
+    fn the_key_file_reader_refuses_a_file_others_can_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-keyfile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key");
+        std::fs::write(&path, key_file()).unwrap();
+        for mode in [0o600, 0o400] {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert_eq!(
+                oblivious::read_key_file(path.to_str().unwrap()).unwrap(),
+                key_file(),
+                "{mode:o}"
+            );
+        }
+        for mode in [0o640, 0o604, 0o644, 0o660, 0o666, 0o700 | 0o001] {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            let e = oblivious::read_key_file(path.to_str().unwrap()).unwrap_err();
+            assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied, "{mode:o}");
+            assert!(!e.to_string().contains(&key_file()[2..20]), "{mode:o}: {e}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The key is a file's, and the switch without what it needs does not start.
+    #[test]
+    fn the_key_file_and_the_secret_decide_the_boot() {
+        let boot = |key: Option<&str>, secret: Option<&str>, file: std::io::Result<String>| {
+            oblivious::boot_with(Some("1"), key, secret, |_| file, T0)
+        };
+        let ok = || Ok(key_file());
+        assert!(
+            matches!(boot(None, Some(SECRET), ok()), oblivious::Boot::Refuse(_)),
+            "no key file named"
+        );
+        assert!(matches!(
+            boot(Some(""), Some(SECRET), ok()),
+            oblivious::Boot::Refuse(_)
+        ));
+        assert!(
+            matches!(boot(Some("k"), None, ok()), oblivious::Boot::Refuse(_)),
+            "no relay secret"
+        );
+        assert!(matches!(
+            boot(Some("k"), Some("short"), ok()),
+            oblivious::Boot::Refuse(_)
+        ));
+        for bad in [
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+            Ok(String::new()),
+            Ok("1 00".to_string()),
+            Ok("garbage".to_string()),
+        ] {
+            match boot(Some("k"), Some(SECRET), bad) {
+                oblivious::Boot::Refuse(line) => {
+                    assert!(!line.contains(SECRET) && !line.contains('\n'), "{line}");
+                }
+                _ => panic!("a missing or invalid key file must stop the boot, not leave it off"),
+            }
+        }
+        // The test key this module's own tests use is a published key too, and is refused.
+        assert!(
+            matches!(
+                boot(Some("k"), Some(SECRET), Ok(key_file())),
+                oblivious::Boot::Refuse(_)
+            ),
+            "the coordinator's own test key must not boot a gateway"
+        );
+        // The published test-vector key is not a key, and a refused key file names nothing.
+        for vector in [
+            "7 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+            "0 000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F\n",
+        ] {
+            match boot(Some("k"), Some(SECRET), Ok(vector.to_string())) {
+                oblivious::Boot::Refuse(line) => {
+                    assert!(!line.contains("0001") && !line.contains('\n'), "{line}");
+                }
+                _ => panic!("the test vector must not boot a gateway"),
+            }
+        }
+        // The key is the file's: the same file, the same configuration, every boot; the id is the file's.
+        let a = rig().client_config();
+        let b = rig().client_config();
+        assert_eq!(a.as_bytes(), b.as_bytes());
+        assert_eq!(a.key_id(), 7);
+        let other = oblivious::boot_with_test_keys(
+            Some("1"),
+            Some("k"),
+            Some(SECRET),
+            |_| Ok(key_file().replacen("7 ", "9 ", 1)),
+            T0,
+        );
+        let oblivious::Boot::On(other) = other else {
+            panic!()
+        };
+        assert_eq!(other.gateway.key_id(), 9);
     }
 }

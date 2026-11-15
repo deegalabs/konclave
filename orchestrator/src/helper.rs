@@ -2258,7 +2258,7 @@ pub fn read_authorized(
 
 /// Constant-time byte-string equality (reveals only the length). Keeps a token guess from learning,
 /// via timing, how many leading bytes were right.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
