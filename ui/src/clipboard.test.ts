@@ -56,3 +56,39 @@ describe('the /net page claims nothing about a copy it did not wait for', () => 
     expect(src).not.toMatch(/void copyText\(/)
   })
 })
+
+// #978: one implementation. Every copy in the app goes through copyText, so what "Copied" means is
+// decided once; and a screen whose copy can be refused says so (CopyButton excepted: a public code
+// on screen, where it stays silent by design, #474, and never claims a copy it did not make).
+describe('the app copies through one function', () => {
+  it('only clipboard.ts touches navigator.clipboard, tests aside', async () => {
+    const { readdirSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const here = fileURLToPath(new URL('.', import.meta.url))
+    const found: string[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const path = `${dir}/${e.name}`
+        if (e.isDirectory()) { if (!['wasm-pkg', 'node_modules'].includes(e.name)) walk(path); continue }
+        if (!/\.(ts|tsx)$/.test(e.name) || /\.test\.tsx?$/.test(e.name)) continue
+        const rel = path.slice(here.length).replace(/^\//, '')
+        if (/navigator\s*\??\.\s*clipboard|\bclipboard\s*\??\.\s*writeText/.test(codeOf(rel))) found.push(rel)
+      }
+    }
+    walk(here.replace(/\/$/, ''))
+    expect(found).toEqual(['clipboard.ts'])
+  }, 30_000)
+
+  for (const [f, err] of [
+    ['screens/Ceremony.tsx', /toast\.copyFailed/],
+    ['screens/NetVault.tsx', /copy\.failedUseDownload/],
+    ['screens/Vaults.tsx', /copy\.failedUseDownload/],
+    ['screens/Settings.tsx', /export\.errClipboard/],
+  ] as const) {
+    it(`${f} awaits copyText and says when the copy was refused`, () => {
+      const src = codeOf(f)
+      expect(src).toMatch(/await copyText\(/)
+      expect(src).toMatch(err)
+    })
+  }
+})
