@@ -91,46 +91,61 @@ pub enum EnvelopeError {
     WrongVault,
     WrongContent,
     Malformed,
+    UnknownSeat,
+    Replay,
     BadKey,
     BadSignature,
 }
 
-/// Verifies `env` as a vote of the holder of `write_pub`, in `vault_id`, over `hash`. The message is
-/// rebuilt here from the hash the caller holds, never from bytes the envelope carries.
+/// A seat's registered write key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeatKey {
+    pub seat: u16,
+    pub write_pub: [u8; 32],
+}
+
+/// A vote that verified: the seat it counts for is the seat whose key signed it. Only
+/// `verify_vote` makes one.
+///
+/// ```compile_fail
+/// use konclave_seal::approval::{VerifiedVote, VoteAction};
+/// let _forged = VerifiedVote { seat: 1, action: VoteAction::Approve, ts_ms: 0 };
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifiedVote {
+    seat: u16,
+    action: VoteAction,
+    ts_ms: i64,
+}
+
+impl VerifiedVote {
+    pub fn seat(&self) -> u16 {
+        self.seat
+    }
+    pub fn action(&self) -> VoteAction {
+        self.action
+    }
+    pub fn ts_ms(&self) -> i64 {
+        self.ts_ms
+    }
+}
+
+/// Verifies `env` as a vote in `vault_id` over `hash`, by the seat it names, with THAT seat's key
+/// from `keys`. `seen_nonce` answers whether the nonce was used before (and records it); a device
+/// checking its own envelope passes a function that answers false. The message is rebuilt here from
+/// the hash the caller holds, never from bytes the envelope carries.
+///
+/// Cheap checks come before any signature verification, as in the v1 rule.
 #[cfg(feature = "share-sig")]
-pub fn verify_envelope(
-    write_pub: &[u8; 32],
+pub fn verify_vote(
+    keys: &[SeatKey],
     vault_id: &[u8; 32],
     env: &Envelope,
     hash: &ContentHash,
-) -> Result<VoteAction, EnvelopeError> {
-    if env.vault_id != *vault_id {
-        return Err(EnvelopeError::WrongVault);
-    }
-    // Bytes against bytes: the envelope's hash is never turned into a `ContentHash`.
-    if env.content_hash != *hash.as_bytes() {
-        return Err(EnvelopeError::WrongContent);
-    }
-    if env.nonce.is_empty() || env.nonce.len() > NONCE_MAX_BYTES {
-        return Err(EnvelopeError::Malformed);
-    }
-    if env.action == VoteAction::Approve && env.reason_hash != [0u8; 32] {
-        return Err(EnvelopeError::Malformed);
-    }
-    let vk =
-        ed25519_dalek::VerifyingKey::from_bytes(write_pub).map_err(|_| EnvelopeError::BadKey)?;
-    let msg = vote_message_v2(
-        vault_id,
-        env.action,
-        hash,
-        env.seat,
-        env.ts_ms,
-        &env.nonce,
-        &env.reason_hash,
-    );
-    vk.verify_strict(&msg, &ed25519_dalek::Signature::from_bytes(&env.sig))
-        .map(|()| env.action)
-        .map_err(|_| EnvelopeError::BadSignature)
+    seen_nonce: impl FnOnce(&str) -> bool,
+) -> Result<VerifiedVote, EnvelopeError> {
+    let _ = (keys, vault_id, env, hash, seen_nonce);
+    todo!()
 }
 
 #[cfg(test)]

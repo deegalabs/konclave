@@ -1,22 +1,44 @@
 //! The domain separators live in `konclave-seal/src/domains.rs` only (ADR-0012 D2). A literal of
-//! the form `konclave-<name>-v<n>\0` in the non-test code of any Rust crate that signs or verifies
-//! is a second definition, and this scan refuses it. Test modules may write bytes out by hand.
+//! the form `konclave-<name>-v<n>\0` (or `\x00`) in the non-test code of any Rust crate of the
+//! repository is a second definition, and this scan refuses it. Test MODULES may write bytes out by
+//! hand; every other line is read, however far down the file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-const CRATES: [&str; 5] = [
-    "../konclave-seal/src",
-    "../konclave-wasm/src",
-    "../orchestrator/src",
-    "../helper-server/src",
-    "../konclave-signer/src",
-];
-
-fn non_test_part(text: &str) -> &str {
-    match text.find("#[cfg(test)]") {
-        Some(at) => &text[..at],
-        None => text,
+/// The text of `text` with every `#[cfg(test)]` module removed. A module ends at the first line
+/// that is a closing brace at the module's own indentation, which rustfmt (checked in CI) guarantees.
+/// Anything else after a `#[cfg(test)]` (a doc comment mentioning it, a `#[path]` module, a function)
+/// is kept and scanned.
+fn without_test_modules(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim() == "#[cfg(test)]" {
+            // Skip further attribute lines, then expect `mod name {`.
+            let mut j = i + 1;
+            while j < lines.len() && lines[j].trim_start().starts_with("#[") {
+                j += 1;
+            }
+            let decl = lines.get(j).map(|l| l.trim_start()).unwrap_or("");
+            let opens =
+                (decl.starts_with("mod ") || decl.starts_with("pub mod ")) && decl.ends_with('{');
+            if opens {
+                let indent = &lines[j][..lines[j].len() - decl.len()];
+                let close = format!("{indent}}}");
+                let mut k = j + 1;
+                while k < lines.len() && lines[k] != close {
+                    k += 1;
+                }
+                i = k + 1;
+                continue;
+            }
+        }
+        out.push_str(lines[i]);
+        out.push('\n');
+        i += 1;
     }
+    out
 }
 
 fn domain_literals(text: &str) -> Vec<String> {
@@ -26,7 +48,7 @@ fn domain_literals(text: &str) -> Vec<String> {
         let tail = &rest[at..];
         let end = tail.find('"').unwrap_or(tail.len());
         let lit = &tail[..end];
-        if lit.ends_with("\\0") && lit.contains("-v") {
+        if (lit.ends_with("\\0") || lit.ends_with("\\x00")) && lit.contains("-v") {
             found.push(lit.to_string());
         }
         rest = &tail["konclave-".len()..];
@@ -34,7 +56,7 @@ fn domain_literals(text: &str) -> Vec<String> {
     found
 }
 
-fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap_or_else(|_| panic!("{dir:?}")) {
         let p = e.unwrap().path();
         if p.is_dir() {
@@ -45,21 +67,45 @@ fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// Every crate of the repository: a directory beside this one with a Cargo.toml and a src/.
+fn crate_sources() -> Vec<PathBuf> {
+    let mut dirs = vec![];
+    for e in std::fs::read_dir("..").unwrap() {
+        let p = e.unwrap().path();
+        if p.join("Cargo.toml").is_file() && p.join("src").is_dir() {
+            dirs.push(p.join("src"));
+        }
+    }
+    dirs
+}
+
 #[test]
 fn domain_literals_live_in_domains_rs_only() {
-    let mut files = vec![];
-    for c in CRATES {
-        walk(Path::new(c), &mut files);
+    let crates = crate_sources();
+    for must in [
+        "konclave-wasm",
+        "orchestrator",
+        "helper-server",
+        "konclave-signer",
+        "relay-server",
+    ] {
+        assert!(
+            crates.iter().any(|c| c.to_string_lossy().contains(must)),
+            "the scan reads {must}"
+        );
     }
-    assert!(files.len() > 10, "the scan reads the crates");
+    let mut files = vec![];
+    for c in &crates {
+        walk(c, &mut files);
+    }
     let mut offenders = vec![];
     for f in files {
-        let name = f.to_string_lossy();
+        let name = f.to_string_lossy().to_string();
         if name.ends_with("konclave-seal/src/domains.rs") || name.ends_with("_tests.rs") {
             continue;
         }
         let text = std::fs::read_to_string(&f).unwrap();
-        for lit in domain_literals(non_test_part(&text)) {
+        for lit in domain_literals(&without_test_modules(&text)) {
             offenders.push(format!("{name}: {lit}"));
         }
     }
@@ -71,11 +117,32 @@ fn domain_literals_live_in_domains_rs_only() {
 
 #[test]
 fn the_scan_would_see_one() {
+    let lit = |s: &str| domain_literals(&without_test_modules(s));
     assert_eq!(
-        domain_literals("out.extend_from_slice(b\"konclave-write-v1\\0\");"),
-        vec!["konclave-write-v1\\0".to_string()]
+        lit("out.extend_from_slice(b\"konclave-write-v1\\0\");"),
+        vec!["konclave-write-v1\\0"]
     );
-    assert!(domain_literals("hk.expand(b\"konclave-device-write-v1\", &mut okm)").is_empty());
+    assert_eq!(
+        lit("let d = b\"konclave-vote-v2\\x00\";"),
+        vec!["konclave-vote-v2\\x00"]
+    );
+    assert!(lit("hk.expand(b\"konclave-device-write-v1\", &mut okm)").is_empty());
+    // A doc comment that mentions the attribute does not hide what follows it.
+    assert_eq!(
+        lit("//! use #[cfg(test)] here\nfn f() { b\"konclave-vote-v2\\0\"; }\n"),
+        vec!["konclave-vote-v2\\0"]
+    );
+    // Production code after a nested test module is still read.
+    let after = "fn a() {}\n#[cfg(test)]\nmod tests {\n    const X: &[u8] = b\"konclave-room-v1\\0\";\n}\nfn b() { b\"konclave-seat-v1\\0\"; }\n";
+    assert_eq!(lit(after), vec!["konclave-seat-v1\\0"]);
+    // So is code after an indented test module inside another module.
+    let nested = "mod m {\n    #[cfg(test)]\n    mod tests {\n        fn t() {}\n    }\n    fn p() { b\"konclave-pkp-v1\\0\"; }\n}\n";
+    assert_eq!(lit(nested), vec!["konclave-pkp-v1\\0"]);
+    // A `#[path]` test module declaration has no body to skip.
+    assert_eq!(
+        lit("#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\nfn c() { b\"konclave-room-v1\\0\"; }\n"),
+        vec!["konclave-room-v1\\0"]
+    );
 }
 
 #[test]

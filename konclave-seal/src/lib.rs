@@ -307,6 +307,21 @@ pub mod share_sig;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn write_message_v1_matches_the_hand_written_bytes() {
+        // The governance write the released apps sign today: any byte change refuses their votes.
+        let mut want = b"konclave-write-v1\0".to_vec();
+        for f in [&b"ab"[..], b"approve", b"p1", b"n"] {
+            want.extend((f.len() as u32).to_be_bytes());
+            want.extend(f);
+        }
+        want.extend([0, 2]);
+        want.extend(7i64.to_be_bytes());
+        assert_eq!(
+            super::write_message("ab", super::WriteAction::Approve, "p1", 2, 7, "n"),
+            want
+        );
+    }
 
     /// #288 / ADR-0011 D1. Nothing is stored, so the key MUST be reproducible from the share alone -
     /// and it must be independent of the comms key, or one identity's compromise is both.
