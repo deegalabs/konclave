@@ -976,9 +976,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const doBackupCopy = useCallback(async () => {
     if (!backup) return
     // A refused copy is said, and the download button beside it still works.
-    if (!(await copyText(backup.json))) { setBackupCopyFailed(true); return }
-    setBackupCopyFailed(false)
-    setBackupCopied(true)
+    const ok = await copyText(backup.json)
+    setBackupCopyFailed(!ok); setBackupCopied(ok)
+    if (!ok) return
     setBackupTaken(true)
     setTimeout(() => setBackupCopied(false), 1500)
   }, [backup])

@@ -545,9 +545,8 @@ export default function Vaults() {
                           onClick={() => {
                             void (async () => {
                               const ok = await copyText(resumeDone[v.id]!.json)
-                              setResumeCopyFailed(!ok)
-                              if (!ok) return
-                              setResumeCopied(true); window.setTimeout(() => setResumeCopied(false), 1500)
+                              setResumeCopyFailed(!ok); setResumeCopied(ok)
+                              if (ok) window.setTimeout(() => setResumeCopied(false), 1500)
                             })()
                           }}>
                           {resumeCopied ? t('receive.copied') : t('vaults.resumeBackupCopy')}

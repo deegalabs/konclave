@@ -72,23 +72,36 @@ describe('the app copies through one function', () => {
         if (e.isDirectory()) { if (!['wasm-pkg', 'node_modules'].includes(e.name)) walk(path); continue }
         if (!/\.(ts|tsx)$/.test(e.name) || /\.test\.tsx?$/.test(e.name)) continue
         const rel = path.slice(here.length).replace(/^\//, '')
-        if (/navigator\s*\??\.\s*clipboard|\bclipboard\s*\??\.\s*writeText/.test(codeOf(rel))) found.push(rel)
+        if (/navigator\s*\??\.\s*clipboard|\bclipboard\s*\??\.\s*writeText|\{\s*clipboard\b[^}]*\}\s*=\s*(window\.|globalThis\.)?navigator|\[\s*['"`]clipboard['"`]\s*\]|execCommand\s*\(\s*['"`]copy/.test(codeOf(rel))) found.push(rel)
       }
     }
     walk(here.replace(/\/$/, ''))
     expect(found).toEqual(['clipboard.ts'])
   }, 30_000)
 
-  for (const [f, err] of [
-    ['screens/Ceremony.tsx', /toast\.copyFailed/],
-    ['screens/NetVault.tsx', /copy\.failedUseDownload/],
-    ['screens/Vaults.tsx', /copy\.failedUseDownload/],
-    ['screens/Settings.tsx', /export\.errClipboard/],
-  ] as const) {
-    it(`${f} awaits copyText and says when the copy was refused`, () => {
+  // Each site's own form, pinned: "Copied" and the refusal both come from the ONE answer, and the
+  // refusal is shown where the member is. A looser pin (the call and the key somewhere in the file)
+  // stayed green with "Copied" set before the answer.
+  const SITES: ReadonlyArray<[string, RegExp[]]> = [
+    ['screens/Ceremony.tsx', [
+      /const ok = await copyText\(passphrase\); setWordCopied\(ok\); setWordCopyFailed\(!ok\)/,
+      /\{wordCopyFailed && <p className="hint err" role="alert">\{t\('toast\.copyFailed'\)\}<\/p>\}/,
+    ]],
+    ['screens/NetVault.tsx', [
+      /const ok = await copyText\(backup\.json\)\s*setBackupCopyFailed\(!ok\); setBackupCopied\(ok\)\s*if \(!ok\) return/,
+      /\{backupCopyFailed && <p className="net-tip" role="alert">\{tt\('copy\.failedUseDownload'\)\}<\/p>\}/,
+    ]],
+    ['screens/Vaults.tsx', [
+      /const ok = await copyText\(resumeDone\[v\.id\]!\.json\)\s*setResumeCopyFailed\(!ok\); setResumeCopied\(ok\)/,
+      /\{resumeCopyFailed && <p className="hint err" role="alert">\{t\('copy\.failedUseDownload'\)\}<\/p>\}/,
+    ]],
+    ['screens/Settings.tsx', [/if \(!\(await copyText\(out\.json\)\)\) \{ setXpErr\(t\('export\.errClipboard'\)\); return \}/]],
+    ['CopyButton.tsx', [/if \(!\(await copyText\(value\)\)\) return\s*setDone\(true\)/]],
+  ]
+  for (const [f, pins] of SITES) {
+    it(`${f} says "Copied" only from the answer, and says a refusal`, () => {
       const src = codeOf(f)
-      expect(src).toMatch(/await copyText\(/)
-      expect(src).toMatch(err)
+      for (const p of pins) expect(src, f).toMatch(p)
     })
   }
 })
