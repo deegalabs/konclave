@@ -568,6 +568,7 @@ export const en: Record<string, string> = {
   'export.errPass': 'Enter the vault passphrase.',
   'export.errGeneric': 'Could not export the vault.',
   'export.errClipboard': 'Could not copy. Use “Download file” instead.',
+  'copy.failedUseDownload': 'Could not copy. Download the file instead.',
   'export.errDownload': 'The browser did not start the download. Use “Copy” instead.',
   'import.link': 'Import a vault',
   'import.eyebrow': 'Move a vault to this device',

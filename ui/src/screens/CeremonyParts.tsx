@@ -3,6 +3,7 @@
 // (the PIN travels apart; each person reads THEIR code first; an unknown name is a stop) is in one
 // place.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { copyText } from '../clipboard'
 import encodeQR from '@paulmillr/qr'
 import { formatInvite, formatRoomPin, spokenRoomPin, inviteLink, MIN_PIN_LENGTH } from '../net'
 
@@ -48,15 +49,6 @@ function useFocusOnMount<T extends HTMLElement>() {
   const ref = useRef<T>(null)
   useEffect(() => { ref.current?.focus() }, [])
   return ref
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
 }
 
 /** The invite the creator hands out: the code, a link that opens the join screen, its QR, and the
