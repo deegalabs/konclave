@@ -623,7 +623,7 @@ export default function Dashboard() {
         {/* 2a · Can this vault pay right now? Answering it here is the point: every condition below
             was previously discovered only AFTER proposing, approving, signing and waiting. */}
         {!loading && (
-          <ReadyCard threshold={thr} total={n} freeZat={parts?.freeZat ?? null} hasBal={hasBal} backendsUp={isLive} />
+          <ReadyCard threshold={vault?.threshold ?? 0} total={vault?.total ?? 0} freeZat={parts?.freeZat ?? null} hasBal={hasBal} backendsUp={isLive} />
         )}
 
         {/* 2 · Saldo */}

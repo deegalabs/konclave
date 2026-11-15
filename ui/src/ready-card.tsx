@@ -25,7 +25,7 @@ export function ReadyCard({ threshold, total, freeZat, hasBal, backendsUp }: Rea
       {/* A fact about the vault, not a measure of who is online: it never ages and claims nothing. */}
       {threshold > 0 && total > 0 && (
         <span className="chk">
-          <span className="m" aria-hidden="true">…</span>
+          <span className="m" aria-hidden="true">·</span>
           <span>{t('dashboard.readyQuorum', { threshold, total })}</span>
         </span>
       )}

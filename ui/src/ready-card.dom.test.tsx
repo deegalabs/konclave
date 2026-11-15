@@ -49,6 +49,14 @@ describe('the Dashboard readiness card (#693)', () => {
     expect(show({ threshold: 0 }).textContent).not.toContain('needs')
   })
 
+  it('the quorum row is a fact, so its mark is neutral and not the "not known yet" ellipsis', () => {
+    const c = show()
+    const row = [...c.querySelectorAll('.chk')].find((r) => /2/.test(r.textContent ?? '') && /3/.test(r.textContent ?? ''))!
+    expect(row.querySelector('.m')?.textContent).toBe('·')
+  })
+  it('the Dashboard passes no invented quorum before the vault is read', () => {
+    expect(codeOf('screens/Dashboard.tsx')).toMatch(/<ReadyCard threshold=\{vault\?\.threshold \?\? 0\} total=\{vault\?\.total \?\? 0\}/)
+  })
   it('the rule has no presence input', () => {
     expect(payReadiness({ hasFree: true, backendsUp: true }).canPay).toBe(true)
     expect(Object.keys(payReadiness({ hasFree: true, backendsUp: true }))).toEqual(['canPay'])
