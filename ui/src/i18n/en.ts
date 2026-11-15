@@ -1675,7 +1675,7 @@ export const en: Record<string, string> = {
   'net.create.pinChooseOwn': 'Choose my own PIN instead',
   'net.create.generateInvite': 'Generate invite',
   // /net: a restored vault and its signing session (#318: moved from inline pt/en pairs, unchanged)
-  'net.restore.pinWord': 'PIN',
+  'net.join.pinWord': 'PIN',
   'net.restore.openVault': 'Open the vault (Dashboard) →',
   'net.restore.signTitle': 'Sign with this vault',
   'net.restore.signLead': 'Rejoin the other members in a signing session over the relay.',

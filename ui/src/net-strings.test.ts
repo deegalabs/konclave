@@ -11,7 +11,7 @@ describe('/net reads its words from the dictionary (#318)', () => {
     const calls = codeOf('screens/NetVault.tsx').match(/(?<![A-Za-z0-9_.])pe\(/g) ?? []
     expect(calls.length).toBeLessThanOrEqual(63)
   })
-  it('the joining and creating words are in both languages', () => {
+  it('the joining, creating and restored-vault words are in both languages', () => {
     for (const k of Object.keys(en).filter((k) => /^net\.(join|create|restore)\./.test(k) || k === 'net.yourNameLabel')) {
       expect(ptBR[k], k).toBeTruthy()
     }

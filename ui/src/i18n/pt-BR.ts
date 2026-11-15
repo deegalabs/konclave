@@ -1671,7 +1671,7 @@ export const ptBR: Record<string, string> = {
   'net.create.pinChooseOwn': 'Escolher meu próprio PIN',
   'net.create.generateInvite': 'Gerar convite',
   // /net: a restored vault and its signing session (#318: moved from inline pt/en pairs, unchanged)
-  'net.restore.pinWord': 'PIN',
+  'net.join.pinWord': 'PIN',
   'net.restore.openVault': 'Abrir o cofre (Painel) →',
   'net.restore.signTitle': 'Assinar com este cofre',
   'net.restore.signLead': 'Reingresse com os outros membros numa sessão de assinatura pelo relay.',

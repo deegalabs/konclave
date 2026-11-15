@@ -1421,7 +1421,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <input className="net-input" type="text" maxLength={24} required placeholder={tt('net.restore.pinWord')}
+            <input className="net-input" type="text" maxLength={24} required placeholder={tt('net.join.pinWord')}
               aria-label={tt('net.create.roomPin')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
               value={pin} onChange={(e) => setPin(e.target.value)} />
             <p id="net-join-pin-hint">{tt('net.join.pinHint')}</p>
