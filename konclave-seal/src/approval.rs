@@ -152,7 +152,6 @@ pub fn verify_vote(
     nonce_used: impl FnOnce(&str) -> bool,
     burn_nonce: impl FnOnce(&str),
 ) -> Result<VerifiedVote, EnvelopeError> {
-    let _ = burn_nonce;
     if env.vault_id != *vault_id {
         return Err(EnvelopeError::WrongVault);
     }
@@ -166,12 +165,18 @@ pub fn verify_vote(
     if env.action == VoteAction::Approve && env.reason_hash != [0u8; 32] {
         return Err(EnvelopeError::Malformed);
     }
+    // Seats count from 1.
+    if env.seat == 0 {
+        return Err(EnvelopeError::Malformed);
+    }
     // The key of the seat the vote names, and no other: a vote signed by one seat's key and
-    // naming another seat never verifies.
-    let key = keys
-        .iter()
-        .find(|k| k.seat == env.seat)
-        .ok_or(EnvelopeError::UnknownSeat)?;
+    // naming another seat never verifies. A seat with two registered keys is refused rather than
+    // resolved by order.
+    let mut of_seat = keys.iter().filter(|k| k.seat == env.seat);
+    let key = of_seat.next().ok_or(EnvelopeError::UnknownSeat)?;
+    if of_seat.next().is_some() {
+        return Err(EnvelopeError::BadKey);
+    }
     let vk = ed25519_dalek::VerifyingKey::from_bytes(&key.write_pub)
         .map_err(|_| EnvelopeError::BadKey)?;
     if nonce_used(&env.nonce) {
@@ -189,6 +194,7 @@ pub fn verify_vote(
     // `verify_strict`: refuses small-order keys and non-canonical signatures.
     vk.verify_strict(&msg, &ed25519_dalek::Signature::from_bytes(&env.sig))
         .map_err(|_| EnvelopeError::BadSignature)?;
+    burn_nonce(&env.nonce);
     Ok(VerifiedVote {
         seat: env.seat,
         action: env.action,
