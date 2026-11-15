@@ -30,6 +30,10 @@ const ROWS = [
   row('p-sent', OLD, 'sent', T0 + 50),
   row('old2', OLD, 'confirmed', T0 + 20),
   row('old', OLD, 'confirmed', T0),
+  // A payroll that pays OLD 200 after one that paid OLD 100: "a different amount" needs the earlier
+  // payroll's LINES from the same read.
+  { ...row('r-now', '', 'pending', T0 + 95, 200), kind: 'payroll', lines: [{ label: 'Old', to: OLD, amount_zat: 200 }] },
+  { ...row('r-prev', '', 'confirmed', T0 + 10, 100), kind: 'payroll', lines: [{ label: 'Old', to: OLD, amount_zat: 100 }] },
 ]
 
 const polls: Array<() => void> = []
@@ -81,8 +85,15 @@ describe('the proposal screen reads the vault proposals once when it opens on th
     const s = await setup('p-big')
     // An empty or wrong book would say "no earlier payment"; only the list's three settled payments
     // to OLD make 1000 "above usual".
-    expect(await screen.findByText(en('unusual.above', { who: s.shortAddr(OLD) }))).toBeTruthy()
-    expect(screen.queryByText(en('unusual.first', { who: s.shortAddr(OLD) }))).toBeNull()
+    expect(await screen.findByText(en('unusual.above', { who: `Old (${s.shortAddr(OLD)})` }))).toBeTruthy()
+    expect(screen.queryByText(en('unusual.first', { who: `Old (${s.shortAddr(OLD)})` }))).toBeNull()
+    expect(s.lists()).toBe(1)
+  })
+
+  it('a payroll is compared with the previous payroll lines from that one read', async () => {
+    const s = await setup('r-now')
+    // Without the earlier payroll's lines the reading is partial and names no change.
+    expect(await screen.findByText(en('unusual.amount', { who: `Old (${s.shortAddr(OLD)})` }))).toBeTruthy()
     expect(s.lists()).toBe(1)
   })
 
