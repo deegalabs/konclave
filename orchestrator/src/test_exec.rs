@@ -109,8 +109,6 @@ mod tests {
         write_script(&tmp("notsh").join("fake"), "#!/usr/bin/env python3\n");
     }
 
-    /// Every fake script is written by [`write_script`] and nowhere else: a second copy of the
-    /// wait is how about half of the fakes came to have none.
     /// The wait itself: another process holds the script open for writing (as a child forked at the
     /// wrong moment does) while it is written, and the script still runs as soon as this returns.
     /// Without the wait this fails with "Text file busy".
@@ -156,6 +154,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// Every fake script is written by [`write_script`] and nowhere else: a second copy of the
+    /// wait is how about half of the fakes came to have none.
     #[test]
     fn no_test_writes_an_executable_script_or_waits_for_it_by_hand() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
