@@ -166,8 +166,9 @@ pub fn check_built(
     Ok(())
 }
 
-/// What the coordinator reads the chain with, for the hold and the branch check. The tip is asked
-/// only when the table has a later row to be near.
+/// What the coordinator reads the chain with, for the hold, the branch check and the fee guard. The
+/// hold asks for the tip only when the table has a later row to be near; the fee guard always needs
+/// it, and gets it from [`EpochGate::chain_tip`] with no second read when the hold already asked.
 pub struct EpochGate<'a> {
     pub table: &'a Table,
     pub tip: &'a dyn Fn() -> Result<u64, ToolError>,
@@ -189,10 +190,25 @@ fn unix_secs_or_max(since_epoch: Result<std::time::Duration, std::time::SystemTi
 }
 
 impl EpochGate<'_> {
-    /// The chain tip, or `0` when the table has one row and the tip decides nothing.
+    /// Whether the hold needs the tip: only when the table has a later row to be near.
+    fn asks(&self) -> bool {
+        self.table.epochs.len() >= 2
+    }
+
+    /// The chain tip for the hold, or `0` when the table has one row and the tip decides nothing.
     pub fn tip(&self) -> Result<u64, ToolError> {
-        if self.table.epochs.len() < 2 {
+        if !self.asks() {
             return Ok(0);
+        }
+        (self.tip)()
+    }
+
+    /// The chain tip for the fee guard, which needs it on every table (#969). `read` is what
+    /// [`EpochGate::tip`] answered: reused when it asked the chain, asked now when it did not, so a
+    /// send reads the chain once either way.
+    pub fn chain_tip(&self, read: u64) -> Result<u64, ToolError> {
+        if self.asks() {
+            return Ok(read);
         }
         (self.tip)()
     }
@@ -823,5 +839,27 @@ mod tests {
             .unwrap(),
             7
         );
+    }
+
+    /// #969: the fee guard's tip is the real one on every table, and a send reads the chain exactly
+    /// once whichever table it is on: on a one-row table `tip()` skips the read and `chain_tip` makes
+    /// it; on a table with a later row `tip()` reads and `chain_tip` reuses that answer.
+    #[test]
+    fn the_fee_guard_gets_the_real_tip_with_one_read_per_send() {
+        for table in [&ONE_ROW, &WITH_NEXT] {
+            let reads = std::cell::Cell::new(0u32);
+            let tip = || -> Result<u64, ToolError> {
+                reads.set(reads.get() + 1);
+                Ok(3_500_000)
+            };
+            let gate = EpochGate {
+                table,
+                tip: &tip,
+                now: &|| 0,
+            };
+            let hold = gate.tip().unwrap();
+            assert_eq!(gate.chain_tip(hold).unwrap(), 3_500_000);
+            assert_eq!(reads.get(), 1, "one read for {} rows", table.epochs.len());
+        }
     }
 }

@@ -679,8 +679,8 @@ pub fn net_prepare_send(
     device_pubs: &[String],
     max_polls: u32,
     poll_delay: Duration,
-    // The chain tip for the build hold and the branch check, asked only when the table has a later
-    // upgrade to be near. The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
+    // The chain tip for the build hold, the branch check and the fee guard, read once per send (see
+    // `EpochGate::chain_tip`). The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
     // one reader of the wallet, #637); the operator's command line, which has no vault directory,
     // reads the wallet as it stands.
     tip: &dyn Fn() -> Result<u64, ToolError>,
@@ -705,8 +705,7 @@ pub fn net_prepare_send_with<T: Transport>(
     poll_delay: Duration,
     tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
-    // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
-    // upgrade to be near, which it has since the NU7 row).
+    // The live gate: mainnet's table, and the caller's tip (read once per send).
     let gate = live_gate(tip);
     net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
 }
@@ -765,6 +764,9 @@ fn prepare_capped<T: Transport>(
     if let Some(text) = crate::epoch::hold_before_build(gate.table, tip) {
         return Err(crate::epoch::refusal(text));
     }
+    // The fee guard's tip, read here, before the build, like the hold's (#969): on a one-row table
+    // the hold did not read the chain, and the guard refuses a tip of 0.
+    let fee_tip = gate.chain_tip(tip)?;
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_unproven(sc, plan)?;
@@ -773,7 +775,7 @@ fn prepare_capped<T: Transport>(
     // it. The next block is the target the wallet builds for.
     crate::fee::guard_built_fee(
         &tx1,
-        tip,
+        fee_tip,
         sc.is_mainnet(),
         sc.zip2009_permitted,
         sc.zip2009_from,
