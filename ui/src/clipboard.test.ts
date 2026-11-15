@@ -38,3 +38,16 @@ describe('the two screens go through it and claim nothing on their own', () => {
     })
   }
 })
+
+// #313, the rest: the /net page copied the vault's address and the signing-session code without
+// waiting for the clipboard, and said nothing either way. Every write there is now awaited (through
+// copyText or the shared CopyButton), and the address says whether it was copied.
+describe('the /net page claims nothing about a copy it did not wait for', () => {
+  it('every clipboard write in NetVault.tsx is awaited', () => {
+    const src = codeOf('screens/NetVault.tsx')
+    const writes = [...src.matchAll(/navigator\.clipboard\??\.writeText\(/g)]
+    for (const w of writes) expect(src.slice(Math.max(0, w.index! - 6), w.index)).toBe('await ')
+    expect(src).toMatch(/await copyText\(hostedAddress\)/)
+    expect(src).toMatch(/toast\.copyFailed/)
+  })
+})
