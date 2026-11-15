@@ -91,4 +91,10 @@ describe('the pin: exportVault is built in one place', () => {
       expect(codeOf(f), f).toMatch(/buildVaultBackup\(/)
     }
   })
+  it('with a passphrase that does not open the record it rejects: no backup under another passphrase (#928)', async () => {
+    h.loadVault.mockRejectedValueOnce(new Error('wrong passphrase'))
+    h.exportVault.mockClear()
+    await expect(buildVaultBackup('v1', 'other', 'v')).rejects.toThrow('wrong passphrase')
+    expect(h.exportVault).not.toHaveBeenCalled()
+  })
 })

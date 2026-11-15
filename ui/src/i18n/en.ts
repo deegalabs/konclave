@@ -1735,6 +1735,7 @@ export const en: Record<string, string> = {
   'net.save.waitingKey': 'Waiting for the access key from the creator…',
   'net.save.saving': 'Saving…',
   'net.save.saved': 'Saved on this device ✓',
+  'net.save.locked': 'Your passphrase is set. This device keeps your part of the vault protected with it.',
   'net.save.protect': 'Protect the vault →',
   'net.done.addressLabel': 'Vault address',
   'net.done.registering': 'Registering the vault with the coordinator (blind to shares)…',

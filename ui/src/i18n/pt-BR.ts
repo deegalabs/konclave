@@ -1731,6 +1731,7 @@ export const ptBR: Record<string, string> = {
   'net.save.waitingKey': 'Esperando a chave de acesso de quem criou…',
   'net.save.saving': 'Guardando…',
   'net.save.saved': 'Guardado neste aparelho ✓',
+  'net.save.locked': 'A sua frase-senha está definida. Este aparelho guarda a sua parte do cofre protegida por ela.',
   'net.save.protect': 'Proteger o cofre →',
   'net.done.addressLabel': 'Endereço do cofre',
   'net.done.registering': 'Registrando o cofre no coordenador (cego às partes)…',

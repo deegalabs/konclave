@@ -267,6 +267,9 @@ export function PassphraseField({
    *  the member already has just tells them their existing key is weak at the moment they cannot
    *  act on it, and a generator there would overwrite what they came to type. */
   choosing = true,
+  /** Locked: the passphrase is being (or has been) used and must not change under the member. No
+   *  typing and no generator (it writes); the meter and the eye are read-only and stay (#928). */
+  readOnly = false,
   id, describedBy, invalid,
 }: {
   value: string
@@ -276,6 +279,7 @@ export function PassphraseField({
   autoFocus?: boolean
   autoComplete?: 'new-password' | 'current-password'
   choosing?: boolean
+  readOnly?: boolean
   id?: string
   describedBy?: string
   invalid?: boolean
@@ -297,6 +301,7 @@ export function PassphraseField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
+          readOnly={readOnly}
           autoComplete={autoComplete}
           spellCheck={false}
           id={id}
@@ -319,7 +324,7 @@ export function PassphraseField({
             </svg>
           )}
         </button>
-        {choosing && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
+        {choosing && !readOnly && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
           aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M4 20L14 10" />
