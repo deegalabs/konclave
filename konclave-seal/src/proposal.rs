@@ -96,6 +96,22 @@ pub struct Context<'a> {
 
 /// A content that passed `validate`. Its field is private: it cannot be built any other way.
 ///
+/// The way that compiles (the twin of the refused one below, so it fails for the right reason):
+///
+/// ```
+/// use konclave_seal::proposal::*;
+/// let own = [[0x44u8; ORCHARD_RECEIVER_LEN]];
+/// let ctx = Context { network: NETWORK_MAINNET, vault_id: [1; 32], threshold: 1, total: 1, own_receivers: &own };
+/// let c = Content {
+///     network: NETWORK_MAINNET, vault_id: [1; 32], kind: KIND_PAYMENT,
+///     lines: vec![Line { receiver_type: RECEIVER_ORCHARD, receiver: [2; ORCHARD_RECEIVER_LEN], amount: 1, memo: String::new() }],
+///     proposer: 1, expiry_unix: 1, threshold: 1, total: 1, salt: [3; 32], fee_cap: fee_cap_floor(), extra: [0; 32],
+/// };
+/// let v: ValidContent = validate(c, &ctx).unwrap();
+/// let h: ContentHash = content_hash(&v);
+/// assert_eq!(proposal_id(&h).len(), 64);
+/// ```
+///
 /// ```compile_fail
 /// use konclave_seal::proposal::{Content, ValidContent};
 /// fn forge(c: Content) -> ValidContent { ValidContent(c) }

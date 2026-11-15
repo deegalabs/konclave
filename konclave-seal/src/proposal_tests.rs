@@ -356,3 +356,43 @@ fn the_bounds_are_the_decided_numbers() {
     assert_eq!(CHANGE_SPLIT_MAX, 4);
     assert_eq!(MAX_MEMO_BYTES, 512);
 }
+
+#[test]
+fn identical_payroll_lines_stay_two_lines() {
+    // Paying the same line twice is two payments: allowed, and the device's matching (a later
+    // change) is one-to-one, so two lines need two outputs.
+    let mut c = sample();
+    c.kind = KIND_PAYROLL;
+    c.lines = vec![line(0x22, 7, "x"), line(0x22, 7, "x")];
+    let two = content_hash(&valid(c.clone()));
+    c.lines.pop();
+    assert_ne!(content_hash(&valid(c)), two);
+}
+
+#[test]
+fn memo_bytes_cannot_slide_between_lines() {
+    // Length prefixes keep "a" + "bc" apart from "ab" + "c" on otherwise identical lines.
+    let mut a = sample();
+    a.kind = KIND_PAYROLL;
+    a.lines = vec![line(0x22, 1, "a"), line(0x22, 1, "bc")];
+    let mut b = a.clone();
+    b.lines = vec![line(0x22, 1, "ab"), line(0x22, 1, "c")];
+    assert_ne!(encode(&valid(a)), encode(&valid(b)));
+}
+
+#[test]
+fn it_refuses_a_line_paying_the_change_receiver_alone() {
+    // A context whose only own receiver is the change one: the deposit address is not the only one
+    // a line may not pay.
+    let change = [[0x66u8; ORCHARD_RECEIVER_LEN]];
+    let only_change = Context {
+        own_receivers: &change,
+        ..ctx()
+    };
+    let mut c = sample();
+    c.lines[0].receiver = change[0];
+    assert_eq!(
+        validate(c, &only_change).unwrap_err(),
+        ContentError::OwnReceiver
+    );
+}
