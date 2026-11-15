@@ -1875,6 +1875,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   >
                     {addrCopy === 'copied' ? pe('Copiado', 'Copied') : pe('Copiar endereço', 'Copy address')}
                   </button>
+                  <span className="visually-hidden" role="status">{addrCopy === 'copied' ? pe('Copiado', 'Copied') : ''}</span>
                   {addrCopy === 'failed' && <p className="net-tip" role="alert">{tt('toast.copyFailed')}</p>}
 
                   <div style={{ marginTop: 16 }}>
@@ -1964,7 +1965,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           </p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{pe('Código da sessão (compartilhe com os membros)', 'Session code (share with the members)')}:</p>
-          <div className="net-code">{room} <CopyButton value={room} label={pe('Copiar código da sessão', 'Copy session code')} /></div>
+          <div className="net-code net-code-static">{room} <CopyButton value={room} label={pe('Copiar código da sessão', 'Copy session code')} /></div>
           <p className="net-tip" style={{ marginTop: 12 }}>{pe('Membros na sessão', 'Members in session')}: {signSeatCount} / {quorum}</p>
           {signSeatCount < quorum && (
             <p className="net-lead">{pe('Aguardando o quórum reingressar…', 'Waiting for the quorum to rejoin…')}</p>

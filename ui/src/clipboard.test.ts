@@ -40,14 +40,19 @@ describe('the two screens go through it and claim nothing on their own', () => {
 })
 
 // #313, the rest: the /net page copied the vault's address and the signing-session code without
-// waiting for the clipboard, and said nothing either way. Every write there is now awaited (through
-// copyText or the shared CopyButton), and the address says whether it was copied.
+// waiting for the clipboard, and said nothing either way. Every write there is now awaited (the
+// address through copyText, the session code through the shared CopyButton, the backup's own copy
+// directly), and the address says whether it was copied.
 describe('the /net page claims nothing about a copy it did not wait for', () => {
   it('every clipboard write in NetVault.tsx is awaited', () => {
     const src = codeOf('screens/NetVault.tsx')
     const writes = [...src.matchAll(/navigator\.clipboard\??\.writeText\(/g)]
     for (const w of writes) expect(src.slice(Math.max(0, w.index! - 6), w.index)).toBe('await ')
-    expect(src).toMatch(/await copyText\(hostedAddress\)/)
-    expect(src).toMatch(/toast\.copyFailed/)
+    // "Copied" only from the answer, and the refusal said: the one form that cannot claim success.
+    expect(src).toMatch(/setAddrCopy\(\(await copyText\(hostedAddress\)\) \? 'copied' : 'failed'\)/)
+    expect(src).toMatch(/addrCopy === 'failed' && <p[^>]*role="alert">\{tt\('toast\.copyFailed'\)\}/)
+    // No other way round it: an alias of the clipboard, or a copy nobody waits for.
+    expect(src).not.toMatch(/=\s*navigator\.clipboard\b/)
+    expect(src).not.toMatch(/void copyText\(/)
   })
 })
