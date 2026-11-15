@@ -78,7 +78,37 @@ describe('the web manifest format (#605)', () => {
   it('accepts release versions only', () => {
     expect(isVersion('0.21.0')).toBe(true)
     expect(isVersion('1.0.0-rc.1')).toBe(true)
-    for (const v of ['v0.21.0', '0.21', '0.21.0/x', '', null]) expect(isVersion(v), String(v)).toBe(false)
+    for (const v of ['v0.21.0', '0.21', '0.21.0/x', '01.2.3', '0.021.0', '', null]) expect(isVersion(v), String(v)).toBe(false)
+  })
+
+  it('keeps format v1 byte for byte: a manifest already published must still read, with its fingerprint', async () => {
+    // The literal text of a v1 manifest. If this test fails, the writer changed format v1 and every
+    // published manifest would be refused or fingerprinted differently: that is formatVersion 2.
+    const GOLDEN = [
+      '{', '  "format": "konclave-web-manifest",', '  "formatVersion": 1,', '  "version": "0.22.0",',
+      `  "commit": "${C}",`, '  "build": {', '    "env": [', '      {', '        "name": "VITE_HELPER_BASE",',
+      '        "value": "https://helper.konclave.xyz"', '      },', '      {', '        "name": "VITE_RELAY_BASE",',
+      '        "value": "https://relay.konclave.xyz"', '      }', '    ]', '  },', '  "headers": [', '    {',
+      '      "name": "Content-Security-Policy",', `      "value": "default-src 'self'"`, '    },', '    {',
+      '      "name": "X-Frame-Options",', '      "value": "DENY"', '    }', '  ],', '  "files": [', '    {',
+      '      "path": "assets/a-XXXXXXXX.js",', `      "sha256": "${H('a')}",`, '      "size": 2', '    },', '    {',
+      '      "path": "index.html",', `      "sha256": "${H('i')}",`, '      "size": 1', '    }', '  ]', '}', '',
+    ].join('\n')
+    expect(serializeManifest(buildManifest(base))).toBe(GOLDEN)
+    expect(parseManifest(GOLDEN).version).toBe('0.22.0')
+    expect(await fingerprint(GOLDEN)).toBe(H(GOLDEN))
+  })
+
+  it('reads the published bytes as strict UTF-8: a byte-order mark or a broken byte is refused', () => {
+    const bytes = new TextEncoder().encode(serializeManifest(buildManifest(base)))
+    expect(parseManifest(bytes).version).toBe('0.22.0')
+    expect(() => parseManifest(new Uint8Array([0xef, 0xbb, 0xbf, ...bytes]))).toThrow(/not JSON|canonical/)
+    const broken = new Uint8Array(bytes); broken[bytes.length - 3] = 0xff
+    expect(() => parseManifest(broken)).toThrow(/UTF-8/)
+  })
+
+  it('refuses one header named twice in different case', () => {
+    expect(() => buildManifest({ ...base, headers: { 'X-A': '1', 'x-a': '2' } })).toThrow(/twice/)
   })
 
   it('fingerprints the published bytes with SHA-256', async () => {
@@ -94,7 +124,7 @@ describe('the web manifest format (#605)', () => {
   it('writes a notes line that names the file and claims nothing about production', async () => {
     const m = buildManifest(base)
     const fp = H('x')
-    expect(notesLine(m, fp)).toBe(`Web app v0.22.0 (commit aaaaaaa): web-manifest.json lists the SHA-256 of all 2 files it serves; the manifest's own SHA-256 is ${fp}.`)
+    expect(notesLine(m, fp)).toBe(`Web app v0.22.0 (commit aaaaaaa): web-manifest.json lists the SHA-256 of all 2 files of this build; the manifest's own SHA-256 is ${fp}.`)
     expect(() => notesLine(m, 'nope')).toThrow(/fingerprint/)
   })
 

@@ -25,8 +25,8 @@ if (cmd === 'write' && args.length === 3) {
   writeFileSync(out, text)
   console.log(await fingerprint(text))
 } else if (cmd === 'notes' && args.length === 1) {
-  const text = readFileSync(args[0], 'utf8')
-  console.log(notesLine(parseManifest(text), await fingerprint(text)))
+  const bytes = new Uint8Array(readFileSync(args[0]))
+  console.log(notesLine(parseManifest(bytes), await fingerprint(bytes)))
 } else {
   console.error('usage: web-manifest-cli.mjs write <distDir> <commit> <out.json> | notes <manifest.json>')
   process.exit(3)

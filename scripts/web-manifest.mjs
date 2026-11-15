@@ -23,13 +23,18 @@ export const FORMAT_VERSION = 1
 /** The name of the release asset, and the one file a manifest may never list. */
 export const MANIFEST_FILE = 'web-manifest.json'
 
-// The version shape release.mjs accepts.
-const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+// A release version: numbers without leading zeros, an optional pre-release tag.
+const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
 const COMMIT = /^[0-9a-f]{40}$/
 const SHA256 = /^[0-9a-f]{64}$/
 const SEGMENT = /^[A-Za-z0-9._-]+$/
-const ENV_NAME = /^VITE_[A-Z0-9_]+$/
+/** An env variable Vite inlines: the one rule for its name, used by the manifest, the writer and
+ *  the bundle check (scripts/check-desktop-bundle.mjs). */
+export const ENV_NAME = /^VITE_\w+$/
 const HEADER_NAME = /^[A-Za-z0-9-]+$/
+
+/** The commit as the build names itself in version.json and the footer (ui/vite.config.ts). */
+export const shortCommit = (commit) => String(commit).slice(0, 7)
 
 /** True when `v` is a release version (no `v` prefix). */
 export const isVersion = (v) => typeof v === 'string' && SEMVER.test(v)
@@ -59,8 +64,11 @@ export function buildManifest({ version, commit, env, headers, files }) {
   if (typeof commit !== 'string' || !COMMIT.test(commit)) fail(`commit ${JSON.stringify(commit)} is not a 40-hex commit`)
   const pairs = (rec, re, what) => {
     if (rec === null || typeof rec !== 'object' || Array.isArray(rec)) fail(`${what} must be a record`)
+    const lower = new Set()
     return Object.keys(rec).sort(byCodeUnit).map((name) => {
       if (!re.test(name)) fail(`${what} name ${JSON.stringify(name)} is not allowed`)
+      if (lower.has(name.toLowerCase())) fail(`${what} name ${name} listed twice`)
+      lower.add(name.toLowerCase())
       if (typeof rec[name] !== 'string') fail(`${what} ${name} must be a string`)
       return { name, value: rec[name] }
     })
@@ -106,10 +114,19 @@ const exactKeys = (o, keys, what) => {
   if (got.length !== keys.length || got.some((k, i) => k !== keys[i])) fail(`${what} has keys ${JSON.stringify(got)}, expected ${JSON.stringify(keys)}`)
 }
 
-/** The manifest held by `text`, or an Error naming what is wrong. Strict: format v1 exactly, in its
- *  canonical text. A newer format is refused by name, so an old reader never half-reads it. */
-export function parseManifest(text) {
-  if (typeof text !== 'string') fail('not text')
+/** Bytes as the strict UTF-8 text they must be: invalid UTF-8 or a byte-order mark is refused, so
+ *  one manifest's bytes, its text and its fingerprint stay one thing. */
+function textOf(input) {
+  if (typeof input === 'string') return input
+  if (!(input instanceof Uint8Array)) fail('not text or bytes')
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(input) } catch { fail('not valid UTF-8') }
+}
+
+/** The manifest held by `input` (the published bytes, or their text), or an Error naming what is
+ *  wrong. Strict: format v1 exactly, in its canonical text. A newer format is refused by name, so an
+ *  old reader never half-reads it. Pass the bytes when you have them. */
+export function parseManifest(input) {
+  const text = textOf(input)
   let o
   try { o = JSON.parse(text) } catch { fail('not JSON') }
   if (o?.format !== FORMAT) fail(`format ${JSON.stringify(o?.format)} is not ${FORMAT}`)
@@ -136,8 +153,9 @@ export async function sha256Hex(data) {
   return hex(await globalThis.crypto.subtle.digest('SHA-256', bytes))
 }
 
-/** The fingerprint of a published manifest: the SHA-256 of its bytes. */
-export const fingerprint = (text) => sha256Hex(text)
+/** The fingerprint of a published manifest: the SHA-256 of its bytes (a string is taken as its
+ *  UTF-8 bytes, which is what serializeManifest writes). */
+export const fingerprint = (bytesOrText) => sha256Hex(bytesOrText)
 
 /** [{ path, bytes }] -> [{ path, sha256, size }]. */
 export async function hashFiles(files) {
@@ -148,5 +166,5 @@ export async function hashFiles(files) {
  *  claims nothing about what is deployed. */
 export function notesLine(m, fp) {
   if (!SHA256.test(fp)) fail('fingerprint is not 64 lowercase hex')
-  return `Web app v${m.version} (commit ${m.commit.slice(0, 7)}): ${MANIFEST_FILE} lists the SHA-256 of all ${m.files.length} files it serves; the manifest's own SHA-256 is ${fp}.`
+  return `Web app v${m.version} (commit ${shortCommit(m.commit)}): ${MANIFEST_FILE} lists the SHA-256 of all ${m.files.length} files of this build; the manifest's own SHA-256 is ${fp}.`
 }

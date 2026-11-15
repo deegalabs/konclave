@@ -3,6 +3,7 @@
 // ui/src/web-manifest.test.ts.
 import { readdirSync, readFileSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
+import { ENV_NAME, shortCommit } from './web-manifest.mjs'
 
 /** Every regular file under `dir` as { path, bytes }, paths relative and `/`-separated, sorted.
  *  A symlink or any other kind of entry stops the writer: the host serves bytes, and a link's
@@ -34,7 +35,7 @@ export function headersFromVercelJson(text) {
 
 /** The VITE_* variables in `env`: the build inputs that change the bundle's bytes. */
 export function buildEnv(env) {
-  return Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith('VITE_') && v !== undefined))
+  return Object.fromEntries(Object.entries(env).filter(([k, v]) => ENV_NAME.test(k) && v !== undefined))
 }
 
 /** Why the build in `files` is not the build of `version` at `commit`, or null. The build names
@@ -46,6 +47,6 @@ export function identityMismatch(files, version, commit) {
   let v
   try { v = JSON.parse(new TextDecoder().decode(f.bytes)) } catch { return 'version.json is not JSON' }
   if (v.version !== version) return `the build says version ${v.version}, ui/package.json says ${version}`
-  if (v.commit !== String(commit).slice(0, 7)) return `the build says commit ${v.commit}, the manifest would say ${String(commit).slice(0, 7)}`
+  if (v.commit !== shortCommit(commit)) return `the build says commit ${v.commit}, the manifest would say ${shortCommit(commit)}`
   return null
 }
