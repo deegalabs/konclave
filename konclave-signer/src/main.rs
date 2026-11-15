@@ -450,6 +450,27 @@ mod tests {
     // at action index 0 (the signed vector applies that one signature). This is the post-NU6.3
     // replacement for the pre-Ironwood Orchard (v1 PCZT) vectors; see
     // temp/IRONWOOD-PRODUCTIZATION-PLAN.md for how the clean cut at activation is sequenced.
+    /// #870: the vault's build asks ZIP 315's confirmation counts by name, and the library's default
+    /// is still those same counts: a library update that moves either fails here instead of moving
+    /// the vault's anchor depth unnoticed.
+    #[test]
+    fn the_vault_asks_zip_315s_confirmations_and_the_library_default_has_not_moved() {
+        use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
+        let ours = vault_confirmations();
+        assert_eq!(ours.trusted().get(), 3, "the wallet's own change");
+        assert_eq!(ours.untrusted().get(), 10, "notes received from others");
+        assert_eq!(
+            ours,
+            ConfirmationsPolicy::default(),
+            "zcash_client_backend's default moved: decide whether the vault follows (#870)"
+        );
+        // The build reads the named policy, not the library's default.
+        let src = include_str!("main.rs");
+        let body = &src[src.find("fn build_payroll(").unwrap()..src.find("#[cfg(test)]").unwrap()];
+        assert!(body.contains("vault_confirmations()"));
+        assert!(!body.contains(concat!("ConfirmationsPolicy::", "default()")));
+    }
+
     const IW_PROVEN: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
     const IW_SIGNED: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
     const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
