@@ -1,9 +1,10 @@
 //! The closed list of domain separators Konclave signs or hashes under (ADR-0012 D2).
 //!
-//! Every signed message and every hashed canonical form starts with one of these, and they live
-//! here only, so two messages cannot share a prefix by accident and a new one is added where the
-//! others can be seen. A scan (tests/one_home_for_domains.rs) refuses a domain literal anywhere
-//! else in the Rust crates.
+//! Every message the Rust crates sign, and every canonical form they hash for a signature, starts
+//! with one of these (key-derivation labels and the browser's fingerprint strings are not on the
+//! list), and they live here only, so two messages cannot share a prefix by accident and a new one
+//! is added where the others can be seen. A scan (tests/one_home_for_domains.rs) refuses a domain
+//! literal anywhere else in the Rust crates.
 
 /// Room messages (signing and creation rooms).
 pub const ROOM: &[u8] = b"konclave-room-v1\0";

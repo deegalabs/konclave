@@ -144,8 +144,47 @@ pub fn verify_vote(
     hash: &ContentHash,
     seen_nonce: impl FnOnce(&str) -> bool,
 ) -> Result<VerifiedVote, EnvelopeError> {
-    let _ = (keys, vault_id, env, hash, seen_nonce);
-    todo!()
+    if env.vault_id != *vault_id {
+        return Err(EnvelopeError::WrongVault);
+    }
+    // Bytes against bytes: the envelope's hash is never turned into a `ContentHash`.
+    if env.content_hash != *hash.as_bytes() {
+        return Err(EnvelopeError::WrongContent);
+    }
+    if env.nonce.is_empty() || env.nonce.len() > NONCE_MAX_BYTES {
+        return Err(EnvelopeError::Malformed);
+    }
+    if env.action == VoteAction::Approve && env.reason_hash != [0u8; 32] {
+        return Err(EnvelopeError::Malformed);
+    }
+    // The key of the seat the vote names, and no other: a vote signed by one seat's key and
+    // naming another seat never verifies.
+    let key = keys
+        .iter()
+        .find(|k| k.seat == env.seat)
+        .ok_or(EnvelopeError::UnknownSeat)?;
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&key.write_pub)
+        .map_err(|_| EnvelopeError::BadKey)?;
+    if seen_nonce(&env.nonce) {
+        return Err(EnvelopeError::Replay);
+    }
+    let msg = vote_message_v2(
+        vault_id,
+        env.action,
+        hash,
+        env.seat,
+        env.ts_ms,
+        &env.nonce,
+        &env.reason_hash,
+    );
+    // `verify_strict`: refuses small-order keys and non-canonical signatures.
+    vk.verify_strict(&msg, &ed25519_dalek::Signature::from_bytes(&env.sig))
+        .map_err(|_| EnvelopeError::BadSignature)?;
+    Ok(VerifiedVote {
+        seat: env.seat,
+        action: env.action,
+        ts_ms: env.ts_ms,
+    })
 }
 
 #[cfg(test)]
