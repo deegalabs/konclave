@@ -1014,6 +1014,17 @@ function netLines(hp: { lines?: Array<{ label?: string | null; to: string; amoun
   }))
 }
 
+/** The vault's book with its payrolls' lines, what a proposal is compared with (unusual.ts). */
+export type Book = { history: Proposal[]; linesById: Record<string, PayrollLine[]> }
+
+/** The book from the web's list of the vault's proposals, which carries every payroll's lines. The
+ *  one place that builds it: `getBookWithLines` and `getProposalDetail` both read through here. */
+function bookFromNet(ps: NetProposal[]): Book {
+  const linesById: Record<string, PayrollLine[]> = {}
+  for (const hp of ps) if (hp.lines && hp.lines.length > 0) linesById[hp.id] = netLines(hp)
+  return { history: ps.map(mapNetProposal), linesById }
+}
+
 /** Settled payrolls whose lines the local bridge reads one by one, newest first. */
 export const BRIDGE_PAYROLLS_READ = 12
 
@@ -1022,15 +1033,13 @@ export const BRIDGE_PAYROLLS_READ = 12
  *  ONE read. The local bridge serves lines by id only, so there the newest settled payrolls are
  *  read, up to BRIDGE_PAYROLLS_READ; a payroll past that has no lines here, and the comparison says
  *  it is partial. null when the book itself could not be read. */
-export async function getBookWithLines(): Promise<{ history: Proposal[]; linesById: Record<string, PayrollLine[]> } | null> {
+export async function getBookWithLines(): Promise<Book | null> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return null
     const ps = await netListProposals(id)
     if (!ps) return null
-    const linesById: Record<string, PayrollLine[]> = {}
-    for (const hp of ps) if (hp.lines && hp.lines.length > 0) linesById[hp.id] = netLines(hp)
-    return { history: ps.map(mapNetProposal), linesById }
+    return bookFromNet(ps)
   }
   const history = await getLedger()
   if (!history) return null
@@ -1052,14 +1061,21 @@ export async function getProposalDetail(
   /** The vault to read it from. The signer passes its own: the selection lives in shared storage,
    *  so another tab switching vaults would otherwise change which vault this reads (#610 review). */
   vaultId?: string,
-): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
+): Promise<{
+  proposal: Proposal
+  lines: PayrollLine[]
+  /** Web only: the book from the same list this read already holds, built only when asked (#970).
+   *  Lazy so the signer and the poll, which never ask, do not map every proposal on each read, and a
+   *  malformed OTHER proposal cannot make this read fail. */
+  book?: () => Book
+} | null> {
   if (NET) {
     const vid = vaultId ?? getSelectedVault()
     if (!vid) return null
     const ps = await netListProposals(vid)
     const hp = ps?.find((x) => x.id === id)
-    if (!hp) return null
-    return { proposal: mapNetProposal(hp), lines: netLines(hp) }
+    if (!ps || !hp) return null
+    return { proposal: mapNetProposal(hp), lines: netLines(hp), book: () => bookFromNet(ps) }
   }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return null
