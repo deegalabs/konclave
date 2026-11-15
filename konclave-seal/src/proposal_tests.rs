@@ -1,6 +1,7 @@
 use super::*;
 
-const OWN: [[u8; ORCHARD_RECEIVER_LEN]; 2] = [[0x44; ORCHARD_RECEIVER_LEN], [0x55; ORCHARD_RECEIVER_LEN]];
+const OWN: [[u8; ORCHARD_RECEIVER_LEN]; 2] =
+    [[0x44; ORCHARD_RECEIVER_LEN], [0x55; ORCHARD_RECEIVER_LEN]];
 
 fn ctx() -> Context<'static> {
     Context {
@@ -97,7 +98,11 @@ fn a_payroll_encodes_every_line_in_order() {
     let bytes = encode(&valid(c.clone()));
     let mut swapped = c;
     swapped.lines.swap(0, 1);
-    assert_ne!(bytes, encode(&valid(swapped)), "line order is part of the content");
+    assert_ne!(
+        bytes,
+        encode(&valid(swapped)),
+        "line order is part of the content"
+    );
     // An empty memo is encoded as length zero.
     let first_line = 21 + 1 + 32 + 1 + 4;
     let memo_len_at = first_line + 1 + 43 + 8;
@@ -313,7 +318,10 @@ fn check_expiry_refuses_expired_and_too_far_and_takes_the_margin() {
     // Open, within 72 h.
     assert_eq!(check_expiry(exp(ts + 3_600_000), ts, ts), Ok(()));
     // Exactly at 72 h + margin: accepted.
-    assert_eq!(check_expiry(exp(ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS), ts, ts), Ok(()));
+    assert_eq!(
+        check_expiry(exp(ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS), ts, ts),
+        Ok(())
+    );
     // One second beyond: refused.
     assert_eq!(
         check_expiry(exp(ts + EXPIRY_MAX_MS + EXPIRY_MARGIN_MS) + 1, ts, ts),
@@ -321,12 +329,24 @@ fn check_expiry_refuses_expired_and_too_far_and_takes_the_margin() {
     );
     // Expired at now == expiry, and after.
     let e = exp(ts + 3_600_000);
-    assert_eq!(check_expiry(e, ts, (e as i64) * 1000), Err(ContentError::Expired));
-    assert_eq!(check_expiry(e, ts, (e as i64) * 1000 + 1), Err(ContentError::Expired));
+    assert_eq!(
+        check_expiry(e, ts, (e as i64) * 1000),
+        Err(ContentError::Expired)
+    );
+    assert_eq!(
+        check_expiry(e, ts, (e as i64) * 1000 + 1),
+        Err(ContentError::Expired)
+    );
     assert_eq!(check_expiry(e, ts, (e as i64) * 1000 - 1), Ok(()));
     // No overflow on extreme inputs.
-    assert_eq!(check_expiry(u64::MAX, ts, ts), Err(ContentError::ExpiryTooFar));
-    assert_eq!(check_expiry(0, i64::MIN, i64::MAX), Err(ContentError::Expired));
+    assert_eq!(
+        check_expiry(u64::MAX, ts, ts),
+        Err(ContentError::ExpiryTooFar)
+    );
+    assert_eq!(
+        check_expiry(0, i64::MIN, i64::MAX),
+        Err(ContentError::Expired)
+    );
 }
 
 #[test]

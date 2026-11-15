@@ -147,45 +147,132 @@ pub enum ContentError {
 
 /// The lowest fee cap a content may carry: ZIP 317's floor at the lowest rate any era accepts.
 pub fn fee_cap_floor() -> u64 {
-    todo!()
+    let lowest = MAINNET
+        .fees
+        .iter()
+        .flat_map(|era| era.accepts.iter().copied())
+        .min()
+        .expect("the fee table has an era");
+    lowest * GRACE_ACTIONS
 }
 
 /// The highest fee cap a content may carry: the highest accepted rate over `MAX_ACTIONS_FOR_CAP`.
 pub fn fee_cap_ceiling() -> u64 {
-    todo!()
+    let highest = MAINNET
+        .fees
+        .iter()
+        .flat_map(|era| era.accepts.iter().copied())
+        .max()
+        .expect("the fee table has an era");
+    highest * MAX_ACTIONS_FOR_CAP
 }
 
 /// Checks `content` against the device's own record of the vault.
 pub fn validate(content: Content, ctx: &Context) -> Result<ValidContent, ContentError> {
-    let _ = (content, ctx);
-    todo!()
+    let c = &content;
+    if !matches!(c.network, NETWORK_MAINNET | NETWORK_TESTNET) || c.network != ctx.network {
+        return Err(ContentError::Network);
+    }
+    if c.vault_id != ctx.vault_id {
+        return Err(ContentError::VaultId);
+    }
+    if c.threshold != ctx.threshold || c.total != ctx.total {
+        return Err(ContentError::Quorum);
+    }
+    let lines_ok = match c.kind {
+        KIND_PAYMENT => c.lines.len() == 1,
+        KIND_PAYROLL => (1..=MAX_LINES).contains(&c.lines.len()),
+        _ => return Err(ContentError::Kind),
+    };
+    if !lines_ok {
+        return Err(ContentError::LineCount);
+    }
+    let mut sum: u64 = 0;
+    for l in &c.lines {
+        if l.receiver_type != RECEIVER_ORCHARD {
+            return Err(ContentError::ReceiverType);
+        }
+        if ctx.own_receivers.contains(&l.receiver) {
+            return Err(ContentError::OwnReceiver);
+        }
+        if l.amount == 0 || l.amount > MAX_MONEY {
+            return Err(ContentError::Amount);
+        }
+        sum = sum
+            .checked_add(l.amount)
+            .filter(|s| *s <= MAX_MONEY)
+            .ok_or(ContentError::TotalAmount)?;
+        if l.memo.len() > MAX_MEMO_BYTES || l.memo.as_bytes().contains(&0) {
+            return Err(ContentError::Memo);
+        }
+    }
+    if c.proposer == 0 || c.proposer > c.total {
+        return Err(ContentError::Proposer);
+    }
+    if c.expiry_unix == 0 {
+        return Err(ContentError::Expiry);
+    }
+    if c.salt == [0u8; 32] {
+        return Err(ContentError::Salt);
+    }
+    if c.fee_cap < fee_cap_floor() || c.fee_cap > fee_cap_ceiling() {
+        return Err(ContentError::FeeCap);
+    }
+    Ok(ValidContent(content))
 }
 
 /// The canonical bytes of a valid content. Pure: no check, no clock.
 pub fn encode(content: &ValidContent) -> Vec<u8> {
-    let _ = content;
-    todo!()
+    let c = &content.0;
+    let mut b = Vec::with_capacity(160 + c.lines.len() * 96);
+    b.extend_from_slice(CONTENT_DOMAIN);
+    b.push(c.network);
+    b.extend_from_slice(&c.vault_id);
+    b.push(c.kind);
+    // `validate` bounds the count by MAX_LINES, so it fits a u32.
+    b.extend_from_slice(&(c.lines.len() as u32).to_be_bytes());
+    for l in &c.lines {
+        b.push(l.receiver_type);
+        b.extend_from_slice(&l.receiver);
+        b.extend_from_slice(&l.amount.to_be_bytes());
+        b.extend_from_slice(&(l.memo.len() as u32).to_be_bytes());
+        b.extend_from_slice(l.memo.as_bytes());
+    }
+    b.extend_from_slice(&c.proposer.to_be_bytes());
+    b.extend_from_slice(&c.expiry_unix.to_be_bytes());
+    b.extend_from_slice(&c.threshold.to_be_bytes());
+    b.extend_from_slice(&c.total.to_be_bytes());
+    b.extend_from_slice(&c.salt);
+    b.extend_from_slice(&c.fee_cap.to_be_bytes());
+    b.extend_from_slice(&c.extra);
+    b
 }
 
 /// `SHA-256(HASH_DOMAIN || encode(content))`.
 pub fn content_hash(content: &ValidContent) -> ContentHash {
-    let _ = content;
-    todo!()
+    let mut h = Sha256::new();
+    h.update(HASH_DOMAIN);
+    h.update(encode(content));
+    ContentHash(h.finalize().into())
 }
 
 /// A proposal's id: the full content hash in lowercase hex.
 pub fn proposal_id(hash: &ContentHash) -> String {
-    let _ = hash;
-    todo!()
+    crate::hex::encode_lower(&hash.0)
 }
 
 /// Whether a content expiring at `expiry_unix` (seconds) is still open at `now_ms`, and was set
 /// within `EXPIRY_MAX_MS` (+ margin) of the approval made at `ts_ms`. Every reader calls this one.
 pub fn check_expiry(expiry_unix: u64, ts_ms: i64, now_ms: i64) -> Result<(), ContentError> {
-    let _ = (expiry_unix, ts_ms, now_ms);
-    let _ = Sha256::new();
-    let _ = (GRACE_ACTIONS, MAINNET);
-    todo!()
+    // i128 so no input overflows.
+    let expiry_ms = i128::from(expiry_unix) * 1000;
+    if expiry_ms <= i128::from(now_ms) {
+        return Err(ContentError::Expired);
+    }
+    if expiry_ms > i128::from(ts_ms) + i128::from(EXPIRY_MAX_MS + EXPIRY_MARGIN_MS) {
+        return Err(ContentError::ExpiryTooFar);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
