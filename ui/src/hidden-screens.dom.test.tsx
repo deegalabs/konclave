@@ -4,6 +4,9 @@ import { act, cleanup, render } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import type { ReactElement } from 'react'
 import { I18nProvider } from './i18n'
+import { RevealProvider } from './reveal'
+import { zecToUsd } from './price'
+import { en as dict } from './i18n/en'
 import { ToastProvider } from './toast'
 
 // #838, screen by screen: while amounts are hidden, no figure under a bar is anywhere in the page's
@@ -32,9 +35,11 @@ const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['
 // Figures chosen so no one of them is a substring of another or of a fee.
 const open = { ...base, id: 'p1', kind: 'payment', state: 'awaiting', memo: 'Rent', to_address: ADDR, value_zat: 123456789, value_zec: '1.23456789' }
 const sent = { ...base, id: 'p2', kind: 'payment', state: 'confirmed', memo: 'Fuel', to_address: ADDR, value_zat: 234567891, value_zec: '2.34567891', txid: 'a'.repeat(64) }
+// A second month, so the monthly spend chart has two bars to draw (it draws from two).
+const sentOld = { ...base, id: 'p4', kind: 'payment', state: 'confirmed', memo: 'Tools', to_address: ADDR, value_zat: 345678912, value_zec: '3.45678912', txid: 'b'.repeat(64), created_at: 1756700000 }
 // total 7.77654321, spendable 6, reserved by `open` 1.23456789: free 4.76543211, confirming 1.77654321
 const bal = { configured: true, total_zat: 777654321, total_zec: '7.77654321', spendable_zat: 600000000, spendable_zec: '6' }
-const FIGURES = ['7.77654321', '4.76543211', '1.77654321', '1.23456789', '2.34567891']
+const FIGURES = ['7.77654321', '4.76543211', '1.77654321', '1.23456789', '2.34567891', '3.45678912']
 
 const shell = (el: ReactElement) => render(
   <MemoryRouter initialEntries={[{ pathname: '/', state: { id: 'p1' } }]}><I18nProvider><ToastProvider>
@@ -48,7 +53,7 @@ describe('hidden, no screen carries a figure in its markup (#838)', () => {
     localStorage.setItem('konclave.locale', 'en')
     getVault.mockResolvedValue({ id: 'v', name: 'Caixa', threshold: 2, total: 3, members: 3, member_list: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }], group_pubkey: 'v', orchard_address: 'u1x' })
     getProposals.mockResolvedValue([open])
-    getLedger.mockResolvedValue([open, sent])
+    getLedger.mockResolvedValue([open, sent, sentOld])
     readBalance.mockResolvedValue(bal)
     getBalance.mockResolvedValue(bal)
     readTransactions.mockResolvedValue([])
@@ -62,6 +67,38 @@ describe('hidden, no screen carries a figure in its markup (#838)', () => {
     expect(c.querySelector('.comp'), 'the composition bar rendered, so the fixture reaches it').not.toBeNull()
     expect(c.querySelector('.secret'), 'and so did the veils').not.toBeNull()
     for (const f of FIGURES) expect(c.innerHTML, f).not.toContain(f)
+  })
+
+  it('the Dashboard monthly spend chart (bar titles and its table) draws only once revealed, with a sentence in its place', async () => {
+    const c = shell(<Dashboard />).container
+    await settle()
+    expect(c.querySelector('.spend')).toBeNull()
+    expect(c.textContent).toContain(dict['dashboard.spendHidden'])
+    cleanup()
+    const shown = shell(<RevealProvider initial><Dashboard /></RevealProvider>).container
+    await settle()
+    expect(shown.querySelector('.spend')).not.toBeNull()
+    expect(shown.innerHTML).toContain('2.34567891')
+  })
+
+  it('the Dashboard USD estimate of what was paid is under the bar too', async () => {
+    localStorage.setItem('konclave.usd.enabled', '1')
+    localStorage.setItem('konclave.usd.cache', JSON.stringify({ usd: 123.45, at: Date.now(), source: 'CoinGecko' }))
+    const c = shell(<Dashboard />).container
+    await settle()
+    const paid = zecToUsd(2.34567891 + 3.45678912, { usd: 123.45, at: Date.now(), source: 'CoinGecko' })!
+    expect(paid.length).toBeGreaterThan(3)
+    expect(c.innerHTML).not.toContain(paid)
+    expect(c.querySelector('.kpi-sub .secret')).not.toBeNull()
+  })
+
+  it('the Dashboard line without a composition (no zatoshi total) also keeps the confirming amount under the bar', async () => {
+    readBalance.mockResolvedValue({ configured: true, total_zec: '7.77654321', spendable_zec: '6', pending_zec: '1.77654321' })
+    const c = shell(<Dashboard />).container
+    await settle()
+    expect(c.querySelector('.comp')).toBeNull()
+    expect(c.querySelector('.breakdown .pd .secret')).not.toBeNull()
+    expect(c.innerHTML).not.toContain('1.77654321')
   })
 
   it('the Ledger', async () => {
