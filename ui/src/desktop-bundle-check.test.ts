@@ -54,6 +54,17 @@ describe('the desktop bundle check (#664, #605)', () => {
     expect(carries(`"https://helperXkonclave.xyz"`, HELPER)).toBe(false)
   })
 
+  it('does not count the addresses the release notes quote (#605 review)', () => {
+    // The shape of the release-pages chunk: the changelog in one string, where the #664 entry quotes
+    // both addresses in markdown backticks. A text pattern took each for the inlined value, so a
+    // desktop build with neither variable passed.
+    const notes = [`const p={"0.9.0":"<p>The desktop app now builds with (\`${HELPER}\`, \`${RELAY}\`).</p>"};export{p as default}`]
+    expect(bundleProblems(good, notes)).toEqual([
+      `VITE_HELPER_BASE=${HELPER} is set but not in the built bundle`,
+      `VITE_RELAY_BASE=${RELAY} is set but not in the built bundle`,
+    ])
+  })
+
   it('fails a bundle that inlined an env object, naming each key it carries', () => {
     // What v0.21.0 shipped: three files aliased `import.meta.env`, so Vite wrote the whole object,
     // including a variable only Vercel sets.
@@ -65,14 +76,14 @@ describe('the desktop bundle check (#664, #605)', () => {
     ])
   })
 
-  it('finds a key name only as a whole word', () => {
-    expect(envKeysIn('INVITE_LENGTH=8; xVITE_A; VITE_A_B1 VITE_A_B1 $VITE_C')).toEqual(['VITE_A_B1'])
+  it('finds a key name only as an object key', () => {
+    expect(envKeysIn('const e={VITE_A_B1:1,"VITE_b":2,INVITE_LENGTH:3,xVITE_C:4};const s="VITE_PROSE";VITE_IDENT')).toEqual(['VITE_A_B1', 'VITE_b'])
     expect(envKeysIn('const a=1')).toEqual([])
   })
 
   it('checks only the key names for the web build, which has no addresses to require', () => {
     expect(bundleProblems({}, bundle, { web: true })).toEqual([])
-    expect(bundleProblems({}, ['{VITE_X:1}'], { web: true })).toHaveLength(1)
+    expect(bundleProblems({}, ['({VITE_X:1})'], { web: true })).toHaveLength(1)
   })
 
   it('accepts only an https origin, spelled as the coordinator matches it', () => {
@@ -114,5 +125,17 @@ describe('the desktop release workflow (#664)', () => {
       expect(value, name).toBeTruthy()
       expect(csp).toContain(` ${value} `)
     }
+  })
+})
+
+describe('the web build check in ci.yml (#605)', () => {
+  const ci = readFileSync(join(__dirname, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8')
+  const steps = ci.split(/\n(?=\s+- (?:name|uses|run): )/)
+  it('builds with a canary variable nothing reads, then checks for env key names', () => {
+    const b = steps.findIndex((x) => /run: pnpm -C ui run build\b/.test(x))
+    expect(b).toBeGreaterThan(-1)
+    expect(steps[b]).toMatch(/^\s+VITE_KONCLAVE_CI_CANARY: \S+$/m)
+    const check = steps.findIndex((x) => /run: node scripts\/check-desktop-bundle-cli\.mjs --web ui\/dist/.test(x))
+    expect(check).toBeGreaterThan(b)
   })
 })

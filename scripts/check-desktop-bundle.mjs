@@ -24,6 +24,8 @@
 // The rule only; the workflow runs `scripts/check-desktop-bundle-cli.mjs`, which has no "am I the
 // main module?" test to get wrong (see check-sw-cli.mjs for why that matters on Windows).
 
+import { createRequire } from 'node:module'
+
 /** The variables the desktop bundle must carry, in the order they are reported. */
 export const REQUIRED = ['VITE_HELPER_BASE', 'VITE_RELAY_BASE']
 
@@ -37,20 +39,43 @@ export function invalidBase(name, value) {
   return null
 }
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Both rules read the JavaScript's syntax, not its text. A text match was fooled by the bundle's own
+// prose: the release pages carry the changelog, whose #664 entry quotes both addresses in markdown
+// backticks inside one long string, which a pattern took for the inlined value (#605 review). Here a
+// value counts only as a whole string literal, and a key name only as an object key. TypeScript's
+// parser is the one the source scans use (ui/src/source-scan.ts); it is resolved from ui/, where the
+// workspace installs it.
+const ts = createRequire(new URL('../ui/package.json', import.meta.url))('typescript')
+const scans = new Map()
 
-/** True when `source` carries `value` as one whole string literal: the same quote on both sides,
- *  nothing else inside. */
-export function carries(source, value) {
-  const re = new RegExp(`(["'\`])${escapeRe(value)}\\1`)
-  return re.test(source)
+/** The string literals and the object keys in `source`, each as a set of their values. */
+function scan(source) {
+  const hit = scans.get(source)
+  if (hit) return hit
+  const literals = new Set()
+  const keys = new Set()
+  const sf = ts.createSourceFile('bundle.js', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
+  const visit = (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) literals.add(node.text)
+    if ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && node.name &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))) keys.add(node.name.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  const out = { literals, keys }
+  scans.set(source, out)
+  return out
 }
 
-/** The distinct env key names in `source`, as whole words (`INVITE_LENGTH` is not one), sorted. */
+/** True when `source` carries `value` as one whole string literal, nothing else inside. */
+export function carries(source, value) {
+  return scan(source).literals.has(value)
+}
+
+/** The env key names (`VITE_` and anything after it) used as object keys in `source`, sorted. A name
+ *  in a string, a comment or a longer identifier (`INVITE_LENGTH`) is not one. */
 export function envKeysIn(source) {
-  const names = new Set()
-  for (const m of source.matchAll(/(?<![\w$])VITE_[A-Z0-9_]+(?![\w$])/g)) names.add(m[0])
-  return [...names].sort()
+  return [...scan(source).keys].filter((k) => /^VITE_\w+$/.test(k)).sort()
 }
 
 /** Every problem with this env and these built sources; an empty list means the bundle is good.

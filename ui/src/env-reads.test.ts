@@ -24,9 +24,11 @@ const BUILT_IN = new Set(['MODE', 'DEV', 'PROD', 'SSR', 'BASE_URL'])
 describe('the app reads the build env one key at a time (#605)', () => {
   it('no source file reads import.meta.env except as import.meta.env.<NAME>', () => {
     const offenders: string[] = []
+    let reads = 0
     for (const f of files(src)) {
       const text = codeAt(f)
-      for (const m of text.matchAll(/import\.meta\.env\b(\.([A-Za-z_$][\w$]*))?/g)) {
+      for (const m of text.matchAll(/import\.meta\??\.env\b(\??\.([A-Za-z_$][\w$]*))?/g)) {
+        reads++
         const name = m[2]
         if (name === undefined || !(BUILT_IN.has(name) || /^VITE_[A-Z0-9_]+$/.test(name))) {
           offenders.push(`${f.slice(src.length + 1)}: ${m[0]}`)
@@ -34,5 +36,7 @@ describe('the app reads the build env one key at a time (#605)', () => {
       }
     }
     expect(offenders).toEqual([])
+    // It read something: the four known reads (api, net x2, helper), so an empty walk cannot pass.
+    expect(reads).toBeGreaterThanOrEqual(4)
   })
 })

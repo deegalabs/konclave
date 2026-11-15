@@ -265,6 +265,11 @@ jobs:
       - name: Unit tests (vitest)
         run: pnpm -C ui run test
       - name: Type-check + build (tsc -b && vite build)
+        # A variable nothing reads (#605): if any file inlined the env object again, its name would
+        # be in the bundle and the check below fails on this PR. Without it CI sets no VITE_*, and an
+        # inlined object would carry only Vite's own keys, which the check cannot tell apart.
+        env:
+          VITE_KONCLAVE_CI_CANARY: canary
         run: pnpm -C ui run build
       # The inverse of the check in desktop-release.yml: the web build must ship the workbox worker
       # that precaches the app (opening offline, the update banner), never the desktop's
