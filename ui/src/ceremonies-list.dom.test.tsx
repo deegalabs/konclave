@@ -44,7 +44,9 @@ describe('the signing evidence names the payment it belongs to', () => {
     const tag = await screen.findByText(en('ceremonies.thisPayment'))
     const row = tag.closest('li')!
     expect(row.getAttribute('aria-current')).toBe('true')
-    expect(document.activeElement).toBe(row)
+    // The screen focuses the row in an effect that runs after the commit that rendered it, so the row
+    // can be on screen before it has the focus: wait for the effect, do not read the focus early (#957).
+    await waitFor(() => expect(document.activeElement).toBe(row))
   })
 
   it('a list that could not be read is said as such, not as "no ceremonies recorded yet" (#320)', async () => {

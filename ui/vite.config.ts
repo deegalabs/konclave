@@ -153,5 +153,7 @@ export default defineConfig({
   // run by `npm run e2e` - exclude them here so vitest does not try to load @playwright/test.
   test: {
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // Strips the comments of every source once per run for the scans (src/test-setup/strip-cache.ts, #957).
+    globalSetup: ['src/test-setup/strip-cache.ts'],
   },
 })
