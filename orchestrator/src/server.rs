@@ -209,24 +209,19 @@ struct ProposalDto {
 }
 
 impl ProposalDto {
-    /// The DTO with `destinations` read from the store: a payroll's count is its saved lines.
-    fn with_store(rec: ProposalRecord, store: &Store) -> Self {
-        let n = match rec.kind {
+    /// The ONE constructor: `destinations` is read from the store, where a payroll's lines live,
+    /// so no handler can produce a payroll without its count (#1017). A payment pays one output;
+    /// a payroll's count is its saved lines, and a payroll whose lines cannot be read (or has
+    /// none) is `None`, which a consumer reads as unknown.
+    fn with_store(p: ProposalRecord, store: &Store) -> Self {
+        let destinations = match p.kind {
             ProposalKind::Payment => Some(1),
             ProposalKind::Payroll => store
-                .get_payroll_lines(&rec.id)
+                .get_payroll_lines(&p.id)
                 .ok()
                 .map(|l| l.len())
                 .filter(|n| *n > 0),
         };
-        let mut dto = ProposalDto::from(rec);
-        dto.destinations = n;
-        dto
-    }
-}
-
-impl From<ProposalRecord> for ProposalDto {
-    fn from(p: ProposalRecord) -> Self {
         let kind = match p.kind {
             ProposalKind::Payment => "payment",
             ProposalKind::Payroll => "payroll",
@@ -253,12 +248,7 @@ impl From<ProposalRecord> for ProposalDto {
             approvals_count: p.approvals.len(),
             approvals: p.approvals,
             refusals: p.refusals,
-            // A payment pays one output. A payroll's count lives in its lines, which a bare
-            // record does not carry: `with_store` fills it, and until then it is unknown.
-            destinations: match p.kind {
-                ProposalKind::Payment => Some(1),
-                ProposalKind::Payroll => None,
-            },
+            destinations,
         }
     }
 }
@@ -1304,7 +1294,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             &serde_json::json!({"error": "store", "detail": e.to_string()}),
         );
     }
-    let dto = ProposalDto::from(rec);
+    let dto = ProposalDto::with_store(rec, &store);
     Response::json(
         201,
         &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})),
@@ -3823,9 +3813,46 @@ mod tests {
         assert_eq!(json(payroll)["destinations"], 3);
         // A payroll with no readable lines is unknown, never 1.
         assert!(json(empty)["destinations"].is_null());
-        // A bare record has no lines to count: a payroll stays unknown.
-        let bare =
-            serde_json::to_value(ProposalDto::from(record_of("x", ProposalKind::Payroll))).unwrap();
-        assert!(bare["destinations"].is_null());
+    }
+
+    // The handlers, not only the constructor: a handler that builds the DTO another way would
+    // show a payroll with no count, and the cost of every open payroll would read as unknown.
+    #[test]
+    fn the_list_and_the_ledger_carry_a_payrolls_line_count() {
+        use crate::payroll::PayrollLine;
+        let db = tmp_db();
+        {
+            let mut store = Store::open(&db).unwrap();
+            store
+                .save_vault(&VaultRecord {
+                    id: "v".into(),
+                    name: "V".into(),
+                    quorum: crate::proposal::Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "g".into(),
+                    orchard_address: "a".into(),
+                    ufvk: "u".into(),
+                    server_url: None,
+                })
+                .unwrap();
+            store
+                .save_proposal(&record_of("roll", ProposalKind::Payroll))
+                .unwrap();
+            let line = |a: &str| PayrollLine {
+                label: None,
+                address: a.into(),
+                value: Zatoshis::from_u64(5_000).unwrap(),
+                memo: String::new(),
+            };
+            store
+                .save_payroll_lines("roll", &[line("u1a"), line("u1b"), line("u1c")])
+                .unwrap();
+        }
+        let cfg = cfg_with(db, None);
+        for (path, key) in [("/api/proposals", "proposals"), ("/api/ledger", "ledger")] {
+            let r = handle(&cfg, "GET", path, b"");
+            assert_eq!(r.status, 200, "{path}");
+            let v = body_json(&r);
+            assert_eq!(v[key][0]["destinations"], 3, "{path}");
+        }
     }
 }

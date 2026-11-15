@@ -12,11 +12,21 @@
 import type { Proposal } from './api'
 import type { FeeEstimator } from './fee-estimate'
 
-export function proposalCostZat(p: Proposal, estimate: FeeEstimator | null): number | null {
+/** value + the estimate for `destinations`, the one addition. A screen still BUILDING a proposal has
+ *  no `Proposal` object, only an amount and a count, and calls this directly; `null` when either the
+ *  estimator or the count is unknown. */
+export function costZat(
+  valueZat: number,
+  destinations: number | null | undefined,
+  estimate: FeeEstimator | null,
+): number | null {
   if (!estimate) return null
-  const n = p.destinations
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) return null
-  const fee = estimate(n)
+  if (typeof destinations !== 'number' || !Number.isInteger(destinations) || destinations < 1) return null
+  const fee = estimate(destinations)
   if (fee === null) return null
-  return p.value_zat + fee
+  return valueZat + fee
+}
+
+export function proposalCostZat(p: Proposal, estimate: FeeEstimator | null): number | null {
+  return costZat(p.value_zat, p.destinations, estimate)
 }

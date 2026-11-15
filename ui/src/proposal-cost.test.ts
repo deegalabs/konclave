@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { proposalCostZat } from './proposal-cost'
+import { costZat, proposalCostZat } from './proposal-cost'
 import type { Proposal } from './api'
 import type { FeeEstimator } from './fee-estimate'
 
@@ -37,5 +37,18 @@ describe('proposalCostZat', () => {
     for (const destinations of [undefined, null, 0, -1, 1.5, NaN]) {
       expect(proposalCostZat(proposal({ kind: 'payroll', destinations }), estimate)).toBeNull()
     }
+  })
+})
+
+describe('costZat', () => {
+  it('is value plus the estimate for the count, and unknown without either', () => {
+    expect(costZat(500, 4, estimate)).toBe(500 + estimate(4)!)
+    expect(costZat(500, 4, null)).toBeNull()
+    expect(costZat(500, null, estimate)).toBeNull()
+    expect(costZat(500, 0, estimate)).toBeNull()
+  })
+  it('is what proposalCostZat answers', () => {
+    const p = proposal({ kind: 'payroll', destinations: 5, value_zat: 777 })
+    expect(proposalCostZat(p, estimate)).toBe(costZat(777, 5, estimate))
   })
 })
