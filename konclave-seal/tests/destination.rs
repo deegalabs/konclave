@@ -62,9 +62,12 @@ fn it_reproduces_what_the_prover_bound_into_the_note() {
 
 #[test]
 fn it_refuses_what_a_shielded_vault_cannot_pay() {
-    for bad in ["", "not an address", "t1KsBQjhRZ1Y3vFPnGjbn6h9gK8FBS3W6xr"] {
+    for bad in ["", "not an address"] {
         assert!(orchard_receiver(bad, NetworkType::Main).is_err(), "{bad:?}");
     }
+    // A real transparent address (valid checksum): it decodes, and has no Orchard receiver.
+    let t = orchard_receiver("t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs", NetworkType::Main).unwrap_err();
+    assert!(t.starts_with("no Orchard receiver"), "{t}");
 }
 
 /// A testnet unified address WITHOUT an Orchard receiver (orchestrator/src/address.rs tests).
