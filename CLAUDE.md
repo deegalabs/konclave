@@ -159,7 +159,7 @@ Facts (verified 2026-06-30):
     the Orchard Pool*, Consensus) and **ZIP 258** (*Deployment of the NU6.3 Network Upgrade*) are
     both **Final**, so the network's rule is citable alongside this Draft, Wallet-category MUST NOT.
     An earlier version of this line said ZIP 2006 was Reserved and empty. Verified 2026-11-04.
-  - **NU7 is scheduled. CONFIRMED 2026-11-04** (this line said "being polled, not scheduled" until
+  - **NU7 is active. It activated on mainnet at block 3,543,405 (about 6 November 2026); it was CONFIRMED scheduled 2026-11-04** (this line said "being polled, not scheduled" until
     then). There were **two** August
     consultations, not one (an earlier version of this line described only the first): a **coinholder
     vote** (snapshot block 3,459,350, 2026-08-25 to 2026-09-14 19:00 UTC, legitimacy quorum 1,000,000
@@ -408,7 +408,7 @@ Full plan: [docs/ROADMAP.md](docs/ROADMAP.md).
 **Where it runs.** The collective vault runs end to end for **payment and payroll**: propose →
 validate (continuous) → approve/refuse (real quorum, expiry) → **sign** (FROST with the shares of
 whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-native `/net` creates a
-vault by **real DKG across devices over a blind relay** and signs over it; a **hosted, share-blind
+vault by **real DKG across devices over a blind relay**, and proposals are signed from their signing panel (since v0.21.0 `/net` no longer signs payments); a **hosted, share-blind
 helper** builds/proves/broadcasts the tx without ever seeing a share, holding the vault's viewing
 key (Architecture B, ADR-0006).
 
@@ -449,7 +449,7 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED as pre-releases, the most recent v0.13.1 (2026-10-15); the line opened at v0.2.0 (2026-08-03).**
+**Desktop (Tauri) - RELEASED as pre-releases, the most recent v0.21.0 (2026-11-14); the line opened at v0.2.0 (2026-08-03).**
 Every GitHub release stays a pre-release while the project is in beta (pre-1.0), so none is marked Latest; this line said
 "latest v0.8.0" until 2026-10-15. The desktop line shipped: a Tauri
 shell (`src-tauri/`) around the same `ui/` (it does not embed the `orchestrator` yet, #212), tagged
@@ -546,7 +546,6 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > equal to its group key, a sealed part that is a share and a 32-byte secret. The full account of
 > each defect, with dates and how it was found, is written for the disclosure and goes into this
 > paragraph with it. Still open: #567 (the approved lines come from the coordinator at signing),
-> `/net` signing with no content gate (no issue of its own; #363 is the same driver's replay gap),
 > a fee ceiling that grows with actions the builder chooses, the vault's own receivers, both taken
 > from the coordinator once (at creation, or on first read for an older record), a v1 backup that is only
 > partly sealed (Known limits: compare the fingerprint), and no pause to read the
@@ -669,8 +668,10 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   and the proposal did not. Same shape as the four defects under "the failure that repeated most".
   A fix is proposed in #569. Until it is merged AND the coordinator is redeployed, the defect is
   live in production: merging changes what `main` says, not what the service runs.
-- **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
-  driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
+- **The standalone `/net` page still lacks the replay mitigation** (#363), though since v0.21.0 it no
+  longer signs proposals: `NetVault.tsx` is a second, diverged ceremony driver whose wire type erases
+  the ceremony tag and whose `onMessage` ignores history. A device on an app older than 0.21.0 still
+  signs from it.
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
   landed: each device derives a persistent comms key from its share, registers it, and the helper
   hybrid-seals the SignRequest to the seated devices; the ceremony no longer re-broadcasts the PCZT.
@@ -682,8 +683,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   longer hijack a seat or forge the tally); the residual ceremony-DoS vectors - an unproven rejoin
   grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
   **That sentence was true of one driver only, and is true of both since 2026-09-05.** #401 authenticated
-  the background signer and nothing else: `/net`, a second ceremony driver that is still registered and
-  still signs real proposals, deleted whatever tag held an announced seat unconditionally and sent its
+  the background signer and nothing else: `/net`, a second ceremony driver that was still registered and
+  still signed real proposals (until v0.21.0), deleted whatever tag held an announced seat unconditionally and sent its
   own rejoin unsigned. Closed by **#424**. The two messages carrying the arming tally were left plain
   by the same work, so anyone who could write to the room could zero every device's count or forge a
   sender; closed by **#425**. Both fixes share one function rather than adding a second copy of the
