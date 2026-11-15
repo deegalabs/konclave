@@ -462,6 +462,9 @@ export async function writeProof(
   vaultId: string,
   action: 'approve' | 'refuse' | 'rename' | 'propose' | 'send',
   target: string,
+  /** The seat the caller named `target` for (`actingAs`). A proof for any other seat is not made:
+   *  the name and the signature must come from the same seat (#591). */
+  seat?: number,
 ): Promise<WriteProof | undefined> {
   const share = getUnlockedShare(vaultId)
   if (!share) return undefined
@@ -473,6 +476,7 @@ export async function writeProof(
     // had none.
     await ensureWasm()
     const b = decodeBundle(share)
+    if (seat !== undefined && b.seat !== seat) return undefined
     return signGovernanceWrite(b.keyPackage, vaultId, action, target, b.seat)
   } catch (e) {
     // Still non-fatal - an unsigned write is refused by a migrated vault and accepted by an open
@@ -483,20 +487,62 @@ export async function writeProof(
   }
 }
 
+/** Who this device writes as in a vault, for a write that carries a name (#591). */
+export type ActingAs =
+  | { ok: true; seat: number; name: string }
+  | { ok: false; why: 'locked' | 'list-unread' | 'no-seat-name' }
+
+/** The sentence for each reason `actingAs` can refuse (the screens and `humanError` both read it). */
+export const ACTING_KEYS: Record<'locked' | 'list-unread' | 'no-seat-name', string> = {
+  locked: 'payment.actingLocked',
+  'list-unread': 'payment.actingListUnread',
+  'no-seat-name': 'payment.actingNoSeatName',
+}
+
+/** The ONE answer to "who does this device propose as in this vault": the name the coordinator
+ *  serves for the seat the unlocked share holds, which is the rule it checks the write against
+ *  (`seat_acts_as`). Read at send time, and the same seat signs the proof.
+ *
+ *  Never another member's name. Not the first member, not `myName` (a label that can be stale), not
+ *  this device's own roster, and not the `member N` placeholder: it reads the coordinator's SERVED
+ *  list, raw, and a seat it cannot name is a refusal that says why. The local bridge signs no
+ *  writes (ADR-0011, 2026-09-05) and keeps its behaviour, here and nowhere else. */
+export async function actingAs(vaultId: string): Promise<ActingAs> {
+  if (!NET) {
+    let mine: string | undefined
+    try { mine = (await listVaults()).find((s) => s.id === vaultId)?.myName } catch { /* no record */ }
+    const name = (mine ?? (await getVault())?.member_list?.[0]?.name ?? '').trim()
+    return name ? { ok: true, seat: 0, name } : { ok: false, why: 'no-seat-name' }
+  }
+  const share = getUnlockedShare(vaultId)
+  if (!share) return { ok: false, why: 'locked' }
+  let seat: number
+  try { seat = decodeBundle(share).seat } catch { return { ok: false, why: 'locked' } }
+  const served = await netListMembers(vaultId)
+  if (served === null) return { ok: false, why: 'list-unread' }
+  // Compared by the coordinator at the edges only (`member_key` trims); nothing else is normalised.
+  const name = typeof served[seat - 1] === 'string' ? served[seat - 1]!.trim() : ''
+  return name ? { ok: true, seat, name } : { ok: false, why: 'no-seat-name' }
+}
+
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return { ok: false, error: 'no vault' }
     const zat = parseZecToZat(input.value_zec)
     if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+    // The name and the proof come from one reading of the seat, taken now. The screen's name is only
+    // what it showed (#591).
+    const who = await actingAs(id)
+    if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
     const p = await netCreateProposal({
       vault: id,
-      proposer: input.proposer,
+      proposer: who.name,
       to: input.to_address,
       amountZat: zat,
       memo: input.memo,
       // Bound to the proposer's name, which the helper checks against the signing seat (#288).
-      proof: await writeProof(id, 'propose', input.proposer.trim()),
+      proof: await writeProof(id, 'propose', who.name, who.seat),
     })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // EVERY failure used to be reported as `invalid address`, whatever went wrong: a locked device
@@ -611,6 +657,8 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   // #821. Before every rule that reads text: the counts are the message, and its detail must never be
   // mistaken for another refusal.
   if (tooLarge) return tooLargeText(t, tooLarge)
+  // #591: this device could not say who it proposes as; the reason is the message.
+  if (error === 'proposer unresolved' && detail && detail in ACTING_KEYS) return t(ACTING_KEYS[detail as keyof typeof ACTING_KEYS])
   if ((error ?? '').toLowerCase() === TOO_MANY_ACTIONS) return t('error.tooLarge')
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
@@ -853,7 +901,9 @@ export async function createPayroll(
       if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
-    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, title: description, proof: await writeProof(id, 'propose', proposer.trim()) })
+    const who = await actingAs(id)
+    if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
+    const p = await netCreatePayroll({ vault: id, proposer: who.name, lines: mapped, title: description, proof: await writeProof(id, 'propose', who.name, who.seat) })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.
