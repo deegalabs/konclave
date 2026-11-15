@@ -45,6 +45,23 @@ describe('the passphrase locks once the member pressed Protect the vault (#928)'
     expect(caught).toMatch(/setSaveState\('idle'\)/)
     expect(body.indexOf("setSaveState('saved')")).toBeLessThan(body.indexOf("setSavePass('')"))
   })
+  it('a failed save keeps no passphrase and is announced; focus returns to the button', () => {
+    const caught = doSaveBody().slice(doSaveBody().indexOf('catch (e)'))
+    expect(caught).toMatch(/savePassRef\.current = ''/)
+    expect(src).toMatch(/<p className="set-err" role="alert">\{saveErr\}<\/p>/)
+    expect(src).toMatch(/if \(saveErr && saveState === 'idle'\) saveBtnRef\.current\?\.focus\(\)/)
+    expect(src.match(/ref=\{saveBtnRef\}/g) ?? []).toHaveLength(2)
+  })
+  it('both forms share one focus target for the saved note, and the three focus calls are the only ones added', () => {
+    expect(src.match(/ref=\{savedNoteRef\}/g) ?? []).toHaveLength(2)
+    expect(src.match(/savedNoteRef\.current\?\.focus\(\)/g) ?? []).toHaveLength(1)
+    expect(src.match(/backupTitleRef\.current\?\.focus\(\)/g) ?? []).toHaveLength(1)
+    expect(src).toMatch(/saveState === 'saved'\) \{ savedNoteRef\.current\?\.focus\(\); setLeaving\(false\) \}/)
+    expect(src).toMatch(/if \(backup\) backupTitleRef\.current\?\.focus\(\)/)
+  })
+  it('Saving is announced through the WaitLine', () => {
+    expect(src).toMatch(/const saveWait = saveState === 'saving' \? tt\('net\.save\.saving'\)/)
+  })
   it('a stop during the stretching does not leave the passphrase in the ref', () => {
     const body = doSaveBody()
     const branch = body.slice(body.indexOf('if (cer.aborted)'))

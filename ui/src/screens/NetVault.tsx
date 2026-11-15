@@ -965,6 +965,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       await refreshSaved()
     } catch (e) {
       setSaveState('idle')
+      savePassRef.current = '' // a failed save keeps no passphrase for a backup that will not be built
       setSaveErr(L.saveErr + String(e))
     }
   }, [savePass, savePass2, L, refreshSaved, send, finishVault])
@@ -1063,7 +1064,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // fall to the top of the dialog. Moved once, on the switch; no live region (WaitLine is the one) (#928).
   const savedNoteRef = useRef<HTMLParagraphElement>(null)
   const backupTitleRef = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { if (saveState === 'saved') savedNoteRef.current?.focus() }, [saveState])
+  const saveBtnRef = useRef<HTMLButtonElement>(null)
+  // The same ref serves both forms (only one renders). Once saved, a leave question opened while
+  // saving is stale: busy is over, and it would pop up unasked when the backup arrives.
+  useEffect(() => { if (saveState === 'saved') { savedNoteRef.current?.focus(); setLeaving(false) } }, [saveState])
+  // A failed save re-enables the form: say so (role="alert" on the line) and put focus back on the button.
+  useEffect(() => { if (saveErr && saveState === 'idle') saveBtnRef.current?.focus() }, [saveErr, saveState])
   useEffect(() => { if (backup) backupTitleRef.current?.focus() }, [backup])
   const allowUnloadRef = useRef(false) // the app's own reload, offered on purpose, does not warn
   // Each attempt to close (Esc, backdrop) means what `closeIntent` says: during a creation it opens
@@ -1531,7 +1537,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // The save step's status line: who is left to save, then the registration; empty otherwise.
   // One word for "the passphrase was used": every passphrase field of both forms reads it (#928).
   const passLocked = saveState !== 'idle'
-  const saveWait = saveState !== 'saved' ? ''
+  const saveWait = saveState === 'saving' ? tt('net.save.saving')
+    : saveState !== 'saved' ? ''
     : waiting.length > 0 ? saveWaitText(total, waiting, pe)
     : !backup && hostedState === 'registering' ? tt('net.restore.registering')
     : ''
@@ -1773,8 +1780,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 </>
               )}
-              {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
+              {saveErr && <p className="set-err" role="alert">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" ref={saveBtnRef} disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? tt('net.save.keyMissing')
@@ -1909,7 +1916,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
               <>
-                <p className="net-tip">{L.saved}</p>
+                <p className="net-tip" tabIndex={-1} ref={savedNoteRef}>{L.saved}</p>
                 <WaitLine busy={!finished && waiting.length > 0}>{!finished && waiting.length > 0 ? saveWaitText(total, waiting, pe) : ''}</WaitLine>
               </>
             ) : (
@@ -1941,6 +1948,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
                   className="net-btn"
+                  ref={saveBtnRef}
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >
