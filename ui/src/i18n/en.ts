@@ -1325,7 +1325,7 @@ export const en: Record<string, string> = {
   'net.idle.joinBtn': 'Join with the code',
   'net.idle.tip': 'To test right now: type a PIN, click **Generate invite**, copy the code, open this same page in another tab, paste it into **Join** with the same PIN, and compare the code both tabs show. The two tabs will make the vault together.',
   'net.invite.title': 'Invite generated',
-  'net.invite.lead': 'Pass this code to the others. They join with it, on their own device.',
+  'net.invite.lead': 'Pass the invite to the others. They join with it, on their own device.',
   'net.joining.title': 'Joining the vault…',
   'net.creating.title': 'Creating the shared vault…',
   'net.done.title': 'Vault created 🔐',

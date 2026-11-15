@@ -71,11 +71,18 @@ function InviteLinks({ code, pe, children }: { code: string; pe: Pe; children?: 
   const [showCode, setShowCode] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const timer = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const frame = useRef<number | undefined>(undefined)
+  useEffect(() => () => { window.clearTimeout(timer.current); window.cancelAnimationFrame(frame.current!) }, [])
   const say = (text: string) => {
     window.clearTimeout(timer.current) // an older message must not wipe this one
-    setStatus(text)
-    timer.current = window.setTimeout(() => setStatus(''), 2500)
+    window.cancelAnimationFrame(frame.current!)
+    // Empty first, then the text on the next frame: a repeated message is a change a screen reader
+    // announces, instead of the same text set over itself.
+    setStatus('')
+    frame.current = window.requestAnimationFrame(() => {
+      setStatus(text)
+      timer.current = window.setTimeout(() => setStatus(''), 2500)
+    })
   }
   const act = async (what: 'share' | 'link' | 'code') => {
     if (what === 'share' && navigator.share) {
@@ -95,11 +102,11 @@ function InviteLinks({ code, pe, children }: { code: string; pe: Pe; children?: 
         ? <CodeText code={formatInvite(code)} label={pe('Convite', 'Invite')} className="cv-invite-code" />
         : (
           <>
-            <button type="button" className="net-code cv-invite-code cv-invite-hidden" onClick={() => void act('code')}>
+            <button type="button" className="net-code cv-invite-code cv-invite-hidden" aria-describedby="cv-invite-hint" onClick={() => void act('code')}>
               <span aria-hidden="true">{'•'.repeat(12)}</span>
-              <span className="sr-only">{pe('Copiar o código do convite (oculto)', 'Copy the invite code (hidden)')}</span>
+              <span className="sr-only">{pe('Copiar o código do convite', 'Copy the invite code')}</span>
             </button>
-            <p className="cv-seatlabel">{pe('O código está oculto. Copie ou compartilhe sem mostrá-lo.', 'The code is hidden. Copy or share it without showing it.')}</p>
+            <p id="cv-invite-hint" className="cv-seatlabel">{pe('O código está oculto. Copie ou compartilhe sem mostrá-lo.', 'The code is hidden. Copy or share it without showing it.')}</p>
           </>
         )}
       <button type="button" className="cv-linkbtn" onClick={() => { setShowCode((v) => !v); say(showCode ? pe('Código do convite oculto.', 'Invite code hidden.') : pe('Código do convite visível.', 'Invite code shown.')) }}>
@@ -153,8 +160,8 @@ export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: P
               : <><span className="cv-pin-value" aria-hidden="true">{'•'.repeat(Math.max(MIN_PIN_LENGTH, pin.length))}</span><span className="sr-only">{pe('oculto', 'hidden')}</span></>}{' '}
             {/* The label says what a press does; a pressed state on top of a flipping label reads as
                 the opposite ("hide, pressed"). */}
-            <button type="button" className="cv-linkbtn" onClick={() => { setShowPin((v) => !v); setPinNote(showPin ? '' : pe(`PIN da sala: ${spokenRoomPin(pin)}`, `Room PIN: ${spokenRoomPin(pin)}`)) }}>
-              {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}<span className="sr-only">{pe(' o PIN da sala', ' the room PIN')}</span>
+            <button type="button" className="cv-linkbtn" aria-label={showPin ? pe('ocultar o PIN da sala', 'hide the room PIN') : pe('mostrar o PIN da sala', 'show the room PIN')} onClick={() => { setShowPin((v) => !v); setPinNote(showPin ? '' : pe(`PIN da sala: ${spokenRoomPin(pin)}`, `Room PIN: ${spokenRoomPin(pin)}`)) }}>
+              {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}
             </button>
           </span>
         </div>

@@ -47,7 +47,7 @@ describe('the invite card', () => {
     // drawn from that one link only.
     expect((c.match(/copyText\(/g) ?? []).length).toBe(1)
     expect((c.match(/encodeQR\(/g) ?? []).length).toBe(1)
-    expect(c).toMatch(/cv-invite-hidden" onClick=\{\(\) => void act\('code'\)\}/)
+    expect(c).toMatch(/cv-invite-hidden" aria-describedby="cv-invite-hint" onClick=\{\(\) => void act\('code'\)\}/)
   })
 })
 
