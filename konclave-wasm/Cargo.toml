@@ -46,6 +46,11 @@ getrandom = { version = "0.2", features = ["js"] }
 # (#63); getrandom's `js` feature above unifies into it for the wasm build.
 konclave-seal = { path = "../konclave-seal", features = ["pczt", "share-sig", "receivers"] }
 serde_json = "1"
+# Oblivious HTTP, CLIENT half only: the BHTTP mapping and HPKE exist once,
+# in konclave-ohttp. This crate must not name `ohttp` or `bhttp` itself. OPTIONAL: behind the `ohttp`
+# feature, which is OFF by default, so the wasm every member downloads is the one it was before
+# private mode existed. The browser test of the transport builds with the feature on, apart.
+konclave-ohttp = { path = "../konclave-ohttp", default-features = false, features = ["client"], optional = true }
 zcash_address = "0.14.0"
 zcash_protocol = { version = "0.11.0", default-features = false }
 # #610: the device opens each paying output with the ephemeral key it derives from the note's
@@ -60,3 +65,14 @@ js-sys = "0.3"
 # The zcash crates above are released crates.io versions (no workspace [patch.crates-io], zero git
 # sources in Cargo.lock); they stay in sync with konclave-signer / the engine so the v2 PCZT parses
 # byte-exact.
+
+[features]
+# NO `default = [...]` line, on purpose: a `default` entry (even an empty one) enables the feature
+# "default", which is passed to rustc and changes the bytes of the wasm. Without it the default build
+# is byte-identical to the one before this feature existed (ui/src/wasm-pkg, checked by sha256).
+# The Oblivious HTTP client bindings (`ohttp_api`). Nothing a member can reach uses them yet.
+ohttp = ["dep:konclave-ohttp"]
+
+[dev-dependencies]
+# Tests only: the gateway half, to answer what the client seals. Not in the wasm build.
+konclave-ohttp = { path = "../konclave-ohttp" }
