@@ -1385,7 +1385,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </select>
             </label>
             <div className="net-row">
-              <span id="net-create-pin-label">{pe('PIN da sala', 'Room PIN')}</span>
+              <span id="net-create-pin-label">{tt('net.create.roomPin')}</span>
               {ownPin ? (
                 <input ref={ownInputRef} className="net-input" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
                   aria-labelledby="net-create-pin-label" aria-invalid={createProblem ? true : undefined} aria-describedby="net-create-pin-hint net-create-pin-err" value={ownText} onChange={(e) => setOwnText(e.target.value)} />
@@ -1394,11 +1394,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               )}
             </div>
             <p id="net-create-pin-hint">{ownPin
-              ? pe('Escolha pelo menos 6 caracteres, de preferência mais, e nada de datas ou palavras. Um PIN inventado é mais fácil de adivinhar que o do app. Diga-o a cada membro numa ligação, nunca junto com o convite.', 'Choose at least 6 characters, ideally longer and not a date or a word. A PIN you make up is easier to guess than the one the app made. Say it to each member on a call, never with the invite.')
-              : pe('Diga este PIN a cada membro numa ligação. Nunca mande junto com o convite: quem tiver os dois pode ocupar um lugar neste cofre. Os espaços não importam.', "Say this PIN to each member on a call. Never send it with the invite: whoever has both can take a seat in this vault. Spaces don't matter.")}</p>
+              ? tt('net.create.pinChooseHint')
+              : tt('net.create.pinSayHint')}</p>
             <PinErr id="net-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
             <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
-              {ownPin ? pe('Usar o PIN que o app gerou', 'Use the PIN the app made') : pe('Escolher meu próprio PIN', 'Choose my own PIN instead')}
+              {ownPin ? tt('net.create.pinUseGenerated') : tt('net.create.pinChooseOwn')}
             </button>
             <button
               className="net-btn primary"
@@ -1415,17 +1415,17 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{tt('net.idle.joinDesc')}</p>
             <input
               className="net-input"
-              aria-label={pe('Convite (link ou código)', 'Invite (link or code)')}
+              aria-label={tt('net.join.inviteLabel')}
               autoCapitalize="characters" autoCorrect="off" spellCheck={false}
               placeholder={tt('net.idle.joinPlaceholder')}
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <input className="net-input" type="text" maxLength={24} required placeholder={pe('PIN', 'PIN')}
-              aria-label={pe('PIN da sala', 'Room PIN')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
+            <input className="net-input" type="text" maxLength={24} required placeholder={tt('net.restore.pinWord')}
+              aria-label={tt('net.create.roomPin')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
               value={pin} onChange={(e) => setPin(e.target.value)} />
-            <p id="net-join-pin-hint">{pe('Normalmente 13 dígitos, como quem criou disse. Os espaços não importam.', "Usually 13 digits, as the creator said them. Spaces don't matter.")}</p>
-            <p id="net-join-pin-note">{joinNote ? pe(`Este PIN tem ${joinNote} dígitos. O que o app gera tem 13: confira se ouviu todos.`, `This PIN has ${joinNote} digits. The one the app makes has 13: check you heard them all.`) : ''}</p>
+            <p id="net-join-pin-hint">{tt('net.join.pinHint')}</p>
+            <p id="net-join-pin-note">{joinNote ? tt('net.join.pinShort', { n: joinNote }) : ''}</p>
             <PinErr id="net-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
             <button
               className="net-btn"
@@ -1483,19 +1483,19 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         <p className="net-tip">{L.restoredNote}</p>
 
         <button className="net-btn primary" style={{ marginTop: 8 }} onClick={openDashboard}>
-          {pe('Abrir o cofre (Painel) →', 'Open the vault (Dashboard) →')}
+          {tt('net.restore.openVault')}
         </button>
 
         <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Assinar com este cofre', 'Sign with this vault')}</h3>
-          <p>{pe('Reingresse com os outros membros numa sessão de assinatura pelo relay.', 'Rejoin the other members in a signing session over the relay.')}</p>
+          <h3>{tt('net.restore.signTitle')}</h3>
+          <p>{tt('net.restore.signLead')}</p>
           <button className="net-btn primary" onClick={() => void beginSign(newRoomCode())}>
-            {pe('Iniciar sessão (criar código)', 'Start a session (create a code)')}
+            {tt('net.restore.startSession')}
           </button>
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <input
               className="net-input"
-              placeholder={pe('código da sessão', 'session code')}
+              placeholder={tt('net.restore.sessionCodePlaceholder')}
               value={signRoomInput}
               onChange={(e) => setSignRoomInput(e.target.value.trim())}
             />
@@ -1504,7 +1504,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               disabled={signRoomInput.length < 4}
               onClick={() => void beginSign(signRoomInput)}
             >
-              {pe('Entrar', 'Join')}
+              {tt('net.restore.join')}
             </button>
           </div>
         </div>
@@ -1521,7 +1521,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // The save step's status line: who is left to save, then the registration; empty otherwise.
   const saveWait = saveState !== 'saved' ? ''
     : waiting.length > 0 ? saveWaitText(total, waiting, pe)
-    : !backup && hostedState === 'registering' ? pe('Registrando o cofre…', 'Registering the vault…')
+    : !backup && hostedState === 'registering' ? tt('net.restore.registering')
     : ''
 
   // Shared signing controls, used by the just-created vault ('done') and by a restored device that
@@ -1530,10 +1530,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     <div className="net-sign">
       {signPhase === 'none' && !signWhat && (
         <p className="net-lead" style={{ marginTop: 20 }}>
-          {pe(
-            'Cofre pronto para assinar. Aguardando um pedido de pagamento do operador pelo relay; quando chegar, cada dispositivo lê da própria transação o que ela paga antes de assinar.',
-            'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device reads from the transaction itself what it pays before signing.',
-          )}
+          {tt('net.restore.readyToSign')}
         </p>
       )}
       {/* Shown on a refusal too, which is when the member is asked to compare it (#610). This
@@ -1542,19 +1539,16 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           timeouts too, so it cannot tell a refusal from a failure. */}
       {signWhat && (
         <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 8 }}>
-          <strong>{pe('O que este dispositivo leu da transação', 'What this device read from the transaction')}</strong>
+          <strong>{tt('net.restore.deviceReadTitle')}</strong>
           {readingRows(signWhat, () => false).map((r, i) => (
             <div key={i}>
               {fmtZecExact(r.zat / 1e8)} ZEC <span aria-hidden="true">→</span>{' '}
-              <code>{r.to.kind === 'address' ? shortId(r.to.addr) : pe('um endereço que a transação não informa', 'an address this transaction does not name')}</code>
+              <code>{r.to.kind === 'address' ? shortId(r.to.addr) : tt('net.restore.addressNotNamed')}</code>
             </div>
           ))}
-          <div>{pe('Taxa da rede', 'Network fee')}: {fmtZecExact(signWhat.feeZat / 1e8)} ZEC</div>
+          <div>{tt('net.restore.networkFee')}: {fmtZecExact(signWhat.feeZat / 1e8)} ZEC</div>
           <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-            {pe(
-              'Cada dispositivo lê da própria transação o que ela paga e a taxa, e recusa uma que não bate com o que diz pagar, antes de contribuir com a sua parte da assinatura.',
-              'Each device reads from the transaction itself what it pays and its fee, and refuses one that does not match what it claims to pay, before contributing its share of the signature.',
-            )}
+            {tt('net.restore.deviceReadNote')}
           </div>
         </div>
       )}
@@ -1566,31 +1560,25 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           </p>
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
-            {pe(
-              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite - nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
-              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts - no single device broadcasts alone, and the operator never sees a key share.',
-            )}
+            {tt('net.restore.signatureValid')}
           </p>
         </>
       )}
       {helperConfigured() && groupVk && (
         <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
+          <h3>{tt('net.restore.proposalsReadyTitle')}</h3>
           <p className="net-tip">
-            {pe(
-              'Propor e aprovar pagamentos é no app (Painel). Quando uma proposta bate o quórum, ela aparece aqui e você a abre no app para assinar. O coordenador nunca vê uma parte da chave.',
-              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here, and you open it in the app to sign. The coordinator never sees a key share.',
-            )}
+            {tt('net.restore.proposalsReadyLead')}
           </p>
           <button className="net-btn" onClick={() => void loadProposals()}>
-            {pe('Atualizar', 'Refresh')}
+            {tt('net.restore.refresh')}
           </button>
           {(() => {
             const ready = (proposals ?? []).filter((p) => p.state === 'ready')
             if (proposals && ready.length === 0) {
               return (
                 <p className="net-tip" style={{ marginTop: 8 }}>
-                  {pe('Nenhuma proposta pronta para assinar.', 'No proposals ready to sign.')}
+                  {tt('net.restore.noProposalsReady')}
                 </p>
               )
             }
@@ -1599,13 +1587,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 {ready.map((p) => (
                   <li key={p.id}>
                     <div className="net-trail-head">
-                      <span className="net-tag">{pe('pronta', 'ready')}</span>
+                      <span className="net-tag">{tt('net.restore.ready')}</span>
                       <span className="net-trail-when">
                         {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
                       </span>
                     </div>
                     <div className="net-trail-row">
-                      <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
+                      <span className="net-trail-label">{tt('net.restore.approvals')}</span>
                       <code>
                         {p.approvals.length}/{p.threshold || '?'}
                       </code>

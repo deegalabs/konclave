@@ -9,10 +9,10 @@ import { ptBR } from './i18n/pt-BR'
 describe('/net reads its words from the dictionary (#318)', () => {
   it('has no more inline pt/en pairs than the slices so far have left', () => {
     const calls = codeOf('screens/NetVault.tsx').match(/(?<![A-Za-z0-9_.])pe\(/g) ?? []
-    expect(calls.length).toBeLessThanOrEqual(92)
+    expect(calls.length).toBeLessThanOrEqual(63)
   })
   it('the joining and creating words are in both languages', () => {
-    for (const k of Object.keys(en).filter((k) => k.startsWith('net.join.') || k.startsWith('net.create.') || k === 'net.yourNameLabel')) {
+    for (const k of Object.keys(en).filter((k) => /^net\.(join|create|restore)\./.test(k) || k === 'net.yourNameLabel')) {
       expect(ptBR[k], k).toBeTruthy()
     }
     expect(en['net.join.joinWithAnInvite']).toBe('Join with an invite')
