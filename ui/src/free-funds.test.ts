@@ -92,10 +92,22 @@ describe('what a new payment may draw on', () => {
     expect(proposeBlock({ amountZat, availableZat: 700, feeZat, reservedZat: 300 })).toBeNull()
   })
 
-  it('what the guard admits grows the reservation by exactly proposalCostZat of the proposal made', () => {
+  it('what the guard admits takes exactly its cost out of Free, and one zatoshi more is refused as reserved', () => {
+    const bal = { total_zat: 1_000_000, spendable_zat: 1_000_000 }
     for (const [n, kind] of [[1, 'payment'], [4, 'payroll']] as const) {
-      const made = p('awaiting', 5_000, n, kind)
-      expect(reservedZatOf([made], est)).toBe(proposalCostZat(made, est))
+      const open = [p('awaiting', 300_000)]
+      const free = freeZatOf(bal, open, est)!
+      const feeZat = est(n)!
+      const guard = (amountZat: number) =>
+        proposeBlock({ amountZat, availableZat: free, feeZat, reservedZat: reservedZatOf(open, est) })
+      const fits = free - feeZat // the largest amount the guard should admit
+      expect(guard(fits), `${kind}: the guard should admit what exactly fits`).toBeNull()
+      expect(guard(fits + 1), `${kind}: one more must be refused as reserved`).toBe('reserved')
+      // Once the admitted proposal exists, it holds exactly proposalCostZat and leaves nothing free.
+      const made = p('awaiting', fits, n, kind)
+      const after = [...open, made]
+      expect(reservedZatOf(after, est)).toBe(reservedZatOf(open, est)! + proposalCostZat(made, est)!)
+      expect(freeZatOf(bal, after, est)).toBe(0)
     }
   })
 })
@@ -138,6 +150,19 @@ describe('the guard says WHICH shortage it is', () => {
 import { join } from 'node:path'
 import { blockMessageKey } from './propose-guard'
 import { codeAt } from './source-scan'
+
+describe('the copy says what the figure now holds (#1017)', () => {
+  it('the ledger sheet and the block message name the fee estimate, in both languages', () => {
+    const SRC = fileURLToPath(new URL('.', import.meta.url))
+    for (const [loc, committed, block] of [['en.ts', 'value plus estimated fees', 'estimated fees included'], ['pt-BR.ts', 'valor mais a estimativa das taxas', 'com a estimativa das taxas']] as const) {
+      const lines = codeAt(join(SRC, 'i18n', loc)).split('\n')
+      const at = (k: string) => lines.find((l) => l.includes(`'${k}'`)) ?? ''
+      expect(at('ledger.xlsxCommitted'), loc).toContain(committed)
+      expect(at('ledger.xlsxCommitted'), loc).not.toMatch(/fees excluded|sem taxas/)
+      expect(at('money.blockReserved'), loc).toContain(block)
+    }
+  })
+})
 
 describe('one notion of free funds, held in one place', () => {
   const SRC = fileURLToPath(new URL('.', import.meta.url))

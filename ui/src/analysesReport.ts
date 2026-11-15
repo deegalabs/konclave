@@ -61,7 +61,10 @@ export function analysesReport(input: {
       zec(p.confirmingZat, t('analyses.confirming'), t('analyses.srcConfirming')),
     ] })
   } else {
-    sections.push({ title: t('analyses.secBalance'), rows: [], note: t(balNote ?? 'analyses.balanceUnread') })
+    // A balance that WAS read but whose reservation cannot be worked out (no fee estimate) is not
+    // "not read": say which.
+    const feeMissing = !!bal && bal.total_zat != null && reserved === null
+    sections.push({ title: t('analyses.secBalance'), rows: [], note: t(feeMissing ? 'analyses.feeEstimateNotReady' : balNote ?? 'analyses.balanceUnread') })
   }
 
   const burn = burnRate(rows, now)

@@ -6,4 +6,4 @@
   It is an estimate: the fee actually paid depends on the notes the wallet picks and can be higher.
   Where the proposals could not be read, or the fee could not be estimated, Reserved and Free show
   "-" instead of a figure that leaves the fee out. Only this app reserves: the coordinator does not
-  reserve across proposals (see Known limits).
+  reserve across proposals (see Known limits: the reservation is an estimate).

@@ -157,6 +157,15 @@ describe('BalanceBand', () => {
     expect(wrap(<BalanceBand estimate={NO_FEE} bal={bal(ZEC)} rows={null} t={t} />)).toBe('')
   })
 
+  it('says the fee estimate is not ready, instead of vanishing, when an open proposal cannot be costed (#1017)', () => {
+    const open = [p('ready', ZEC, at(2026, 10, 1))]
+    const html = wrap(<BalanceBand estimate={null} bal={bal(5 * ZEC)} rows={open} t={t} />)
+    expect(html).toContain(say('analyses.feeEstimateNotReady'))
+    expect(html).not.toContain(say('analyses.balanceUnread'))
+    // With nothing open there is nothing to estimate: the band shows.
+    expect(wrap(<BalanceBand estimate={null} bal={bal(5 * ZEC)} rows={[]} t={t} />)).toContain('an-band')
+  })
+
   it('ties each label to its amount, as a list of terms and values', () => {
     const html = wrap(<BalanceBand estimate={NO_FEE} bal={bal(5 * ZEC, 4 * ZEC)} rows={[]} t={t} />)
     expect(html).toContain('<dl class="an-cells">')

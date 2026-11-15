@@ -25,6 +25,16 @@ const report = (o: Partial<Parameters<typeof analysesReport>[0]> = {}) =>
   analysesReport({ bal: bal(5 * ZEC), rows: book, estimate: NO_FEE, vaultName: 'Caixa <da> comunidade', now: NOW, t, locale: 'en', ...o })
 const rowsOf = (r: AnalysesReport) => r.sections.flatMap((s) => s.rows)
 
+describe('analysesReport without a fee estimate (#1017)', () => {
+  it('says the estimate is not ready, not that the balance was not read', () => {
+    const open = [p('ready', ZEC, at(2026, 10, 1))]
+    const r = report({ estimate: null, rows: [...book, ...open] })
+    expect(r.sections[0]!.note).toBe(t('analyses.feeEstimateNotReady'))
+    expect(r.sections[0]!.rows).toEqual([])
+    expect(report({ bal: null }).sections[0]!.note).toBe(t('analyses.balanceUnread'))
+  })
+})
+
 describe('analysesReport', () => {
   it('gives every number a source and carries the limits sentence', () => {
     const r = report()

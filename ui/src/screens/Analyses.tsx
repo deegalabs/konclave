@@ -40,7 +40,10 @@ export function BalanceBand({ bal, busy = false, unwired = false, rows, estimate
   if (!bal || bal.total_zat == null) return <p className="hint" role="status">{t(note!)}</p>
   // The book was not read: the page's ReadState names it, so the band does not blame the balance.
   const reserved = reservedZatOf(rows, estimate)
-  if (reserved === null) return null
+  if (reserved === null) {
+    // Read, but a cost cannot be worked out (no fee estimate yet): say so, never a silent gap.
+    return rows === null ? null : <p className="hint" role="status">{t('analyses.feeEstimateNotReady')}</p>
+  }
   const parts = balanceParts(bal.total_zat, bal.spendable_zat ?? bal.total_zat, reserved)
   const cell = (label: string, zat: number) => (
     <div className="db-t"><dt className="klab">{label}</dt><dd><Secret sm label={label}><b className="mono">{zec(zat)}</b></Secret></dd></div>

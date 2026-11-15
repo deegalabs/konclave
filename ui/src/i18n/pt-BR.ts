@@ -857,7 +857,7 @@ export const ptBR: Record<string, string> = {
   // Reserva \u00e9 regra NOSSA, n\u00e3o da rede (\u00a76.14) - o dinheiro existe e o engine gastaria. Ent\u00e3o a
   // mensagem deve a aritm\u00e9tica e o nome de quem est\u00e1 segurando: "voc\u00ea n\u00e3o tem saldo" seria mentira,
   // e esconderia a \u00fanica coisa em que o membro pode agir.
-  'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}), taxas inclu\u00eddas. Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
+  'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}), com a estimativa das taxas. Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
   'money.blockConfirming': 'O cofre tem o valor, mas {confirming} ZEC ainda estão confirmando. Proponha quando confirmar.',
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
@@ -1136,7 +1136,7 @@ export const ptBR: Record<string, string> = {
   'ledger.xlsxOutPayrolls': 'Saída liquidada: folhas',
   'ledger.xlsxByState': 'Lançamentos por estado',
   'ledger.xlsxPosition': 'Posição (total)',
-  'ledger.xlsxCommitted': 'Comprometido em propostas abertas (valor, sem taxas)',
+  'ledger.xlsxCommitted': 'Comprometido em propostas abertas (valor mais a estimativa das taxas)',
   'ledger.xlsxAvailable': 'Disponível',
   'ledger.xlsxConfirming': 'Confirmando',
   'ledger.xlsxAsOf': 'Saldo em (cofre inteiro, não o período)',
@@ -1206,6 +1206,7 @@ export const ptBR: Record<string, string> = {
   'analyses.free': 'Disponível',
   'analyses.reserved': 'Reservado por propostas abertas',
   'analyses.confirming': 'Confirmando',
+  'analyses.feeEstimateNotReady': 'A estimativa da taxa ainda não está pronta, então as partes do saldo não aparecem.',
   'analyses.balanceUnread': 'Não foi possível ler o saldo, então as partes dele não aparecem.',
   'analyses.runwayAwaitsBalance': 'Aparece quando o saldo for lido.',
   'analyses.noFreeNow': 'Nada está livre para gastar agora: as propostas abertas reservam tudo, ou o cofre está vazio.',
