@@ -98,6 +98,10 @@ export type Proposal = {
   approvals: string[]
   refusals: string[]
   approvals_count: number
+  /** How many outputs it pays: 1 for a payment, the line count for a payroll (#1017). What the fee
+   *  estimate takes. Absent or null means it could not be read, and a reader must treat it as
+   *  unknown (`proposalCostZat` answers null), never as 1. */
+  destinations?: number | null
 }
 
 export type Balance = {
@@ -159,6 +163,7 @@ export function mapNetProposal(p: NetProposal): Proposal {
     approvals: p.approvals,
     refusals: p.refusals,
     approvals_count: p.approvals.length,
+    destinations: p.kind === 'payroll' ? (p.lines?.length ? p.lines.length : undefined) : 1,
   }
 }
 
