@@ -178,6 +178,16 @@ jobs:
     needs: [build, web]
     runs-on: ubuntu-22.04
     steps:
+      # The scripts, at the tag, for the production check below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
       - name: Fetch web-manifest.json
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -202,7 +212,24 @@ jobs:
           else
             gh release upload "$TAG" web-manifest.json
           fi
-          rm web-manifest.json
+          mv web-manifest.json "$RUNNER_TEMP/web-manifest.json"
+
+      # Does production serve this release? Vercel deployed `main` on its own before the tag; this is
+      # where a build that stopped matching CI's shows, on our job rather than on members' machines.
+      # On a tag push only: a manual re-run of an older tag would meet a newer production.
+      - name: Production serves this release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          for i in 1 2 3 4 5 6; do
+            node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}" && exit 0
+            echo "attempt $i did not pass; trying again in 60 s"
+            sleep 60
+          done
+          exit 1
 
       - name: SHA256SUMS
         shell: bash
