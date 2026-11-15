@@ -553,7 +553,7 @@ export default function Vaults() {
                           {resumeCopied ? t('receive.copied') : t('vaults.resumeBackupCopy')}
                         </button>
                         {resumeCopyFailed && <p className="hint err" role="alert">{t('copy.failedUseDownload')}</p>}
-                        {resumeDownloadFailed && <p className="hint err" role="alert">{t('download.failed')}</p>}
+                        {resumeDownloadFailed && <p className="hint err" role="alert">{t('export.errDownload')}</p>}
                       </div>
                     ) : (
                       <div style={{ marginTop: 8 }}>

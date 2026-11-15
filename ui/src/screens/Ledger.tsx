@@ -225,10 +225,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   async function exportAs(kind: 'xlsx' | 'csv') {
     if (exporting) return
     setExporting(kind)
+    setExportFailed(false)
     try {
       const data = await exportData(kind)
       const saved = kind === 'xlsx' ? await exportLedgerXlsx(data) : await exportLedgerCsv(data, locale)
       setExportFailed(!saved)
+    } catch {
+      // A file that could not be built is not saved either: said, as Analyses does.
+      setExportFailed(true)
     } finally {
       setExporting(null)
     }

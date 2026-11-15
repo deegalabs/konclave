@@ -34,13 +34,13 @@ describe('every download call acts on whether the file was taken (#983)', () => 
   it('the /net backup is taken only when the file was, and a refusal is said', () => {
     const src = codeOf('screens/NetVault.tsx')
     expect(src).toMatch(/const ok = downloadText\(backup\.name, backup\.json\)\s*setBackupDownloadFailed\(!ok\)\s*if \(ok\) setBackupTaken\(true\)/)
-    expect(src).toMatch(/\{backupDownloadFailed && <p className="net-tip" role="alert">\{tt\('download\.failed'\)\}<\/p>\}/)
+    expect(src).toMatch(/\{backupDownloadFailed && <p className="net-tip" role="alert">\{tt\('export\.errDownload'\)\}<\/p>\}/)
   })
 
   it('the resume backup in Vaults says a refused download', () => {
     const src = codeOf('screens/Vaults.tsx')
     expect(src).toMatch(/setResumeDownloadFailed\(!downloadText\(resumeDone\[v\.id\]!\.name, resumeDone\[v\.id\]!\.json\)\)/)
-    expect(src).toMatch(/\{resumeDownloadFailed && <p className="hint err" role="alert">\{t\('download\.failed'\)\}<\/p>\}/)
+    expect(src).toMatch(/\{resumeDownloadFailed && <p className="hint err" role="alert">\{t\('export\.errDownload'\)\}<\/p>\}/)
   })
 
   it('the Ledger says a refused export', () => {

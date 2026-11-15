@@ -1747,7 +1747,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 </button>
               </div>
               {backupCopyFailed && <p className="net-tip" role="alert">{tt('copy.failedUseDownload')}</p>}
-              {backupDownloadFailed && <p className="net-tip" role="alert">{tt('download.failed')}</p>}
+              {backupDownloadFailed && <p className="net-tip" role="alert">{tt('export.errDownload')}</p>}
             </div>
             {!backup.complete && (
               // Silence here is what the fix is FOR. The vault registers and its read key lands
