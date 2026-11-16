@@ -47,3 +47,23 @@ describe('RecipientCombobox active option', () => {
     expect(input.getAttribute('aria-activedescendant')).toBeNull()
   })
 })
+
+describe('two comboboxes on one screen (a payroll has one per row)', () => {
+  afterEach(() => cleanup())
+  it('share no listbox or option id', () => {
+    localStorage.setItem('konclave.locale', 'en')
+    render(<I18nProvider><>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <RecipientCombobox benefs={benefs as any} address="" name={null} onChange={() => {}} />
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <RecipientCombobox benefs={benefs as any} address="" name={null} onChange={() => {}} />
+    </></I18nProvider>)
+    for (const input of screen.getAllByRole('combobox')) fireEvent.focus(input)
+    const ids = [...document.querySelectorAll('[role="listbox"], [role="option"]')].map((e) => e.id)
+    expect(ids.length).toBeGreaterThanOrEqual(6)
+    expect(ids.every((i) => i)).toBe(true)
+    expect(new Set(ids).size).toBe(ids.length)
+    const ctl = screen.getAllByRole('combobox').map((i) => i.getAttribute('aria-controls'))
+    expect(new Set(ctl).size).toBe(2)
+  })
+})

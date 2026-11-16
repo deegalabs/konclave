@@ -298,7 +298,6 @@ export const ptBR: Record<string, string> = {
   'vaults.chooseLocal': 'Só neste dispositivo',
   'vaults.chooseUrlPlaceholder': 'https://seu-servidor.exemplo.com',
   'vaults.chooseContinue': 'Continuar',
-  'layout.offline': 'Offline - sem conexão com o cofre',
   'vaults.enterArrow': 'Entrar →',
 
   // Dashboard
@@ -635,6 +634,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.membersQuorum': '{t} de {n} podem assinar',
   'dashboard.liveTitle': 'O cofre está acessível (servidor de coordenação). É o status da conexão, não quantos membros estão online.',
   'dashboard.live': 'cofre online',
+  'layout.offline': 'Offline - sem conexão com o cofre',
   'dashboard.needsYou': 'Precisa de você',
   'dashboard.whatProposedBy': '“{what}” · proposto por **{proposer}**',
   'dashboard.ofApprovals': '{count} de {total}',

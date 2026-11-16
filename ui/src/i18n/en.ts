@@ -298,7 +298,6 @@ export const en: Record<string, string> = {
   'vaults.chooseLocal': 'This device only',
   'vaults.chooseUrlPlaceholder': 'https://your-server.example.com',
   'vaults.chooseContinue': 'Continue',
-  'layout.offline': "Offline - can't reach your vault",
   'vaults.enterArrow': 'Enter →',
 
   // Dashboard
@@ -639,6 +638,7 @@ export const en: Record<string, string> = {
   'dashboard.membersQuorum': '{t} of {n} can sign',
   'dashboard.liveTitle': 'The vault is reachable (coordination server). This is the connection status, not how many members are online.',
   'dashboard.live': 'vault online',
+  'layout.offline': "Offline - can't reach your vault",
   'dashboard.needsYou': 'Needs you',
   'dashboard.whatProposedBy': '“{what}” · proposed by **{proposer}**',
   'dashboard.ofApprovals': '{count} of {total}',
