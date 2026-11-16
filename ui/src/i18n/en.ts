@@ -167,6 +167,8 @@ export const en: Record<string, string> = {
   'vaults.securedHint': 'A leaked link opens neither the books nor the signing room.',
   'vaults.openBadge': 'Open',
   'vaults.pendingBadge': 'Not finished.',
+  'host.notice': 'You are on {host}. Konclave only lives at www.konclave.xyz.',
+  'host.notice.warn': 'Check the address: this is not the official one.',
   'vaults.createDialogTitle': 'Create or join a vault',
   'vaults.pendingHint': 'This device saved its part before every member confirmed they saved theirs, so it shows no address. Do not fund it until you have confirmed, with each member, that they saved their part.',
   'vaults.pendingConfirm': 'Everyone confirmed they saved',

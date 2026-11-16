@@ -57,6 +57,10 @@ connected to `deegalabs/konclave`. A push to `main` builds and promotes to produ
 
 **Verify:** the footer shows `v<version> · <commit>`. Compare the commit with `main`.
 
+**Testing invites on staging or a preview.** An invite link always points to `https://www.konclave.xyz/`
+(whatever host made it), which talks to the production relay. A joiner on staging or a preview pastes the
+invite code into the join field instead of opening the link; the field accepts the code or a link.
+
 > A member on an installed PWA may keep an older build for a while: a new service worker only
 > replaces the old one once every tab is closed. The footer commit is the answer to "do I have the
 > fix?", not the version number, which only moves when a release is cut.
