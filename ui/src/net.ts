@@ -11,13 +11,13 @@
 import { CROCKFORD } from './format'
 import { CREATION_PROTOCOL } from './creation-protocol'
 
-const ENV = import.meta.env as Record<string, string | undefined>
-const BASE: string = ENV.VITE_API_BASE ?? ''
+// One key at a time, never the env object (#605, src/env-reads.test.ts).
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 // A hosted relay overrides the base; empty = the local bridge (same origin). Exported so the
 // Architecture-B send can tell the (server-side) helper WHICH relay the browsers are on - the
 // helper must publish its sign-request into the same room, so this must be a URL it can reach
 // (a hosted relay, not the local bridge).
-export const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
+export const RELAY_BASE: string = import.meta.env.VITE_RELAY_BASE ?? BASE
 
 // ---- relay selection (#213) ----
 // The relay is the rendezvous: every device in a vault (and the helper) must reach the SAME relay

@@ -123,8 +123,9 @@ export type Balance = {
   ironwood_spendable_zat?: number
 }
 
-const ENV = import.meta.env as Record<string, string | undefined>
-const BASE: string = ENV.VITE_API_BASE ?? ''
+// One key at a time, never the env object: an object would be inlined whole, with every variable
+// the host adds, and the build would stop being reproducible (#605, src/env-reads.test.ts).
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
