@@ -14,6 +14,17 @@ on:
 permissions:
   contents: write
 
+# The coordinator and relay the app talks to (#664). Vite inlines `VITE_*` at build time, and the
+# release used to build with neither set, so the helper base was '' ("Konclave-hosted" never showed)
+# and the relay fell back to the app's own origin, where none answers. These are the production values
+# the web build carries (the web takes them from the Vercel project's env, DEPLOY.md). Public
+# addresses, not secrets. Change them here and in DEPLOY.md together, and keep each one in the CSP's
+# connect-src (orchestrator/src/csp.rs, mirrored into src-tauri/tauri.conf.json); a test checks that.
+# Workflow-level since #605: the desktop build and the web manifest's rebuild must use the same two.
+env:
+  VITE_HELPER_BASE: https://helper.konclave.xyz
+  VITE_RELAY_BASE: https://relay.konclave.xyz
+
 jobs:
   build:
     strategy:
@@ -24,16 +35,9 @@ jobs:
           - platform: ubuntu-22.04      # .deb + .AppImage
           - platform: macos-latest      # .dmg (Apple Silicon)
     runs-on: ${{ matrix.platform }}
-    # The coordinator and relay the desktop app talks to (#664). Vite inlines `VITE_*` at build time,
-    # and the release used to build with neither set, so the helper base was '' ("Konclave-hosted"
-    # never showed) and the relay fell back to the app's own origin, where none answers. These are the
-    # production values the web build carries (read from the live bundle at www.konclave.xyz; the web
-    # takes them from the Vercel project's env, DEPLOY.md). Public addresses, not secrets. Change them
-    # here and in DEPLOY.md together, and keep each one in the CSP's connect-src
-    # (orchestrator/src/csp.rs, mirrored into src-tauri/tauri.conf.json); a test checks that.
-    env:
-      VITE_HELPER_BASE: https://helper.konclave.xyz
-      VITE_RELAY_BASE: https://relay.konclave.xyz
+    # The web manifest is written first: the notes below carry its fingerprint, and a release
+    # without a manifest of its web app does not ship installers either (#605).
+    needs: web
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,6 +46,9 @@ jobs:
           # tags. The default checkout carries at most the tag being released, which says nothing
           # about the versions before it (#573).
           fetch-depth: 0
+          # The tag on a manual run too, not the branch it starts from: the installers and the web
+          # manifest must be built from one commit (#605 review).
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -123,7 +130,10 @@ jobs:
         # an env var so the shell treats it as data, never interpolate ${{...}} into the run: script.
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          # Written by web-manifest-cli.mjs in the web job; data, through env, never interpolated.
+          WEB_NOTES: ${{ needs.web.outputs.notes }}
         run: |
+          test -n "$WEB_NOTES" || { echo "the web job gave no notes line"; exit 1; }
           git-cliff --version
           {
             echo 'body<<KONCLAVE_EOF'
@@ -132,6 +142,8 @@ jobs:
             echo 'Desktop installers (Windows / macOS / Linux) are attached below.'
             echo ''
             echo "Built to use the coordinator at $VITE_HELPER_BASE and the relay at $VITE_RELAY_BASE."
+            echo ''
+            echo "$WEB_NOTES"
             echo 'KONCLAVE_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -163,9 +175,35 @@ jobs:
   # it - the sums sit on the same release, under the same account - which is what signing and build
   # attestation are for (#606, still open).
   checksums:
-    needs: build
+    needs: [build, web]
     runs-on: ubuntu-22.04
     steps:
+      - name: Fetch web-manifest.json
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-manifest
+
+      # Before SHA256SUMS, so the sums cover it. Never replaced: a release that already carries a
+      # different manifest fails here instead of silently changing what members compare against.
+      - name: Attach web-manifest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          FINGERPRINT: ${{ needs.web.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          echo "$FINGERPRINT  web-manifest.json" | sha256sum -c -
+          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx web-manifest.json; then
+            mkdir prev && gh release download "$TAG" -p web-manifest.json -D prev
+            cmp prev/web-manifest.json web-manifest.json || { echo "release $TAG already carries a different web-manifest.json"; exit 1; }
+            rm -rf prev
+          else
+            gh release upload "$TAG" web-manifest.json
+          fi
+          rm web-manifest.json
+
       - name: SHA256SUMS
         shell: bash
         # The tag is untrusted input; it reaches the shell only as data, through env.
@@ -183,3 +221,96 @@ jobs:
           sha256sum -- * > ../SHA256SUMS
           cat ../SHA256SUMS
           gh release upload "$TAG" ../SHA256SUMS --clobber
+
+  # The web manifest of this release (#605): the SHA-256 of every file the web app serves, so anyone
+  # can compare the live site with it (scripts/verify-web.mjs) or rebuild the commit and compare.
+  # Vercel deploys the web from `main` by itself; this job rebuilds the same commit with the same two
+  # variables, which gives the same bytes (measured on v0.21.0, 73 of 73 files, once the app stopped
+  # inlining the env object). It builds twice and fails if the two differ, so a build that
+  # stopped being deterministic shows here, not as a verify-web failure on members' machines.
+  web:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      notes: ${{ steps.manifest.outputs.notes }}
+      fingerprint: ${{ steps.manifest.outputs.fingerprint }}
+    steps:
+      # The tag, not the branch a manual run starts from: the manifest names the commit it built.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: The checkout is the tag, and the tag is the app's version
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")" || { echo "HEAD is not $TAG"; exit 1; }
+          # The attestation names the commit the run started from (GITHUB_SHA). A manual run started
+          # from a branch would attest that commit for a manifest built from the tag, so a manual run
+          # must be started from the tag itself ("Use workflow from" the tag).
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)" || { echo "this run started from $GITHUB_SHA, not $TAG: start it from the tag"; exit 1; }
+          version=$(node -p "require('./ui/package.json').version")
+          test "$TAG" = "v$version" || { echo "tag $TAG is not v$version (ui/package.json)"; exit 1; }
+
+      - name: pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Frontend deps
+        run: pnpm install --frozen-lockfile
+
+      # Not named `Build UI`: that step is the desktop build's, and tests find it by name.
+      - name: Build the web app twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm -C ui run build
+          mv ui/dist "$RUNNER_TEMP/dist-first"
+          pnpm -C ui run build
+
+      - name: Check the web build
+        run: |
+          node scripts/check-sw-cli.mjs web ui/dist/sw.js
+          node scripts/check-desktop-bundle-cli.mjs --web ui/dist
+
+      - name: Write web-manifest.json
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          node scripts/web-manifest-cli.mjs write "$RUNNER_TEMP/dist-first" "$commit" "$RUNNER_TEMP/first.json" > /dev/null
+          fp=$(node scripts/web-manifest-cli.mjs write ui/dist "$commit" web-manifest.json)
+          cmp "$RUNNER_TEMP/first.json" web-manifest.json || { echo "two builds of $commit differ:"; diff "$RUNNER_TEMP/first.json" web-manifest.json || true; exit 1; }
+          # Its own line, so a failure stops the step (inside "$(...)" in an echo, set -e does not see it).
+          notes=$(node scripts/web-manifest-cli.mjs notes web-manifest.json)
+          test -n "$notes"
+          echo "fingerprint=$fp" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+          echo "web-manifest.json $fp"
+
+      # Who built it: a signed statement that this workflow, at this commit, produced these bytes.
+      # Check it with `gh attestation verify web-manifest.json -R deegalabs/konclave`.
+      - name: Attest web-manifest.json
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: web-manifest.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-manifest
+          path: web-manifest.json
+          if-no-files-found: error
+          # A re-run of this job replaces its own artifact instead of failing on the name.
+          overwrite: true

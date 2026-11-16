@@ -30,4 +30,6 @@ the previous release grouped by type (via `scripts/release.mjs --notes`, git-cli
 the web from the same commit, so the version badge matches the release.
 
 You can also build installers for an existing tag from the Actions tab
-("Desktop release" -> Run workflow -> enter the tag).
+("Desktop release" -> Run workflow): choose the tag itself under "Use workflow from" and enter the
+same tag. A run started from a branch is refused, because the web manifest's attestation names the
+commit the run started from.
