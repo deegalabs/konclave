@@ -320,6 +320,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   cursor:pointer; color:inherit; text-align:left; width:100%; font-size:13px}
 .vault-pop-row:hover{background:var(--surface-1)}
 .vault-pop-row.current{color:var(--text-muted); cursor:default}
+.vault-pop-hint{margin:0; padding:8px 9px; font-size:12.5px; color:var(--text-muted)}
 .vault-pop-row .vp-name{flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .vault-pop-row .vp-check{color:var(--success); font-size:12px}
 .vault-pop-manage{display:block; margin-top:4px; padding:8px 9px; border-top:1px solid var(--line);
