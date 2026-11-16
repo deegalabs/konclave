@@ -12,7 +12,7 @@ export const REPO = 'deegalabs/konclave'
 
 /** When a person last re-read the step texts below against the issues. Shown on the page. Set by hand:
  *  the script dates GitHub's states separately (REFS_AS_OF), and never this. */
-export const ROADMAP_AS_OF = { iso: '2026-11-15', 'pt-BR': '15 de novembro de 2026', en: '15 November 2026' }
+export const ROADMAP_AS_OF = { iso: '2026-11-16', 'pt-BR': '16 de novembro de 2026', en: '16 November 2026' }
 
 export type RefKind = 'issue' | 'pull'
 export type Ref = { kind: RefKind; n: number }
@@ -57,13 +57,8 @@ export const ROADMAP_NOW: Stage[] = [
 export const ROADMAP_STEPS: Stage[] = [
   {
     id: 'own-defects',
-    // The #605 sentence is true while #1028-#1031 are in review. When they merge into staging, swap it for:
-    //   pt-BR: A primeira parte da #605 foi integrada e ainda não saiu em versão: uma lista com o SHA-256 de cada arquivo
-    //          de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a
-    //          partir da primeira versão que publicar a lista.
-    //   en:    The first part of #605 is merged, not yet released: a list of the SHA-256 of every file of each web
-    //          release, and a script anyone can run to compare the live site with it, from the first release that
-    //          publishes the list.
+    // The #605 sentence is true from the merge of #1028-#1031 into staging (16 Nov 2026) until a release
+    // publishes web-manifest.json.
     // When the release that publishes web-manifest.json is out, swap it for:
     //   pt-BR: A primeira parte da #605 está no ar: cada versão publica o SHA-256 de cada arquivo do app web, e
     //          scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app
@@ -73,16 +68,16 @@ export const ROADMAP_STEPS: Stage[] = [
     //          scripts/verify-web.mjs compares what the live site serves with it. It can notice a modified app served
     //          to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not
     //          yet refuse an update that is not a release.
-    // Either swap goes through the text audit, re-reads every step (not only step 0) and moves ROADMAP_AS_OF to
+    // The swap goes through the text audit, re-reads every step (not only step 0) and moves ROADMAP_AS_OF to
     // that day, and fixes the #605 line of ui/changelog.d/changed/roadmap-texts-reviewed.md if it is not released yet.
     n: 0,
     status: 'now',
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 está em revisão: uma lista com o SHA-256 de cada arquivo de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a partir da primeira versão que publicar a lista. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
+        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 foi integrada e ainda não saiu em versão: uma lista com o SHA-256 de cada arquivo de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a partir da primeira versão que publicar a lista. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
       en:
-        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and nothing yet lets a member check that the app our server sends is a published release (#605). The first part of #605 is under review: a list of the SHA-256 of every file of each web release, and a script anyone can run to compare the live site with it, from the first release that publishes the list. This step and step 1 can move at the same time.',
+        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and nothing yet lets a member check that the app our server sends is a published release (#605). The first part of #605 is merged, not yet released: a list of the SHA-256 of every file of each web release, and a script anyone can run to compare the live site with it, from the first release that publishes the list. This step and step 1 can move at the same time.',
     },
     refs: [issue(575), issue(577), issue(567), issue(605)],
   },

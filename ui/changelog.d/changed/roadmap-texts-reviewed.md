@@ -1,6 +1,6 @@
 - **The roadmap's texts are re-read against their issues, and its top line says so.** The line at the
-  top of the help's roadmap now says when the step texts were last reviewed. Step 0 says the first
-  part of #605 is under review; the network block points at the lower fee from block 3,590,000
+  top of the help's roadmap now says when the step texts were last reviewed. Step 0 says where the
+  first part of #605 stands; the network block points at the lower fee from block 3,590,000
   (#847); step 1 gives the phone proving times per session and what the same test already measures;
   getting a lost seat back is said to need more members than the quorum; the test environment is
   said to run on mainnet with minimal amounts. The relay is said to pass messages between the members'
