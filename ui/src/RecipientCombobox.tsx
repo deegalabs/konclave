@@ -3,7 +3,7 @@
 // (c) lets you add a new payee INLINE (writes to the shared registry), and (d) links to the full
 // list. Replaces the old "select + Manage payees button + raw address input" trio. WAI-ARIA combobox.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, type Beneficiary } from './api'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
@@ -83,6 +83,10 @@ export function RecipientCombobox({
   }, [rows, q])
 
   useEffect(() => { setHi(0) }, [q, open])
+  // One id family per instance: a payroll has a combobox per row, and a fixed id would repeat.
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  const popId = `rcb-pop-${uid}`
+  const optId = (i: number) => `rcb-opt-${uid}-${i}`
   useEffect(() => {
     function onDoc(e: MouseEvent) { if (rootRef.current && !rootRef.current.contains(e.target as Node)) { setOpen(false); setAdding(false) } }
     document.addEventListener('mousedown', onDoc)
@@ -192,7 +196,8 @@ export function RecipientCombobox({
             role="combobox"
             aria-expanded={open}
             aria-autocomplete="list"
-            aria-controls="rcb-pop"
+            aria-controls={popId}
+            aria-activedescendant={open && !adding && flat[hi] ? optId(hi) : undefined}
             aria-invalid={invalid || undefined}
             aria-describedby={describedBy}
             autoComplete="off"
@@ -210,13 +215,13 @@ export function RecipientCombobox({
       </div>
 
       {open && (
-        <div className="rcb-pop" id="rcb-pop" role="listbox">
+        <div className="rcb-pop" id={popId} role="listbox">
           {rows.pasted && (() => {
             const k = classifyAddress(rows.pasted!)
             const idx = 0
             return (<>
               <div className="rcb-grp">{t('rec.pasted')}</div>
-              <button type="button" role="option" aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onClick={() => pick({ address: rows.pasted!, name: null })}>
+              <button type="button" role="option" id={optId(idx)} aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onClick={() => pick({ address: rows.pasted!, name: null })}>
                 <Identicon seed={rows.pasted!} size={26} />
                 <span className="rcb-om"><span className="rcb-on">{t(pastedLabelKey(k))} {chip(k)}</span><span className="rcb-oa">{shortAddr(rows.pasted!)}</span></span>
               </button>
@@ -227,7 +232,7 @@ export function RecipientCombobox({
           {rows.recents.map((b) => {
             const idx = flat.findIndex((f) => 'b' in f && f.b.id === b.id)
             return (
-              <button key={b.id} type="button" role="option" aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onMouseEnter={() => setHi(idx)} onClick={() => pickBenef(b)}>
+              <button key={b.id} type="button" role="option" id={optId(idx)} aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onMouseEnter={() => setHi(idx)} onClick={() => pickBenef(b)}>
                 <Identicon seed={b.address || b.name} size={26} />
                 <span className="rcb-om"><span className="rcb-on">{b.name} {chip(classifyAddress(b.address))}</span><span className="rcb-oa">{shortAddr(b.address)}</span></span>
               </button>
@@ -238,7 +243,7 @@ export function RecipientCombobox({
           {rows.saved.map((b) => {
             const idx = flat.findIndex((f) => 'b' in f && f.b.id === b.id)
             return (
-              <button key={b.id} type="button" role="option" aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onMouseEnter={() => setHi(idx)} onClick={() => pickBenef(b)}>
+              <button key={b.id} type="button" role="option" id={optId(idx)} aria-selected={hi === idx} className={'rcb-opt' + (hi === idx ? ' hi' : '')} onMouseEnter={() => setHi(idx)} onClick={() => pickBenef(b)}>
                 <Identicon seed={b.address || b.name} size={26} />
                 <span className="rcb-om"><span className="rcb-on">{b.name} {chip(classifyAddress(b.address))}</span><span className="rcb-oa">{shortAddr(b.address)}</span></span>
               </button>
@@ -257,7 +262,7 @@ export function RecipientCombobox({
                 </div>
               </div>
             ) : (
-              <button type="button" role="option" aria-selected={hi === 0} className="rcb-opt rcb-add" onClick={() => setAdding(true)}>
+              <button type="button" role="option" id={optId(0)} aria-selected={hi === 0} className="rcb-opt rcb-add" onClick={() => setAdding(true)}>
                 <span className="rcb-plus">+</span><span>{t('rec.add', { q: q.trim() })}</span>
               </button>
             )

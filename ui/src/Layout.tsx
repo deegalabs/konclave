@@ -2,13 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark } from './components'
 import { Identicon, memberSeed } from './avatar'
-import { useT, useI18n } from './i18n'
+import { useT } from './i18n'
 import { useSeatRefusalCode } from './seat-registration'
 import { coordinatorCode, refusalKey } from './conclude-registration'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
-import { listVaults } from './storage'
+import { readVaults } from './storage'
 import { clearPayrollDraft } from './payroll-draft'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
@@ -45,7 +45,6 @@ export default function Layout() {
   // is refused shows here at once. A code this app does not know still says the seat was refused.
   const refusedCode = useSeatRefusalCode(getSelectedVault())
   const knownCode = coordinatorCode(refusedCode)
-  const { locale } = useI18n()
   const nav = useNavigate()
   const loc = useLocation()
   const [vault, setVault] = useState<Vault | null>(null)
@@ -54,6 +53,8 @@ export default function Layout() {
   // The vault-switch popover on the footer chip (names the current vault; lists the others).
   const [switchOpen, setSwitchOpen] = useState(false)
   const [vaults, setVaults] = useState<{ id: string; name: string }[]>([])
+  // The saved-vault list threw: an empty switcher then means "could not read", not "none" (#320).
+  const [vaultsUnreadable, setVaultsUnreadable] = useState(false)
   // #467: the vault is locked and the member stays where they are. `null` = open.
   const [locked, setLocked] = useState<{ id: string; name: string; src: VaultSrc } | null>(null)
   // Bumped on unlock so the screen underneath refetches. It counts rather than flags because two
@@ -73,9 +74,14 @@ export default function Layout() {
     setSwitchOpen(opening)
     if (opening) {
       try {
-        const vs = await listVaults()
+        const vs = await readVaults()
+        setVaultsUnreadable(false)
         setVaults(vs.map((v) => ({ id: v.id, name: v.name || 'Vault' })))
-      } catch { /* no on-device records (local-bridge) - the "Manage vaults" link still works */ }
+      } catch {
+        // The "Manage vaults" link still works; the switcher says why its list is empty (#320).
+        setVaults([])
+        setVaultsUnreadable(true)
+      }
     }
   }
 
@@ -284,6 +290,10 @@ export default function Layout() {
               <>
                 <div className="nav-more-scrim vault-scrim" onClick={() => switchD.close(true)} aria-hidden="true" />
                 <div className="vault-pop" {...switchD.panel} aria-label={t('nav.switchVault')}>
+                  {vaultsUnreadable && vaults.length === 0 && (
+                    // The switcher is a disclosure panel (#317), so the line is read in order with it.
+                    <p className="vault-pop-hint">{t('vaults.unreadTitle')}</p>
+                  )}
                   {vaults.map((v) => (
                     <button
                       key={v.id}
@@ -307,15 +317,16 @@ export default function Layout() {
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
           <div className="rail-bottom">
-            {/* Two distinct states, one persistent live region:
+            {/* Two distinct states, one persistent live region (the pill carries no role of its own,
+                or a reader announces it twice, #320):
                 • live  → green pill, bridge/helper answered
                 • offline → warn/danger pill, a real vault we can't reach right now */}
             <span className="live-status" aria-live="polite">
               {live === true ? (
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
-                <span className="live offline" role="status">
-                  <i />{locale === 'pt-BR' ? 'Offline - sem conexão com o cofre' : "Offline - can't reach your vault"}
+                <span className="live offline">
+                  <i />{t('layout.offline')}
                 </span>
               ) : null}
             </span>

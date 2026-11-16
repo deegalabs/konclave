@@ -15,7 +15,7 @@ describe('protecting the vault asks for the passphrase twice (#927)', () => {
     expect(src).toMatch(/if \(newPassphraseProblem\(savePass\) \|\| savePass !== savePass2\) return/)
     expect(src.match(/savePass2 && savePass !== savePass2 \? tt\('net\.save\.passMismatch'\) : ''/g) ?? []).toHaveLength(2)
     // The strength meter and the generator stay on the first field only.
-    expect(src).toMatch(/<PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing=\{false\}\s*label=\{tt\('net\.save\.passConfirm'\)\}/)
+    expect(src).toMatch(/<PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing=\{false\} autoComplete="new-password"\s*label=\{tt\('net\.save\.passConfirm'\)\}/)
     // A password manager is told both are a new passphrase (it must not fill the confirmation for you).
     expect(src.match(/autoComplete="new-password"/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })

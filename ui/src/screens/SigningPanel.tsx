@@ -11,7 +11,7 @@ import { seatRoster, mySeatName } from '../seat-labels'
 import { decodeBundle } from '../signing'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Dialog } from '../components'
+import { Dialog, FOCUSABLE } from '../components'
 import { Identicon, memberSeed } from '../avatar'
 import { useI18n, useT, type TFn } from '../i18n'
 import CopyButton from '../CopyButton'
@@ -407,7 +407,7 @@ export default function SigningPanel() {
   useEffect(() => {
     if (!isOpen) return
     const node = sheetRef.current
-    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    const sel = FOCUSABLE
     if (node && !node.contains(document.activeElement)) node.focus()
     function onKey(e: KeyboardEvent) {
       const k = keyState.current

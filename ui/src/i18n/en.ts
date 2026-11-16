@@ -294,6 +294,14 @@ export const en: Record<string, string> = {
   'vaults.unlockPrompt': 'Type the **vault word** to enter. It’s the password agreed among members at creation.',
   'vaults.wordPlaceholder': 'vault-word',
   'vaults.verifying': 'Verifying…',
+  'vaults.chooseEyebrow': 'Create a vault',
+  'vaults.chooseTitle': 'Where to coordinate approvals?',
+  'vaults.chooseBody': 'Where the group approvals are coordinated. No one sees your key; only the group signs.',
+  'vaults.chooseHosted': 'Konclave-hosted',
+  'vaults.chooseOwn': 'Your server',
+  'vaults.chooseLocal': 'This device only',
+  'vaults.chooseUrlPlaceholder': 'https://your-server.example.com',
+  'vaults.chooseContinue': 'Continue',
   'vaults.enterArrow': 'Enter →',
 
   // Dashboard
@@ -637,6 +645,7 @@ export const en: Record<string, string> = {
   'dashboard.membersQuorum': '{t} of {n} can sign',
   'dashboard.liveTitle': 'The vault is reachable (coordination server). This is the connection status, not how many members are online.',
   'dashboard.live': 'vault online',
+  'layout.offline': "Offline - can't reach your vault",
   'dashboard.needsYou': 'Needs you',
   'dashboard.whatProposedBy': '“{what}” · proposed by **{proposer}**',
   'dashboard.ofApprovals': '{count} of {total}',

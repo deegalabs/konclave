@@ -12,7 +12,7 @@ vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
   getVault: async () => VAULT, health: async () => true, getSelectedVault: () => 'v1', isVaultUnlocked: () => true, setSelectedVault: () => {},
 }))
-vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [{ id: 'v1', name: 'Caixa' }, { id: 'v2', name: 'Outro' }] }))
+vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [{ id: 'v1', name: 'Caixa' }, { id: 'v2', name: 'Outro' }], readVaults: async () => [{ id: 'v1', name: 'Caixa' }, { id: 'v2', name: 'Outro' }] }))
 vi.mock('./vault-lock', async (orig) => ({ ...(await orig<typeof import('./vault-lock')>()), needsUnlock: () => false, securedLocally: async () => false }))
 vi.mock('./seat-registration', () => ({ useSeatRefusalCode: () => null }))
 vi.mock('./usePoll', async (orig) => ({ ...(await orig<typeof import('./usePoll')>()), startVisiblePoll: () => () => {} }))

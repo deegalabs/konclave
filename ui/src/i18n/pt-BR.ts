@@ -294,6 +294,14 @@ export const ptBR: Record<string, string> = {
   'vaults.unlockPrompt': 'Escreva a **palavra do cofre** para entrar. É a senha combinada entre os membros na criação.',
   'vaults.wordPlaceholder': 'palavra-do-cofre',
   'vaults.verifying': 'Verificando…',
+  'vaults.chooseEyebrow': 'Criar cofre',
+  'vaults.chooseTitle': 'Onde coordenar as aprovações?',
+  'vaults.chooseBody': 'Onde as aprovações do grupo são coordenadas. Ninguém vê sua chave; só o grupo assina.',
+  'vaults.chooseHosted': 'Hospedado pela Konclave',
+  'vaults.chooseOwn': 'Seu servidor',
+  'vaults.chooseLocal': 'Só neste dispositivo',
+  'vaults.chooseUrlPlaceholder': 'https://seu-servidor.exemplo.com',
+  'vaults.chooseContinue': 'Continuar',
   'vaults.enterArrow': 'Entrar →',
 
   // Dashboard
@@ -633,6 +641,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.membersQuorum': '{t} de {n} podem assinar',
   'dashboard.liveTitle': 'O cofre está acessível (servidor de coordenação). É o status da conexão, não quantos membros estão online.',
   'dashboard.live': 'cofre online',
+  'layout.offline': 'Offline - sem conexão com o cofre',
   'dashboard.needsYou': 'Precisa de você',
   'dashboard.whatProposedBy': '“{what}” · proposto por **{proposer}**',
   'dashboard.ofApprovals': '{count} de {total}',
