@@ -22,6 +22,7 @@ const all = files(SRC).map((p) => ({ rel: relative(SRC, p), text: codeAt(p) }))
 const PR2_EXCEPTIONS: Record<string, number> = {
   'LockOverlay.tsx': 1,
   'PlainKeyNotice.tsx': 1,
+  'ProposerNotice.tsx': 1, // #591 (#1011): the proposer's unlock, added after this list was made
   'screens/BackgroundSignerLab.tsx': 1,
   'screens/NetVault.tsx': 1, // the restore row
   'screens/ReceiversRepair.tsx': 1,
