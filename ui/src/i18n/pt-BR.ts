@@ -290,6 +290,15 @@ export const ptBR: Record<string, string> = {
   'vaults.unlockPrompt': 'Escreva a **palavra do cofre** para entrar. É a senha combinada entre os membros na criação.',
   'vaults.wordPlaceholder': 'palavra-do-cofre',
   'vaults.verifying': 'Verificando…',
+  'vaults.chooseEyebrow': 'Criar cofre',
+  'vaults.chooseTitle': 'Onde coordenar as aprovações?',
+  'vaults.chooseBody': 'Onde as aprovações do grupo são coordenadas. Ninguém vê sua chave; só o grupo assina.',
+  'vaults.chooseHosted': 'Hospedado pela Konclave',
+  'vaults.chooseOwn': 'Seu servidor',
+  'vaults.chooseLocal': 'Só neste dispositivo',
+  'vaults.chooseUrlPlaceholder': 'https://seu-servidor.exemplo.com',
+  'vaults.chooseContinue': 'Continuar',
+  'layout.offline': 'Offline - sem conexão com o cofre',
   'vaults.enterArrow': 'Entrar →',
 
   // Dashboard

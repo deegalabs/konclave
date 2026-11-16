@@ -290,6 +290,15 @@ export const en: Record<string, string> = {
   'vaults.unlockPrompt': 'Type the **vault word** to enter. It’s the password agreed among members at creation.',
   'vaults.wordPlaceholder': 'vault-word',
   'vaults.verifying': 'Verifying…',
+  'vaults.chooseEyebrow': 'Create a vault',
+  'vaults.chooseTitle': 'Where to coordinate approvals?',
+  'vaults.chooseBody': 'Where the group approvals are coordinated. No one sees your key; only the group signs.',
+  'vaults.chooseHosted': 'Konclave-hosted',
+  'vaults.chooseOwn': 'Your server',
+  'vaults.chooseLocal': 'This device only',
+  'vaults.chooseUrlPlaceholder': 'https://your-server.example.com',
+  'vaults.chooseContinue': 'Continue',
+  'layout.offline': "Offline - can't reach your vault",
   'vaults.enterArrow': 'Enter →',
 
   // Dashboard
