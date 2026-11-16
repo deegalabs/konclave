@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Identicon } from './avatar'
+import { Identicon, memberSeed } from './avatar'
 import { useT } from './i18n'
 
 // The "N members" link on the vault home, with the roster and the quorum in a popover (#602). It
@@ -12,7 +12,8 @@ import { useT } from './i18n'
 
 export type PeekMember = { name: string; pubkey?: string }
 
-export default function MembersPeek({ members, thr, n, roster, creator, me }: {
+export default function MembersPeek({ vaultId, members, thr, n, roster, creator, me }: {
+  vaultId: string
   members: number
   thr: number
   n: number
@@ -44,9 +45,9 @@ export default function MembersPeek({ members, thr, n, roster, creator, me }: {
         <span className="members-pop" role="tooltip" id="members-pop" aria-hidden={!open}>
           <span className="members-pop-head">{t('dashboard.membersQuorum', { t: thr, n })}</span>
           <span className="members-pop-list">
-            {roster.map((m) => (
-              <span className="members-pop-row" key={m.pubkey || m.name}>
-                <Identicon seed={m.pubkey || m.name} size={22} />
+            {roster.map((m, i) => (
+              <span className="members-pop-row" key={i}>
+                <Identicon seed={memberSeed(vaultId, i)} size={22} />
                 <span className="members-pop-name">{m.name}</span>
                 {m.name === creator && <span className="klab members-pop-tag creator">{t('members.creatorShort')}</span>}
                 {m.name === me && <span className="klab members-pop-tag">{t('members.youShort')}</span>}

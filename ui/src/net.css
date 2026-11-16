@@ -420,3 +420,9 @@
   background: none; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text); cursor: pointer; }
 .cv-cancel:hover { border-color: var(--warn-strong); }
 .net-code.cv-invite-code.cv-invite-hidden { display: block; width: 100%; background: none; border: 1px dashed var(--line-strong); color: var(--text-muted); cursor: pointer; padding: 8px; }
+
+/* Where the member is (HostNotice). Off the official host it also says so in words; the colour is
+   the second signal, --warn-strong being the AA text colour in both themes. */
+.host-notice{margin:0 0 10px; font-size:12.5px; line-height:1.45; color:var(--text); overflow-wrap:anywhere}
+.host-notice.warn{color:var(--warn-strong); background:var(--warn-soft,rgba(181,71,8,.09)); border:1px solid var(--warn-line,rgba(181,71,8,.3)); border-radius:8px; padding:8px 11px}
+.host-notice-host{font-family:var(--font-mono); font-weight:600; overflow-wrap:anywhere}
