@@ -26,7 +26,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
 import { useT, useTr, useI18n } from '../i18n'
-import { Letterhead, PassphraseField } from '../components'
+import { Dialog, Letterhead, PassphraseField } from '../components'
 import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
@@ -1034,8 +1034,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, finished, backup])
 
+  // Delete asks first: it destroys this device's only copy of the seat's share unless a backup exists.
+  const [deleting, setDeleting] = useState<VaultPublic | null>(null)
   const doDelete = useCallback(
     async (id: string) => {
+      setDeleting(null)
       try {
         // The one removal every screen uses (#813): the record and what this device keeps with it.
         await removeVaultFromDevice(id)
@@ -1465,10 +1468,36 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 >
                   {restoreBusy === v.id ? L.unlocking : L.unlockBtn}
                 </button>
-                <button className="net-btn" onClick={() => void doDelete(v.id)}>{L.deleteBtn}</button>
+                <button className="net-btn" onClick={() => setDeleting(v)}>{L.deleteBtn}</button>
               </div>
             ))}
           </div>
+        )}
+
+        {deleting && (
+          <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="net-remove-title" focusCard
+            onClose={() => setDeleting(null)}>
+            <h2 id="net-remove-title">{ttr('dashboard.deleteConfirmTitle', { name: deleting.name ?? '' })}</h2>
+            <p className="rm-lead">{ttr('dashboard.deleteConfirmBody')}</p>
+            <div className="rm-funds">
+              <span className="rm-ic" aria-hidden="true">!</span>
+              <p>{ttr('dashboard.deleteFundsWarn')}</p>
+            </div>
+            <p className="rm-quiet">{ttr('dashboard.deleteLocalHint')}</p>
+            <button type="button" className="rm-backup" onClick={() => {
+              setSelectedVault(deleting.id)
+              nav('/settings')
+            }}>
+              {tt('dashboard.deleteBackupFirst')}
+            </button>
+            <p className="rm-quiet rm-why">{ttr('dashboard.deleteBackupWhy')}</p>
+            <div className="unlock-btns">
+              <button className="rd-enter" onClick={() => setDeleting(null)}>{tt('common.cancel')}</button>
+              <button className="rd-enter danger" onClick={() => void doDelete(deleting.id)}>
+                {tt('dashboard.deletePermanently')}
+              </button>
+            </div>
+          </Dialog>
         )}
 
         <p className="net-tip">{ttr('net.idle.tip')}</p>
