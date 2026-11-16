@@ -1729,8 +1729,19 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         {phase === 'done' && saveState === 'saved' && backup && (
           <>
             <span className="rd-eyebrow">{tt('net.backup.eyebrow')}</span>
-            <h2 className="cv-title" tabIndex={-1} ref={backupTitleRef}>{tt('net.backup.title')}</h2>
+            <h2 className="cv-title" tabIndex={-1} ref={backupTitleRef}
+              aria-describedby={!backup.complete ? 'net-backup-incomplete' : undefined}>{tt('net.backup.title')}</h2>
             <p className="cv-lead">{tt('net.backup.lead')}</p>
+            {!backup.complete && (
+              // It sits before the buttons, so reading on from the title meets it first.
+              // Silence here is what the fix is FOR. The vault registers and its read key lands
+              // asynchronously, so this copy can be written before the viewing key exists to fetch -
+              // and a backup that quietly restores the seat and not the vault leaves a member holding
+              // real spend authority over money they cannot see. Saying so costs a trip to Settings.
+              <p id="net-backup-incomplete" className="cv-warn">
+                {tt('net.backup.incomplete')}
+              </p>
+            )}
             <div className="cv-backup">
               <div className="cv-backup-file mono">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1749,15 +1760,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               {backupCopyFailed && <p className="net-tip" role="alert">{tt('copy.failedUseDownload')}</p>}
               {backupDownloadFailed && <p className="net-tip" role="alert">{tt('export.errDownload')}</p>}
             </div>
-            {!backup.complete && (
-              // Silence here is what the fix is FOR. The vault registers and its read key lands
-              // asynchronously, so this copy can be written before the viewing key exists to fetch -
-              // and a backup that quietly restores the seat and not the vault leaves a member holding
-              // real spend authority over money they cannot see. Saying so costs a trip to Settings.
-              <p className="cv-warn" role="status">
-                {tt('net.backup.incomplete')}
-              </p>
-            )}
             <button type="button" className="cv-linkbtn" onClick={openDashboard}>
               {tt('net.backup.savedOpen')}
             </button>
@@ -1783,18 +1785,19 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <p className="cv-lead" tabIndex={-1} ref={savedNoteRef}>{tt('net.save.locked')}</p>
               ) : (
                 <>
-                  <PassphraseField inputClassName="cv-input" autoFocus
-                    placeholder={tt('net.save.passLabel')}
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" autoFocus
+                    label={tt('net.save.passLabel')}
                     value={savePass} onChange={setSavePass} readOnly={passLocked} />
                   {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
-                  <PassphraseField inputClassName="cv-input" choosing={false}
-                    placeholder={tt('net.save.passConfirm')}
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing={false}
+                    label={tt('net.save.passConfirm')}
                     value={savePass2} onChange={setSavePass2} readOnly={passLocked} />
                   <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 </>
               )}
-              {saveErr && <p className="set-err" role="alert">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" ref={saveBtnRef} disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
+              {saveErr && <p className="set-err" id="net-save-err" role="alert">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" ref={saveBtnRef} aria-describedby={saveErr ? 'net-save-err' : undefined}
+                disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? tt('net.save.keyMissing')
@@ -1938,7 +1941,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </>
             ) : (
               <>
-                {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
+                {saveErr && <div className="net-error" id="net-save-err" role="alert">{saveErr}</div>}
                 <input
                   className="net-input"
                   type="password"
@@ -1966,6 +1969,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <button
                   className="net-btn"
                   ref={saveBtnRef}
+                  aria-describedby={saveErr ? 'net-save-err' : undefined}
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >

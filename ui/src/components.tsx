@@ -74,7 +74,9 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
       if (!first || !last) return
       const active = document.activeElement
       // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
-      if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
+      // So does focus left on a control that was disabled while it held it: some browsers keep it
+      // there, it is not in `f`, and the default Tab would carry it out of the dialog.
+      if (!node || !node.contains(active) || (active as HTMLElement).matches(':disabled')) { e.preventDefault(); first.focus(); return }
       // Opened on the card itself (focusCard), the first Shift+Tab starts there, not on `first`.
       if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
@@ -286,7 +288,7 @@ export function Stepper({ step }: { step: number }) {
  * are the real security lever (not the file format).
  */
 export function PassphraseField({
-  value, onChange, placeholder, inputClassName = 'input', autoFocus,
+  value, onChange, label, labelClassName = 'pf-caption', placeholder, inputClassName = 'input', autoFocus,
   /** `current-password` for a passphrase being VERIFIED, `new-password` for one being chosen.
    *  Without it a password manager cannot tell a rotation from a login and will not offer to
    *  update the stored entry - which matters most on the one vault whose only spare key is an
@@ -303,6 +305,11 @@ export function PassphraseField({
 }: {
   value: string
   onChange: (v: string) => void
+  /** The field's visible name, tied to the input here so no caller can leave it out. Not a
+   *  placeholder: that disappears as soon as the member types. */
+  label: string
+  /** Not `pf-label` (the strength text) or `pf-name` (the folhas list): both are taken. */
+  labelClassName?: string
   placeholder?: string
   inputClassName?: string
   autoFocus?: boolean
@@ -314,11 +321,14 @@ export function PassphraseField({
   invalid?: boolean
 }) {
   const t = useT()
+  const autoId = useId()
+  const inputId = id ?? autoId
   const [show, setShow] = useState(false)
   const s = scorePassphrase(value)
   const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
+      <label htmlFor={inputId} className={labelClassName}>{label}</label>
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
           field was silently inheriting that list's padding, negative margin, pointer cursor and
           hover gradient. Two components, one class prefix, different meanings. */}
@@ -333,7 +343,7 @@ export function PassphraseField({
           readOnly={readOnly}
           autoComplete={autoComplete}
           spellCheck={false}
-          id={id}
+          id={inputId}
           aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
         />

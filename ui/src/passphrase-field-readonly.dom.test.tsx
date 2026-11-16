@@ -12,13 +12,13 @@ const show = (el: React.ReactElement) => render(<I18nProvider>{el}</I18nProvider
 
 describe('PassphraseField readOnly (#928)', () => {
   it('is read-only, offers no generator, and keeps the meter', () => {
-    const { container } = show(<PassphraseField value="correct horse battery staple" onChange={noop} readOnly />)
+    const { container } = show(<PassphraseField label="Passphrase" value="correct horse battery staple" onChange={noop} readOnly />)
     expect((container.querySelector('input') as HTMLInputElement).readOnly).toBe(true)
     expect(container.querySelector('.pf-gen')).toBeNull()
     expect(container.querySelector('.pf-meter')).not.toBeNull()
   })
   it('by default is unchanged: editable, with the generator (Settings, the first field)', () => {
-    const { container } = show(<PassphraseField value="correct horse battery staple" onChange={noop} />)
+    const { container } = show(<PassphraseField label="Passphrase" value="correct horse battery staple" onChange={noop} />)
     expect((container.querySelector('input') as HTMLInputElement).readOnly).toBe(false)
     expect(container.querySelector('.pf-gen')).not.toBeNull()
   })
