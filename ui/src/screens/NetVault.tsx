@@ -317,6 +317,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // file is useless without the passphrase; the share never travels in the clear.
   const [backup, setBackup] = useState<{ json: string; name: string; complete: boolean } | null>(null)
   const [backupCopied, setBackupCopied] = useState(false)
+  const [backupCopyFailed, setBackupCopyFailed] = useState(false)
+  const [backupDownloadFailed, setBackupDownloadFailed] = useState(false)
   // #313: what the vault-address copy did, said only once the clipboard answered.
   const [addrCopy, setAddrCopy] = useState<'copied' | 'failed' | null>(null)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
@@ -980,16 +982,20 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   }, [savePass, L, refreshSaved, send, finishVault])
 
   const doBackupDownload = useCallback(() => {
-    if (backup) { downloadText(backup.name, backup.json); setBackupTaken(true) }
+    if (!backup) return
+    // Taken only when the browser took the file; a refusal is said, and Copy is beside it (#983).
+    const ok = downloadText(backup.name, backup.json)
+    setBackupDownloadFailed(!ok)
+    if (ok) setBackupTaken(true)
   }, [backup])
   const doBackupCopy = useCallback(async () => {
     if (!backup) return
-    try {
-      await navigator.clipboard.writeText(backup.json)
-      setBackupCopied(true)
-      setBackupTaken(true)
-      setTimeout(() => setBackupCopied(false), 1500)
-    } catch { /* clipboard blocked; the download button still works */ }
+    // A refused copy is said, and the download button beside it still works.
+    const ok = await copyText(backup.json)
+    setBackupCopyFailed(!ok); setBackupCopied(ok)
+    if (!ok) return
+    setBackupTaken(true)
+    setTimeout(() => setBackupCopied(false), 1500)
   }, [backup])
 
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
@@ -1731,6 +1737,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   {backupCopied ? tt('members.fpCopied') : pe('Copiar', 'Copy')}
                 </button>
               </div>
+              {backupCopyFailed && <p className="net-tip" role="alert">{tt('copy.failedUseDownload')}</p>}
+              {backupDownloadFailed && <p className="net-tip" role="alert">{tt('export.errDownload')}</p>}
             </div>
             {!backup.complete && (
               // Silence here is what the fix is FOR. The vault registers and its read key lands
