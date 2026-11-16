@@ -116,6 +116,7 @@ describe('stripComments', () => {
       'viewing-code-wrap.test.ts': 'stylesheets',
       'settings-no-index-css.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
+      'lockfile-policy.test.ts': 'pnpm-workspace.yaml',
       'changelog-gate.test.ts': 'CHANGELOG files',
       'web-manifest.test.ts': 'a .mjs script and ui/vercel.json',
       'changelog-shape.test.ts': 'CHANGELOG files',
