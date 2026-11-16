@@ -80,6 +80,20 @@ describe('a release page', () => {
     expect(ref.closest('.docs-ref')!.querySelector('.docs-ref-card')).toBeNull()
   })
 
+  // The roadmap shows each ref's GitHub state as of a snapshot. A dated release note must not: "#567,
+  // Open" inside a sentence written weeks ago would read as part of that sentence. So the state shows
+  // only where the roadmap asks for it, even for numbers the roadmap also cites.
+  it('shows no GitHub state on the issues it cites, even the ones the roadmap tracks', async () => {
+    for (const version of ['0.19.0', '0.18.0', '0.17.0']) {
+      open(version)
+      await screen.findByRole('heading', { level: 1 })
+      const titled = [...document.querySelectorAll('article .docs-ref')].filter((r) => r.querySelector('.docs-ref-card'))
+      expect(titled.length, `${version} cites a roadmap issue`).toBeGreaterThan(0)
+      expect(document.querySelectorAll('article .docs-ref-state'), version).toHaveLength(0)
+      cleanup()
+    }
+  })
+
   it('marks no docs section as the current page', async () => {
     open('0.18.0')
     await screen.findByRole('heading', { level: 1 })

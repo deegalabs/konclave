@@ -11,6 +11,7 @@ import type { Proposal } from './api'
 // screens use, and an unread list is "-", not "nothing is held".
 localStorage.setItem('konclave.locale', 'en')
 // An injected estimator with a per-destination part: no number of the real rule is typed here.
+// Revealed on purpose (#838): hidden, the figures are not in the markup, and this reads them.
 const est: FeeEstimator = (n) => 1_000 * (n + 3)
 const fee = vi.hoisted(() => ({ state: 'ready' as 'ready' | 'unavailable' | 'loading' }))
 vi.mock('./fee-estimate', async (orig) => ({
@@ -36,6 +37,7 @@ vi.mock('./seat-registration', async (orig) => ({
 }))
 const { default: Dashboard } = await import('./screens/Dashboard')
 const { I18nProvider } = await import('./i18n')
+const { RevealProvider } = await import('./reveal')
 const { fmtZecExact } = await import('./format')
 
 const open = (over: Partial<Proposal>): Proposal => ({
@@ -47,11 +49,11 @@ const open = (over: Partial<Proposal>): Proposal => ({
 function show() {
   return render(
     <MemoryRouter>
-      <I18nProvider>
+      <I18nProvider><RevealProvider initial>
         <Routes>
           <Route element={<OutletWith />}><Route index element={<Dashboard />} /></Route>
         </Routes>
-      </I18nProvider>
+      </RevealProvider></I18nProvider>
     </MemoryRouter>,
   )
 }

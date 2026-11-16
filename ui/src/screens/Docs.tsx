@@ -6,6 +6,8 @@ import { releaseLink } from '../docs/release-link'
 import { SECTIONS, type Block, type Locale } from '../docs/content'
 import IssueRef, { type IssueRefLabels } from '../docs/IssueRef'
 import type { StageStatus } from '../docs/roadmap'
+import { REFS_AS_OF } from '../docs/roadmap-refs'
+import { REF_STATE_WORDS } from '../docs/ref-state'
 import '../docs.css'
 
 // Locale-aware inline labels (kept here to avoid touching the shared i18n files).
@@ -17,7 +19,7 @@ const LABELS: Record<
     step: string
     tracked: string
     status: Record<StageStatus, string>
-    ref: { issue: string; pull: string; newTab: string; hint: string }
+    ref: IssueRefLabels
   }
 > = {
   'pt-BR': {
@@ -26,7 +28,11 @@ const LABELS: Record<
     step: 'Etapa',
     tracked: 'No GitHub',
     status: { now: 'Agora', next: 'Próximo', planned: 'Planejado', later: 'Mais adiante' },
-    ref: { issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, nova aba', hint: 'O número abre no GitHub, numa aba nova.' },
+    ref: {
+      issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, nova aba', hint: 'O número abre no GitHub, numa aba nova.',
+      states: REF_STATE_WORDS['pt-BR'],
+      asOf: `No GitHub em ${REFS_AS_OF['pt-BR']}`,
+    },
   },
   en: {
     expand: 'Expand diagram',
@@ -34,7 +40,11 @@ const LABELS: Record<
     step: 'Step',
     tracked: 'On GitHub',
     status: { now: 'Now', next: 'Next', planned: 'Planned', later: 'Later' },
-    ref: { issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, new tab', hint: 'The number opens it on GitHub, in a new tab.' },
+    ref: {
+      issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, new tab', hint: 'The number opens it on GitHub, in a new tab.',
+      states: REF_STATE_WORDS.en,
+      asOf: `On GitHub on ${REFS_AS_OF.en}`,
+    },
   },
 }
 
@@ -169,7 +179,7 @@ function renderBlock(
           <p className="docs-stage-body">{rich(st.body[loc])}</p>
           <div className="docs-stage-refs">
             <span className="docs-stage-refs-label">{L.tracked}</span>
-            {st.refs.map((r) => <IssueRef key={`${r.kind}:${r.n}`} r={r} labels={L.ref} />)}
+            {st.refs.map((r) => <IssueRef key={`${r.kind}:${r.n}`} r={r} labels={L.ref} showState />)}
           </div>
         </li>
       ))
