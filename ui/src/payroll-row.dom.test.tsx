@@ -22,7 +22,7 @@ vi.mock('./fee-estimate', async (orig) => ({
   useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
 }))
 vi.mock('./api', async (orig) => ({
-  ...(await orig<typeof import('./api')>()), createPayroll, health, getBeneficiaries, getLedger, getVault, readBalance, addBeneficiary, previewPayroll,
+  ...(await orig<typeof import('./api')>()), actingAs: async () => ({ ok: true, seat: 0, name: 'Alice' }), createPayroll, health, getBeneficiaries, getLedger, getVault, readBalance, addBeneficiary, previewPayroll,
   getProposals, getProposalDetail, IS_NET: false,
 }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [] }))

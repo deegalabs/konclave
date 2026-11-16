@@ -8,7 +8,7 @@ import { SkeletonRows } from '../skeleton'
 import ReadState from '../ReadState'
 import { lastReadFailure } from '../read-failure'
 import { startVisiblePoll } from '../usePoll'
-import { Identicon } from '../avatar'
+import { Identicon, NEUTRAL } from '../avatar'
 import { getProposals, getSelectedVault, type Proposal } from '../api'
 import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
@@ -143,7 +143,8 @@ export default function SinceLast() {
             const what = t(changeLabelKey(c))
             return (
               <li key={c.id} className={'since-row kind-' + c.kind}>
-                <Identicon seed={c.proposal.proposer} size={30} />
+                {/* No member list is read here: the neutral face, never one seeded by the name (#315). */}
+                <Identicon seed={NEUTRAL} size={30} />
                 <span className="since-main">
                   <span className="since-kind">{what}</span>
                   {/* The title is the button; the amount below stays under its bar, outside it, so the

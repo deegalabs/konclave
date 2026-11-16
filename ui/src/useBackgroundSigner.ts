@@ -10,7 +10,7 @@ import { RelaySession, relayPost, ephemeralTag } from './net'
 import { getUnlockedShare } from './session'
 import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
-import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
+import { signingRoom, signingRoomFromSecret, acquireSignerAcrossTabs, type GovernanceGate, type SignerLock } from './background-signer'
 import type { FailureCode } from './background-session'
 import type { GateDecision, PcztOutput } from './approved-payment'
 import type { SignPreview } from './signing-machine'
@@ -21,6 +21,8 @@ const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '
 
 export interface BackgroundSignerState {
   ready: boolean // the session is seated and listening on the signing room
+  /** This seat already signs in another tab or window of this browser; this one waits its turn (#285). */
+  elsewhere: boolean
   room: string
   seatCount: number
   phase: 'idle' | 'signing' | 'signed'
@@ -83,6 +85,7 @@ export function useBackgroundSigner(
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
   const [ready, setReady] = useState(false)
+  const [elsewhere, setElsewhere] = useState(false)
   const [seatCount, setSeatCount] = useState(0)
   const [phase, setPhase] = useState<'idle' | 'signing' | 'signed'>('idle')
   const [signature, setSignature] = useState<{ hex: string; ok: boolean } | null>(null)
@@ -144,7 +147,9 @@ export function useBackgroundSigner(
     const loaded = getUnlockedShare(id)
     if (!loaded) return // not unlocked in this session
     let stopped = false
-    let acquired = false
+    // Released by the cleanup in every case, synchronously, so a re-seat in this tab finds the seat
+    // free at once (#285).
+    let lock: SignerLock | null = null
     void (async () => {
       try {
         await ensureWasm()
@@ -160,11 +165,16 @@ export function useBackgroundSigner(
         // claim it makes - this device holds its share - is actually true.
         const deviceKey = deviceCommsKey(b.keyPackage)
         const myPub = devicePubHex(b.keyPackage)
-        if (!acquireSigner(id)) {
+        // The cleanup may have run while the WASM loaded: then nothing is taken, so nothing leaks.
+        if (stopped) return
+        lock = acquireSignerAcrossTabs(id, b.seat, { onBusy: () => { if (!stopped) setElsewhere(true) } })
+        if (!lock) {
           setError('another signer is already active for this vault on this device')
           return
         }
-        acquired = true
+        // Another tab of this browser signs this seat: wait for it to stop, saying so meanwhile.
+        if (!(await lock.granted) || stopped) return
+        setElsewhere(false)
         // #388: a migrated vault (every device holds S) meets in the S-room, so an id-only outsider
         // cannot compute or observe it. A pre-#388 vault (no S) stays on the group-key room. It is
         // all-or-nothing per vault (S is distributed to every seat at the DKG), so all signers agree.
@@ -226,13 +236,15 @@ export function useBackgroundSigner(
       relayRef.current?.stop()
       relayRef.current = null
       sessionRef.current = null
-      if (acquired) releaseSigner(id)
+      lock?.release()
+      setElsewhere(false)
       setReady(false)
     }
   }, [id, nonce])
 
   return {
     ready,
+    elsewhere,
     room,
     seatCount,
     armedSeats,

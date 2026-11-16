@@ -120,6 +120,18 @@ for (const theme of ['light', 'dark'] as const) {
       expect(ratio(t(fg!), t(bg!))).toBeGreaterThanOrEqual(4.5)
     })
 
+    // The notice on a host that is not the official one: text on its own wash, over the card. The
+    // fill and edge are decorative (the words carry the warning), but they must exist in BOTH themes:
+    // they were undefined, and every use fell back to a light-theme brown that vanished in dark.
+    it('the host notice clears AA on its warning wash, and the wash and edge are defined', () => {
+      const wash = over(t('warn-soft'), well())
+      expect(ratio(t('warn-strong'), wash)).toBeGreaterThanOrEqual(4.5)
+      expect(ratio(t('text'), wash)).toBeGreaterThanOrEqual(4.5)
+      expect(t('warn-line')).toMatch(/^rgba\(/)
+      // Visible against the card in dark too, not just there in the stylesheet.
+      expect(ratio(over(t('warn-line'), wash), well())).toBeGreaterThan(1.3)
+    })
+
     it('the network pill clears AA on its own wash', () => {
       expect(ratio(t('accent-on-soft'), accentCard())).toBeGreaterThanOrEqual(4.5)
     })
@@ -149,9 +161,27 @@ for (const theme of ['light', 'dark'] as const) {
         ['"now" pill on its wash', t(docsTextToken('.docs-stage[data-status="now"] .docs-stage-status')), washOnCard],
         ['title on the card', t(docsTextToken('.docs-ref-title')), stageCard],
         ['hint on the card', t(docsTextToken('.docs-ref-hint')), stageCard],
+        ['open state on the well', t(docsTextToken('.docs-ref-state[data-state="open"]')), well()],
+        ['open state on the wash, hovered', t(docsTextToken('.docs-ref-state[data-state="open"]')), washOnCard],
+        ['other state on the well', t(docsTextToken('.docs-ref-state')), well()],
+        ['other state on the wash, hovered', t(docsTextToken('.docs-ref-state')), washOnCard],
+        ['separator on the well', t(docsTextToken('.docs-ref-sep')), well()],
+        ['GitHub date on the card', t(docsTextToken('.docs-ref-asof')), stageCard],
       ] as const) {
         expect(ratio(fg, bg), name).toBeGreaterThanOrEqual(4.5)
       }
+    })
+
+    // The roadmap's GitHub state stands out by weight and ink, never by hue: green or purple would say
+    // "done", and closed or merged on GitHub is not live. "Open", most of the page, is the quiet one.
+    it('the roadmap state uses the neutral inks only, with "open" the quiet one', () => {
+      expect(docsTextToken('.docs-ref-state[data-state="open"]')).toBe('text-muted')
+      expect(docsTextToken('.docs-ref-state')).toBe('text')
+      const rules = [...docsCss.matchAll(/\.docs-ref-state[^{]*\{[^}]*\}/g)].map((m) => m[0])
+      expect(rules.length).toBeGreaterThan(0)
+      for (const r of rules) expect(r, r).not.toMatch(/success|danger|warn|accent|#[0-9a-f]{3,8}\b|rgb|hsl/i)
+      expect(/\.docs-ref-state\[data-state="open"\]\s*\{[^}]*font-weight:\s*400/.test(docsCss)).toBe(true)
+      expect(/\.docs-ref-state\s*\{[^}]*font-weight:\s*600/.test(docsCss)).toBe(true)
     })
 
     // 1.4.11: the edge that says "this is a control". The audit proposed a value for this that
