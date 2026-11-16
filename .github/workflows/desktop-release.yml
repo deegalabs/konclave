@@ -251,6 +251,10 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")" || { echo "HEAD is not $TAG"; exit 1; }
+          # The attestation names the commit the run started from (GITHUB_SHA). A manual run started
+          # from a branch would attest that commit for a manifest built from the tag, so a manual run
+          # must be started from the tag itself ("Use workflow from" the tag).
+          test "$GITHUB_SHA" = "$(git rev-parse HEAD)" || { echo "this run started from $GITHUB_SHA, not $TAG: start it from the tag"; exit 1; }
           version=$(node -p "require('./ui/package.json').version")
           test "$TAG" = "v$version" || { echo "tag $TAG is not v$version (ui/package.json)"; exit 1; }
 

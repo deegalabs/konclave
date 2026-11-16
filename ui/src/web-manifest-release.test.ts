@@ -28,6 +28,8 @@ describe('the web manifest in the release workflow (#605)', () => {
     expect(w).toMatch(/ref: \$\{\{ inputs\.tag \|\| github\.ref \}\}/)
     expect(w).toMatch(/test "\$\(git rev-parse HEAD\)" = "\$\(git rev-parse "refs\/tags\/\$TAG\^\{commit\}"\)"/)
     expect(w).toMatch(/test "\$TAG" = "v\$version"/)
+    // The attestation names GITHUB_SHA: a run started anywhere but the tag is refused.
+    expect(w).toMatch(/test "\$GITHUB_SHA" = "\$\(git rev-parse HEAD\)"/)
   })
 
   it('builds the web app twice and fails when the two manifests differ', () => {
