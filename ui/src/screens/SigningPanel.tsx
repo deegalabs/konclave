@@ -11,8 +11,8 @@ import { seatRoster, mySeatName } from '../seat-labels'
 import { decodeBundle } from '../signing'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Dialog } from '../components'
-import { Identicon } from '../avatar'
+import { Dialog, FOCUSABLE } from '../components'
+import { Identicon, memberSeed } from '../avatar'
 import { useI18n, useT, type TFn } from '../i18n'
 import CopyButton from '../CopyButton'
 import { useToast } from '../toast'
@@ -407,7 +407,7 @@ export default function SigningPanel() {
   useEffect(() => {
     if (!isOpen) return
     const node = sheetRef.current
-    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    const sel = FOCUSABLE
     if (node && !node.contains(document.activeElement)) node.focus()
     function onKey(e: KeyboardEvent) {
       const k = keyState.current
@@ -538,7 +538,7 @@ export default function SigningPanel() {
 
   const stageNote = connecting ? (unlocking ? t('signing.loadingUnlock') : t('signing.connecting'))
     : started || !!result || armed || !hasShare || !plan || errMsg ? ''
-    : !bg.ready ? t('signing.opening')
+    : !bg.ready ? t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')
     : !quorumHere ? t('signing.waiting')
     : t('signing.readyToSend')
 
@@ -821,9 +821,9 @@ export default function SigningPanel() {
               {roster.map((m, i) => (
                 <span
                   className={'sign-seat' + (presentFlags[i] ? ' on' : '') + (rosterSigned.includes(i + 1) ? ' signed' : '')}
-                  key={m.pubkey || m.name}
+                  key={i}
                 >
-                  <Identicon seed={m.pubkey || m.name} size={22} />
+                  <Identicon seed={memberSeed(vault?.id ?? '', i)} size={22} />
                   <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
                   {rosterSigned.includes(i + 1) && (
                     <>
@@ -953,7 +953,7 @@ export default function SigningPanel() {
               </button>
             </div>
           ) : !bg.ready ? (
-            <div className="confirm">{t('signing.opening')}</div>
+            <div className="confirm">{t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')}</div>
           ) : !quorumHere ? (
             <>
               <div className="confirm">{t('signing.waiting')}</div>

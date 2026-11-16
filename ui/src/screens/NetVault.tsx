@@ -4,8 +4,9 @@ import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { proposalsReadable, type HostedState, type NetPhase } from '../net-proposals'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault, getSelectedVault } from '../api'
+import { setSelectedVault, getSelectedVault, shortAddr } from '../api'
 import CopyButton from '../CopyButton'
+import { copyText } from '../clipboard'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import {
   DeviceKey,
@@ -26,7 +27,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
 import { useT, useTr, useI18n } from '../i18n'
-import { Letterhead, PassphraseField } from '../components'
+import { Letterhead, PassphraseField, VaultPassForm, VaultPassInput } from '../components'
 import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
@@ -41,6 +42,7 @@ import {
 } from '../storage'
 import { downloadText } from '../download'
 import { removeVaultFromDevice } from '../remove-vault'
+import { RemoveVaultDialog } from '../remove-vault-dialog'
 import {
   helperConfigured,
   helperBase,
@@ -57,6 +59,7 @@ import '../net.css'
 import { CREATION_PROTOCOL, creationVerdict } from '../creation-protocol'
 import { CREATE_DEVICE_CAP, noMarginWarning } from '../create-rule'
 import { WALLET_BUSY } from '../helper'
+import { HostNotice } from '../HostNotice'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
@@ -153,6 +156,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
     return (
       <div className="rd net-embedded">
         <span id="create-title" className="sr-only">{t('vaults.createDialogTitle')}</span>
+        <HostNotice alert={!error} />
         {error && <div className="net-error" role="alert">{error}</div>}
         {children}
       </div>
@@ -170,6 +174,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
         <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
         <p className="demo-note">{t('net.frame.note')}</p>
       </div>
+      <HostNotice alert={!error} />
       {error && <div className="net-error" role="alert">{error}</div>}
       {children}
     </div>
@@ -259,6 +264,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
+  // What a password manager files the new passphrase under (#929): the SAME name `doSave` stores
+  // (`config.vn`, the creation name, equal on every member's device) and the vault id, so the
+  // unlock screen later builds the same username from the record. Hoisted: refs are read at call time.
+  function createPassVault() {
+    return groupVk ? { name: ceremonyRef.current?.config?.vn, id: groupVk } : null
+  }
   // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band (short,
   // human-comparable code of the group verifying key). Shown on the create-done step - the moment
   // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
@@ -290,6 +301,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
+  // #927: typed twice; a typo in the passphrase that protects a share locks its owner out.
+  const [savePass2, setSavePass2] = useState('')
   // A member saves only once it holds the vault's access secret S (the creator mints its own): a
   // member saved without S would lose the vault's reads the moment its read gate turns on.
   const [hasSecret, setHasSecret] = useState(false)
@@ -306,6 +319,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // file is useless without the passphrase; the share never travels in the clear.
   const [backup, setBackup] = useState<{ json: string; name: string; complete: boolean } | null>(null)
   const [backupCopied, setBackupCopied] = useState(false)
+  const [backupCopyFailed, setBackupCopyFailed] = useState(false)
+  const [backupDownloadFailed, setBackupDownloadFailed] = useState(false)
+  // #313: what the vault-address copy did, said only once the clipboard answered.
+  const [addrCopy, setAddrCopy] = useState<'copied' | 'failed' | null>(null)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
   const [restorePass, setRestorePass] = useState<Record<string, string>>({})
   const [restoreBusy, setRestoreBusy] = useState('')
@@ -897,7 +914,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       setSaveErr(L.unavailable)
       return
     }
-    if (newPassphraseProblem(savePass)) return
+    if (newPassphraseProblem(savePass) || savePass !== savePass2) return
     const dkg = dkgRef.current
     // A member may save its share as soon as its own round 3 is done; only the address waits for
     // every member (see finishVault).
@@ -950,6 +967,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (cer.aborted) {
         await stopCreation(vaultId, cer.aborted)
         savedRef.current = null
+        savePassRef.current = '' // onAbort cleared it before it was set here
         setSaveState('idle')
         return
       }
@@ -958,25 +976,30 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (cer.complete && !part3DoneRef.current) void finishVault()
       else setWaiting(cer.waitingFor())
       setSaveState('saved')
-      setSavePass('')
+      setSavePass(''); setSavePass2('')
       await refreshSaved()
     } catch (e) {
       setSaveState('idle')
+      savePassRef.current = '' // a failed save keeps no passphrase for a backup that will not be built
       setSaveErr(L.saveErr + String(e))
     }
-  }, [savePass, L, refreshSaved, send, finishVault])
+  }, [savePass, savePass2, L, refreshSaved, send, finishVault])
 
   const doBackupDownload = useCallback(() => {
-    if (backup) { downloadText(backup.name, backup.json); setBackupTaken(true) }
+    if (!backup) return
+    // Taken only when the browser took the file; a refusal is said, and Copy is beside it (#983).
+    const ok = downloadText(backup.name, backup.json)
+    setBackupDownloadFailed(!ok)
+    if (ok) setBackupTaken(true)
   }, [backup])
   const doBackupCopy = useCallback(async () => {
     if (!backup) return
-    try {
-      await navigator.clipboard.writeText(backup.json)
-      setBackupCopied(true)
-      setBackupTaken(true)
-      setTimeout(() => setBackupCopied(false), 1500)
-    } catch { /* clipboard blocked; the download button still works */ }
+    // A refused copy is said, and the download button beside it still works.
+    const ok = await copyText(backup.json)
+    setBackupCopyFailed(!ok); setBackupCopied(ok)
+    if (!ok) return
+    setBackupTaken(true)
+    setTimeout(() => setBackupCopied(false), 1500)
   }, [backup])
 
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
@@ -1034,18 +1057,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, finished, backup])
 
-  const doDelete = useCallback(
-    async (id: string) => {
-      try {
-        // The one removal every screen uses (#813): the record and what this device keeps with it.
-        await removeVaultFromDevice(id)
-        await refreshSaved()
-      } catch {
-        /* deletion failure is non-fatal */
-      }
-    },
-    [refreshSaved],
-  )
+  // Delete asks first: it destroys this device's only copy of the seat's share unless a backup exists.
+  const [deleting, setDeleting] = useState<VaultPublic | null>(null)
 
   // Leaving now would lose this creation (creation-guard): tell the host, warn on reload, and ask
   // before an explicit or stray close.
@@ -1055,6 +1068,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const backupPending = !!backup && !backupTaken
   const [leaving, setLeaving] = useState(false)
   const leaveRef = useRef<HTMLDivElement>(null)
+  // Where focus goes when the passphrase fields leave the screen (saved), and when that screen is
+  // replaced by the backup one: the pressed field or button is gone or disabled, and focus would
+  // fall to the top of the dialog. Moved once, on the switch; no live region (WaitLine is the one) (#928).
+  const savedNoteRef = useRef<HTMLParagraphElement>(null)
+  const backupTitleRef = useRef<HTMLHeadingElement>(null)
+  const saveBtnRef = useRef<HTMLButtonElement>(null)
+  // The same ref serves both forms (only one renders). Once saved, a leave question opened while
+  // saving is stale: busy is over, and it would pop up unasked when the backup arrives.
+  useEffect(() => { if (saveState === 'saved') { savedNoteRef.current?.focus(); setLeaving(false) } }, [saveState])
+  // A failed save re-enables the form: say so (role="alert" on the line) and put focus back on the button.
+  useEffect(() => { if (saveErr && saveState === 'idle') saveBtnRef.current?.focus() }, [saveErr, saveState])
+  useEffect(() => { if (backup) backupTitleRef.current?.focus() }, [backup])
   const allowUnloadRef = useRef(false) // the app's own reload, offered on purpose, does not warn
   // Each attempt to close (Esc, backdrop) means what `closeIntent` says: during a creation it opens
   // the question (and the next one answers "keep creating"); once finished it opens the new vault,
@@ -1166,67 +1191,64 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   if (phase === 'idle' && embedded && showJoin) {
     return (
       <Shell error={error} embedded>
-        <span className="rd-eyebrow">{pe('ENTRAR NUM COFRE', 'JOIN A VAULT')}</span>
-        <h2 className="cv-title">{pe('Entrar com um convite', 'Join with an invite')}</h2>
+        <span className="rd-eyebrow">{tt('net.join.eyebrow')}</span>
+        <h2 className="cv-title">{tt('net.join.joinWithAnInvite')}</h2>
         <p className="cv-lead">{inviteFromLink
-          ? pe('O convite veio do link. Diga o seu nome e digite o PIN que você recebeu por outro caminho para entrar no cofre com os outros aparelhos.', 'The invite came from your link. Enter your name and type the PIN you received another way to join the vault with the other devices.')
-          : pe('Você recebeu um convite e, por outro caminho, um PIN. Diga o seu nome, cole o convite e digite o PIN para entrar no cofre com os outros aparelhos.', 'You received an invite and, another way, a PIN. Enter your name, paste the invite and type the PIN to join the vault with the other devices.')}</p>
+          ? tt('net.join.leadFromLink')
+          : tt('net.join.leadPaste')}</p>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-name">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</label>
-          <input id="cv-join-name" ref={joinNameRef} required className="cv-nameinput" type="text" maxLength={30} placeholder={pe('ex.: Bob', 'e.g. Bob')}
+          <label className="cv-k" htmlFor="cv-join-name">{tt('net.yourNameLabel')}</label>
+          <input id="cv-join-name" ref={joinNameRef} required className="cv-nameinput" type="text" maxLength={30} placeholder={tt('net.join.namePlaceholder')}
             value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus={!inviteFromLink} />
         </div>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-invite">{pe('Convite (link ou código)', 'Invite (link or code)')}</label>
+          <label className="cv-k" htmlFor="cv-join-invite">{tt('net.join.inviteLabel')}</label>
           <input id="cv-join-invite" ref={joinInviteRef} required aria-invalid={!!joinCode.trim() && !parseInvite(joinCode)} className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }}
             autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-describedby={inviteFromLink ? "cv-join-invite-hint cv-join-from-link" : "cv-join-invite-hint"}
-            placeholder={pe('cole o link ou o código', 'paste the link or the code')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
+            placeholder={tt('net.join.invitePlaceholder')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
           <span className="cv-govnote" id="cv-join-invite-hint" role="status">
-            {joinCode.trim() && !parseInvite(joinCode) ? pe('Isso não parece um convite completo: confira se colou tudo.', 'That does not look like a whole invite: check you pasted all of it.') : ''}
+            {joinCode.trim() && !parseInvite(joinCode) ? tt('net.join.inviteIncomplete') : ''}
           </span>
           {inviteFromLink && parseInvite(joinCode) && (
-            <span className="cv-govnote" id="cv-join-from-link">{pe('Preenchido pelo link do convite.', 'Filled from your invite link.')}</span>
+            <span className="cv-govnote" id="cv-join-from-link">{tt('net.join.inviteFromLink')}</span>
           )}
         </div>
         <div className="cv-field cv-name">
-          <label className="cv-k" htmlFor="cv-join-pin">{pe('PIN da sala (você recebeu separado, numa ligação)', 'Room PIN (you got it separately, on a call)')}</label>
+          <label className="cv-k" htmlFor="cv-join-pin">{tt('net.join.pinLabel')}</label>
           <input id="cv-join-pin" ref={joinPinRef} aria-invalid={joinProblem ? true : undefined} aria-describedby="cv-join-pin-hint cv-join-pin-note cv-join-pin-err" className="cv-nameinput" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
             value={pin} onChange={(e) => setPin(e.target.value)} />
-          <span className="cv-govnote" id="cv-join-pin-hint">{pe('Normalmente 13 dígitos, como quem criou disse. Os espaços não importam.', "Usually 13 digits, as the creator said them. Spaces don't matter.")}</span>
-          <span className="cv-govnote" id="cv-join-pin-note">{joinNote ? pe(`Este PIN tem ${joinNote} dígitos. O que o app gera tem 13: confira se ouviu todos.`, `This PIN has ${joinNote} digits. The one the app makes has 13: check you heard them all.`) : ''}</span>
+          <span className="cv-govnote" id="cv-join-pin-hint">{tt('net.join.pinHint')}</span>
+          <span className="cv-govnote" id="cv-join-pin-note">{joinNote ? tt('net.join.pinShort', { n: joinNote }) : ''}</span>
           <PinErr id="cv-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
         </div>
         {(() => {
           const missing = [
-            !myName.trim() && pe('o seu nome', 'your name'),
-            !parseInvite(joinCode) && pe('o convite', 'the invite'),
-            !pinIsLongEnough(pin) && pe('o PIN da sala', 'the room PIN'),
+            !myName.trim() && tt('net.join.yourName'),
+            !parseInvite(joinCode) && tt('net.join.theInvite'),
+            !pinIsLongEnough(pin) && tt('net.join.theRoomPin'),
           ].filter(Boolean) as string[]
           // Always in the page, emptied when nothing is missing: a live region inserted together with
           // its text is often not announced.
           return (
             <p className="cv-govnote" id="cv-join-why" role="status">
-              {missing.length > 0 ? pe(`Para entrar, falta: ${missing.join(', ')}.`, `To join, fill in ${missing.join(', ')}.`) : ''}
+              {missing.length > 0 ? tt('net.join.missing', { list: missing.join(', ') }) : ''}
             </p>
           )
         })()}
         <button className="rd-enter primary cv-primary" aria-describedby="cv-join-why" disabled={!myName.trim() || !parseInvite(joinCode) || !pinIsLongEnough(pin) || joinProblem !== null}
           onClick={() => { setRole('join'); void begin('join', parseInvite(joinCode)!, n, t, pin) }}>
-          {pe('Entrar no cofre', 'Join the vault')}
+          {tt('net.join.joinTheVault')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(false)}>
-          ← {pe('Criar um cofre novo', 'Create a new vault')}
+          ← {tt('net.create.createANewVault')}
         </button>
       </Shell>
     )
   }
   if (phase === 'idle' && embedded) {
-    const approveWord = t === 1 ? pe('aprovar', 'approves') : pe('aprovarem', 'approve')
-    const memberWord = n === 1 ? pe('membro', 'member') : pe('membros', 'members')
-    const trustSentence = pe(
-      `Dinheiro só sai quando ${t} de ${n} ${memberWord} ${approveWord}. Ninguém envia sozinho.`,
-      `Money moves only when ${t} of ${n} ${memberWord} ${approveWord}. No one sends alone.`,
-    )
+    const approveWord = t === 1 ? tt('net.create.approves') : tt('net.create.approve')
+    const memberWord = n === 1 ? tt('net.create.member') : tt('net.create.members')
+    const trustSentence = tt('net.create.trustSentence', { t, n, memberWord, approveWord })
     return (
       <Shell error={error} embedded>
         <div className="cv-steps" aria-hidden="true">
@@ -1236,62 +1258,62 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {createStep === 1 && (
           <>
-            <span className="rd-eyebrow">{pe('PASSO 1 DE 2 · NOME', 'STEP 1 OF 2 · NAME')}</span>
-            <h2 className="cv-title">{pe('Como se chama o cofre?', 'What’s the vault called?')}</h2>
-            <p className="cv-lead">{pe('Um nome pra vocês reconhecerem. Dá pra mudar depois.', 'A name you’ll recognize. You can change it later.')}</p>
+            <span className="rd-eyebrow">{tt('net.create.step1')}</span>
+            <h2 className="cv-title">{tt('net.create.nameTitle')}</h2>
+            <p className="cv-lead">{tt('net.create.nameLead')}</p>
             <div className="cv-field cv-name">
-              <label className="cv-k" htmlFor="cv-vault-name">{pe('Nome do cofre', 'Vault name')}</label>
+              <label className="cv-k" htmlFor="cv-vault-name">{tt('net.create.vaultName')}</label>
               <input id="cv-vault-name" className="cv-nameinput" type="text" maxLength={40} autoFocus
-                placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
+                placeholder={tt('net.create.vaultNamePlaceholder')}
                 value={vaultName}
                 onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
             </div>
             <div className="cv-field cv-name">
-              <label className="cv-k" htmlFor="cv-create-name">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</label>
+              <label className="cv-k" htmlFor="cv-create-name">{tt('net.yourNameLabel')}</label>
               <input id="cv-create-name" required className="cv-nameinput" type="text" maxLength={30}
-                placeholder={pe('ex.: Alice', 'e.g. Alice')}
+                placeholder={tt('net.create.namePlaceholder')}
                 value={myName}
                 onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
             </div>
             <p className="cv-govnote" id="cv-create-why" role="status">
-              {!myName.trim() ? pe('Para seguir, diga o seu nome: os outros membros vão vê-lo.', 'To go on, fill in your name: the other members will see it.') : ''}
+              {!myName.trim() ? tt('net.create.nameMissing') : ''}
             </p>
             <button className="rd-enter primary cv-primary" disabled={!myName.trim()} aria-describedby="cv-create-why" onClick={() => { setMadePin(generateRoomPin()); setCreateStep(2) }}>
-              {pe('Continuar →', 'Continue →')}
+              {tt('net.create.continue')}
             </button>
             <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-              {pe('Tenho um convite? Entrar', 'Have an invite? Join')}
+              {tt('net.create.haveInvite')}
             </button>
           </>
         )}
 
         {createStep === 2 && (
           <>
-            <button type="button" className="cv-back" onClick={() => setCreateStep(1)}>{pe('← Voltar', '← Back')}</button>
-            <span className="rd-eyebrow">{pe('PASSO 2 DE 2 · REGRA', 'STEP 2 OF 2 · RULE')}</span>
-            <h2 className="cv-title">{pe('Quem precisa aprovar?', 'Who needs to approve?')}</h2>
-            <p className="cv-lead">{pe('Quantas pessoas, e quantas assinam pra mover dinheiro.', 'How many people, and how many sign to move money.')}</p>
+            <button type="button" className="cv-back" onClick={() => setCreateStep(1)}>{tt('net.create.back')}</button>
+            <span className="rd-eyebrow">{tt('net.create.step2')}</span>
+            <h2 className="cv-title">{tt('net.create.whoNeedsToApprove')}</h2>
+            <p className="cv-lead">{tt('net.create.ruleLead')}</p>
 
             <div className="cv-controls">
               <div className="cv-field">
-                <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
+                <span className="cv-k">{tt('net.create.devices')}</span>
                 <div className="cv-stepper">
-                  <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos aparelhos', 'fewer devices')}
+                  <button type="button" className="cv-step" disabled={n <= 2} aria-label={tt('net.create.fewerDevices')}
                     onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
                   <span className="cv-num">{n}</span>
-                  <button type="button" className="cv-step" disabled={n >= CREATE_DEVICE_CAP} aria-label={pe('mais aparelhos', 'more devices')}
+                  <button type="button" className="cv-step" disabled={n >= CREATE_DEVICE_CAP} aria-label={tt('net.create.moreDevices')}
                     onClick={() => setN(n + 1)}>+</button>
                 </div>
               </div>
               <div className="cv-field">
-                <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
+                <span className="cv-k">{tt('net.create.signingQuorum')}</span>
                 <div className="cv-stepper">
                   {/* Never below 2: the threshold library refuses a quorum of 1, and the sentence
                       under this control promises that no one sends alone. */}
-                  <button type="button" className="cv-step" disabled={t <= 2} aria-label={pe('quórum menor', 'lower quorum')}
+                  <button type="button" className="cv-step" disabled={t <= 2} aria-label={tt('net.create.lowerQuorum')}
                     onClick={() => setT(t - 1)}>−</button>
-                  <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
-                  <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('quórum maior', 'higher quorum')}
+                  <span className="cv-num">{t} <em>{tt('net.create.of')} {n}</em></span>
+                  <button type="button" className="cv-step" disabled={t >= n} aria-label={tt('net.create.higherQuorum')}
                     onClick={() => setT(t + 1)}>+</button>
                 </div>
               </div>
@@ -1301,42 +1323,40 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
             {n === t && (
               <div className="cv-warn" role="note">
-                <span className="cv-warn-tag">{pe('Sem margem de recuperação', 'No recovery margin')}</span>
+                <span className="cv-warn-tag">{tt('net.create.noRecoveryMargin')}</span>
                 {noMarginWarning(t, pe)}
               </div>
             )}
 
             <button type="button" className="cv-adv" aria-expanded={advOpen} onClick={() => setAdvOpen((v) => !v)}>
-              {advOpen ? '⌄' : '›'} {pe('Avançado (governança)', 'Advanced (governance)')}
+              {advOpen ? '⌄' : '›'} {tt('net.create.advancedGovernance')}
             </button>
             {advOpen && (
               <>
                 <div className="cv-field cv-gov">
-                  <span className="cv-k">{pe('Governança', 'Governance')}</span>
-                  <div className="cv-seg" role="radiogroup" aria-label={pe('Governança', 'Governance')}>
+                  <span className="cv-k">{tt('net.create.governance')}</span>
+                  <div className="cv-seg" role="radiogroup" aria-label={tt('net.create.governance')}>
                     <button type="button" role="radio" aria-checked={governance === 'quorum'}
                       className={'cv-segbtn' + (governance === 'quorum' ? ' on' : '')}
                       onClick={() => { setGovernance('quorum'); governanceRef.current = 'quorum' }}>
-                      {pe('Sob quórum', 'Quorum-gated')}
+                      {tt('net.create.quorumGated')}
                     </button>
                     <button type="button" role="radio" aria-checked={governance === 'open'}
                       className={'cv-segbtn' + (governance === 'open' ? ' on' : '')}
                       onClick={() => { setGovernance('open'); governanceRef.current = 'open' }}>
-                      {pe('Aberto', 'Open')}
+                      {tt('net.create.open')}
                     </button>
                   </div>
                   <span className="cv-govnote">{governance === 'quorum'
-                    ? pe('Mudar nomes e beneficiários é decisão do grupo. Mover fundos sempre exige o quórum.',
-                         'Changing names and beneficiaries is a group decision. Moving funds always needs the quorum.')
-                    : pe('Qualquer membro edita nomes e beneficiários. Mover fundos sempre exige o quórum.',
-                         'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
+                    ? tt('net.create.govQuorumNote')
+                    : tt('net.create.govOpenNote')}</span>
                 </div>
 
               </>
             )}
 
             <div className="cv-field cv-gov">
-              <label className="cv-k" htmlFor={ownPin ? 'cv-create-pin' : 'cv-create-pin-made'}>{pe('PIN da sala', 'Room PIN')}</label>
+              <label className="cv-k" htmlFor={ownPin ? 'cv-create-pin' : 'cv-create-pin-made'}>{tt('net.create.roomPin')}</label>
               {ownPin ? (
                 <input id="cv-create-pin" ref={ownInputRef} className="cv-nameinput" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
                   aria-invalid={createProblem ? true : undefined} aria-describedby="cv-create-pin-help cv-create-pin-err" value={ownText} onChange={(e) => setOwnText(e.target.value)} />
@@ -1344,17 +1364,17 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <MadePin id="cv-create-pin-made" value={madePin} onNew={newMadePin} newRef={newPinRef} pe={pe} />
               )}
               <span className="cv-govnote" id="cv-create-pin-help">{ownPin
-                ? pe('Escolha pelo menos 6 caracteres, de preferência mais, e nada de datas ou palavras. Um PIN inventado é mais fácil de adivinhar que o do app. Diga-o a cada membro numa ligação, nunca junto com o convite.', 'Choose at least 6 characters, ideally longer and not a date or a word. A PIN you make up is easier to guess than the one the app made. Say it to each member on a call, never with the invite.')
-                : pe('Diga este PIN a cada membro numa ligação. Nunca mande junto com o convite: quem tiver os dois pode ocupar um lugar neste cofre. Os espaços não importam.', "Say this PIN to each member on a call. Never send it with the invite: whoever has both can take a seat in this vault. Spaces don't matter.")}</span>
+                ? tt('net.create.pinChooseHint')
+                : tt('net.create.pinSayHint')}</span>
               <PinErr id="cv-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
               <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
-                {ownPin ? pe('Usar o PIN que o app gerou', 'Use the PIN the app made') : pe('Escolher meu próprio PIN', 'Choose my own PIN instead')}
+                {ownPin ? tt('net.create.pinUseGenerated') : tt('net.create.pinChooseOwn')}
               </button>
             </div>
 
             <button className="rd-enter primary cv-primary" aria-describedby="cv-create-pin-help" disabled={!createPinOk}
               onClick={() => { setRole('create'); setPin(createPin); void begin('create', newInviteCode(), n, t, createPin) }}>
-              {pe('Gerar convite', 'Generate invite')}
+              {tt('net.create.generateInvite')}
             </button>
           </>
         )}
@@ -1390,7 +1410,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </select>
             </label>
             <div className="net-row">
-              <span id="net-create-pin-label">{pe('PIN da sala', 'Room PIN')}</span>
+              <span id="net-create-pin-label">{tt('net.create.roomPin')}</span>
               {ownPin ? (
                 <input ref={ownInputRef} className="net-input" type="text" maxLength={24} required autoComplete="off" autoCorrect="off" spellCheck={false}
                   aria-labelledby="net-create-pin-label" aria-invalid={createProblem ? true : undefined} aria-describedby="net-create-pin-hint net-create-pin-err" value={ownText} onChange={(e) => setOwnText(e.target.value)} />
@@ -1399,11 +1419,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               )}
             </div>
             <p id="net-create-pin-hint">{ownPin
-              ? pe('Escolha pelo menos 6 caracteres, de preferência mais, e nada de datas ou palavras. Um PIN inventado é mais fácil de adivinhar que o do app. Diga-o a cada membro numa ligação, nunca junto com o convite.', 'Choose at least 6 characters, ideally longer and not a date or a word. A PIN you make up is easier to guess than the one the app made. Say it to each member on a call, never with the invite.')
-              : pe('Diga este PIN a cada membro numa ligação. Nunca mande junto com o convite: quem tiver os dois pode ocupar um lugar neste cofre. Os espaços não importam.', "Say this PIN to each member on a call. Never send it with the invite: whoever has both can take a seat in this vault. Spaces don't matter.")}</p>
+              ? tt('net.create.pinChooseHint')
+              : tt('net.create.pinSayHint')}</p>
             <PinErr id="net-create-pin-err" text={createProblem ? pe(createProblem.pt, createProblem.en) : ''} pe={pe} />
             <button type="button" className="cv-linkbtn" onClick={toggleOwn}>
-              {ownPin ? pe('Usar o PIN que o app gerou', 'Use the PIN the app made') : pe('Escolher meu próprio PIN', 'Choose my own PIN instead')}
+              {ownPin ? tt('net.create.pinUseGenerated') : tt('net.create.pinChooseOwn')}
             </button>
             <button
               className="net-btn primary"
@@ -1420,17 +1440,17 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{tt('net.idle.joinDesc')}</p>
             <input
               className="net-input"
-              aria-label={pe('Convite (link ou código)', 'Invite (link or code)')}
+              aria-label={tt('net.join.inviteLabel')}
               autoCapitalize="characters" autoCorrect="off" spellCheck={false}
               placeholder={tt('net.idle.joinPlaceholder')}
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
             />
-            <input className="net-input" type="text" maxLength={24} required placeholder={pe('PIN', 'PIN')}
-              aria-label={pe('PIN da sala', 'Room PIN')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
+            <input className="net-input" type="text" maxLength={24} required placeholder={tt('net.join.pinWord')}
+              aria-label={tt('net.create.roomPin')} aria-invalid={joinProblem ? true : undefined} aria-describedby="net-join-pin-hint net-join-pin-note net-join-pin-err" autoComplete="off" autoCorrect="off" spellCheck={false}
               value={pin} onChange={(e) => setPin(e.target.value)} />
-            <p id="net-join-pin-hint">{pe('Normalmente 13 dígitos, como quem criou disse. Os espaços não importam.', "Usually 13 digits, as the creator said them. Spaces don't matter.")}</p>
-            <p id="net-join-pin-note">{joinNote ? pe(`Este PIN tem ${joinNote} dígitos. O que o app gera tem 13: confira se ouviu todos.`, `This PIN has ${joinNote} digits. The one the app makes has 13: check you heard them all.`) : ''}</p>
+            <p id="net-join-pin-hint">{tt('net.join.pinHint')}</p>
+            <p id="net-join-pin-note">{joinNote ? tt('net.join.pinShort', { n: joinNote }) : ''}</p>
             <PinErr id="net-join-pin-err" text={joinProblem ? pe(joinProblem.pt, joinProblem.en) : ''} pe={pe} />
             <button
               className="net-btn"
@@ -1445,11 +1465,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {savedVaults.length > 0 && (
           <div className="net-card" style={{ marginTop: 16 }}>
-            <h3>{L.restoreTitle}</h3>
+            <h3 id="net-restore-title" tabIndex={-1} style={{ outline: 'none' }}>{L.restoreTitle}</h3>
             {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <code style={{ flex: '1 1 100%', wordBreak: 'break-all', fontSize: '0.8em' }}>{v.id}</code>
+                <code style={{ flex: '1 1 100%', fontSize: '0.8em' }}>{shortAddr(v.id, 6, 4)}</code>
                 <input
                   className="net-input"
                   type="password"
@@ -1465,10 +1485,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 >
                   {restoreBusy === v.id ? L.unlocking : L.unlockBtn}
                 </button>
-                <button className="net-btn" onClick={() => void doDelete(v.id)}>{L.deleteBtn}</button>
+                <button className="net-btn" onClick={() => setDeleting(v)}>{L.deleteBtn}</button>
               </div>
             ))}
           </div>
+        )}
+
+        {deleting && (
+          <RemoveVaultDialog id={deleting.id} name={deleting.name}
+            remove={async () => ((await removeVaultFromDevice(deleting.id)) ? 'ok' : 'fail')}
+            onExport={() => { setSelectedVault(deleting.id); nav('/settings') }}
+            onClose={() => setDeleting(null)}
+            onRemoved={() => { setDeleting(null); void refreshSaved(); window.setTimeout(() => document.getElementById('net-restore-title')?.focus(), 0) }} />
         )}
 
         <p className="net-tip">{ttr('net.idle.tip')}</p>
@@ -1481,26 +1509,26 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
-        <div className="net-vk">{groupVk}</div>
+        <div className="net-vk">{fp ?? '…'}</div>
         {restoredRoster.length > 0 && (
           <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
         )}
         <p className="net-tip">{L.restoredNote}</p>
 
         <button className="net-btn primary" style={{ marginTop: 8 }} onClick={openDashboard}>
-          {pe('Abrir o cofre (Painel) →', 'Open the vault (Dashboard) →')}
+          {tt('net.restore.openVault')}
         </button>
 
         <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Assinar com este cofre', 'Sign with this vault')}</h3>
-          <p>{pe('Reingresse com os outros membros numa sessão de assinatura pelo relay.', 'Rejoin the other members in a signing session over the relay.')}</p>
+          <h3>{tt('net.restore.signTitle')}</h3>
+          <p>{tt('net.restore.signLead')}</p>
           <button className="net-btn primary" onClick={() => void beginSign(newRoomCode())}>
-            {pe('Iniciar sessão (criar código)', 'Start a session (create a code)')}
+            {tt('net.restore.startSession')}
           </button>
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <input
               className="net-input"
-              placeholder={pe('código da sessão', 'session code')}
+              placeholder={tt('net.restore.sessionCodePlaceholder')}
               value={signRoomInput}
               onChange={(e) => setSignRoomInput(e.target.value.trim())}
             />
@@ -1509,7 +1537,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               disabled={signRoomInput.length < 4}
               onClick={() => void beginSign(signRoomInput)}
             >
-              {pe('Entrar', 'Join')}
+              {tt('net.restore.join')}
             </button>
           </div>
         </div>
@@ -1524,9 +1552,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const total = configRef.current?.n ?? n
   const quorum = configRef.current?.t ?? t
   // The save step's status line: who is left to save, then the registration; empty otherwise.
-  const saveWait = saveState !== 'saved' ? ''
+  // One word for "the passphrase was used": every passphrase field of both forms reads it (#928).
+  const passLocked = saveState !== 'idle'
+  const saveWait = saveState === 'saving' ? tt('net.save.saving')
+    : saveState !== 'saved' ? ''
     : waiting.length > 0 ? saveWaitText(total, waiting, pe)
-    : !backup && hostedState === 'registering' ? pe('Registrando o cofre…', 'Registering the vault…')
+    : !backup && hostedState === 'registering' ? tt('net.restore.registering')
     : ''
 
   // Shared signing controls, used by the just-created vault ('done') and by a restored device that
@@ -1535,10 +1566,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     <div className="net-sign">
       {signPhase === 'none' && !signWhat && (
         <p className="net-lead" style={{ marginTop: 20 }}>
-          {pe(
-            'Cofre pronto para assinar. Aguardando um pedido de pagamento do operador pelo relay; quando chegar, cada dispositivo lê da própria transação o que ela paga antes de assinar.',
-            'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device reads from the transaction itself what it pays before signing.',
-          )}
+          {tt('net.restore.readyToSign')}
         </p>
       )}
       {/* Shown on a refusal too, which is when the member is asked to compare it (#610). This
@@ -1547,19 +1575,16 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           timeouts too, so it cannot tell a refusal from a failure. */}
       {signWhat && (
         <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 8 }}>
-          <strong>{pe('O que este dispositivo leu da transação', 'What this device read from the transaction')}</strong>
+          <strong>{tt('net.restore.deviceReadTitle')}</strong>
           {readingRows(signWhat, () => false).map((r, i) => (
             <div key={i}>
               {fmtZecExact(r.zat / 1e8)} ZEC <span aria-hidden="true">→</span>{' '}
-              <code>{r.to.kind === 'address' ? shortId(r.to.addr) : pe('um endereço que a transação não informa', 'an address this transaction does not name')}</code>
+              <code>{r.to.kind === 'address' ? shortId(r.to.addr) : tt('net.restore.addressNotNamed')}</code>
             </div>
           ))}
-          <div>{pe('Taxa da rede', 'Network fee')}: {fmtZecExact(signWhat.feeZat / 1e8)} ZEC</div>
+          <div>{tt('net.restore.networkFee')}: {fmtZecExact(signWhat.feeZat / 1e8)} ZEC</div>
           <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-            {pe(
-              'Cada dispositivo lê da própria transação o que ela paga e a taxa, e recusa uma que não bate com o que diz pagar, antes de contribuir com a sua parte da assinatura.',
-              'Each device reads from the transaction itself what it pays and its fee, and refuses one that does not match what it claims to pay, before contributing its share of the signature.',
-            )}
+            {tt('net.restore.deviceReadNote')}
           </div>
         </div>
       )}
@@ -1571,31 +1596,25 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           </p>
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
-            {pe(
-              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite - nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
-              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts - no single device broadcasts alone, and the operator never sees a key share.',
-            )}
+            {tt('net.restore.signatureValid')}
           </p>
         </>
       )}
       {helperConfigured() && groupVk && (
         <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
+          <h3>{tt('net.restore.proposalsReadyTitle')}</h3>
           <p className="net-tip">
-            {pe(
-              'Propor e aprovar pagamentos é no app (Painel). Quando uma proposta bate o quórum, ela aparece aqui e você a abre no app para assinar. O coordenador nunca vê uma parte da chave.',
-              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here, and you open it in the app to sign. The coordinator never sees a key share.',
-            )}
+            {tt('net.restore.proposalsReadyLead')}
           </p>
           <button className="net-btn" onClick={() => void loadProposals()}>
-            {pe('Atualizar', 'Refresh')}
+            {tt('net.restore.refresh')}
           </button>
           {(() => {
             const ready = (proposals ?? []).filter((p) => p.state === 'ready')
             if (proposals && ready.length === 0) {
               return (
                 <p className="net-tip" style={{ marginTop: 8 }}>
-                  {pe('Nenhuma proposta pronta para assinar.', 'No proposals ready to sign.')}
+                  {tt('net.restore.noProposalsReady')}
                 </p>
               )
             }
@@ -1604,13 +1623,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 {ready.map((p) => (
                   <li key={p.id}>
                     <div className="net-trail-head">
-                      <span className="net-tag">{pe('pronta', 'ready')}</span>
+                      <span className="net-tag">{tt('net.restore.ready')}</span>
                       <span className="net-trail-when">
                         {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
                       </span>
                     </div>
                     <div className="net-trail-row">
-                      <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
+                      <span className="net-trail-label">{tt('net.restore.approvals')}</span>
                       <code>
                         {p.approvals.length}/{p.threshold || '?'}
                       </code>
@@ -1643,11 +1662,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       <Shell error={error} embedded>
         {!busy && leaving && backupPending && (
           <div className="cv-warn" role="group" aria-labelledby="cv-leave-q" aria-describedby="cv-leave-why" ref={leaveRef}>
-            <p id="cv-leave-q"><strong>{pe('Abrir o cofre sem guardar uma cópia?', 'Open the vault without saving a copy?')}</strong></p>
-            <p id="cv-leave-why">{pe('A cópia cifrada é o que permite recuperar o seu pedaço se este aparelho se perder. Você também pode exportá-la depois, nos Ajustes.', 'The encrypted copy is how you recover your part if this device is lost. You can also export it later, in Settings.')}</p>
+            <p id="cv-leave-q"><strong>{tt('net.leave.openWithoutCopyTitle')}</strong></p>
+            <p id="cv-leave-why">{tt('net.leave.openWithoutCopyBody')}</p>
             <div className="cv-invite-actions">
-              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => { setLeaving(false); doBackupDownload() }}>{pe('Baixar o arquivo', 'Download the file')}</button>
-              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); openDashboard() }}>{pe('Abrir sem a cópia', 'Open without it')}</button>
+              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => { setLeaving(false); doBackupDownload() }}>{tt('net.leave.downloadTheFile')}</button>
+              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); openDashboard() }}>{tt('net.leave.openWithout')}</button>
             </div>
           </div>
         )}
@@ -1655,30 +1674,30 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           <div className="cv-warn" role="group" aria-labelledby="cv-leave-q" aria-describedby="cv-leave-why" ref={leaveRef}>
             {phase === 'done' ? (
               <>
-                <p id="cv-leave-q"><strong>{pe('Sair sem guardar?', 'Leave without saving?')}</strong></p>
-                <p id="cv-leave-why">{pe('O seu pedaço da chave ainda não foi guardado neste aparelho. Sem ele você não poderá aprovar pagamentos deste cofre, e ele não será terminado.', 'Your part of the key is not saved on this device yet. Without it you cannot approve payments from this vault, and it will not be finished.')}</p>
+                <p id="cv-leave-q"><strong>{tt('net.leave.unsavedTitle')}</strong></p>
+                <p id="cv-leave-why">{tt('net.leave.unsavedBody')}</p>
               </>
             ) : (
               <>
-                <p id="cv-leave-q"><strong>{pe('Cancelar a criação deste cofre?', 'Cancel creating this vault?')}</strong></p>
-                <p id="cv-leave-why">{pe('O seu pedaço da chave será perdido, este cofre não será criado, e os outros terão de começar de novo.', 'Your part of the key will be lost, this vault will not be created, and the others will have to start again.')}</p>
+                <p id="cv-leave-q"><strong>{tt('net.leave.cancelTitle')}</strong></p>
+                <p id="cv-leave-why">{tt('net.leave.cancelBody')}</p>
               </>
             )}
             <div className="cv-invite-actions">
-              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => setLeaving(false)}>{pe('Continuar criando', 'Keep creating')}</button>
-              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); onLeave?.() }}>{pe('Cancelar e perder o meu pedaço', 'Cancel and lose my part')}</button>
+              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => setLeaving(false)}>{tt('net.leave.keepCreating')}</button>
+              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); onLeave?.() }}>{tt('net.leave.cancelConfirm')}</button>
             </div>
           </div>
         ) : (
-          <button type="button" className="cv-cancel" ref={cancelRef} onClick={() => setLeaving(true)}>{pe('Cancelar criação', 'Cancel creation')}</button>
+          <button type="button" className="cv-cancel" ref={cancelRef} onClick={() => setLeaving(true)}>{tt('net.leave.cancelCreation')}</button>
         ))}
         {phase === 'roster' && (
           <>
-            <span className="rd-eyebrow">{pe('REUNINDO OS APARELHOS', 'GATHERING DEVICES')}</span>
-            <h2 className="cv-title">{role === 'create' ? pe('Compartilhe o convite', 'Share the invite') : pe('Entrando no cofre', 'Joining the vault')}</h2>
+            <span className="rd-eyebrow">{tt('net.gather.eyebrow')}</span>
+            <h2 className="cv-title">{role === 'create' ? tt('net.gather.shareTitle') : tt('net.gather.joiningTitle')}</h2>
             {role === 'create' && (
               <>
-                <p className="cv-lead">{pe('Envie o convite para os outros aparelhos. O cofre nasce quando todos entrarem e conferirem o código.', 'Send the invite to the other devices. The vault is born once they all join and check the code.')}</p>
+                <p className="cv-lead">{tt('net.gather.shareLead')}</p>
                 <InviteCard code={room} pin={pin} pe={pe} />
               </>
             )}
@@ -1687,13 +1706,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <span key={i} className={'cv-seat' + (i < rosterCount ? ' on' : '')} />
               ))}
             </div>
-            <p className="cv-seatlabel" role="status">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
+            <p className="cv-seatlabel" role="status">{rosterCount} {tt('net.create.of')} {total} {tt('net.gather.connected')}</p>
             {role === 'join' && joinSlow && (
-              <div className="cv-trust" role="status" style={{ marginTop: 14 }}>{pe(
-                'Ainda não encontramos o cofre. Confira o convite e o PIN (o PIN vem separado do convite), ou aguarde os outros aparelhos entrarem.',
-                'We haven’t found the vault yet. Check the invite and the PIN (the PIN comes separately from the invite), or wait for the other devices to join.')}
+              <div className="cv-trust" role="status" style={{ marginTop: 14 }}>{tt('net.gather.notFound')}
                 <button type="button" className="cv-stop" style={{ marginTop: 10 }} onClick={() => { allowUnloadRef.current = true; window.location.reload() }}>
-                  {pe('Trocar o convite ou o PIN', 'Change the invite or the PIN')}
+                  {tt('net.gather.changeInvite')}
                 </button>
               </div>
             )}
@@ -1705,23 +1722,32 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         {phase === 'dkg' && (
           <div className="cv-loading" role="status">
             <div className="cv-spinner" aria-hidden="true" />
-            <h2 className="cv-title">{pe('Criando a chave em conjunto', 'Creating the key together')}</h2>
-            <p className="cv-lead">{pe('Cada aparelho faz o seu pedaço da chave; a chave inteira nunca é montada. Se você já confirmou o código, espere os outros confirmarem também. Não feche esta janela.', 'Each device makes its own piece of the key; the whole key is never put together. If you already confirmed the code, wait for the others to confirm too. Do not close this window.')}</p>
+            <h2 className="cv-title">{tt('net.dkg.title')}</h2>
+            <p className="cv-lead">{tt('net.dkg.lead')}</p>
             {waiting.length > 0 && (
-              <p className="cv-seatlabel">{pe(`Esperando terminar: ${waiting.join(', ')}`, `Waiting for these to finish: ${waiting.join(', ')}`)}</p>
+              <p className="cv-seatlabel">{tt('net.dkg.waitingFor', { list: waiting.join(', ') })}</p>
             )}
             {slowFinish && (
-              <div className="cv-warn" role="alert">{pe(
-                'Está demorando: alguém pode não ter recebido a sua parte. Não use nem deposite neste cofre até ele terminar para todos. Se não terminar, comecem de novo com um novo convite.',
-                'This is taking long: someone may not have received their part. Do not use or fund this vault until it finishes for everyone. If it does not, start again with a new invite.')}</div>
+              <div className="cv-warn" role="alert">{tt('net.dkg.slow')}</div>
             )}
           </div>
         )}
         {phase === 'done' && saveState === 'saved' && backup && (
           <>
-            <span className="rd-eyebrow">{pe('FAÇA O BACKUP', 'BACK IT UP')}</span>
-            <h2 className="cv-title">{pe('Guarde uma cópia do cofre', 'Save a copy of the vault')}</h2>
-            <p className="cv-lead">{pe('Este arquivo é a sua cópia portátil do cofre, cifrada com a frase-senha que você acabou de criar. Guarde em outro aparelho ou num gerenciador de senhas. Sem ele, perder este aparelho pode custar o seu acesso.', 'This file is your portable copy of the vault, encrypted with the passphrase you just created. Keep it on another device or in a password manager. Without it, losing this device can cost you access.')}</p>
+            <span className="rd-eyebrow">{tt('net.backup.eyebrow')}</span>
+            <h2 className="cv-title" tabIndex={-1} ref={backupTitleRef}
+              aria-describedby={!backup.complete ? 'net-backup-incomplete' : undefined}>{tt('net.backup.title')}</h2>
+            <p className="cv-lead">{tt('net.backup.lead')}</p>
+            {!backup.complete && (
+              // It sits before the buttons, so reading on from the title meets it first.
+              // Silence here is what the fix is FOR. The vault registers and its read key lands
+              // asynchronously, so this copy can be written before the viewing key exists to fetch -
+              // and a backup that quietly restores the seat and not the vault leaves a member holding
+              // real spend authority over money they cannot see. Saying so costs a trip to Settings.
+              <p id="net-backup-incomplete" className="cv-warn">
+                {tt('net.backup.incomplete')}
+              </p>
+            )}
             <div className="cv-backup">
               <div className="cv-backup-file mono">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1731,35 +1757,25 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </div>
               <div className="cv-backup-btns">
                 <button type="button" className="rd-enter primary cv-primary" onClick={doBackupDownload}>
-                  {pe('Baixar arquivo', 'Download file')}
+                  {tt('net.backup.download')}
                 </button>
                 <button type="button" className="btn ghost" onClick={() => void doBackupCopy()}>
-                  {backupCopied ? tt('members.fpCopied') : pe('Copiar', 'Copy')}
+                  {backupCopied ? tt('members.fpCopied') : tt('net.backup.copy')}
                 </button>
               </div>
+              {backupCopyFailed && <p className="net-tip" role="alert">{tt('copy.failedUseDownload')}</p>}
+              {backupDownloadFailed && <p className="net-tip" role="alert">{tt('export.errDownload')}</p>}
             </div>
-            {!backup.complete && (
-              // Silence here is what the fix is FOR. The vault registers and its read key lands
-              // asynchronously, so this copy can be written before the viewing key exists to fetch -
-              // and a backup that quietly restores the seat and not the vault leaves a member holding
-              // real spend authority over money they cannot see. Saying so costs a trip to Settings.
-              <p className="cv-warn" role="status">
-                {pe(
-                  'Esta cópia saiu incompleta: falta a chave de visualização do cofre, então ela restaura o seu assento mas não o cofre. Guarde este arquivo mesmo assim e, com o cofre aberto, tire outra em Ajustes → Exportar.',
-                  'This copy came out incomplete: it is missing the vault\'s viewing key, so it restores your seat but not the vault. Keep this file anyway, then take another from Settings → Export once the vault is open.',
-                )}
-              </p>
-            )}
             <button type="button" className="cv-linkbtn" onClick={openDashboard}>
-              {pe('Já guardei, abrir o cofre →', 'Saved it, open the vault →')}
+              {tt('net.backup.savedOpen')}
             </button>
           </>
         )}
         {phase === 'done' && !(saveState === 'saved' && backup) && (
           <>
-            <span className="rd-eyebrow">{pe('GUARDE O SEU PEDAÇO', 'SAVE YOUR PART')}</span>
-            <h2 className="cv-title">{pe('O seu pedaço da chave está pronto', 'Your part of the key is ready')}</h2>
-            <p className="cv-lead">{pe('Proteja-o neste aparelho com uma frase-senha. O endereço do cofre aparece quando todos os membros tiverem guardado o seu; antes disso, não há onde depositar.', 'Protect it on this device with a passphrase. The vault’s address appears once every member has saved theirs; until then there is nowhere to deposit.')}</p>
+            <span className="rd-eyebrow">{tt('net.save.eyebrow')}</span>
+            <h2 className="cv-title">{tt('net.save.title')}</h2>
+            <p className="cv-lead">{tt('net.save.lead')}</p>
             {fp && (
               <div className="fp-card" role="note" aria-label={tt('members.fpTitle')} style={{ marginBottom: 16 }}>
                 <div className="fp-head">
@@ -1770,23 +1786,35 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
               </div>
             )}
-            <div className="cv-join">
-              <PassphraseField inputClassName="cv-input" autoFocus
-                placeholder={pe('Frase-senha (mínimo 12 caracteres)', 'Passphrase (at least 12 characters)')}
-                value={savePass} onChange={setSavePass} />
-              {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || saveState !== 'idle' || !hasSecret}
+            <VaultPassForm vault={createPassVault()} className="cv-join">
+              {saveState === 'saved' ? (
+                <p className="cv-lead" tabIndex={-1} ref={savedNoteRef}>{tt('net.save.locked')}</p>
+              ) : (
+                <>
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" autoFocus autoComplete="new-password"
+                    label={tt('net.save.passLabel')}
+                    value={savePass} onChange={setSavePass} readOnly={passLocked} />
+                  {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing={false} autoComplete="new-password"
+                    label={tt('net.save.passConfirm')}
+                    value={savePass2} onChange={setSavePass2} readOnly={passLocked} />
+                  <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
+                </>
+              )}
+              {saveErr && <p className="set-err" id="net-save-err" role="alert">{saveErr}</p>}
+              <button type="button" className="rd-enter primary cv-primary" ref={saveBtnRef} aria-describedby={saveErr ? 'net-save-err' : undefined}
+                disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
-                  ? pe('A chave de acesso não chegou. Peça a quem criou para conferir a conexão, ou comecem de novo.', 'The access key has not arrived. Ask the creator to check their connection, or start again.')
-                  : pe('Esperando a chave de acesso de quem criou…', 'Waiting for the access key from the creator…'))
-                  : saveState === 'saving' ? pe('Guardando…', 'Saving…')
-                  : saveState === 'saved' ? pe('Guardado neste aparelho ✓', 'Saved on this device ✓')
-                  : pe('Proteger o cofre →', 'Protect the vault →')}
+                  ? tt('net.save.keyMissing')
+                  : tt('net.save.waitingKey'))
+                  : saveState === 'saving' ? tt('net.save.saving')
+                  : saveState === 'saved' ? tt('net.save.saved')
+                  : tt('net.save.protect')}
               </button>
               <WaitLine busy={!!saveWait}>{saveWait}</WaitLine>
 
-            </div>
+            </VaultPassForm>
           </>
         )}
       </Shell>
@@ -1829,24 +1857,21 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       {phase === 'done' && (
         <div className="net-done">
           <p className="net-lead">{ttr('net.done.lead')}</p>
-          <div className="net-vk">{groupVk}</div>
+          <div className="net-vk">{fp ?? '…'}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
 
           {finished && hostedState === 'registered' && (
             <button className="net-btn primary" style={{ marginTop: 12 }} onClick={openDashboard}>
-              {pe('Abrir o cofre (Painel) →', 'Open the vault (Dashboard) →')}
+              {tt('net.restore.openVault')}
             </button>
           )}
 
           {hostedState !== 'idle' && (
             <div className="net-card" style={{ marginTop: 16 }}>
-              <h3>{pe('Endereço do cofre', 'Vault address')}</h3>
+              <h3>{tt('net.done.addressLabel')}</h3>
               {hostedState === 'registering' && (
                 <p className="net-tip">
-                  {pe(
-                    'Registrando o cofre no coordenador (cego às partes)…',
-                    'Registering the vault with the coordinator (blind to shares)…',
-                  )}
+                  {tt('net.done.registering')}
                 </p>
               )}
               {hostedState === 'registered' && (
@@ -1860,16 +1885,20 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <div
                     className="net-qr"
                     role="img"
-                    aria-label={pe('QR do endereço do cofre', 'Vault address QR')}
+                    aria-label={tt('net.done.addressQr')}
                     dangerouslySetInnerHTML={{ __html: encodeQR(`zcash:${hostedAddress}`, 'svg') }}
                   />
                   <div className="net-vk">{hostedAddress}</div>
                   <button
                     className="net-btn"
-                    onClick={() => void navigator.clipboard?.writeText(hostedAddress)}
+                    onClick={() => {
+                      void (async () => setAddrCopy((await copyText(hostedAddress)) ? 'copied' : 'failed'))()
+                    }}
                   >
-                    {pe('Copiar endereço', 'Copy address')}
+                    {addrCopy === 'copied' ? tt('net.done.addrCopied') : tt('net.done.copyAddress')}
                   </button>
+                  <span className="visually-hidden" role="status">{addrCopy === 'copied' ? tt('net.done.addrCopied') : ''}</span>
+                  {addrCopy === 'failed' && <p className="net-tip" role="alert">{tt('toast.copyFailed')}</p>}
 
                   <div style={{ marginTop: 16 }}>
                     <button
@@ -1886,14 +1915,14 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                       }}
                     >
                       {balanceBusy
-                        ? pe('Sincronizando…', 'Syncing…')
-                        : pe('Ver saldo', 'Check balance')}
+                        ? tt('net.done.syncing')
+                        : tt('net.done.checkBalance')}
                     </button>
                     {balance && (
                       <p className="net-tip" style={{ marginTop: 8 }}>
-                        {pe('Recebido', 'Received')}: <strong>{balance.total} ZEC</strong>
+                        {tt('net.done.received')}: <strong>{balance.total} ZEC</strong>
                         {' · '}
-                        {pe('disponível', 'spendable')}: <strong>{balance.spend} ZEC</strong>
+                        {tt('net.done.spendable')}: <strong>{balance.spend} ZEC</strong>
                       </p>
                     )}
                   </div>
@@ -1902,10 +1931,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               )}
               {hostedState === 'failed' && !error && (
                 <p className="net-tip">
-                  {pe(
-                    'O cofre foi criado neste dispositivo, mas o coordenador não respondeu. O cofre segue válido e local; tente registrar mais tarde para receber e enviar.',
-                    'The vault was created on this device, but the coordinator did not respond. The vault is still valid and local; try registering later to receive and send.',
-                  )}
+                  {tt('net.done.coordinatorSilent')}
                 </p>
               )}
             </div>
@@ -1916,29 +1942,46 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
               <>
-                <p className="net-tip">{L.saved}</p>
+                <p className="net-tip" tabIndex={-1} ref={savedNoteRef}>{L.saved}</p>
                 <WaitLine busy={!finished && waiting.length > 0}>{!finished && waiting.length > 0 ? saveWaitText(total, waiting, pe) : ''}</WaitLine>
               </>
             ) : (
               <>
-                {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
-                <input
+                {saveErr && <div className="net-error" id="net-save-err" role="alert">{saveErr}</div>}
+                <VaultPassForm vault={createPassVault()}>
+                <VaultPassInput
                   className="net-input"
-                  type="password"
+                  autoComplete="new-password"
+                  aria-label={L.savePlaceholder}
                   placeholder={L.savePlaceholder}
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
+                  readOnly={passLocked}
                 />
                 {savePass && newPassphraseProblem(savePass) && (
                   <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
                 )}
+                <VaultPassInput
+                  className="net-input"
+                  autoComplete="new-password"
+                  aria-label={tt('net.save.passConfirm')}
+                  placeholder={tt('net.save.passConfirm')}
+                  value={savePass2}
+                  onChange={(e) => setSavePass2(e.target.value)}
+                  readOnly={passLocked}
+                />
+                <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
+                  type="button"
                   className="net-btn"
-                  disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || !hasSecret}
+                  ref={saveBtnRef}
+                  aria-describedby={saveErr ? 'net-save-err' : undefined}
+                  disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}
                 </button>
+                </VaultPassForm>
               </>
             )}
           </div>
@@ -1949,19 +1992,16 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
       {phase === 'signsession' && (
         <div className="net-done">
-          <h1 className="net-h1">{pe('Sessão de assinatura', 'Signing session')}</h1>
+          <h1 className="net-h1">{tt('net.signsession.title')}</h1>
           <p className="net-lead">
-            {pe(
-              'Cofre restaurado neste dispositivo. Reingressando com os outros membros para assinar; nenhum DKG roda de novo.',
-              'Vault restored on this device. Rejoining with the other members to sign; no DKG runs again.',
-            )}
+            {tt('net.signsession.lead')}
           </p>
-          <div className="net-vk">{groupVk}</div>
-          <p className="net-tip">{pe('Código da sessão (compartilhe com os membros)', 'Session code (share with the members)')}:</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
-          <p className="net-tip" style={{ marginTop: 12 }}>{pe('Membros na sessão', 'Members in session')}: {signSeatCount} / {quorum}</p>
+          <div className="net-vk">{fp ?? '…'}</div>
+          <p className="net-tip">{tt('net.signsession.codeLabel')}:</p>
+          <div className="net-code net-code-static">{room} <CopyButton value={room} label={tt('net.restore.copySessionCode')} /></div>
+          <p className="net-tip" style={{ marginTop: 12 }}>{tt('net.signsession.members')}: {signSeatCount} / {quorum}</p>
           {signSeatCount < quorum && (
-            <p className="net-lead">{pe('Aguardando o quórum reingressar…', 'Waiting for the quorum to rejoin…')}</p>
+            <p className="net-lead">{tt('net.signsession.waiting')}</p>
           )}
           {renderSign()}
         </div>
