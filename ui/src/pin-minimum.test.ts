@@ -158,10 +158,13 @@ describe('room PIN minimum', () => {
 // out. So the help does not promise that the invite alone cannot find the room.
 describe('the PIN help, on what the PIN does', () => {
   it('does not promise that the invite alone cannot find the room', () => {
+    // The words live in the dictionary since #318 moved /net's inline pairs there.
     const code = codeOf('screens/NetVault.tsx')
-    expect(code).not.toMatch(/cannot find the room/)
-    expect(code).not.toMatch(/não acha a sala/)
-    // The own-PIN help says what a made-up PIN costs instead.
-    expect(code).toMatch(/A PIN you make up is easier to guess than the one the app made/)
+    const words = [code, ...Object.values(en), ...Object.values(ptBR)].join('\n')
+    expect(words).not.toMatch(/cannot find the room/)
+    expect(words).not.toMatch(/não acha a sala/)
+    // The own-PIN help says what a made-up PIN costs instead, and the screen shows that help.
+    expect(en['net.create.pinChooseHint']).toMatch(/A PIN you make up is easier to guess than the one the app made/)
+    expect(code).toMatch(/tt\('net\.create\.pinChooseHint'\)/)
   })
 })
