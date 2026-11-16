@@ -20,6 +20,7 @@ import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
+import { RemoveVaultDialog, type RemoveResult } from '../remove-vault-dialog'
 import { trustRows, type Cell } from '../trust-facts'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -50,9 +51,6 @@ export default function Settings() {
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
   const [live, setLive] = useState<boolean | null>(null)
   const [confirming, setConfirming] = useState(false)
-  const [confirmName, setConfirmName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
@@ -241,25 +239,15 @@ export default function Settings() {
   const n = vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
-  async function removeFromDevice() {
-    if (!vault || confirmName.trim() !== vault.name) return
-    setBusy(true)
-    setErr(null)
-    // Two worlds, one control (#426). On the web the vault lives in THIS browser, so removing it
-    // is a local delete - the record carries the sealed share, so dropping it gives up this
-    // device's ability to sign. On the local bridge the orchestrator owns the record and deletes
-    // it. Either way the member typed the vault's name to get here.
-    if (IS_NET) {
-      const gone = await removeVaultFromDevice(vault.id)
-      setBusy(false)
-      if (!gone) { setErr(t('settings.removeFail')); return }
-      nav('/vaults')
-      return
-    }
-    const res = await deleteVault(undefined, confirmName.trim())
-    setBusy(false)
-    if (res.ok) { clearVaultTraces(vault.id); nav('/vaults'); return }
-    setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
+  // Two worlds, one control (#426). On the web the vault lives in THIS browser, so removing it is a
+  // local delete - the record carries the sealed share, so dropping it gives up this device's ability
+  // to sign. On the local bridge the orchestrator owns the record and deletes it, and checks the name.
+  async function removeFromDevice(typed: string): Promise<RemoveResult> {
+    if (!vault) return 'fail'
+    if (IS_NET) return (await removeVaultFromDevice(vault.id)) ? 'ok' : 'fail'
+    const res = await deleteVault(undefined, typed.trim())
+    if (res.ok) { clearVaultTraces(vault.id); return 'ok' }
+    return res.wrong ? 'wrong' : 'fail'
   }
 
   return (
@@ -527,60 +515,22 @@ export default function Settings() {
           /* Nothing of this vault is on this device - it is read through the helper. There is no
              share to give up, so the honest thing is to say so rather than offer a dead button. */
           <p className="set-danger-note">{t('settings.removeNoLocal')}</p>
-        ) : !confirming ? (
+        ) : (
           <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}
           </button>
-        ) : (
-          <div className="set-confirm">
-            {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
-            {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
-            <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
-            <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
-            {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
-            {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
-                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
-                sections above. */}
-            {hasLocal && (
-              <p className="hint mt-xs">
-                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
-                  {t('set.removeExportFirst')}
-                </button>
-              </p>
-            )}
-            <label className="field">
-              {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
-                  to force an act of recall printed the answer inside the box - a transcription
-                  exercise, not a confirmation. `aria-describedby` ties the funds warning to the
-                  field, because `autoFocus` lands past it and it is never read otherwise. */}
-              <span>{t('set.confirmLabel').replace('{name}', vault?.name ?? '')}</span>
-              <input
-                className="input mono"
-                value={confirmName}
-                onChange={(e) => setConfirmName(e.target.value)}
-                aria-describedby="rm-warn"
-                autoFocus
-              />
-            </label>
-            {err && <p className="set-err" role="alert">{err}</p>}
-            <div className="set-confirm-actions">
-              <button
-                type="button"
-                className="btn danger"
-                disabled={busy || confirmName.trim() !== vault?.name}
-                onClick={removeFromDevice}
-              >
-                {busy ? t('settings.removing') : t('settings.confirmRemove')}
-              </button>
-              <button type="button" className="btn ghost" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null) }}>
-                {t('common.cancel')}
-              </button>
-            </div>
-          </div>
         )}
       </section>
       </div>
       </>}
+
+      {confirming && vault && (
+        <RemoveVaultDialog id={vault.id} name={vault.name}
+          remove={removeFromDevice}
+          onExport={hasLocal ? () => { setConfirming(false); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) } : undefined}
+          onClose={() => setConfirming(false)}
+          onRemoved={() => nav('/vaults')} />
+      )}
 
       {/* Both disclosures are DIALOGS now. As inline cards they pushed the page ~260px, so the
           member lost their place; the dismiss lived in the row ABOVE the form, off-screen on a

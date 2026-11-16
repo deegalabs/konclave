@@ -11,13 +11,13 @@
 import { CROCKFORD } from './format'
 import { CREATION_PROTOCOL } from './creation-protocol'
 
-const ENV = import.meta.env as Record<string, string | undefined>
-const BASE: string = ENV.VITE_API_BASE ?? ''
+// One key at a time, never the env object (#605, src/env-reads.test.ts).
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 // A hosted relay overrides the base; empty = the local bridge (same origin). Exported so the
 // Architecture-B send can tell the (server-side) helper WHICH relay the browsers are on - the
 // helper must publish its sign-request into the same room, so this must be a URL it can reach
 // (a hosted relay, not the local bridge).
-export const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
+export const RELAY_BASE: string = import.meta.env.VITE_RELAY_BASE ?? BASE
 
 // ---- relay selection (#213) ----
 // The relay is the rendezvous: every device in a vault (and the helper) must reach the SAME relay
@@ -265,13 +265,13 @@ export function joinParam(hash: string): string | null {
   return m ? safeDecode(m[1]!) : null
 }
 
-/** Where an invite link points: this web app, or the public one when this is the desktop shell
- *  (whose own origin means nothing on another device). */
-const PUBLIC_APP = 'https://www.konclave.xyz/'
+/** Where an invite link points: always the real app, whatever host this copy runs on. A copy on a
+ *  lookalike or preview host would otherwise send the joiner to itself, and a joiner who opens it
+ *  there seals the seat's share in that host's storage. One rule, no exception for localhost: a
+ *  developer testing two tabs pastes the code, which the join field accepts as it does a link. */
+export const PUBLIC_APP = 'https://www.konclave.xyz/'
 function inviteBase(): string {
-  return /^https?:$/.test(location.protocol) && !/tauri/.test(location.hostname)
-    ? `${location.origin}${location.pathname}`
-    : PUBLIC_APP
+  return PUBLIC_APP
 }
 
 /** Group an invite for reading: 4-4-4-… */
