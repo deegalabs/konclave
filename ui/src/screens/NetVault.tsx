@@ -27,7 +27,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
 import { useT, useTr, useI18n } from '../i18n'
-import { Letterhead, PassphraseField } from '../components'
+import { Letterhead, PassphraseField, VaultPassForm, VaultPassInput } from '../components'
 import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
@@ -264,6 +264,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
+  // What a password manager files the new passphrase under (#929): the SAME name `doSave` stores
+  // (`config.vn`, the creation name, equal on every member's device) and the vault id, so the
+  // unlock screen later builds the same username from the record. Hoisted: refs are read at call time.
+  function createPassVault() {
+    return groupVk ? { name: ceremonyRef.current?.config?.vn, id: groupVk } : null
+  }
   // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band (short,
   // human-comparable code of the group verifying key). Shown on the create-done step - the moment
   // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
@@ -1780,23 +1786,23 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
               </div>
             )}
-            <div className="cv-join">
+            <VaultPassForm vault={createPassVault()} className="cv-join">
               {saveState === 'saved' ? (
                 <p className="cv-lead" tabIndex={-1} ref={savedNoteRef}>{tt('net.save.locked')}</p>
               ) : (
                 <>
-                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" autoFocus
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" autoFocus autoComplete="new-password"
                     label={tt('net.save.passLabel')}
                     value={savePass} onChange={setSavePass} readOnly={passLocked} />
                   {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
-                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing={false}
+                  <PassphraseField inputClassName="cv-input" labelClassName="cv-k" choosing={false} autoComplete="new-password"
                     label={tt('net.save.passConfirm')}
                     value={savePass2} onChange={setSavePass2} readOnly={passLocked} />
                   <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 </>
               )}
               {saveErr && <p className="set-err" id="net-save-err" role="alert">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" ref={saveBtnRef} aria-describedby={saveErr ? 'net-save-err' : undefined}
+              <button type="button" className="rd-enter primary cv-primary" ref={saveBtnRef} aria-describedby={saveErr ? 'net-save-err' : undefined}
                 disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
@@ -1808,7 +1814,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </button>
               <WaitLine busy={!!saveWait}>{saveWait}</WaitLine>
 
-            </div>
+            </VaultPassForm>
           </>
         )}
       </Shell>
@@ -1942,9 +1948,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             ) : (
               <>
                 {saveErr && <div className="net-error" id="net-save-err" role="alert">{saveErr}</div>}
-                <input
+                <VaultPassForm vault={createPassVault()}>
+                <VaultPassInput
                   className="net-input"
-                  type="password"
                   autoComplete="new-password"
                   aria-label={L.savePlaceholder}
                   placeholder={L.savePlaceholder}
@@ -1955,9 +1961,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 {savePass && newPassphraseProblem(savePass) && (
                   <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
                 )}
-                <input
+                <VaultPassInput
                   className="net-input"
-                  type="password"
                   autoComplete="new-password"
                   aria-label={tt('net.save.passConfirm')}
                   placeholder={tt('net.save.passConfirm')}
@@ -1967,6 +1972,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 />
                 <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
+                  type="button"
                   className="net-btn"
                   ref={saveBtnRef}
                   aria-describedby={saveErr ? 'net-save-err' : undefined}
@@ -1975,6 +1981,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}
                 </button>
+                </VaultPassForm>
               </>
             )}
           </div>

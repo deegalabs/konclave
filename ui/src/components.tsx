@@ -1,9 +1,10 @@
 import { LangToggle } from './AppPrefs'
-import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type InputHTMLAttributes, type FormEvent, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { veil } from './veil'
 import { useT } from './i18n'
+import { vaultUsername } from './vault-username'
 import { scorePassphrase, generatePassphrase, newPassphraseProblem } from './passphrase'
 
 /** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
@@ -28,6 +29,13 @@ export function activateOnKey(fn: () => void) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() }
   }
 }
+
+
+/** What a focus trap may land on. `tabindex="-1"` is out of every kind, not only of the bare
+ *  `[tabindex]` one: the hidden username of a passphrase form (#929) is an input with it, and as the
+ *  first control it took the opening focus and broke the Shift+Tab wrap. The ONLY definition: the
+ *  Dialog and the signing sheet both read it, and a scan fails on a second copy. */
+export const FOCUSABLE = 'a[href]:not([tabindex="-1"]),button:not([disabled]):not([tabindex="-1"]),input:not([disabled]):not([tabindex="-1"]),select:not([disabled]):not([tabindex="-1"]),textarea:not([disabled]):not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])'
 
 /** Accessible modal dialog: role/aria-modal/aria-labelledby, focus moved inside
  *  on open, a Tab focus-trap, Esc to close, and focus returned to the trigger on
@@ -60,7 +68,7 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
   if (openerRef.current === undefined) openerRef.current = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
   useEffect(() => {
     const node = ref.current
-    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    const sel = FOCUSABLE
     const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
     // Focus moves inside, unless something inside already took it (an autofocused field); opened on
     // the card itself (focusCard), it lands there so what the dialog says is heard first.
@@ -92,6 +100,74 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
       </div>
     </div>
   )
+}
+
+/** What a passphrase form hands its inputs. `tick` moves whenever the form is used, so a field
+ *  showing its text can hide it again. */
+const VaultPassCtx = createContext<{ tick: number } | null>(null)
+
+/**
+ * The one container for a passphrase field (#929). It owns three things so no screen can get them
+ * wrong on its own:
+ *  - the hidden username (`name · tag`, see vault-username.ts) as the FIRST child, outside any
+ *    `<label>` (a label's control is its first labelable descendant, and that would be the hidden
+ *    input), so the manager files the passphrase under that vault;
+ *  - `preventDefault` on submit, always: a form with no `action` that is not cancelled reloads the
+ *    page, and on the create screen that is the one place a reload loses the unsaved share;
+ *  - the context `VaultPassInput` requires, so a passphrase field outside a form fails loudly.
+ * Every `<button>` inside needs an explicit `type`: `submit` only where Enter already acted, and
+ * `button` everywhere else, which is what keeps Enter inert there (a scan enforces it). Pass
+ * `vault={null}` for a field with no vault to name (a backup whose id is sealed): the field then
+ * has no username.
+ */
+export function VaultPassForm({ vault, onSubmit, className, children }: {
+  vault: { name: string | null | undefined; id: string } | null
+  onSubmit?: () => void
+  className?: string
+  children: ReactNode
+}) {
+  const [username, setUsername] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const name = vault?.name, id = vault?.id
+  useEffect(() => {
+    setUsername(null)
+    if (id === undefined || id === '') return
+    let on = true
+    void vaultUsername(name, id).then((u) => { if (on) setUsername(u) })
+    return () => { on = false }
+  }, [name, id])
+  return (
+    <VaultPassCtx.Provider value={{ tick }}>
+      <form
+        className={className ?? 'vp-form'}
+        noValidate
+        onSubmit={(e: FormEvent) => { e.preventDefault(); setTick((n) => n + 1); onSubmit?.() }}
+        onClickCapture={(e) => {
+          const b = (e.target as HTMLElement).closest?.('button')
+          if (b && !b.classList.contains('pf-btn')) setTick((n) => n + 1)
+        }}
+      >
+        {username !== null && (
+          <input type="text" name="username" autoComplete="username" className="visually-hidden"
+            readOnly tabIndex={-1} aria-hidden="true" value={username} />
+        )}
+        {children}
+      </form>
+    </VaultPassCtx.Provider>
+  )
+}
+
+/**
+ * The only `type="password"` input a migrated screen may render. `autoComplete` is required, so
+ * every passphrase field says whether it is being CHOSEN (`new-password`) or ENTERED
+ * (`current-password`), and it must sit inside a `VaultPassForm`. `reveal` shows the text.
+ */
+export function VaultPassInput({ autoComplete, reveal, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'autoComplete'> & {
+  autoComplete: 'new-password' | 'current-password'
+  reveal?: boolean
+}) {
+  if (!useContext(VaultPassCtx)) throw new Error('VaultPassInput must be rendered inside a VaultPassForm (#929)')
+  return <input {...rest} type={reveal ? 'text' : 'password'} autoComplete={autoComplete} />
 }
 
 /** A warning about the vault itself, shown as an alert: the open vault on the Dashboard (#388), a
@@ -324,6 +400,9 @@ export function PassphraseField({
   const autoId = useId()
   const inputId = id ?? autoId
   const [show, setShow] = useState(false)
+  // A passphrase left visible when the form is used is one the manager may file as plain text.
+  const tick = useContext(VaultPassCtx)?.tick
+  useEffect(() => { setShow(false) }, [tick])
   const s = scorePassphrase(value)
   const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
@@ -333,9 +412,9 @@ export function PassphraseField({
           field was silently inheriting that list's padding, negative margin, pointer cursor and
           hover gradient. Two components, one class prefix, different meanings. */}
       <div className="pf-field">
-        <input
+        <VaultPassInput
           className={inputClassName + ' pf-input'}
-          type={show ? 'text' : 'password'}
+          reveal={show}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}

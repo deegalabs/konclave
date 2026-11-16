@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import { PassphraseField } from './components'
+import { PassphraseField, VaultPassForm } from './components'
 import { I18nProvider } from './i18n'
 
 // A passphrase field names itself: a visible label tied to the input by the component, so the name
 // does not depend on the caller and stays after typing (a placeholder does not).
 afterEach(cleanup)
 const noop = () => {}
-const show = (el: React.ReactElement) => render(<I18nProvider>{el}</I18nProvider>)
+// A passphrase field sits in a VaultPassForm (#929), as every screen renders it.
+const show = (el: React.ReactElement) => render(<I18nProvider><VaultPassForm vault={null}>{el}</VaultPassForm></I18nProvider>)
 
 // Type-level: leaving the label out must not compile. Only `tsc -b` checks this (never run).
 export function omitsTheLabel() {
