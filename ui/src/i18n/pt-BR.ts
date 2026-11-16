@@ -1333,7 +1333,7 @@ export const ptBR: Record<string, string> = {
   'net.idle.joinBtn': 'Entrar com o código',
   'net.idle.tip': 'Para testar agora: digite um PIN, clique em **Gerar convite**, copie o código, abra esta mesma página em outra aba, cole em **Entrar** com o mesmo PIN e compare o código que as duas abas mostram. As duas abas farão o cofre juntas.',
   'net.invite.title': 'Convite gerado',
-  'net.invite.lead': 'Passe este código para os outros. Eles entram por ele, no aparelho deles.',
+  'net.invite.lead': 'Passe o convite para os outros. Eles entram por ele, no aparelho deles.',
   'net.joining.title': 'Entrando no cofre…',
   'net.creating.title': 'Criando o cofre compartilhado…',
   'net.done.title': 'Cofre criado 🔐',

@@ -419,6 +419,7 @@
 .cv-cancel { align-self: flex-end; margin-left: auto; display: block; min-height: 44px; padding: 10px 14px; font-size: 13px;
   background: none; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text); cursor: pointer; }
 .cv-cancel:hover { border-color: var(--warn-strong); }
+.net-code.cv-invite-code.cv-invite-hidden { display: block; width: 100%; background: none; border: 1px dashed var(--line-strong); color: var(--text-muted); cursor: pointer; padding: 8px; }
 
 /* Where the member is (HostNotice). Off the official host it also says so in words; the colour is
    the second signal, --warn-strong being the AA text colour in both themes. */
