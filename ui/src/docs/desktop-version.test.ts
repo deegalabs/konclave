@@ -44,8 +44,8 @@ describe('the desktop version the docs name', () => {
     expect(intro).not.toMatch(/=\s*'\d+\.\d+\.\d+'/)
   })
 
-  it('is the latest published pre-release, 0.17.0 (published 2026-11-06)', () => {
-    expect(DESKTOP_VERSION).toBe('0.17.0')
+  it('is the latest published pre-release, 0.20.0 (published 2026-11-12)', () => {
+    expect(DESKTOP_VERSION).toBe('0.20.0')
   })
 
   it('the scans below find what they look for (a positive control)', () => {
@@ -70,10 +70,10 @@ describe('the desktop version the docs name', () => {
     expect(offenders).toEqual([])
   })
 
-  it('builds the installer names the 0.17.0 release carries', () => {
+  it('builds the installer names the 0.20.0 release carries', () => {
     const intro = codeOf('./screens/Intro.tsx')
-    // The asset names as published (gh release view v0.17.0, 2026-11-07).
-    const published = ['Konclave_0.17.0_x64-setup.exe', 'Konclave_0.17.0_aarch64.dmg', 'Konclave_0.17.0_amd64.AppImage']
+    // The asset names as published (gh release view v0.20.0, 2026-11-14).
+    const published = ['Konclave_0.20.0_x64-setup.exe', 'Konclave_0.20.0_aarch64.dmg', 'Konclave_0.20.0_amd64.AppImage']
     const built = [...intro.matchAll(/file: `(Konclave_\$\{VER\}_[^`]+)`/g)].map((m) => m[1]!.replace('${VER}', DESKTOP_VERSION))
     expect(built.sort()).toEqual([...published].sort())
   })

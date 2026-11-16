@@ -19,8 +19,8 @@ maintainer's machine, instead of compiling them in-image:
 | binary | role in the helper |
 |---|---|
 | `zcash-sign` | register: derive Orchard address + UFVK from the group key |
-| `zcash-devtool` | register: view-only wallet init; send: PCZT prove/broadcast |
-| `konclave-signer` | send: extract the sighash / inject the browsers' aggregate signature |
+| `zcash-devtool` | register: view-only wallet init; send: prove the PCZT and broadcast |
+| `konclave-signer` | send: build the transaction (a payment or a payroll), extract the sighash, inject the browsers' aggregate signature |
 
 **Engine pins - deployed vs `engine/versions.lock`.** Since 2026-10-04 (v0.10.0) the **deployed**
 helper runs the **released line** that `engine/versions.lock` pins (pczt 0.9.3 /

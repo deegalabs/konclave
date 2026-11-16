@@ -1488,7 +1488,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         <p className="net-tip">{L.restoredNote}</p>
 
         <button className="net-btn primary" style={{ marginTop: 8 }} onClick={openDashboard}>
-          {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+          {pe('Abrir o cofre (Painel) →', 'Open the vault (Dashboard) →')}
         </button>
 
         <div className="net-card" style={{ marginTop: 16 }}>
@@ -1583,8 +1583,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
           <p className="net-tip">
             {pe(
-              'Propor e aprovar pagamentos é no app (Dashboard). Quando uma proposta bate o quórum, ela aparece aqui: as abas assinam e o cofre transmite. O coordenador nunca vê uma parte da chave.',
-              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here: the tabs sign and the vault broadcasts. The coordinator never sees a key share.',
+              'Propor e aprovar pagamentos é no app (Painel). Quando uma proposta bate o quórum, ela aparece aqui e você a abre no app para assinar. O coordenador nunca vê uma parte da chave.',
+              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here, and you open it in the app to sign. The coordinator never sees a key share.',
             )}
           </p>
           <button className="net-btn" onClick={() => void loadProposals()}>
@@ -1834,7 +1834,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
           {finished && hostedState === 'registered' && (
             <button className="net-btn primary" style={{ marginTop: 12 }} onClick={openDashboard}>
-              {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+              {pe('Abrir o cofre (Painel) →', 'Open the vault (Dashboard) →')}
             </button>
           )}
 
