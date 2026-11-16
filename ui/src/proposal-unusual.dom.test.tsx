@@ -130,6 +130,17 @@ describe('the proposal names what is out of the ordinary', () => {
     expect(screen.getByText(en('unusual.more', { n: String(newcomers.length + 2 - SHOWN) }))).toBeTruthy()
   })
 
+  it(`in a round of raises, an address never paid is shown, not counted in "and N more"`, async () => {
+    // Six people on the previous payroll, each paid a little more now, and one address never paid.
+    const team = Array.from({ length: SHOWN + 1 }, (_, i) => A(String.fromCharCode(100 + i)))
+    detailOf({ proposal: roll, lines: [...team.map((a, i) => line(`P${i}`, a, 150)), line('Nina', NEW, 100)] })
+    bookOf([payroll('r-prev', T0), roll], { 'r-prev': team.map((a, i) => line(`P${i}`, a, 100)) })
+    mount(roll.id)
+    expect(await screen.findByText(en('unusual.first', { who: `Nina (${shortAddr(NEW)})` }))).toBeTruthy()
+    expect(note()!.querySelectorAll('li')).toHaveLength(SHOWN + 1)
+    expect(screen.getByText(en('unusual.more', { n: String(team.length + 1 - SHOWN) }))).toBeTruthy()
+  })
+
   it('a newcomer to a payroll gets one line, not two', async () => {
     detailOf({ proposal: roll, lines: [line('Caio', CAIO, 200), line('Bia', BIA, 200)] })
     bookOf([payroll('r-prev', T0), roll], { 'r-prev': [line('Bia', BIA, 200)] })

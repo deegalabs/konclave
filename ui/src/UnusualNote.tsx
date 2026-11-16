@@ -32,9 +32,10 @@ function oncePerAddress(findings: readonly Unusual[]): Unusual[] {
 }
 
 /** The order the note lists findings in, so that past SHOWN what is counted in "and N more" is what
- *  matters least: an amount above usual and a person dropped from the payroll come before newcomers. */
+ *  matters least: an amount above usual and a person dropped from the payroll first, then an address
+ *  with no earlier payment, and a changed amount last, since a round of raises is ordinary. */
 const WEIGHT: Record<Unusual['kind'], number> = {
-  'above-usual': 0, 'payroll-removed': 1, 'payroll-amount': 2, 'first-payment': 3, 'payroll-added': 4,
+  'above-usual': 0, 'payroll-removed': 1, 'first-payment': 2, 'payroll-added': 3, 'payroll-amount': 4,
 }
 const byWeight = (findings: readonly Unusual[]): Unusual[] => [...findings].sort((a, b) => WEIGHT[a.kind] - WEIGHT[b.kind])
 

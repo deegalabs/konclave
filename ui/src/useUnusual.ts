@@ -9,8 +9,9 @@ export type UnusualState =
   | { status: 'reading' }
   /** The book could not be read, so nothing was compared. Said, never shown as "nothing found". */
   | { status: 'failed' }
-  /** `names`: a label per address, from this payroll, then the payroll it was compared with, then the
-   *  other earlier ones, so a person who left the payroll is named as the previous payroll named them. */
+  /** `names`: a label per address, from this payroll, then the payroll it was compared with, then
+   *  every other payroll the book has lines for, so a person who left the payroll is named as the
+   *  previous payroll named them. */
   | { status: 'read'; reading: UnusualReading; names: ReadonlyMap<string, string> }
 
 function namesFrom(lines: readonly PayrollLine[], earlier: Readonly<Record<string, PayrollLine[]>>, comparedTo: string | null): Map<string, string> {
