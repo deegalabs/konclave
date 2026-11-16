@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Balance, Proposal } from './api'
 import { I18nProvider, translateStatic, type TFn } from './i18n'
+import { RevealProvider } from './reveal'
 import { BalanceBand, RunwayPanel } from './screens/Analyses'
 import { codeOf } from './source-scan'
 
@@ -21,7 +22,8 @@ const NOW = new Date(2026, 10, 10)
 const t: TFn = (k, v) => translateStatic(k, v, 'en')
 const say = (k: string) => translateStatic(k, undefined, 'en')
 const bal = (zat: number, spendable = zat): Balance => ({ configured: true, total_zat: zat, spendable_zat: spendable })
-const wrap = (el: React.ReactElement) => renderToStaticMarkup(<I18nProvider>{el}</I18nProvider>)
+// These read the figures, so the veil is open (#838); the panel's own `revealed` prop is the chart's.
+const wrap = (el: React.ReactElement, revealed = true) => renderToStaticMarkup(<I18nProvider><RevealProvider initial={revealed}>{el}</RevealProvider></I18nProvider>)
 
 const SOURCE = translateStatic('analyses.source', undefined, 'en')
 
@@ -41,7 +43,7 @@ describe('RunwayPanel', () => {
     expect(html).toContain('1.0000 ZEC a month')
     expect(html).toContain('3.5 months')
     expect(html).toContain('<svg')
-    expect(html).toContain(SOURCE.replace("'", '&#x27;'))
+    expect(html).toContain(SOURCE.replaceAll("'", '&#x27;'))
     expect(html).toContain('At this pace the free funds would run out by March 2027.')
   })
 
@@ -96,7 +98,7 @@ describe('RunwayPanel', () => {
   })
 
   it('draws no projection while amounts are hidden, but still warns and states the limits', () => {
-    const html = wrap(<RunwayPanel bal={bal(2 * ZEC)} rows={book} now={NOW} revealed={false} t={t} locale="en" />)
+    const html = wrap(<RunwayPanel bal={bal(2 * ZEC)} rows={book} now={NOW} revealed={false} t={t} locale="en" />, false)
     expect(html).not.toContain('<svg')
     expect(html).not.toContain('<table')
     expect(html).toContain('Amounts are hidden')

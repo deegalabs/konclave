@@ -24,11 +24,14 @@ const made: NetProposal = {
 }
 const sent: unknown[] = []
 vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+  if (String(_url).includes('/api/vault/members')) return new Response(JSON.stringify({ members: ['alice', 'bob'] }), { status: 200 })
   if (init?.body) sent.push(JSON.parse(String(init.body)))
   return new Response(JSON.stringify(made), { status: 200 })
 })
 
 const { createPayroll, mapNetProposal, IS_NET } = await import('./api')
+const { unlockSeatForTest } = await import('./acting-test-support')
+unlockSeatForTest('a'.repeat(64), 1) // the device proposes as the seat it holds (#591)
 
 describe('a payroll carries its own name on the web path (#296)', () => {
   it('runs against the coordinator (the browser path)', () => {
