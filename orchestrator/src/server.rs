@@ -202,10 +202,26 @@ struct ProposalDto {
     approvals: Vec<String>,
     refusals: Vec<String>,
     approvals_count: usize,
+    /// How many outputs the proposal pays (1 for a payment, the line count for a payroll), which
+    /// is what the fee estimate takes (#1017). `None` when it cannot be read: a consumer must
+    /// treat that as unknown, never as 1.
+    destinations: Option<usize>,
 }
 
-impl From<ProposalRecord> for ProposalDto {
-    fn from(p: ProposalRecord) -> Self {
+impl ProposalDto {
+    /// The ONE constructor: `destinations` is read from the store, where a payroll's lines live,
+    /// so no handler can produce a payroll without its count (#1017). A payment pays one output;
+    /// a payroll's count is its saved lines, and a payroll whose lines cannot be read (or has
+    /// none) is `None`, which a consumer reads as unknown.
+    fn with_store(p: ProposalRecord, store: &Store) -> Self {
+        let destinations = match p.kind {
+            ProposalKind::Payment => Some(1),
+            ProposalKind::Payroll => store
+                .get_payroll_lines(&p.id)
+                .ok()
+                .map(|l| l.len())
+                .filter(|n| *n > 0),
+        };
         let kind = match p.kind {
             ProposalKind::Payment => "payment",
             ProposalKind::Payroll => "payroll",
@@ -232,6 +248,7 @@ impl From<ProposalRecord> for ProposalDto {
             approvals_count: p.approvals.len(),
             approvals: p.approvals,
             refusals: p.refusals,
+            destinations,
         }
     }
 }
@@ -520,7 +537,10 @@ fn api_proposals(cfg: &Config, want: Option<&str>) -> Response {
     };
     match store.list_open_proposals(&vault_id) {
         Ok(ps) => {
-            let dtos: Vec<ProposalDto> = ps.into_iter().map(ProposalDto::from).collect();
+            let dtos: Vec<ProposalDto> = ps
+                .into_iter()
+                .map(|p| ProposalDto::with_store(p, &store))
+                .collect();
             Response::json(200, &serde_json::json!({ "proposals": dtos }))
         }
         Err(e) => Response::json(
@@ -534,7 +554,14 @@ fn api_proposals(cfg: &Config, want: Option<&str>) -> Response {
 fn api_ledger(cfg: &Config, want: Option<&str>) -> Response {
     match load_ledger(cfg, want) {
         Ok(ps) => {
-            let dtos: Vec<ProposalDto> = ps.into_iter().map(ProposalDto::from).collect();
+            let store = match open_store(cfg) {
+                Ok(s) => s,
+                Err(r) => return r,
+            };
+            let dtos: Vec<ProposalDto> = ps
+                .into_iter()
+                .map(|p| ProposalDto::with_store(p, &store))
+                .collect();
             Response::json(200, &serde_json::json!({ "ledger": dtos }))
         }
         Err(r) => r,
@@ -1267,7 +1294,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             &serde_json::json!({"error": "store", "detail": e.to_string()}),
         );
     }
-    let dto = ProposalDto::from(rec);
+    let dto = ProposalDto::with_store(rec, &store);
     Response::json(
         201,
         &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})),
@@ -1509,7 +1536,7 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     Response::json(
         201,
         &serde_json::json!({
-            "proposal": ProposalDto::from(rec),
+            "proposal": ProposalDto::with_store(rec, &store),
             "lines": lines_json,
             "summary": payroll_summary_json(&plan),
         }),
@@ -1534,7 +1561,7 @@ fn api_proposal_one(cfg: &Config, id: &str) -> Response {
             Response::json(
                 200,
                 &serde_json::json!({
-                    "proposal": ProposalDto::from(r),
+                    "proposal": ProposalDto::with_store(r, &store),
                     "lines": lines_json,
                 }),
             )
@@ -1643,7 +1670,7 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
     }
     Response::json(
         200,
-        &serde_json::json!({ "proposal": ProposalDto::from(updated) }),
+        &serde_json::json!({ "proposal": ProposalDto::with_store(updated, &store) }),
     )
 }
 
@@ -1826,7 +1853,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
     Response::json(
         200,
         &serde_json::json!({
-            "proposal": ProposalDto::from(updated),
+            "proposal": ProposalDto::with_store(updated, &store),
             "txid": outcome.txid
         }),
     )
@@ -3727,5 +3754,105 @@ mod tests {
         cfg.ceremony = Some(dummy_ceremony());
         let r = handle(&cfg, "POST", "/api/proposals/deadbeef/send", b"");
         assert_eq!(r.status, 404);
+    }
+
+    // #1017: the fee estimate takes the number of outputs, so the DTO says it. A payroll's count is
+    // its saved lines; when it cannot be read it is absent, which a consumer must read as unknown.
+    fn record_of(id: &str, kind: ProposalKind) -> ProposalRecord {
+        ProposalRecord {
+            id: id.into(),
+            vault_id: "v".into(),
+            kind,
+            state: crate::proposal::ProposalState::Awaiting,
+            proposer: "alice".into(),
+            value_total: Zatoshis::from_u64(10_000).unwrap(),
+            memo: None,
+            to_address: None,
+            expiry_unix: None,
+            txid: None,
+            created_at: Some(1),
+            approvals: vec![],
+            refusals: vec![],
+        }
+    }
+
+    #[test]
+    fn the_proposal_dto_carries_how_many_outputs_it_pays() {
+        use crate::payroll::PayrollLine;
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .save_vault(&VaultRecord {
+                id: "v".into(),
+                name: "V".into(),
+                quorum: crate::proposal::Quorum::new(2, 3).unwrap(),
+                group_pubkey: "g".into(),
+                orchard_address: "a".into(),
+                ufvk: "u".into(),
+                server_url: None,
+            })
+            .unwrap();
+        let line = |a: &str| PayrollLine {
+            label: None,
+            address: a.into(),
+            value: Zatoshis::from_u64(5_000).unwrap(),
+            memo: String::new(),
+        };
+        let payment = record_of("pay", ProposalKind::Payment);
+        let payroll = record_of("roll", ProposalKind::Payroll);
+        let empty = record_of("empty", ProposalKind::Payroll);
+        for r in [&payment, &payroll, &empty] {
+            store.save_proposal(r).unwrap();
+        }
+        store
+            .save_payroll_lines("roll", &[line("u1a"), line("u1b"), line("u1c")])
+            .unwrap();
+
+        let json =
+            |r: ProposalRecord| serde_json::to_value(ProposalDto::with_store(r, &store)).unwrap();
+        assert_eq!(json(payment)["destinations"], 1);
+        assert_eq!(json(payroll)["destinations"], 3);
+        // A payroll with no readable lines is unknown, never 1.
+        assert!(json(empty)["destinations"].is_null());
+    }
+
+    // The handlers, not only the constructor: a handler that builds the DTO another way would
+    // show a payroll with no count, and the cost of every open payroll would read as unknown.
+    #[test]
+    fn the_list_and_the_ledger_carry_a_payrolls_line_count() {
+        use crate::payroll::PayrollLine;
+        let db = tmp_db();
+        {
+            let mut store = Store::open(&db).unwrap();
+            store
+                .save_vault(&VaultRecord {
+                    id: "v".into(),
+                    name: "V".into(),
+                    quorum: crate::proposal::Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "g".into(),
+                    orchard_address: "a".into(),
+                    ufvk: "u".into(),
+                    server_url: None,
+                })
+                .unwrap();
+            store
+                .save_proposal(&record_of("roll", ProposalKind::Payroll))
+                .unwrap();
+            let line = |a: &str| PayrollLine {
+                label: None,
+                address: a.into(),
+                value: Zatoshis::from_u64(5_000).unwrap(),
+                memo: String::new(),
+            };
+            store
+                .save_payroll_lines("roll", &[line("u1a"), line("u1b"), line("u1c")])
+                .unwrap();
+        }
+        let cfg = cfg_with(db, None);
+        for (path, key) in [("/api/proposals", "proposals"), ("/api/ledger", "ledger")] {
+            let r = handle(&cfg, "GET", path, b"");
+            assert_eq!(r.status, 200, "{path}");
+            let v = body_json(&r);
+            assert_eq!(v[key][0]["destinations"], 3, "{path}");
+        }
     }
 }

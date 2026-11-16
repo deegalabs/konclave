@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { copyText } from '../clipboard'
 import { Skeleton, SkeletonDetail } from '../skeleton'
@@ -163,26 +163,45 @@ export default function Settings() {
   const [rotBusy, setRotBusy] = useState(false)
   const [rotErr, setRotErr] = useState<string | null>(null)
   const [rotDone, setRotDone] = useState(false)
+  // Which field the error is about (aria-invalid belongs on that one only), and whether this screen
+  // is still mounted when the rotation ends: it finishes either way, and the member must hear how.
+  const [rotAt, setRotAt] = useState<'old' | 'new' | 'new2' | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+
+  // A failed rotation re-enables the form: put focus back on the button that was pressed, which
+  // was disabled and lost it (the error line is role="alert"). Same as the /net protect form (#928).
+  const rotBtnRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { if (rotErr && !rotBusy) rotBtnRef.current?.focus() }, [rotErr, rotBusy])
 
   function resetRotate() {
+    // One guard for Cancel, Esc and the backdrop: the rotation finishes either way, and would then
+    // report on a dialog the member believes they cancelled. "Export first" is disabled while busy
+    // as well, because it opens the export AFTER this returns.
+    if (rotBusy) return
     setRotOpen(false); setRotOld(''); setRotNew(''); setRotNew2(''); setRotErr(null); setRotDone(false)
   }
 
   async function doRotate() {
     if (!vaultId) return
-    if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); return }
+    if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); setRotAt('new2'); return }
     setRotBusy(true); setRotErr(null)
     try {
       await changePassphrase(vaultId, rotOld, rotNew)
+      if (!mounted.current) { toast.ok(t('rotate.done')); return }
       setRotDone(true)
       setRotOld(''); setRotNew(''); setRotNew2('')
     } catch (e) {
       // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
       // record was NOT touched - which is what the message promises.
-      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
+      const msg = e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
         : e instanceof StorageError && e.code === 'sealed-field-unreadable' ? t('storage.err.sealedFieldUnreadable')
         : e instanceof StorageError && e.code === 'weak-passphrase' ? t('storage.err.weakPassphrase')
-        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false)))
+        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false))
+      if (!mounted.current) { toast.err(msg); return }
+      setRotErr(msg)
+      setRotAt(e instanceof StorageError && (e.code === 'same-passphrase' || e.code === 'weak-passphrase') ? 'new'
+        : isWrongPassphrase(e) ? 'old' : null)
     } finally {
       setRotBusy(false)
     }
@@ -562,29 +581,30 @@ export default function Settings() {
                   and error prevention past the commit point prevents nothing. */}
               <div className="dlg-warn">
                 <b>{t('rotate.note')}</b>{' '}
-                <button type="button" className="lnk" onClick={() => { resetRotate(); setXpOpen(true) }}>
+                <button type="button" className="lnk" disabled={rotBusy} onClick={() => { resetRotate(); setXpOpen(true) }}>
                   {t('rotate.exportFirst')}
                 </button>
               </div>
-              {rotErr && <div className="unlock-err" role="alert">{rotErr}</div>}
-              <label className="field">
-                <span>{t('rotate.currentLabel')}</span>
-                <PassphraseField value={rotOld} onChange={(v) => { setRotOld(v); setRotErr(null) }}
-                  placeholder={t('rotate.currentPlaceholder')} autoFocus
-                  autoComplete="current-password" choosing={false} invalid={!!rotErr} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.newLabel')}</span>
-                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.new2Label')}</span>
-                <PassphraseField value={rotNew2} onChange={(v) => { setRotNew2(v); setRotErr(null) }}
-                  choosing={false} />
-              </label>
+              {rotErr && <div className="unlock-err" id="rot-err" role="alert">{rotErr}</div>}
+              {/* readOnly while it verifies: what is sealed is what was typed at the press (#928). */}
+              <div className="field">
+                <PassphraseField label={t('rotate.currentLabel')} value={rotOld}
+                  onChange={(v) => { setRotOld(v); setRotErr(null) }}
+                  placeholder={t('rotate.currentPlaceholder')} autoFocus readOnly={rotBusy}
+                  autoComplete="current-password" choosing={false} invalid={!!rotErr && rotAt === 'old'} />
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.newLabel')} value={rotNew} readOnly={rotBusy} invalid={!!rotErr && rotAt === 'new'}
+                  onChange={(v) => { setRotNew(v); setRotErr(null) }} />
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.new2Label')} value={rotNew2} readOnly={rotBusy}
+                  onChange={(v) => { setRotNew2(v); setRotErr(null) }} choosing={false}
+                  invalid={!!rotErr && rotAt === 'new2'} />
+              </div>
               <div className="unlock-btns">
-                <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
+                <button className="rd-enter" disabled={rotBusy} onClick={resetRotate}>{t('common.cancel')}</button>
+                <button className="rd-enter primary" ref={rotBtnRef} aria-describedby={rotErr ? 'rot-err' : undefined} disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>
@@ -609,11 +629,11 @@ export default function Settings() {
             </Link>
           </p>
           {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
-          <label className="field">
-            <span>{t('export.currentLabel')}</span>
-            <PassphraseField value={xpPass} onChange={(v) => { setXpPass(v); setXpErr(null) }}
+          <div className="field">
+            <PassphraseField label={t('export.currentLabel')} value={xpPass}
+              onChange={(v) => { setXpPass(v); setXpErr(null) }}
               autoFocus autoComplete="current-password" choosing={false} invalid={!!xpErr} />
-          </label>
+          </div>
           <div className="unlock-btns">
             <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
               {t('export.copy')}

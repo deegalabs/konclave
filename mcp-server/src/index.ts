@@ -144,6 +144,18 @@ async function rawRequest<T = unknown>(
         (typeof obj.error === "string" && obj.error) ||
         (typeof obj.message === "string" && obj.message) ||
         JSON.stringify(parsed);
+      // The bridge answers a refusal of the request as 400 `{"error": what, "detail": why}`
+      // (server.rs `bad()`); the why carries the reason and, for a payroll, the line. Only a
+      // 400's detail is relayed: other statuses can carry tool stderr or store errors
+      // (e.g. a 502 "wallet"), which stay out of what the assistant reads.
+      if (
+        res.status === 400 &&
+        typeof obj.error === "string" &&
+        typeof obj.detail === "string" &&
+        obj.detail
+      ) {
+        detail = `${obj.error}: ${obj.detail}`;
+      }
     } else if (typeof parsed === "string") {
       detail = parsed;
     }
@@ -245,6 +257,40 @@ function fail(err: unknown) {
     isError: true as const,
     content: [{ type: "text" as const, text: `Error: ${message}` }],
   };
+}
+
+/**
+ * An amount, as the assistant sends it. Whether it is an amount (digits only, at most 8
+ * decimal places, above zero, within the supply) is decided once, by the bridge
+ * (`Zatoshis::from_zec_str`, orchestrator/src/money.rs), and its refusal reaches the
+ * assistant with its reason (#973). The tool does not repeat that rule.
+ */
+const amountArg = z
+  .union([z.number().finite().positive(), z.string().min(1)])
+  .describe(
+    'Amount in ZEC, preferably as a decimal string such as "0.01" (a number also works). ' +
+      "The Konclave app checks the amount and says why when it refuses one.",
+  );
+
+/**
+ * The decimal string the bridge parses. A string goes as given. A number goes only when
+ * `String()` writes it without an exponent: for a finite positive number that is the only
+ * other form, and 1e-7 would reach the bridge as "1e-7" instead of the amount meant.
+ * Invariant: everything refused here the bridge would also refuse; this never judges a string.
+ */
+function amountForBridge(v: number | string, where = "the amount"): string {
+  if (typeof v === "string") return v;
+  const s = String(v);
+  if (/e/i.test(s)) {
+    // Offer an example only when it is the same amount, never a rounded one.
+    const ex = v.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+    const exact = !/e/i.test(ex) && ex !== "0" && Number(ex) === v;
+    throw new Error(
+      `${where} (${s}) cannot be sent exactly as a number; pass it as a decimal string` +
+        (exact ? `, for example "${ex}".` : "."),
+    );
+  }
+  return s;
 }
 
 // A shared, optional `vault_id` argument for every vault-scoped tool.
@@ -489,12 +535,7 @@ server.registerTool(
             "the Konclave app validates the address authoritatively and will " +
             "reject an unsupported/wrong-network address.",
         ),
-      value_zec: z
-        .union([z.number().positive(), z.string().min(1)])
-        .describe(
-          "Amount to pay, in ZEC (e.g. 0.01). Accepts a number or a decimal " +
-            "string. Must be positive and within the vault's spendable balance.",
-        ),
+      value_zec: amountArg,
       memo: z
         .string()
         .optional()
@@ -520,7 +561,7 @@ server.registerTool(
         proposer: "ai-assistant (Konclave MCP)",
         to_address,
         // The bridge parses the amount as a decimal string (no floating point).
-        value_zec: String(value_zec),
+        value_zec: amountForBridge(value_zec),
       };
       if (memo !== undefined && memo !== "") {
         body.memo = memo;
@@ -586,9 +627,7 @@ server.registerTool(
               .describe(
                 "Recipient Zcash address; prefer a shielded Orchard address.",
               ),
-            value_zec: z
-              .union([z.number().positive(), z.string().min(1)])
-              .describe("Amount for this line, in ZEC. A number or decimal string."),
+            value_zec: amountArg,
             memo: z
               .string()
               .optional()
@@ -611,10 +650,10 @@ server.registerTool(
     try {
       const body: Record<string, unknown> = {
         proposer: "ai-assistant (Konclave MCP)",
-        lines: lines.map((l) => {
+        lines: lines.map((l, i) => {
           const line: Record<string, unknown> = {
             address: l.address,
-            value_zec: String(l.value_zec),
+            value_zec: amountForBridge(l.value_zec, `line ${i + 1}`),
           };
           if (l.label !== undefined && l.label !== "") line.label = l.label;
           if (l.memo !== undefined && l.memo !== "") line.memo = l.memo;

@@ -139,9 +139,11 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .field{display:block; margin:16px 0}
 .field > span{display:block; font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:7px}
 .input{width:100%; font-family:var(--font-mono); font-size:14px; color:var(--text); background:var(--surface-2);
-  border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px;
+  border:1px solid var(--line-strong); border-radius:var(--radius-sm); padding:11.5px 13.5px;
   transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
-.input:hover{border-color:var(--surface-3)}
+.input:hover{border-color:var(--text-muted)}
+.input[readonly]{border-style:dashed; color:var(--text-muted); cursor:default}
+.input[readonly]:hover{border-color:var(--line-strong)}
 /* No `opacity`. At 85% even a darker token composites below 4.5:1, so the transparency - not the
    colour - was the thing failing. The placeholder is a hint, and a hint nobody can read is not one. */
 .input::placeholder{color:var(--text-muted)}
