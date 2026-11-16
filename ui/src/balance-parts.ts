@@ -87,7 +87,7 @@ function split100(parts: number[], total: number): number[] {
 // The Dashboard and the payment screen disagreed about the word "available", and the screen that
 // CREATES payments held the more permissive meaning.
 //
-//   Dashboard `canPay`   ->  parts.freeZat   = spendable MINUS what open proposals hold
+//   pay-readiness `canPay` ->  parts.freeZat   = spendable MINUS what open proposals hold
 //   NewPayment           ->  b.spendable_zec = spendable, full stop
 //
 // So the Dashboard could say the vault cannot pay while the payment screen accepted the amount,
@@ -103,12 +103,24 @@ function split100(parts: number[], total: number): number[] {
 // how it drifted in the first place.
 import { isOpen } from './desk'
 import type { Proposal } from './api'
+import type { FeeEstimator } from './fee-estimate'
+import { proposalCostZat } from './proposal-cost'
 
-/** What every proposal that is still able to move has committed. `null` when the list has not been
- *  read: unknown is never "nothing reserved", which would offer the held funds again. */
-export function reservedZatOf(proposals: readonly Proposal[] | null): number | null {
+/** What every proposal that is still able to move has committed: its value plus the network fee
+ *  estimated for it (`proposalCostZat`, #1017). `null` when the list has not been read, or when an
+ *  open proposal's cost cannot be known (no estimator, destinations unread): unknown is never
+ *  "nothing reserved", which would offer the held funds again. With no open proposal the answer is 0
+ *  whatever the estimator is, because there is nothing to estimate. The estimator is required, so a
+ *  caller cannot forget the fee. */
+export function reservedZatOf(proposals: readonly Proposal[] | null, estimate: FeeEstimator | null): number | null {
   if (!proposals) return null
-  return proposals.filter(isOpen).reduce((a, p) => a + (p.value_zat ?? 0), 0)
+  let total = 0
+  for (const p of proposals.filter(isOpen)) {
+    const cost = proposalCostZat(p, estimate)
+    if (cost === null) return null
+    total += cost
+  }
+  return total
 }
 
 /**
@@ -121,9 +133,10 @@ export function reservedZatOf(proposals: readonly Proposal[] | null): number | n
 export function freeZatOf(
   bal: { total_zat?: number | null; spendable_zat?: number | null } | null,
   proposals: readonly Proposal[] | null,
+  estimate: FeeEstimator | null,
 ): number | null {
   const total = bal?.total_zat
-  const reserved = reservedZatOf(proposals)
+  const reserved = reservedZatOf(proposals, estimate)
   if (bal == null || total == null || reserved === null) return null
   const spendable = bal.spendable_zat ?? total
   return balanceParts(total, spendable, reserved).freeZat

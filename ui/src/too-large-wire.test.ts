@@ -27,9 +27,11 @@ const refusal = (plan: 'payment' | 'payroll') => ({
   detail: `this ${plan} needs 7 parts and one payment can carry at most 6`,
 })
 let answer: { status: number; body: unknown } = { status: 422, body: refusal('payment') }
-vi.stubGlobal('fetch', async () => new Response(JSON.stringify(answer.body), { status: answer.status }))
+vi.stubGlobal('fetch', async (url: string) => String(url).includes('/api/vault/members') ? membersAnswer(['alice', 'bob']) : new Response(JSON.stringify(answer.body), { status: answer.status }))
 
 const { createProposal, createPayroll, humanError, IS_NET } = await import('./api')
+const { unlockSeatForTest, membersAnswer } = await import('./acting-test-support')
+unlockSeatForTest('a'.repeat(64), 1) // the device proposes as the seat it holds (#591)
 const { executeProposal } = await import('./helper')
 const { readReply } = await import('./send-outcome')
 const { netReplyText, panelStep } = await import('./send-preflight')

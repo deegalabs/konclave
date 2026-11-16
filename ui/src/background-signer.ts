@@ -38,9 +38,9 @@ export async function signingRoomFromSecret(secret: Uint8Array): Promise<string>
   return toHex(digest.slice(0, 16)) // 128-bit hex room id
 }
 
-// --- singleton guard: one active signer per vault per device (two tabs must not double-sign) ---
-// In-process guard (one JS context / tab). Across tabs, production wraps this with the Web Locks
-// API (navigator.locks) keyed by the vault; this registry is the unit-testable core.
+// --- singleton guard: one active signer per vault seat per device (two tabs must not double-sign) ---
+// In-process guard (one JS context / tab). Across tabs, `acquireSignerAcrossTabs` below wraps it
+// with a Web Lock (navigator.locks) keyed the same way; this registry is the unit-testable core.
 const activeVaults = new Set<string>()
 
 /** Try to become THE background signer for `vaultId` in this context. Returns false if one is
@@ -55,6 +55,85 @@ export function releaseSigner(vaultId: string): void {
 }
 export function isSignerActive(vaultId: string): boolean {
   return activeVaults.has(vaultId)
+}
+
+/** A signer's hold on its vault seat in this browser (#285). */
+export interface SignerLock {
+  /** true once this tab is THE signer for the seat; false if it was released first. */
+  granted: Promise<boolean>
+  /** Idempotent. Frees the in-process guard in this very call (so the same tab can re-seat at
+   *  once), withdraws a request still waiting, and lets a held lock go. */
+  release(): void
+}
+
+const isAbort = (e: unknown) => (e as { name?: string } | null)?.name === 'AbortError'
+
+/**
+ * Become the background signer for one seat of one vault, across every tab and window of this
+ * browser. Two tabs of the same member signing the same seat would each seat and contribute from
+ * different nonces, so only one may run: the others WAIT in the browser's lock queue (`onBusy`
+ * says so, for the panel to show) and take over when the first one stops. This is a product lock,
+ * not a cryptographic one.
+ *
+ * null: this tab already runs (or awaits) a signer for the seat. With no lock manager (an insecure
+ * context, an old browser), or one that fails, the in-process guard alone decides, as before #285.
+ */
+export function acquireSignerAcrossTabs(
+  vaultId: string,
+  seat: number,
+  opts: { locks?: LockManager | null; onBusy?: () => void } = {},
+): SignerLock | null {
+  const key = `${vaultId.trim().toLowerCase()}-${seat}`
+  if (!acquireSigner(key)) return null
+  const locks = opts.locks === undefined ? globalThis.navigator?.locks : opts.locks
+  let released = false
+  let letGo: () => void = () => {}
+  const held = new Promise<void>((resolve) => { letGo = resolve })
+  const abort = new AbortController()
+  const release = () => {
+    if (released) return
+    released = true
+    releaseSigner(key)
+    abort.abort()
+    letGo()
+  }
+  if (!locks) return { granted: Promise.resolve(true), release }
+  const name = `konclave-sign-${key}`
+  const hold = (got: (lock: boolean) => void) => async (lock: Lock | null) => {
+    got(!!lock)
+    if (lock) await held
+  }
+  let seenBusy = false
+  const granted = (async () => {
+    try {
+      // First without waiting, to know whether another tab has it and say so; then in the queue.
+      // No `signal` here: the Web Locks API refuses one together with `ifAvailable`
+      // (NotSupportedError), and this answers at once anyway; `held` lets it go on release().
+      const free = await new Promise<boolean>((resolve, reject) => {
+        locks.request(name, { ifAvailable: true }, hold(resolve)).catch(reject)
+      })
+      if (!free) {
+        if (released) return false
+        seenBusy = true
+        opts.onBusy?.()
+        await new Promise<boolean>((resolve, reject) => {
+          locks.request(name, { signal: abort.signal }, hold(resolve)).catch(reject)
+        })
+      }
+      return !released
+    } catch (e) {
+      // Withdrawn by release(): not an error.
+      if (released || isAbort(e)) return false
+      // Another tab was seen holding it: never fall back to a second signer for the seat.
+      if (seenBusy) return false
+      // Any other failure: the in-process guard decides, as before #285. Said, never silent (the
+      // lock's name carries the vault id, so it is not logged).
+      const why = (e as { name?: string } | null)?.name
+      console.warn('signer: the browser lock failed; only this tab is guarded', why)
+      return true
+    }
+  })()
+  return { granted, release }
 }
 
 /** Governance gate: return true to let THIS device contribute its share to the payment identified

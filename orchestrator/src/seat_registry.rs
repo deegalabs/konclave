@@ -896,7 +896,6 @@ mod tests {
     mod pinning {
         use super::*;
         use crate::helper::load_registration;
-        use std::os::unix::fs::PermissionsExt;
         use std::path::PathBuf;
 
         /// A coordinator whose fake engine answers with this vault's own pair: a vault made from the
@@ -909,26 +908,17 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             let exe = |file: &str, body: String| {
                 let p = dir.join(file);
-                std::fs::write(&p, body).unwrap();
-                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-                for _ in 0..200 {
-                    match std::process::Command::new(&p).arg("--probe").output() {
-                        Err(e) if e.raw_os_error() == Some(26) => {
-                            std::thread::sleep(std::time::Duration::from_millis(10))
-                        }
-                        _ => break,
-                    }
-                }
+                crate::test_exec::write_script(&p, &body);
                 p
             };
             let sign = exe(
                 "fake-sign",
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\ncat \"$(dirname \"$0\")/identity\"\n".to_string(),
+                "#!/bin/sh\ncat \"$(dirname \"$0\")/identity\"\n".to_string(),
             );
             let devtool = exe(
                 "fake-devtool",
                 if fail_devtool {
-                    "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nexit 1\n".to_string()
+                    "#!/bin/sh\nexit 1\n".to_string()
                 } else {
                     "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n".to_string()
                 },
@@ -943,6 +933,7 @@ mod tests {
                 relays: Vec::new(),
                 send_max_polls: crate::helper::DEFAULT_SEND_MAX_POLLS,
                 fee_switch: Default::default(),
+                clock: crate::helper::now_secs,
             };
             (cfg, dir)
         }
@@ -1351,20 +1342,10 @@ mod tests {
             let v = vault(2, 3);
             answer_for(&dir, &v);
             let strict = dir.join("strict-devtool");
-            std::fs::write(
+            crate::test_exec::write_script(
                 &strict,
                 "#!/bin/sh\ncase \"$4\" in\n  init-fvk) [ -e \"$(dirname \"$3\")/read-key.json\" ] || exit 1; mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
-            )
-            .unwrap();
-            std::fs::set_permissions(&strict, std::fs::Permissions::from_mode(0o755)).unwrap();
-            for _ in 0..200 {
-                match std::process::Command::new(&strict).output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(std::time::Duration::from_millis(10))
-                    }
-                    _ => break,
-                }
-            }
+            );
             let cfg = HelperConfig {
                 devtool: strict,
                 ..cfg

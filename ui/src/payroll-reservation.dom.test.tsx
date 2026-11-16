@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
+import { fmtZecExact } from './format'
 const en = (k: string): string => dict[k] ?? k
 
 /* #293: the Payroll screen read the raw spendable balance, so a second payroll against funds an open
@@ -24,7 +25,7 @@ vi.mock('./fee-estimate', async (orig) => ({
   useFeeEstimate: () => (fee.ready ? { state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) } : { state: 'unavailable' }),
 }))
 vi.mock('./api', async (orig) => ({
-  ...(await orig<typeof import('./api')>()), health, getBeneficiaries, getLedger, getVault, getProposals, readBalance, IS_NET: true,
+  ...(await orig<typeof import('./api')>()), actingAs: async () => ({ ok: true, seat: 1, name: 'Alice' }), health, getBeneficiaries, getLedger, getVault, getProposals, readBalance, IS_NET: true,
 }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [] }))
 vi.mock('./toast', () => ({ useToast: () => ({ ok: () => {}, err: () => {}, warn: () => {}, info: () => {} }) }))
@@ -36,7 +37,7 @@ const ONE_ZEC = 100_000_000
 // An open proposal (awaiting) holding 0.9 of the vault's 1 ZEC.
 const holding = {
   id: 'h', vault_id: 'v', kind: 'payment', state: 'awaiting', proposer: 'Alice', memo: 'Rent', is_public: false,
-  approvals: ['Alice'], refusals: [], approvals_count: 1, value_zat: 90_000_000, value_zec: '0.9', to_address: ADDR,
+  approvals: ['Alice'], refusals: [], approvals_count: 1, value_zat: 90_000_000, value_zec: '0.9', to_address: ADDR, destinations: 1,
 }
 
 const mount = () => render(<MemoryRouter><I18nProvider><NewPayroll /></I18nProvider></MemoryRouter>)
@@ -99,5 +100,28 @@ describe('a reservation disables the payroll button, in the browser (#293)', () 
     await fillOneLine()
     await waitFor(() => expect(submit().disabled).toBe(false))
     expect(document.getElementById('payroll-block')!.textContent).toBe('')
+  })
+
+  // #1017: the "after" preview is the free funds less what THIS payroll costs, from the one addition
+  // (`costZat`) for ITS line count. Five lines make the estimate differ from the one-line floor, so a
+  // preview that estimated one destination would show a different figure.
+  it('the balance-after preview subtracts the payroll\'s own cost for its line count', async () => {
+    getProposals.mockResolvedValue([])
+    mount()
+    const lines = 5
+    for (let i = 1; i < lines; i++) fireEvent.click(await screen.findByText(en('payroll.addRow')))
+    const tos = await screen.findAllByRole('combobox')
+    const values = screen.getAllByLabelText(en('payroll.colValue'))
+    for (let i = 0; i < lines; i++) {
+      fireEvent.change(tos[i]!, { target: { value: ADDR } })
+      fireEvent.change(values[i]!, { target: { value: '0.01' } })
+    }
+    const estimate = (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1)
+    const after = (ONE_ZEC - lines * 1_000_000 - estimate(lines)) / 1e8
+    const oneLineFloor = (ONE_ZEC - lines * 1_000_000 - estimate(1)) / 1e8
+    expect(estimate(lines)).not.toBe(estimate(1))
+    const shown = () => screen.getByText(en('payroll.pvAfter')).parentElement!.textContent!
+    await waitFor(() => expect(shown()).toContain(fmtZecExact(after)))
+    expect(shown()).not.toContain(fmtZecExact(oneLineFloor))
   })
 })
