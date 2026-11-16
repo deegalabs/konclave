@@ -295,6 +295,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
+  // #927: typed twice; a typo in the passphrase that protects a share locks its owner out.
+  const [savePass2, setSavePass2] = useState('')
   // A member saves only once it holds the vault's access secret S (the creator mints its own): a
   // member saved without S would lose the vault's reads the moment its read gate turns on.
   const [hasSecret, setHasSecret] = useState(false)
@@ -906,7 +908,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       setSaveErr(L.unavailable)
       return
     }
-    if (newPassphraseProblem(savePass)) return
+    if (newPassphraseProblem(savePass) || savePass !== savePass2) return
     const dkg = dkgRef.current
     // A member may save its share as soon as its own round 3 is done; only the address waits for
     // every member (see finishVault).
@@ -967,13 +969,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (cer.complete && !part3DoneRef.current) void finishVault()
       else setWaiting(cer.waitingFor())
       setSaveState('saved')
-      setSavePass('')
+      setSavePass(''); setSavePass2('')
       await refreshSaved()
     } catch (e) {
       setSaveState('idle')
       setSaveErr(L.saveErr + String(e))
     }
-  }, [savePass, L, refreshSaved, send, finishVault])
+  }, [savePass, savePass2, L, refreshSaved, send, finishVault])
 
   const doBackupDownload = useCallback(() => {
     if (!backup) return
@@ -1763,8 +1765,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               <PassphraseField inputClassName="cv-input" autoFocus
                 placeholder={tt('net.save.passLabel')}
                 value={savePass} onChange={setSavePass} />
+              {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
+              <PassphraseField inputClassName="cv-input" choosing={false}
+                placeholder={tt('net.save.passConfirm')}
+                value={savePass2} onChange={setSavePass2} />
+              <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
               {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || saveState !== 'idle' || !hasSecret}
+              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? tt('net.save.keyMissing')
@@ -1912,6 +1919,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 <input
                   className="net-input"
                   type="password"
+                  autoComplete="new-password"
+                  aria-label={L.savePlaceholder}
                   placeholder={L.savePlaceholder}
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
@@ -1919,9 +1928,19 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 {savePass && newPassphraseProblem(savePass) && (
                   <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
                 )}
+                <input
+                  className="net-input"
+                  type="password"
+                  autoComplete="new-password"
+                  aria-label={tt('net.save.passConfirm')}
+                  placeholder={tt('net.save.passConfirm')}
+                  value={savePass2}
+                  onChange={(e) => setSavePass2(e.target.value)}
+                />
+                <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
                   className="net-btn"
-                  disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || !hasSecret}
+                  disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}

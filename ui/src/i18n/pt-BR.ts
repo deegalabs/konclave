@@ -1737,6 +1737,8 @@ export const ptBR: Record<string, string> = {
   'net.save.eyebrow': 'GUARDE O SEU PEDAÇO',
   'net.save.title': 'O seu pedaço da chave está pronto',
   'net.save.lead': 'Proteja-o neste aparelho com uma frase-senha. O endereço do cofre aparece quando todos os membros tiverem guardado o seu; antes disso, não há onde depositar.',
+  'net.save.passConfirm': 'Digite a frase-senha de novo',
+  'net.save.passMismatch': 'As duas frases-senha ainda não são iguais.',
   'net.save.passLabel': 'Frase-senha (mínimo 12 caracteres)',
   'net.save.keyMissing': 'A chave de acesso não chegou. Peça a quem criou para conferir a conexão, ou comecem de novo.',
   'net.save.waitingKey': 'Esperando a chave de acesso de quem criou…',
