@@ -5,6 +5,12 @@ on:
     branches: [main, staging]
   pull_request:
 
+# Read-only by default (CodeQL actions/missing-workflow-permissions): a job that needs more says so
+# in its own block, as `changelog` and `pr-rules` do. The caches and upload-artifact steps use the
+# runner's own token, not this one.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}
