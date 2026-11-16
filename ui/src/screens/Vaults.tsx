@@ -52,7 +52,6 @@ export default function Vaults() {
   const toast = useToast()
   const tr = useTr()
   const { locale } = useI18n()
-  const pt = locale === 'pt-BR'
   const nav = useNavigate()
   // #446 D's `returnTo` is GONE, and deliberately so. It read a `from` that a guard set when it
   // bounced the member here, and since #467 no guard bounces anyone: a locked vault is unlocked
@@ -786,32 +785,30 @@ export default function Vaults() {
 
       {choosing && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="choose-title" onClose={() => { setChoosing(false); setCustomStep(false) }}>
-          <div className="rd-eyebrow">{pt ? 'Criar cofre' : 'Create a vault'}</div>
-          <h2 id="choose-title">{pt ? 'Onde coordenar as aprovações?' : 'Where to coordinate approvals?'}</h2>
-          <p>{pt
-            ? 'Onde as aprovações do grupo são coordenadas. Ninguém vê sua chave; só o grupo assina.'
-            : 'Where the group approvals are coordinated. No one sees your key; only the group signs.'}</p>
+          <div className="rd-eyebrow">{t('vaults.chooseEyebrow')}</div>
+          <h2 id="choose-title">{t('vaults.chooseTitle')}</h2>
+          <p>{t('vaults.chooseBody')}</p>
           {!customStep ? (
             <div className="unlock-btns" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
               {HELPER_BASE && (
-                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
+                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{t('vaults.chooseHosted')}</button>
               )}
-              <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu servidor' : 'Your server'}</button>
+              <button className="rd-enter" onClick={() => setCustomStep(true)}>{t('vaults.chooseOwn')}</button>
               {/* Hidden on desktop until #212: "This device only" opens `/create`, the ceremony that
                   needs the local bridge, which the desktop shell does not embed yet (#664). */}
               {localCoordAvailable() && (
-                <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
+                <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{t('vaults.chooseLocal')}</button>
               )}
             </div>
           ) : (
             <>
-              <input className="unlock-input mono" inputMode="url" placeholder={pt ? 'https://seu-servidor.exemplo.com' : 'https://your-server.example.com'}
+              <input className="unlock-input mono" inputMode="url" placeholder={t('vaults.chooseUrlPlaceholder')}
                 value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && validHelperUrl(chooseUrl)) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
               <div className="unlock-btns">
                 <button className="rd-enter" onClick={() => setCustomStep(false)}>{t('common.cancel')}</button>
                 <button className="rd-enter primary" disabled={!validHelperUrl(chooseUrl)}
-                  onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{pt ? 'Continuar' : 'Continue'}</button>
+                  onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{t('vaults.chooseContinue')}</button>
               </div>
             </>
           )}

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark } from './components'
 import { Identicon, memberSeed } from './avatar'
-import { useT, useI18n } from './i18n'
+import { useT } from './i18n'
 import { useSeatRefusalCode } from './seat-registration'
 import { coordinatorCode, refusalKey } from './conclude-registration'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
@@ -45,7 +45,6 @@ export default function Layout() {
   // is refused shows here at once. A code this app does not know still says the seat was refused.
   const refusedCode = useSeatRefusalCode(getSelectedVault())
   const knownCode = coordinatorCode(refusedCode)
-  const { locale } = useI18n()
   const nav = useNavigate()
   const loc = useLocation()
   const [vault, setVault] = useState<Vault | null>(null)
@@ -327,7 +326,7 @@ export default function Layout() {
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
                 <span className="live offline">
-                  <i />{locale === 'pt-BR' ? 'Offline - sem conexão com o cofre' : "Offline - can't reach your vault"}
+                  <i />{t('layout.offline')}
                 </span>
               ) : null}
             </span>
