@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { RevealProvider } from './reveal'
 import { en as dict } from './i18n/en'
 const en = (k: string): string => dict[k] ?? k
 
@@ -32,7 +33,7 @@ const payroll = { ...base, id: 'p2', kind: 'payroll', state: 'awaiting', memo: '
 const line = { label: 'Carol', address: ADDR, value_zat: 9000, value_zec: '0.00009', memo: '', is_public: false }
 
 const mount = (id: string) => render(
-  <MemoryRouter initialEntries={[{ pathname: '/proposal', state: { id } }]}><I18nProvider><Proposal /></I18nProvider></MemoryRouter>,
+  <MemoryRouter initialEntries={[{ pathname: '/proposal', state: { id } }]}><I18nProvider><RevealProvider initial><Proposal /></RevealProvider></I18nProvider></MemoryRouter>,
 )
 
 describe('the proposal screen shows the amount exactly (#777)', () => {

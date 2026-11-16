@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useT } from './i18n'
+import { copyText } from './clipboard'
 
 export interface CopyButtonProps {
   /** The text to place on the clipboard. */
@@ -37,15 +38,12 @@ export default function CopyButton({ value, className, label: own }: CopyButtonP
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
-      setDone(true)
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => setDone(false), 1500)
-    } catch {
-      // A blocked clipboard is not worth an error state on a public code the member can select and
-      // copy by hand. Saying nothing is honest here; claiming success would not be.
-    }
+    // A blocked clipboard is not worth an error state on a public code the member can select and
+    // copy by hand. Saying nothing is honest here; claiming success would not be.
+    if (!(await copyText(value))) return
+    setDone(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setDone(false), 1500)
   }
 
   const label = done ? t('members.fpCopied') : (own ?? t('members.fpCopy'))
