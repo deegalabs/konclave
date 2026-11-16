@@ -1155,7 +1155,6 @@ mod tests {
         max_actions: Option<usize>,
         payroll: bool,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, bool) {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1164,10 +1163,7 @@ mod tests {
         std::fs::write(&vector, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         // `pczt -w <dir> create ...` and `pczt -w <dir> prove`. The proven bytes are a PCZT (what is
@@ -1327,7 +1323,6 @@ mod tests {
         max_polls: u32,
         fail_on: usize,
     ) -> (Result<SignedSend, ToolError>, usize) {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-silent-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1336,10 +1331,7 @@ mod tests {
         std::fs::write(&vector, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let proven = dir.join("proven.pczt");
@@ -1452,7 +1444,6 @@ mod tests {
         tip: u64,
         clock_height: u64,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-gated-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1463,10 +1454,7 @@ mod tests {
         let ran = dir.join("ran.log");
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         // `prove` is the devtool's; `build-payroll` (a payment or a payroll) is the signer's. Every one of them leaves a line in the log, so a refusal can be shown to have run
@@ -1888,7 +1876,6 @@ mod tests {
         tag: &str,
         check: impl FnOnce(&SendConfig, &SpendPlan) -> Result<Funding, ToolError>,
     ) -> Result<Funding, ToolError> {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-funding-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1897,10 +1884,7 @@ mod tests {
         std::fs::write(&unproven, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let devtool = script("devtool", "exit 0".to_string());
@@ -1955,14 +1939,12 @@ mod tests {
         network: Option<&str>,
         tweak: impl FnOnce(&mut SendConfig),
     ) -> BuildSeen {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-b3a-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let argv = dir.join("argv.log");
@@ -1981,17 +1963,6 @@ mod tests {
                 spec_seen.display()
             ),
         );
-        // A freshly written script can be busy for a moment (ETXTBSY); wait it out.
-        for p in [&devtool, &signer] {
-            for _ in 0..200 {
-                match std::process::Command::new(p).output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10))
-                    }
-                    _ => break,
-                }
-            }
-        }
         let _ = std::fs::remove_file(&argv);
         let _ = std::fs::remove_file(&devtool_ran);
         let mut cfg = serde_json::json!({
@@ -2102,7 +2073,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_funding_check_always_builds_at_the_legacy_fee() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-f3-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2110,26 +2080,16 @@ mod tests {
         std::fs::write(&unproven, VECTOR).unwrap();
         let log = dir.join("argv.log");
         let path = dir.join("signer");
-        std::fs::write(
+        crate::test_exec::write_script(
             &path,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {} \"$out\"; exit 0; fi\necho 'SIGHASH {}'; echo 'RANDOMIZER 0 {}'\n",
                 log.display(),
                 unproven.display(),
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32)
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&path).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(Duration::from_millis(10))
-                }
-                _ => break,
-            }
-        }
+        );
         let _ = std::fs::remove_file(&log);
         let mut sc: SendConfig = serde_json::from_value(serde_json::json!({
             "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
@@ -2371,24 +2331,19 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_broadcast_hands_the_tool_the_signed_bytes_and_returns_its_txid() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-broadcast-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let captured = dir.join("stdin.bin");
         let devtool = dir.join("devtool");
-        std::fs::write(
+        crate::test_exec::write_script(
             &devtool,
-            format!(
+            &format!(
                 "#!/bin/sh\ncat > {}\necho 'Sending transaction...'\necho {}\n",
                 captured.display(),
                 "cd".repeat(32)
             ),
-        )
-        .unwrap();
-        let mut perm = std::fs::metadata(&devtool).unwrap().permissions();
-        perm.set_mode(0o755);
-        std::fs::set_permissions(&devtool, perm).unwrap();
+        );
         let sc: SendConfig = serde_json::from_value(serde_json::json!({
             "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
             "account": "acc", "konclave_signer": "/x", "frostd": "/x", "frost_client": "/x",

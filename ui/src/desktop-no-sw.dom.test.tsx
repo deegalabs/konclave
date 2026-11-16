@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Each test imports and evaluates the whole app from cold (vi.resetModules, below): 2.3 s alone, and
+// past the 5 s default under a full parallel run (#957). Its own deadline, for this file only; the
+// first test is slow only because it warms the transform the second one reuses, so both get it.
+vi.setConfig({ testTimeout: 30_000 })
 import { cleanup, render } from '@testing-library/react'
 
 // The desktop app never registers the web's service worker: a worker left in the WebView profile by

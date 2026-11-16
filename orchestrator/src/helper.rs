@@ -41,6 +41,10 @@ pub struct HelperConfig {
     /// The operator's fee switch (`KONCLAVE_FEE_MARGINAL_MAX`): `On` forces every vault to the legacy
     /// fee, `Off` lets each vault's own permission decide.
     pub fee_switch: crate::fee::FeeSwitch,
+    /// The clock the sync window reads (seconds since the epoch). Production sets the system clock
+    /// ([`now_secs`]); a test may fix it, so that it does not depend on the machine's wall clock
+    /// moving forward.
+    pub clock: fn() -> u64,
 }
 
 /// What a send waits for the devices when the operator has not said: five minutes.
@@ -208,7 +212,8 @@ fn mark_synced(vaults_dir: &Path, vault: &str, now: u64) {
     let _ = std::fs::write(&path, now.to_string());
 }
 
-fn now_secs() -> u64 {
+/// The system clock, in seconds since the epoch: the production value of [`HelperConfig::clock`].
+pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -290,12 +295,15 @@ fn bring_current(
     vaults_dir: &Path,
     vault_id: &str,
     freshness: Freshness,
+    clock: fn() -> u64,
 ) -> Result<(), ToolError> {
     // Once per read, and outside the sync window: a read on a wallet written by an older engine
     // fails even when the sync is skipped (in August: `no such table:
     // orchard_ironwood_migrations`).
     upgrade_logged(devtool, wallet_dir, vault_id);
-    let now = now_secs();
+    // Read after the migration, as before the clock was injected: the stamp is the time the sync
+    // starts.
+    let now = clock();
     if freshness == Freshness::Always || should_sync(vaults_dir, vault_id, SYNC_THROTTLE_SECS, now)
     {
         crate::wallet::sync(devtool, wallet_dir, lightwalletd)?;
@@ -315,6 +323,7 @@ pub fn settle_wallet(
     lightwalletd: &str,
     vaults_dir: &Path,
     vault_id: &str,
+    clock: fn() -> u64,
 ) -> Result<WalletView, ToolError> {
     bring_current(
         devtool,
@@ -323,6 +332,7 @@ pub fn settle_wallet(
         vaults_dir,
         vault_id,
         Freshness::Always,
+        clock,
     )?;
     let tip = crate::wallet::balance(devtool, wallet_dir)?.chain_tip_height;
     let mined = crate::wallet::list_confirmed_txids(devtool, wallet_dir)?;
@@ -342,6 +352,7 @@ fn fresh_wallet(cfg: &HelperConfig, reg: &VaultRegistration) -> Result<(), ToolE
         &cfg.vaults_dir,
         &reg.vault_id,
         Freshness::IfStale,
+        cfg.clock,
     )
 }
 
@@ -3420,6 +3431,10 @@ fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
 
 #[cfg(test)]
 mod tests {
+    /// A fixed instant for the sync-window tests: they must not depend on the machine's wall clock
+    /// moving forward (#957).
+    const FIXED_NOW: u64 = 1_800_000_000;
+
     use super::*;
 
     #[test]
@@ -4323,10 +4338,9 @@ mod tests {
     /// `balance`, and, when `upgrade_fails`, exits 1 on `upgrade` the way a failed migration does.
     #[cfg(unix)]
     fn fake_balance_devtool(dir: &Path, upgrade_fails: bool) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         if upgrade_fails {
             script.push_str(
@@ -4336,11 +4350,7 @@ mod tests {
         script.push_str(
             "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
         );
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -4356,6 +4366,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: || FIXED_NOW,
         }
     }
 
@@ -4404,7 +4415,7 @@ mod tests {
         let (fake, log) = fake_balance_devtool(&dir, false);
         let cfg = balance_cfg(fake, dir.join("vaults"));
         let r = reg("bbbb2222");
-        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+        mark_synced(&cfg.vaults_dir, &r.vault_id, FIXED_NOW);
 
         vault_balance(&cfg, &r).expect("balance reads");
 
@@ -4433,25 +4444,8 @@ mod tests {
     /// One test at a time may write and run a fake devtool script: writing an executable and running it
     /// while another thread forks makes the kernel answer `Text file busy` (ETXTBSY) now and then, and
     /// the tests that count subprocess calls then fail with no defect behind them. Taken by every test
-    /// in this module that uses a fake devtool. It REDUCES the flake and does not close it: a fork from
-    /// a test that does not take it (the registration and engine-path tests have their own probe loop)
-    /// can still hold the script's write handle for a moment.
-    /// Wait until a script that was just written can be executed: the kernel answers `Text file busy`
-    /// (ETXTBSY) while another thread's fork still holds the file's write handle. The fake devtools
-    /// answer `--probe` without logging, so this changes nothing a test counts. This is what closes
-    /// the race; `serial()` only reduces it.
-    #[cfg(unix)]
-    fn exec_ready(script: &Path) {
-        for _ in 0..200 {
-            match std::process::Command::new(script).arg("--probe").output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
-    }
-
+    /// in this module that uses a fake devtool. `test_exec::write_script` is what closes the
+    /// ETXTBSY race (it waits until the script can be run); this only keeps the call counts apart.
     #[cfg(unix)]
     fn serial() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -4474,12 +4468,11 @@ mod tests {
     /// were used, not only which subcommand ran.
     #[cfg(unix)]
     fn fake_chain_devtool(dir: &Path, sync: FakeSync) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let synced = dir.join("synced");
         let tried = dir.join("tried");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
         match sync {
@@ -4504,11 +4497,7 @@ mod tests {
             synced.display(),
             "cd".repeat(32)
         ));
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -4572,7 +4561,7 @@ mod tests {
         let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
         let cfg = balance_cfg(fake, dir.join("vaults"));
         let r = reg("99990000");
-        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+        mark_synced(&cfg.vaults_dir, &r.vault_id, FIXED_NOW);
 
         vault_transactions(&cfg, &r).expect("history reads");
 
@@ -4594,7 +4583,7 @@ mod tests {
         mark_synced(
             &cfg.vaults_dir,
             &r.vault_id,
-            now_secs() - SYNC_THROTTLE_SECS - 1,
+            FIXED_NOW - SYNC_THROTTLE_SECS - 1,
         );
 
         vault_transactions(&cfg, &r).expect("history reads");
@@ -4812,17 +4801,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_history_that_cannot_be_listed_is_an_error_and_not_an_empty_list() {
-        use std::os::unix::fs::PermissionsExt;
         let _serial = serial();
         let dir = tmp("history-list-fails");
         let fake = dir.join("fake-devtool");
-        std::fs::write(
+        crate::test_exec::write_script(
             &fake,
-            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = list-tx ]; then echo 'database is locked' >&2; exit 1; fi\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        exec_ready(&fake);
+            "#!/bin/sh\nif [ \"$4\" = list-tx ]; then echo 'database is locked' >&2; exit 1; fi\n",
+        );
         let cfg = balance_cfg(fake, dir.join("vaults"));
 
         assert!(vault_transactions(&cfg, &reg("aaaa0007")).is_err());
@@ -4855,10 +4840,9 @@ mod tests {
     /// fail `sync`.
     #[cfg(unix)]
     fn fake_settle_devtool(dir: &Path, sync_fails: bool) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
         if sync_fails {
@@ -4874,11 +4858,7 @@ mod tests {
             "aa".repeat(32),
             "bb".repeat(32)
         ));
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -4892,9 +4872,11 @@ mod tests {
         let (fake, log) = fake_settle_devtool(&dir, false);
         let vaults = dir.join("vaults");
         // A sync a second ago would let the balance read skip its own. Settling must not.
-        mark_synced(&vaults, "dddd4444", now_secs());
-        let view =
-            settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "dddd4444").expect("settles");
+        mark_synced(&vaults, "dddd4444", FIXED_NOW);
+        let view = settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "dddd4444", || {
+            FIXED_NOW
+        })
+        .expect("settles");
 
         assert_eq!(calls(&log), vec!["upgrade", "sync", "balance", "list-tx"]);
         assert_eq!(view.tip, 3_400_100);
@@ -4923,16 +4905,55 @@ mod tests {
             &vaults,
             "ffff6666",
             SYNC_THROTTLE_SECS,
-            now_secs()
+            FIXED_NOW
         ));
-        settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "ffff6666").expect("settles");
+        settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "ffff6666", || {
+            FIXED_NOW
+        })
+        .expect("settles");
         assert!(!should_sync(
             &vaults,
             "ffff6666",
             SYNC_THROTTLE_SECS,
-            now_secs()
+            FIXED_NOW
         ));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Settling a send stamps the vault's sync window with the clock the send carries (the
+    /// coordinator's), not with the system clock: the window has one clock (#957).
+    #[cfg(unix)]
+    #[test]
+    fn settling_a_live_send_stamps_the_window_with_its_own_clock() {
+        let dir = std::env::temp_dir().join(format!("konclave-live-settle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (fake, _log) = fake_settle_devtool(&dir, false);
+        let sc: crate::send::SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": fake, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": "/nonexistent/signer", "frostd": "/x",
+            "frost_client": "/x", "members": [], "threshold": 2, "group": "g",
+            "frostd_cert": "c", "frostd_key": "k", "server_url": "s",
+            "work_dir": "/nonexistent/work",
+        }))
+        .unwrap();
+        let refused = Err(UnsealedRefused);
+        let vaults = dir.join("vaults");
+        let live = crate::send_record::LiveSend {
+            sc: &sc,
+            plan: None,
+            relay_base: "https://relay.test",
+            room: "room",
+            recipients: &refused,
+            max_polls: 1,
+            vault_id: "cccc3333",
+            vaults_dir: &vaults,
+            clock: || 1_234_567,
+        };
+        crate::send_record::SendSteps::settle_wallet(&live).expect("settles");
+        let stamp = std::fs::read_to_string(vaults.join("cccc3333").join("last_sync")).unwrap();
+        assert_eq!(stamp.trim(), "1234567");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A sync past its deadline is an error, and nothing is read after it.
@@ -4949,7 +4970,7 @@ mod tests {
             "[ \"$4\" = sync ] && exec sleep 8\necho \"$4\" >> ",
             1,
         );
-        std::fs::write(&fake, script).unwrap();
+        crate::test_exec::write_script(&fake, &script);
         crate::wallet::set_sync_within_for_test(Some(std::time::Duration::from_millis(400)));
         let started = std::time::Instant::now();
         let r = settle_wallet(
@@ -4958,6 +4979,7 @@ mod tests {
             "zec.rocks:443",
             &dir.join("vaults"),
             "ffff6666",
+            || FIXED_NOW,
         );
         let took = started.elapsed();
         crate::wallet::set_sync_within_for_test(None);
@@ -4993,6 +5015,7 @@ mod tests {
             "zec.rocks:443",
             &dir.join("vaults"),
             "eeee5555",
+            || FIXED_NOW,
         );
         assert!(r.is_err());
         let ran = calls(&log);
@@ -5304,6 +5327,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
@@ -5319,6 +5343,7 @@ mod tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         }
     }
 
@@ -5326,7 +5351,6 @@ mod tests {
     /// switch, through `send_config_for`, reach the builder as flags (stub signer, argv logged).
     #[cfg(unix)]
     fn built_argv(tag: &str, switch: crate::fee::FeeSwitch, fee_from: &[Option<u32>]) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-b3b-e2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -5350,23 +5374,13 @@ mod tests {
         .unwrap();
         let log = dir.join("argv.log");
         let signer = dir.join("signer");
-        std::fs::write(
+        crate::test_exec::write_script(
             &signer,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\n[ -n \"$out\" ] && printf built > \"$out\"\nexit 0\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&signer, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&signer).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10))
-                }
-                _ => break,
-            }
-        }
+        );
         let _ = std::fs::remove_file(&log);
         let mut cfg = send_cfg("main");
         cfg.vaults_dir = dir.clone();
@@ -6505,14 +6519,12 @@ mod change_receiver_tests {
     #[cfg(unix)]
     #[test]
     fn register_vault_records_cp_once() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-register-cp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let write_exe = |name: &str, body: &str| {
             let p = dir.join(name);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_exec::write_script(&p, body);
             p
         };
         let sign = write_exe(
@@ -6523,18 +6535,6 @@ mod change_receiver_tests {
             "fake-devtool",
             "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
         );
-        for p in [&sign, &devtool] {
-            // See the helper-server twin of this test: a fork by another test thread can leave the
-            // script "busy" for a moment after it is written.
-            for _ in 0..200 {
-                match std::process::Command::new(p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
-        }
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
@@ -6545,6 +6545,7 @@ mod change_receiver_tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         let key = format!("{:064x}", 0xabc);
         let before = now_secs();
@@ -6582,25 +6583,15 @@ mod change_receiver_tests {
     /// `registration.json` during the attempt (a write that then cannot succeed, with the real
     /// writer), `zcash-sign` answers a new
     /// address on every call (the identity is minted at random), and the signer leaves a marker so a
-    /// test can tell whether the engine ran at all. A `--probe` run changes nothing.
+    /// test can tell whether the engine ran at all.
     #[cfg(unix)]
     fn n1_fixture(name: &str) -> (HelperConfig, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-n1-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let write_exe = |file: &str, body: &str| {
             let p = dir.join(file);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-            for _ in 0..200 {
-                match std::process::Command::new(&p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
+            crate::test_exec::write_script(&p, body);
             p
         };
         let marker = dir.join("engine-ran");
@@ -6608,7 +6599,7 @@ mod change_receiver_tests {
         let sign = write_exe(
             "fake-sign",
             &format!(
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\ntouch '{m}'\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
+                "#!/bin/sh\ntouch '{m}'\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
                 m = marker.display(),
                 c = counter.display()
             ),
@@ -6627,6 +6618,7 @@ mod change_receiver_tests {
             relays: Vec::new(),
             send_max_polls: DEFAULT_SEND_MAX_POLLS,
             fee_switch: Default::default(),
+            clock: now_secs,
         };
         (cfg, dir)
     }
@@ -6667,23 +6659,12 @@ mod change_receiver_tests {
     #[cfg(unix)]
     #[test]
     fn an_honest_protocol_3_registration_records_what_the_key_derives() {
-        use std::os::unix::fs::PermissionsExt;
         let (mut cfg, dir) = n1_fixture("cp3-honest");
         let sign = dir.join("vector-sign");
         let body = format!(
             "#!/bin/sh\necho 'Orchard-only unified address: \"{EXTERNAL}\"'\necho 'Unified Full Viewing Key: \"{UFVK}\"'\n"
         );
-        std::fs::write(&sign, body).unwrap();
-        std::fs::set_permissions(&sign, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // The file was just written: wait out "text file busy", as the fixture does.
-        for _ in 0..200 {
-            match std::process::Command::new(&sign).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
+        crate::test_exec::write_script(&sign, &body);
         cfg.zcash_sign = sign;
         let key = vector_group_key();
         let reg = register_vault(&cfg, &key, "v", 2, 3, Some(3)).unwrap();
