@@ -144,6 +144,9 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .net-code:hover { border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); }
+/* A code shown beside its own copy button: the code itself is not a control (#313). */
+.net-code.net-code-static { cursor: default; }
+.net-code.net-code-static:hover { border-color: var(--line-strong); }
 
 .net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .net-pill {
@@ -416,3 +419,9 @@
 .cv-cancel { align-self: flex-end; margin-left: auto; display: block; min-height: 44px; padding: 10px 14px; font-size: 13px;
   background: none; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text); cursor: pointer; }
 .cv-cancel:hover { border-color: var(--warn-strong); }
+
+/* Where the member is (HostNotice). Off the official host it also says so in words; the colour is
+   the second signal, --warn-strong being the AA text colour in both themes. */
+.host-notice{margin:0 0 10px; font-size:12.5px; line-height:1.45; color:var(--text); overflow-wrap:anywhere}
+.host-notice.warn{color:var(--warn-strong); background:var(--warn-soft,rgba(181,71,8,.09)); border:1px solid var(--warn-line,rgba(181,71,8,.3)); border-radius:8px; padding:8px 11px}
+.host-notice-host{font-family:var(--font-mono); font-weight:600; overflow-wrap:anywhere}

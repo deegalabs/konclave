@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import {
+  ageInDays,
+  dateProblem,
   asOfFrom,
   diffInfo,
   issueInfo,
@@ -159,5 +161,28 @@ describe('roadmap-sync: the list and the file', () => {
     await sync({ stages, fetchImpl: fake, token: 't0k' })
     await sync({ stages, fetchImpl: fake })
     expect(seen).toEqual(['Bearer t0k', undefined])
+  })
+
+  // The age check on a roadmap PR: whole UTC days from the snapshot to today, never negative-safe by accident.
+  it('counts the snapshot age in whole UTC days', () => {
+    expect(ageInDays('2026-11-15', '2026-11-15')).toBe(0)
+    expect(ageInDays('2026-11-15', '2026-11-22')).toBe(7)
+    expect(ageInDays('2026-10-31', '2026-11-01')).toBe(1)
+    expect(ageInDays('2026-11-16', '2026-11-15')).toBe(-1)
+    expect(() => ageInDays('15/11/2026', '2026-11-15')).toThrow(/date/)
+  })
+
+  // The file's date as the check reads it: its words must be its day, it cannot be after GitHub's day, and,
+  // when asked, it cannot be older than the limit. A date edited by hand fails here, whatever its age.
+  it('refuses a snapshot date that is inconsistent, in the future or too old', () => {
+    const on = (iso: string) => asOfFrom(new Date(`${iso}T12:00:00Z`).toUTCString())
+    expect(dateProblem(on('2026-11-15'), '2026-11-16', 7)).toBeNull()
+    expect(dateProblem(on('2026-11-09'), '2026-11-16', 7)).toBeNull()
+    expect(dateProblem(on('2026-11-08'), '2026-11-16', 7)).toMatch(/more than 7 days/)
+    expect(dateProblem(on('2026-11-01'), '2026-11-16', undefined)).toBeNull()
+    expect(dateProblem(on('2026-11-17'), '2026-11-16', 7)).toMatch(/after/)
+    expect(dateProblem({ ...on('2026-11-15'), iso: '2099-01-01' }, '2026-11-16', 7)).toMatch(/words/)
+    expect(dateProblem({ ...on('2026-11-15'), en: '16 November 2026' }, '2026-11-16', 7)).toMatch(/words/)
+    expect(dateProblem({ iso: '2026-02-30', 'pt-BR': '30 de fevereiro de 2026', en: '30 February 2026' }, '2026-11-16', 7)).toMatch(/words|date/)
   })
 })
