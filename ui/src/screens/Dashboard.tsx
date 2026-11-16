@@ -7,7 +7,7 @@ import { SkeletonStat, SkeletonRows, SkeletonDetail } from '../skeleton'
 import { DashboardSkeleton } from '../dashboard-skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
-import { Identicon } from '../avatar'
+import { Identicon, seedForName } from '../avatar'
 import MembersPeek from '../MembersPeek'
 import { fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
@@ -427,7 +427,7 @@ export default function Dashboard() {
           eyebrow={t('dashboard.collectiveVault')}
           title={name}
           subtitle={<>
-            {tr('dashboard.vmetaPre')} · <MembersPeek members={members} thr={thr} n={n} roster={roster} creator={creator} me={me} />
+            {tr('dashboard.vmetaPre')} · <MembersPeek vaultId={vault?.id ?? ''} members={members} thr={thr} n={n} roster={roster} creator={creator} me={me} />
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
@@ -491,7 +491,7 @@ export default function Dashboard() {
               {desk.open > 1 && <span className="desk-count">{t('desk.openCount', { n: desk.open })}</span>}
             </div>
             <div className="ny-body">
-              <Identicon seed={lead.p.proposer} size={38} />
+              <Identicon seed={seedForName(vault?.id, vault?.members_read === false ? null : roster, lead.p.proposer)} size={38} />
               <div className="ny-main">
                 <div className="ny-amt"><Secret>{fmtZecExact(lead.p.value_zat / 1e8)}</Secret> <span className="dim small">ZEC</span></div>
                 <div className="a-to">{tr('dashboard.whatProposedBy', { what: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
