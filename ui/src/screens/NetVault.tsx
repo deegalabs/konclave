@@ -6,6 +6,7 @@ import { proposalsReadable, type HostedState, type NetPhase } from '../net-propo
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
 import CopyButton from '../CopyButton'
+import { copyText } from '../clipboard'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import {
   DeviceKey,
@@ -306,6 +307,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // file is useless without the passphrase; the share never travels in the clear.
   const [backup, setBackup] = useState<{ json: string; name: string; complete: boolean } | null>(null)
   const [backupCopied, setBackupCopied] = useState(false)
+  // #313: what the vault-address copy did, said only once the clipboard answered.
+  const [addrCopy, setAddrCopy] = useState<'copied' | 'failed' | null>(null)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
   const [restorePass, setRestorePass] = useState<Record<string, string>>({})
   const [restoreBusy, setRestoreBusy] = useState('')
@@ -1866,10 +1869,14 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <div className="net-vk">{hostedAddress}</div>
                   <button
                     className="net-btn"
-                    onClick={() => void navigator.clipboard?.writeText(hostedAddress)}
+                    onClick={() => {
+                      void (async () => setAddrCopy((await copyText(hostedAddress)) ? 'copied' : 'failed'))()
+                    }}
                   >
-                    {pe('Copiar endereço', 'Copy address')}
+                    {addrCopy === 'copied' ? pe('Copiado', 'Copied') : pe('Copiar endereço', 'Copy address')}
                   </button>
+                  <span className="visually-hidden" role="status">{addrCopy === 'copied' ? pe('Copiado', 'Copied') : ''}</span>
+                  {addrCopy === 'failed' && <p className="net-tip" role="alert">{tt('toast.copyFailed')}</p>}
 
                   <div style={{ marginTop: 16 }}>
                     <button
@@ -1958,7 +1965,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           </p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{pe('Código da sessão (compartilhe com os membros)', 'Session code (share with the members)')}:</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
+          <div className="net-code net-code-static">{room} <CopyButton value={room} label={pe('Copiar código da sessão', 'Copy session code')} /></div>
           <p className="net-tip" style={{ marginTop: 12 }}>{pe('Membros na sessão', 'Members in session')}: {signSeatCount} / {quorum}</p>
           {signSeatCount < quorum && (
             <p className="net-lead">{pe('Aguardando o quórum reingressar…', 'Waiting for the quorum to rejoin…')}</p>
