@@ -1,11 +1,15 @@
 /// <reference types="node" />
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, inject, it, vi } from 'vitest'
 // #669: two tests below walk and parse EVERY source file (3.6 s idle for the import-line one), so
 // under load they cross the 5 s default. Raised for this file only; the global limit stays.
 vi.setConfig({ testTimeout: 30_000 })
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
-import { stripComments } from './source-scan'
+import { codeAt, parseCount, stripCacheKey, stripComments, stripCommentsOnce } from './source-scan'
+import { SCAN_ROOTS, SKIPPED_DIRS } from './test-setup/strip-cache'
 
 // The helper that source pins rely on has to remove comments and nothing else. A version built on
 // regular expressions removed every import of api.ts (a `/*` inside a string opened a "comment"),
@@ -116,8 +120,10 @@ describe('stripComments', () => {
       'viewing-code-wrap.test.ts': 'stylesheets',
       'settings-no-index-css.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
+      'lockfile-policy.test.ts': 'pnpm-workspace.yaml',
       'changelog-gate.test.ts': 'CHANGELOG files',
       'web-manifest.test.ts': 'a .mjs script and ui/vercel.json',
+      'web-manifest-release.test.ts': 'the release workflow',
       'changelog-shape.test.ts': 'CHANGELOG files',
       'changelog-sections.test.ts': 'CHANGELOG files',
       'changelog-fragments.test.ts': 'CHANGELOG files',
@@ -206,6 +212,80 @@ describe('stripComments', () => {
       const imports = src.split('\n').filter((l) => /^import /.test(l))
       const out = stripComments(f, src)
       for (const line of imports) expect(out, `${f} lost: ${line}`).toContain(line)
+    }
+  })
+})
+
+// The run-wide cache (test-setup/strip-cache.ts, #957). Every scan walks the tree itself; what is
+// cached is only the stripped content, keyed by the source's kind and hash, so it cannot be stale.
+describe('the strip cache', () => {
+  const cacheFile = () => inject('stripCache')
+  const entries = () => JSON.parse(readFileSync(cacheFile(), 'utf8')) as Record<string, string>
+  const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const treeSources = () => {
+    const found: { name: string; src: string }[] = []
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) { if (!SKIPPED_DIRS.has(e.name)) walk(join(dir, e.name)) }
+        else if (/\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts')) found.push({ name: e.name, src: readFileSync(join(dir, e.name), 'utf8') })
+      }
+    }
+    for (const r of SCAN_ROOTS) walk(join(repoRoot, r))
+    return found
+  }
+
+  it('keys a source by its kind as well as its text: the same text strips differently as TS and as TSX', () => {
+    expect(stripCacheKey('a.ts', 'const a = 1')).not.toBe(stripCacheKey('a.tsx', 'const a = 1'))
+    expect(stripCacheKey('a.ts', 'const a = 1')).toBe(stripCacheKey('b.ts', 'const a = 1'))
+  })
+
+  it('is on in this run: a readable file with the sources of the tree', () => {
+    // Without the globalSetup every scan falls back to parsing, silently: green, and slow again.
+    expect(cacheFile(), 'vite.config.ts test.globalSetup gives the workers a cache').toBeTruthy()
+    expect(Object.keys(entries()).length).toBeGreaterThan(100)
+  })
+
+  it('holds, for every source of the tree, exactly what the one rule returns', () => {
+    const cache = entries()
+    const sources = treeSources()
+    expect(sources.length).toBeGreaterThan(100)
+    const missing: string[] = []
+    const wrong: string[] = []
+    sources.forEach(({ name, src }) => {
+      const key = stripCacheKey(name, src)
+      // A source edited after the setup has no entry: in watch mode, restart vitest after an edit.
+      if (!(key in cache)) { missing.push(name); return }
+      // All of them, not a sample: a sample missed the one corrupted entry in a red-check.
+      if (cache[key] !== stripCommentsOnce(name, src)) wrong.push(name)
+    })
+    expect(missing).toEqual([])
+    expect(wrong).toEqual([])
+  })
+
+  it('serves the tree without parsing it, and parses a source it does not hold', () => {
+    const before = parseCount()
+    // Under a name no other test uses, so the per-path memo cannot answer for the cache.
+    // Only sources the cache holds (one edited since the setup, in watch mode, is rightly parsed).
+    const cache = entries()
+    const held = treeSources().filter(({ name, src }) => stripCacheKey(name, src) in cache).slice(0, 40)
+    expect(held.length).toBe(40)
+    for (const { name, src } of held) stripComments(`probe/${name}`, src)
+    expect(parseCount() - before, 'a source of the tree comes from the cache').toBe(0)
+
+    // A file created during the run is not in the cache: it is parsed, and the call in it is seen.
+    const dir = mkdtempSync(join(tmpdir(), 'konclave-scan-'))
+    try {
+      const name = 'zap' + 'Call'
+      const file = join(dir, 'new.ts')
+      writeFileSync(file, `// ${name}() in a comment\nx.${name}()\n`)
+      expect(codeAt(file)).toMatch(new RegExp('\\.' + name + '\\s*\\('))
+      expect(parseCount() - before).toBe(1)
+      // The same path edited: parsed again, so the pin sees the new code, not the old.
+      writeFileSync(file, `// x.${name}()\nconst a = 1\n`)
+      expect(codeAt(file)).not.toContain(name)
+      expect(parseCount() - before).toBe(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })

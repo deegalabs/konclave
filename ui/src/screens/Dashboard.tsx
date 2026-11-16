@@ -27,6 +27,7 @@ import {
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
 import { readSecretFor } from '../session'
+import { ReadyCard } from '../ready-card'
 import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
@@ -87,7 +88,7 @@ export default function Dashboard() {
   const { t, locale } = useI18n()
   const tr = useTr()
   const { revealed } = useReveal()
-  const { open: openSigning, bg } = useVaultSigner()
+  const { open: openSigning } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
@@ -375,13 +376,8 @@ export default function Dashboard() {
   // "approved and signed" reading would be half invented.
   const part = participation(ledger ?? [], roster.map((m) => m.name))
 
-  // Can this vault pay right now? Four conditions, every one from data already on this page. The
-  // point is answering BEFORE the click what today could only be discovered after it.
-  const seatsHere = bg.seatCount
-  const quorumReachable = thr > 0 && seatsHere >= thr
-  const hasFree = parts !== null && parts.freeZat > 0
-  const backendsUp = isLive
-  const canPay = quorumReachable && hasFree && backendsUp
+  // Whether this vault can pay right now is `ReadyCard`'s (pay-readiness.ts); the page keeps no copy
+  // of the rule and reads no presence count (#693).
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
   const byMonth = new Map<string, SpendPoint>()
@@ -631,28 +627,7 @@ export default function Dashboard() {
         {/* 2a · Can this vault pay right now? Answering it here is the point: every condition below
             was previously discovered only AFTER proposing, approving, signing and waiting. */}
         {!loading && (
-          <section className={'ready ' + (canPay ? 'ok' : 'not')}>
-            <div className="ready-top">
-              <span className="ready-dot" aria-hidden="true" />
-              <b>{canPay ? t('dashboard.readyYes') : t('dashboard.readyNo')}</b>
-            </div>
-            <span className={'chk ' + (quorumReachable ? 'y' : 'n')}>
-              <span className="m" aria-hidden="true">{quorumReachable ? '✓' : '!'}</span>
-              <span>{t('dashboard.readySeats', { present: seatsHere, threshold: thr })}</span>
-            </span>
-            <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
-              <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
-              <span>{hasFree
-                ? <SentenceWithSecret sentence={t('dashboard.readyFree', { amt: SECRET_MARK })} sm>{fmtZecExact((parts?.freeZat ?? 0) / 1e8)}</SentenceWithSecret>
-                : !hasBal
-                  ? t('dashboard.readyFreeUnknown')
-                  : t('dashboard.readyNoFree')}</span>
-            </span>
-            <span className={'chk ' + (backendsUp ? 'y' : 'n')}>
-              <span className="m" aria-hidden="true">{backendsUp ? '✓' : '!'}</span>
-              <span>{backendsUp ? t('dashboard.readyBackends') : t('dashboard.readyBackendsDown')}</span>
-            </span>
-          </section>
+          <ReadyCard threshold={vault?.threshold ?? 0} total={vault?.total ?? 0} freeZat={parts?.freeZat ?? null} hasBal={hasBal} backendsUp={isLive} />
         )}
 
         {/* 2 · Saldo */}

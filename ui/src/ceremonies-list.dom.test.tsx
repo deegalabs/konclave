@@ -49,7 +49,8 @@ describe('the signing evidence names the payment it belongs to', () => {
     const tag = await screen.findByText(en('ceremonies.thisPayment'))
     const row = tag.closest('li')!
     expect(row.getAttribute('aria-current')).toBe('true')
-    // The focus is a passive effect of the commit that renders the row: findBy can resolve in between.
+    // The screen focuses the row in an effect that runs after the commit that rendered it, so the row
+    // can be on screen before it has the focus: wait for the effect, do not read the focus early (#957).
     await waitFor(() => expect(document.activeElement).toBe(row))
   })
 

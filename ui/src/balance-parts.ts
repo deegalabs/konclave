@@ -87,7 +87,7 @@ function split100(parts: number[], total: number): number[] {
 // The Dashboard and the payment screen disagreed about the word "available", and the screen that
 // CREATES payments held the more permissive meaning.
 //
-//   Dashboard `canPay`   ->  parts.freeZat   = spendable MINUS what open proposals hold
+//   pay-readiness `canPay` ->  parts.freeZat   = spendable MINUS what open proposals hold
 //   NewPayment           ->  b.spendable_zec = spendable, full stop
 //
 // So the Dashboard could say the vault cannot pay while the payment screen accepted the amount,

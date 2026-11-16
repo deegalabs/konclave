@@ -4,6 +4,9 @@
 // the caller, never re-implemented), the web against the tip of main, and every preflight against the
 // headers the app sends (#466). Staging only warns. The inputs are gathered by against-lock.mjs.
 
+/** The web app's one public address (verify-web.mjs checks it by default; the preflights send it). */
+export const WEB_ORIGIN = 'https://www.konclave.xyz'
+
 /** The commit of the live `[deploy_build]` table (commented records are ignored). */
 export function lockDeployCommit(lockText) {
   let inTable = false

@@ -646,7 +646,7 @@ export const ptBR: Record<string, string> = {
   // Readiness: can the vault pay right now, and if not, which condition fails.
   'dashboard.readyYes': 'Pronto para pagar',
   'dashboard.readyNo': 'Não dá para pagar agora',
-  'dashboard.readySeats': '{present} de {threshold} assentos presentes',
+  'dashboard.readyQuorum': 'um pagamento precisa da assinatura de {threshold} de {total} membros',
   'dashboard.readyFree': 'livre **{amt}** ZEC',
   'dashboard.readyNoFree': 'nada livre para gastar agora',
   'dashboard.readyFreeUnknown': 'fundos livres: aguardando o cofre',
