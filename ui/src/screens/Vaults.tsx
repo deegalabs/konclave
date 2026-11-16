@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
 import { copyText } from '../clipboard'
-import { Secret } from '../components'
+import { SentenceWithSecret, SECRET_MARK } from '../components'
 import { vaultStatus, readAt, readIsStale, openBadgeKey } from '../vault-status'
 import { TipAnchor, TipButton, TipGroup } from '../card-tip'
 import { fmtDate, fmtDateTime, fmtZec, zatToZec } from '../format'
@@ -10,8 +10,10 @@ import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
+import { HostNotice, HOST_NOTICE_ID } from '../HostNotice'
 import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
 import { removeVaultFromDevice } from '../remove-vault'
+import { RemoveVaultDialog, removeLabel } from '../remove-vault-dialog'
 import { storageErrorKey } from '../storage-errors'
 import { CodeFirst } from './CodeFirst'
 import { resumable, isCurrentFlow, sameCoordinator, verifiedAddress, mustCompareCode } from '../creation-protocol'
@@ -24,7 +26,7 @@ import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
 import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
-import { Identicon } from '../avatar'
+import { Identicon, memberSeed } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
 import PlainKeyNotice from '../PlainKeyNotice'
@@ -210,32 +212,13 @@ export default function Vaults() {
   const [finishArmed, setFinishArmed] = useState<string | null>(null)
   const armTimer = useRef<number | null>(null)
   useEffect(() => () => { if (armTimer.current) window.clearTimeout(armTimer.current) }, [])
-  const [removeWord, setRemoveWord] = useState('')
-  const [removeBusy, setRemoveBusy] = useState(false)
-  const [removeErr, setRemoveErr] = useState(false)
-
-  /** Drop this device's copy of a vault: the sealed share and its public record. */
-  async function confirmRemove() {
-    const row = removing
-    if (!row) return
-    setRemoveBusy(true)
-    setRemoveErr(false)
-    try {
-      // `forgetVault` re-reads the store and reports whether the record is really gone. A delete
-      // that quietly did nothing must not close the dialog looking like a success.
-      // Everything this device keeps for the vault goes with it, in one function both screens call (#813).
-      if (!(await removeVaultFromDevice(row.v.id))) { setRemoveErr(true); return }
-      setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
-      setRemoving(null)
-      setRemoveWord('')
-      toast.ok(t('toast.vaultRemoved', { name: row.v.name }))
-    } catch {
-      // Say so and leave the dialog open. Closing silently would look like it worked, and the
-      // member would believe a share is gone that is still on the device.
-      setRemoveErr(true)
-    } finally {
-      setRemoveBusy(false)
-    }
+  /** What happens once the record is gone: the row leaves the list and focus goes to the page. */
+  function removed(row: Row) {
+    setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
+    setRemoving(null)
+    toast.ok(t('toast.vaultRemoved', { name: removeLabel(row.v.id, row.v.name) }))
+    // The opener is gone with its row; without a target, focus would fall to the document body.
+    window.setTimeout(() => document.getElementById('vaults-shell')?.focus(), 0)
   }
 
   // An invite link (#/vaults?join=…) opens the dialog straight into the join form.
@@ -404,7 +387,7 @@ export default function Vaults() {
 
   return (
     <div className="rd">
-      <main className="rd-shell">
+      <main className="rd-shell" id="vaults-shell" tabIndex={-1} style={{ outline: 'none' }}>
         <Letterhead right={<>
           <span className="rd-status"><span className="dot" /> {tr('vaults.secureEnv')}</span>
           <Link to="/docs" className="doclink">Docs</Link>
@@ -481,7 +464,7 @@ export default function Vaults() {
                 <h3>{v.name}</h3>
                 {plainKey[v.id] && <PlainKeyNotice vaultId={v.id} onSealed={() => setPlainKey((m) => ({ ...m, [v.id]: false }))} />}
                 <div className="rd-avatars">
-                  {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
+                  {avatars.slice(0, 4).map((_, i) => <Identicon key={i} seed={memberSeed(v.id, i)} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
                 {/* The vault's situation as this device last read it: the list reads nothing itself (a
@@ -504,7 +487,6 @@ export default function Vaults() {
                   const at = readAt(st, free)
                   const stale = at !== null && readIsStale(at)
                   // The amount sits under the veil inside the sentence, wherever the language puts it.
-                  const [pre, post] = t('vaults.badgeFree', { amount: '\u0000' }).split('\u0000')
                   return (
                     <div className={'rd-figs' + (stale ? ' stale' : '')}>
                       <div className="rd-badges">
@@ -522,7 +504,7 @@ export default function Vaults() {
                           // The veil is the one control here, so it carries the tip: on a phone it is what a finger taps.
                           <TipAnchor id={tid('free')} tip={t('vaults.tipFree')}>
                             {({ 'aria-describedby': describedBy, ...barEvents }) => (
-                              <span className="rd-badge">{pre}<Secret sm describedBy={describedBy} barEvents={barEvents}><span>{fmtZec(zatToZec(st.freeZat!))}</span></Secret>{post}</span>
+                              <span className="rd-badge"><SentenceWithSecret sentence={t('vaults.badgeFree', { amount: SECRET_MARK })} sm describedBy={describedBy} barEvents={barEvents}><span>{fmtZec(zatToZec(st.freeZat!))}</span></SentenceWithSecret></span>
                             )}
                           </TipAnchor>
                         )}
@@ -670,7 +652,7 @@ export default function Vaults() {
                 {row.src === 'net' && (
                   <button type="button" className="rd-remove"
                     title={t('dashboard.deleteThisVaultDesc')}
-                    onClick={() => { setRemoving(row); setRemoveWord(''); setRemoveErr(false) }}>
+                    onClick={() => setRemoving(row)}>
                     {t('dashboard.deleteThisVault')}
                   </button>
                 )}
@@ -696,56 +678,18 @@ export default function Vaults() {
       </main>
 
       {removing && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="remove-title"
-          onClose={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
-          <h2 id="remove-title">{tr('dashboard.deleteConfirmTitle', { name: removing.v.name })}</h2>
-          <p className="rm-lead">{tr('dashboard.deleteConfirmBody')}</p>
-          {/* The money consequence is the only thing here that cannot be undone by re-importing,
-              so it gets the weight. The other two lines are context; this one is the decision.
-              Unconditional: this screen holds no balance, and a number we did not fetch would be
-              worse than none, because the member would trust it. `dashboard.deleteSeesFunds` stays
-              unused until a screen that knows the balance offers this. */}
-          <div className="rm-funds">
-            <span className="rm-ic" aria-hidden="true">!</span>
-            <p>{tr('dashboard.deleteFundsWarn')}</p>
-          </div>
-          <p className="rm-quiet">{tr('dashboard.deleteLocalHint')}</p>
-          {/* The warning above names a loss; this is the one action that makes it recoverable, so it
-              belongs next to it rather than in a help page. It routes to the vault's own export -
-              locked, that bounces through unlock and comes back (#446 D), which is the same
-              passphrase the export needs anyway. Deleting is never urgent; leaving and returning
-              costs nothing. */}
-          <button type="button" className="rm-backup" onClick={() => {
-            setSelectedVault(removing.v.id)
-            nav('/settings')
-          }}>
-            {t('dashboard.deleteBackupFirst')}
-          </button>
-          <p className="rm-quiet rm-why">{tr('dashboard.deleteBackupWhy')}</p>
-          <label className="rm-field">
-            <span>{tr('dashboard.deleteTypeName', { name: removing.v.name })}</span>
-            <input className="unlock-input" value={removeWord} autoFocus spellCheck={false}
-              autoComplete="off" placeholder={removing.v.name}
-              onChange={(e) => { setRemoveWord(e.target.value); setRemoveErr(false) }} />
-          </label>
-          {removeErr && <p className="unlock-err">{t('settings.removeFail')}</p>}
-          <div className="unlock-btns">
-            <button className="rd-enter" onClick={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
-              {t('common.cancel')}
-            </button>
-            <button className="rd-enter danger"
-              disabled={removeBusy || removeWord.trim() !== removing.v.name}
-              onClick={() => void confirmRemove()}>
-              {t('dashboard.deletePermanently')}
-            </button>
-          </div>
-        </Dialog>
+        <RemoveVaultDialog id={removing.v.id} name={removing.v.name}
+          remove={async () => ((await removeVaultFromDevice(removing.v.id)) ? 'ok' : 'fail')}
+          onExport={() => { setSelectedVault(removing.v.id); nav('/settings') }}
+          onClose={() => setRemoving(null)}
+          onRemoved={() => removed(removing)} />
       )}
 
       {importing && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={resetImport}>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" describedBy={HOST_NOTICE_ID} onClose={resetImport}>
           <div className="rd-eyebrow">{t('import.eyebrow')}</div>
           <h2 id="import-title">{t('import.title')}</h2>
+          <HostNotice />
 
           {!impParsed ? (
             // Stage A: one field — drop a .konclave OR paste/type the export text (validated live).
@@ -811,9 +755,10 @@ export default function Vaults() {
       )}
 
       {unlocking && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" describedBy={HOST_NOTICE_ID} onClose={() => setUnlocking(null)}>
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="unlock-title">{unlocking.v.name}</h2>
+          <HostNotice />
           <p>{unlocking.src === 'net'
             ? t('vaults.netUnlockPrompt')
             : tr('vaults.unlockPrompt')}</p>
@@ -874,7 +819,7 @@ export default function Vaults() {
       )}
 
       {creating && (
-        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}
+        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" describedBy={HOST_NOTICE_ID} onClose={() => setCreating(false)}
           onDismiss={() => setLeaveAsk((n) => n + 1)}>
           <NetVault embedded initialJoin={joinMode} leaveAsk={leaveAsk} onLeave={() => { setCreating(false); setReload((r) => r + 1) }} />
         </Dialog>

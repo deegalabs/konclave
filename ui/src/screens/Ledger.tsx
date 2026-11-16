@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { startVisiblePoll } from '../usePoll'
-import { Secret, RevealButton, activateOnKey } from '../components'
+import { Secret, SentenceWithSecret, SECRET_MARK, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
@@ -22,7 +22,7 @@ import { useVaultReadable } from '../vault-readable'
 import { useReveal } from '../reveal'
 
 // Where the difference goes in the reconciliation sentence, so it can be drawn under the bar.
-const DIFF_MARK = '\u0000'
+const DIFF_MARK = SECRET_MARK
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
 // outside both totals; shown with its own state and no outflow sign, because the money never left.
 const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
@@ -263,10 +263,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const pivotWarn = showPivot && !pivotVs.ok && !pivotReading
   // The difference is an amount like any other: under the bar on screen and absent from paper while
   // hidden, and exact to the zatoshi, like the book's totals.
-  const withVeiledDiff = (text: string) => {
-    const [before, after = ''] = text.split(DIFF_MARK)
-    return <>{before}<Secret sm label={t('ledger.pivotDiff')}><span>{fmtZatExact(pivotVs.diffZat)}</span></Secret>{after}</>
-  }
+  const withVeiledDiff = (text: string) => (
+    <SentenceWithSecret sentence={text} sm label={t('ledger.pivotDiff')}><span>{fmtZatExact(pivotVs.diffZat)}</span></SentenceWithSecret>
+  )
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
   // from the rows it carries (#302).
   const periodOf = (list: Proposal[]) => {
