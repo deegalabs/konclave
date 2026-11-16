@@ -5,7 +5,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
-import { ptBR } from './i18n/pt-BR'
 const en = (k: string): string => dict[k] ?? k
 
 /* #320: the offline pill sat inside a live region and carried its own role="status", so a reader
@@ -14,9 +13,7 @@ const en = (k: string): string => dict[k] ?? k
 
 const health = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
-const listVaults = vi.hoisted(() => vi.fn())
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), health, getVault }))
-vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults }))
 vi.mock('./VaultSigner', () => ({ VaultSignerProvider: ({ children }: { children: ReactNode }) => children, useVaultSigner: () => ({ open: () => {} }) }))
 vi.mock('./screens/SigningPanel', () => ({ default: () => null }))
 vi.mock('./UpdatePrompt', () => ({ VersionBadge: () => null, UpdatePrompt: () => null }))
@@ -40,7 +37,6 @@ beforeEach(() => {
   localStorage.setItem('konclave.locale', 'en')
   health.mockResolvedValue(true)
   getVault.mockResolvedValue(vault)
-  listVaults.mockResolvedValue([])
 })
 afterEach(() => { cleanup(); localStorage.clear() })
 
@@ -57,21 +53,40 @@ describe('the offline status is announced once (#320)', () => {
   })
 })
 
+// The real `readVaults`: jsdom has no IndexedDB, which is exactly the failure `listVaults` hid as [].
+const useIdb = async () => { (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = (await import('fake-indexeddb')).indexedDB }
+const noIdb = () => { delete (globalThis as { indexedDB?: unknown }).indexedDB }
+const hint = () => screen.queryByText(en('vaults.unreadTitle'))
+
 describe('the vault switcher says when it cannot read the saved vaults (#320)', () => {
-  it('shows the hint when listing throws', async () => {
-    listVaults.mockRejectedValue(new Error('idb'))
+  beforeEach(noIdb)
+  afterEach(noIdb)
+  it('shows the hint when storage cannot be read', async () => {
     mount()
     await openSwitcher()
-    expect(await screen.findByText(en('nav.vaultsUnreadable'))).toBeTruthy()
+    expect(await screen.findByText(en('vaults.unreadTitle'))).toBeTruthy()
   })
   it('shows no hint when the list is genuinely empty', async () => {
+    await useIdb()
     mount()
     await openSwitcher()
-    await waitFor(() => expect(listVaults).toHaveBeenCalled())
-    expect(screen.queryByText(en('nav.vaultsUnreadable'))).toBeNull()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(hint()).toBeNull()
   })
-  it('has the copy in both languages', () => {
-    expect(dict['nav.vaultsUnreadable']).toBeTruthy()
-    expect(ptBR['nav.vaultsUnreadable']).toBeTruthy()
+  it('clears the hint after a later successful read', async () => {
+    mount()
+    const chip = await screen.findByRole('button', { name: /Caixa/ })
+    fireEvent.click(chip)
+    await screen.findByText(en('vaults.unreadTitle'))
+    fireEvent.click(chip) // close
+    await useIdb()
+    fireEvent.click(chip) // reopen: this read succeeds
+    await waitFor(() => expect(hint()).toBeNull())
+  })
+  it('puts the hint where menu navigation reaches it', async () => {
+    mount()
+    await openSwitcher()
+    const item = await screen.findByRole('menuitem', { name: en('vaults.unreadTitle') })
+    expect(item.getAttribute('aria-disabled')).toBe('true')
   })
 })

@@ -8,7 +8,7 @@ import { coordinatorCode, refusalKey } from './conclude-registration'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
-import { listVaults } from './storage'
+import { readVaults } from './storage'
 import { clearPayrollDraft } from './payroll-draft'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
@@ -77,7 +77,7 @@ export default function Layout() {
     setSwitchOpen(opening)
     if (opening) {
       try {
-        const vs = await listVaults()
+        const vs = await readVaults()
         setVaultsUnreadable(false)
         setVaults(vs.map((v) => ({ id: v.id, name: v.name || 'Vault' })))
       } catch {
@@ -292,7 +292,8 @@ export default function Layout() {
                 <div className="nav-more-scrim vault-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
                 <div className="vault-pop" role="menu" aria-label={t('nav.switchVault')}>
                   {vaultsUnreadable && vaults.length === 0 && (
-                    <p className="vault-pop-hint">{t('nav.vaultsUnreadable')}</p>
+                    // A disabled menuitem, so menu navigation lands on it and a reader says it.
+                    <p className="vault-pop-hint" role="menuitem" aria-disabled="true">{t('vaults.unreadTitle')}</p>
                   )}
                   {vaults.map((v) => (
                     <button
