@@ -63,7 +63,7 @@ const badges = (card: HTMLElement) => [...card.querySelectorAll('.rd-badges .rd-
 const tipOf = (el: Element) => document.getElementById(el.getAttribute('aria-describedby')!.split(' ').pop()!)!
 
 // An open vault: its figures live on the device. 80 000 zat spendable, nothing reserved.
-const openStatus = (over: object = {}) => ({ totalZat: 80_000, spendableZat: 80_000, reservedZat: 0, balanceAt: NOW - 600, proposalsAt: NOW - 60, openCount: 0, lastActivity: NOW - 2 * 86_400, ...over })
+const openStatus = (over: object = {}) => ({ totalZat: 80_000, spendableZat: 80_000, heldZat: 0, balanceAt: NOW - 600, proposalsAt: NOW - 60, openCount: 0, lastActivity: NOW - 2 * 86_400, ...over })
 
 describe('the badges', () => {
   it('say open, last and free, in that order, in the reviewed words', async () => {
