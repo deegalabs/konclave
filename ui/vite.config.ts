@@ -9,11 +9,15 @@ import { fileURLToPath } from 'node:url'
 import { RELEASE_SOURCES, releasePagesOrFail } from '../scripts/changelog-sections.mjs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
-// fall back to git; never fail the build if neither is present.
+// fall back to git; never fail the build if neither is present. Both paths cut the full hash to the
+// same 7 characters: `git rev-parse --short` grows with the repository (8 here), and a build made
+// outside Vercel (the release's rebuild, #605) must carry the bytes Vercel's does.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 const commitSha = (() => {
-  if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7)
-  try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
+  const full = process.env.VERCEL_GIT_COMMIT_SHA || (() => {
+    try { return execSync('git rev-parse HEAD').toString().trim() } catch { return '' }
+  })()
+  return full ? full.slice(0, 7) : 'dev'
 })()
 
 // The desktop build (desktop-release.yml sets KONCLAVE_DESKTOP_BUILD=1) ships a SELF-DESTROYING

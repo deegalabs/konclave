@@ -24,6 +24,7 @@ vi.mock('./fee-estimate', async (orig) => ({
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
   health: async () => true,
+  actingAs: async () => ({ ok: true, seat: 1, name: 'Ana' }),
   getVault: async () => ({ id: 'v', name: 'Vault', threshold: 2, total: 2, member_list: [] }),
   getBeneficiaries: async () => benefs.list,
   getProposals: async () => [],
