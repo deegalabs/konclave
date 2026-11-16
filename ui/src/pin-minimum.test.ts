@@ -150,7 +150,7 @@ describe('room PIN minimum', () => {
     // ...but it hears that a PIN is there and hidden, and the toggle names what it shows.
     expect(html).toMatch(/<span class="sr-only">hidden<\/span>/)
     expect(html).not.toMatch(/aria-pressed/)
-    expect(html).toMatch(/<button[^>]*>show<span class="sr-only"> the room PIN<\/span><\/button>/)
+    expect(html).toMatch(/<button[^>]*aria-label="show the room PIN"[^>]*>show<\/button>/)
   })
 })
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useToast } from '../toast'
+import { copyText } from '../clipboard'
 import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
@@ -226,11 +227,9 @@ export default function Settings() {
     const out = await runExport()
     setXpBusy(false)
     if (out) {
-      try {
-        await navigator.clipboard.writeText(out.json)
-        if (!out.complete) return
-        closeExport(); toast.ok(t('toast.backupCopied'))
-      } catch { setXpErr(t('export.errClipboard')) }
+      if (!(await copyText(out.json))) { setXpErr(t('export.errClipboard')); return }
+      if (!out.complete) return
+      closeExport(); toast.ok(t('toast.backupCopied'))
     }
   }
 
