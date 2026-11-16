@@ -133,6 +133,8 @@ export const ptBR: Record<string, string> = {
 
   'seal.caption': 'Assinaturas',
   'secret.tarja': 'SIGILOSO',
+  'secret.hidden': 'valor oculto',
+  'secret.reveal': 'Revelar valores',
   'stepper.define': 'Definir',
   'stepper.invite': 'Convidar',
   'stepper.create': 'Criar',
@@ -659,6 +661,8 @@ export const ptBR: Record<string, string> = {
   'dashboard.compReserved': 'Reservado',
   'dashboard.compConfirming': 'Confirmando',
   'dashboard.compAria': 'Livre {free} ZEC, reservado {reserved} ZEC, confirmando {confirming} ZEC',
+  'dashboard.compAriaHidden': 'Composição do saldo, valores ocultos',
+  'dashboard.spendHidden': 'Os valores estão ocultos. Revele-os para ver os gastos por mês.',
   'dashboard.overCommitted': 'As propostas abertas somam mais do que o cofre pode gastar agora. Alguma delas não vai conseguir ser paga.',
   'dashboard.walletNotConnected': 'Carteira não conectada',
   'dashboard.walletNotConnectedNote': 'O saldo aparece quando o cofre sincroniza com a rede.',
