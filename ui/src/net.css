@@ -341,6 +341,7 @@
   text-transform:uppercase; color:var(--warn,#e0a13f); margin-right:8px}
 .cv-join{margin-top:14px; display:flex; flex-direction:column; gap:10px}
 .cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input[readonly], .net-input[readonly]{background:var(--surface-2,var(--surface-0)); cursor:default}
 .cv-input:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Create-done backup card: the portable, encrypted copy of the just-created vault (download/copy). */

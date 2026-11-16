@@ -961,6 +961,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (cer.aborted) {
         await stopCreation(vaultId, cer.aborted)
         savedRef.current = null
+        savePassRef.current = '' // onAbort cleared it before it was set here
         setSaveState('idle')
         return
       }
@@ -973,6 +974,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       await refreshSaved()
     } catch (e) {
       setSaveState('idle')
+      savePassRef.current = '' // a failed save keeps no passphrase for a backup that will not be built
       setSaveErr(L.saveErr + String(e))
     }
   }, [savePass, savePass2, L, refreshSaved, send, finishVault])
@@ -1060,6 +1062,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const backupPending = !!backup && !backupTaken
   const [leaving, setLeaving] = useState(false)
   const leaveRef = useRef<HTMLDivElement>(null)
+  // Where focus goes when the passphrase fields leave the screen (saved), and when that screen is
+  // replaced by the backup one: the pressed field or button is gone or disabled, and focus would
+  // fall to the top of the dialog. Moved once, on the switch; no live region (WaitLine is the one) (#928).
+  const savedNoteRef = useRef<HTMLParagraphElement>(null)
+  const backupTitleRef = useRef<HTMLHeadingElement>(null)
+  const saveBtnRef = useRef<HTMLButtonElement>(null)
+  // The same ref serves both forms (only one renders). Once saved, a leave question opened while
+  // saving is stale: busy is over, and it would pop up unasked when the backup arrives.
+  useEffect(() => { if (saveState === 'saved') { savedNoteRef.current?.focus(); setLeaving(false) } }, [saveState])
+  // A failed save re-enables the form: say so (role="alert" on the line) and put focus back on the button.
+  useEffect(() => { if (saveErr && saveState === 'idle') saveBtnRef.current?.focus() }, [saveErr, saveState])
+  useEffect(() => { if (backup) backupTitleRef.current?.focus() }, [backup])
   const allowUnloadRef = useRef(false) // the app's own reload, offered on purpose, does not warn
   // Each attempt to close (Esc, backdrop) means what `closeIntent` says: during a creation it opens
   // the question (and the next one answers "keep creating"); once finished it opens the new vault,
@@ -1532,7 +1546,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const total = configRef.current?.n ?? n
   const quorum = configRef.current?.t ?? t
   // The save step's status line: who is left to save, then the registration; empty otherwise.
-  const saveWait = saveState !== 'saved' ? ''
+  // One word for "the passphrase was used": every passphrase field of both forms reads it (#928).
+  const passLocked = saveState !== 'idle'
+  const saveWait = saveState === 'saving' ? tt('net.save.saving')
+    : saveState !== 'saved' ? ''
     : waiting.length > 0 ? saveWaitText(total, waiting, pe)
     : !backup && hostedState === 'registering' ? tt('net.restore.registering')
     : ''
@@ -1712,7 +1729,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         {phase === 'done' && saveState === 'saved' && backup && (
           <>
             <span className="rd-eyebrow">{tt('net.backup.eyebrow')}</span>
-            <h2 className="cv-title">{tt('net.backup.title')}</h2>
+            <h2 className="cv-title" tabIndex={-1} ref={backupTitleRef}>{tt('net.backup.title')}</h2>
             <p className="cv-lead">{tt('net.backup.lead')}</p>
             <div className="cv-backup">
               <div className="cv-backup-file mono">
@@ -1762,16 +1779,22 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
               </div>
             )}
             <div className="cv-join">
-              <PassphraseField inputClassName="cv-input" autoFocus
-                placeholder={tt('net.save.passLabel')}
-                value={savePass} onChange={setSavePass} />
-              {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
-              <PassphraseField inputClassName="cv-input" choosing={false}
-                placeholder={tt('net.save.passConfirm')}
-                value={savePass2} onChange={setSavePass2} />
-              <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
-              {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
+              {saveState === 'saved' ? (
+                <p className="cv-lead" tabIndex={-1} ref={savedNoteRef}>{tt('net.save.locked')}</p>
+              ) : (
+                <>
+                  <PassphraseField inputClassName="cv-input" autoFocus
+                    placeholder={tt('net.save.passLabel')}
+                    value={savePass} onChange={setSavePass} readOnly={passLocked} />
+                  {/* The confirmation: no strength meter and no generator here (the rule stays on the first). */}
+                  <PassphraseField inputClassName="cv-input" choosing={false}
+                    placeholder={tt('net.save.passConfirm')}
+                    value={savePass2} onChange={setSavePass2} readOnly={passLocked} />
+                  <p className="set-err" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
+                </>
+              )}
+              {saveErr && <p className="set-err" role="alert">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" ref={saveBtnRef} disabled={!!newPassphraseProblem(savePass) || savePass !== savePass2 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
                 {!hasSecret ? (secretSlow
                   ? tt('net.save.keyMissing')
@@ -1910,7 +1933,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
               <>
-                <p className="net-tip">{L.saved}</p>
+                <p className="net-tip" tabIndex={-1} ref={savedNoteRef}>{L.saved}</p>
                 <WaitLine busy={!finished && waiting.length > 0}>{!finished && waiting.length > 0 ? saveWaitText(total, waiting, pe) : ''}</WaitLine>
               </>
             ) : (
@@ -1924,6 +1947,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   placeholder={L.savePlaceholder}
                   value={savePass}
                   onChange={(e) => setSavePass(e.target.value)}
+                  readOnly={passLocked}
                 />
                 {savePass && newPassphraseProblem(savePass) && (
                   <p className="dim" aria-live="polite">{ttr(newPassphraseProblem(savePass) === 'too-short' ? 'pass.ruleShort' : 'pass.ruleGuessable')}</p>
@@ -1936,10 +1960,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   placeholder={tt('net.save.passConfirm')}
                   value={savePass2}
                   onChange={(e) => setSavePass2(e.target.value)}
+                  readOnly={passLocked}
                 />
                 <p className="dim" aria-live="polite">{savePass2 && savePass !== savePass2 ? tt('net.save.passMismatch') : ''}</p>
                 <button
                   className="net-btn"
+                  ref={saveBtnRef}
                   disabled={saveState === 'saving' || !!newPassphraseProblem(savePass) || savePass !== savePass2 || !hasSecret}
                   onClick={() => void doSave()}
                 >
