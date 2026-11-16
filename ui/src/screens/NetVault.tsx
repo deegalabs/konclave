@@ -4,8 +4,9 @@ import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { proposalsReadable, type HostedState, type NetPhase } from '../net-proposals'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault, getSelectedVault } from '../api'
+import { setSelectedVault, getSelectedVault, shortAddr } from '../api'
 import CopyButton from '../CopyButton'
+import { copyText } from '../clipboard'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import {
   DeviceKey,
@@ -41,6 +42,7 @@ import {
 } from '../storage'
 import { downloadText } from '../download'
 import { removeVaultFromDevice } from '../remove-vault'
+import { RemoveVaultDialog } from '../remove-vault-dialog'
 import {
   helperConfigured,
   helperBase,
@@ -57,6 +59,7 @@ import '../net.css'
 import { CREATION_PROTOCOL, creationVerdict } from '../creation-protocol'
 import { CREATE_DEVICE_CAP, noMarginWarning } from '../create-rule'
 import { WALLET_BUSY } from '../helper'
+import { HostNotice } from '../HostNotice'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
@@ -153,6 +156,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
     return (
       <div className="rd net-embedded">
         <span id="create-title" className="sr-only">{t('vaults.createDialogTitle')}</span>
+        <HostNotice alert={!error} />
         {error && <div className="net-error" role="alert">{error}</div>}
         {children}
       </div>
@@ -170,6 +174,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
         <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
         <p className="demo-note">{t('net.frame.note')}</p>
       </div>
+      <HostNotice alert={!error} />
       {error && <div className="net-error" role="alert">{error}</div>}
       {children}
     </div>
@@ -308,6 +313,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // file is useless without the passphrase; the share never travels in the clear.
   const [backup, setBackup] = useState<{ json: string; name: string; complete: boolean } | null>(null)
   const [backupCopied, setBackupCopied] = useState(false)
+  const [backupCopyFailed, setBackupCopyFailed] = useState(false)
+  const [backupDownloadFailed, setBackupDownloadFailed] = useState(false)
+  // #313: what the vault-address copy did, said only once the clipboard answered.
+  const [addrCopy, setAddrCopy] = useState<'copied' | 'failed' | null>(null)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
   const [restorePass, setRestorePass] = useState<Record<string, string>>({})
   const [restoreBusy, setRestoreBusy] = useState('')
@@ -971,16 +980,20 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   }, [savePass, savePass2, L, refreshSaved, send, finishVault])
 
   const doBackupDownload = useCallback(() => {
-    if (backup) { downloadText(backup.name, backup.json); setBackupTaken(true) }
+    if (!backup) return
+    // Taken only when the browser took the file; a refusal is said, and Copy is beside it (#983).
+    const ok = downloadText(backup.name, backup.json)
+    setBackupDownloadFailed(!ok)
+    if (ok) setBackupTaken(true)
   }, [backup])
   const doBackupCopy = useCallback(async () => {
     if (!backup) return
-    try {
-      await navigator.clipboard.writeText(backup.json)
-      setBackupCopied(true)
-      setBackupTaken(true)
-      setTimeout(() => setBackupCopied(false), 1500)
-    } catch { /* clipboard blocked; the download button still works */ }
+    // A refused copy is said, and the download button beside it still works.
+    const ok = await copyText(backup.json)
+    setBackupCopyFailed(!ok); setBackupCopied(ok)
+    if (!ok) return
+    setBackupTaken(true)
+    setTimeout(() => setBackupCopied(false), 1500)
   }, [backup])
 
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
@@ -1038,18 +1051,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, finished, backup])
 
-  const doDelete = useCallback(
-    async (id: string) => {
-      try {
-        // The one removal every screen uses (#813): the record and what this device keeps with it.
-        await removeVaultFromDevice(id)
-        await refreshSaved()
-      } catch {
-        /* deletion failure is non-fatal */
-      }
-    },
-    [refreshSaved],
-  )
+  // Delete asks first: it destroys this device's only copy of the seat's share unless a backup exists.
+  const [deleting, setDeleting] = useState<VaultPublic | null>(null)
 
   // Leaving now would lose this creation (creation-guard): tell the host, warn on reload, and ask
   // before an explicit or stray close.
@@ -1456,11 +1459,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {savedVaults.length > 0 && (
           <div className="net-card" style={{ marginTop: 16 }}>
-            <h3>{L.restoreTitle}</h3>
+            <h3 id="net-restore-title" tabIndex={-1} style={{ outline: 'none' }}>{L.restoreTitle}</h3>
             {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <code style={{ flex: '1 1 100%', wordBreak: 'break-all', fontSize: '0.8em' }}>{v.id}</code>
+                <code style={{ flex: '1 1 100%', fontSize: '0.8em' }}>{shortAddr(v.id, 6, 4)}</code>
                 <input
                   className="net-input"
                   type="password"
@@ -1476,10 +1479,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 >
                   {restoreBusy === v.id ? L.unlocking : L.unlockBtn}
                 </button>
-                <button className="net-btn" onClick={() => void doDelete(v.id)}>{L.deleteBtn}</button>
+                <button className="net-btn" onClick={() => setDeleting(v)}>{L.deleteBtn}</button>
               </div>
             ))}
           </div>
+        )}
+
+        {deleting && (
+          <RemoveVaultDialog id={deleting.id} name={deleting.name}
+            remove={async () => ((await removeVaultFromDevice(deleting.id)) ? 'ok' : 'fail')}
+            onExport={() => { setSelectedVault(deleting.id); nav('/settings') }}
+            onClose={() => setDeleting(null)}
+            onRemoved={() => { setDeleting(null); void refreshSaved(); window.setTimeout(() => document.getElementById('net-restore-title')?.focus(), 0) }} />
         )}
 
         <p className="net-tip">{ttr('net.idle.tip')}</p>
@@ -1492,7 +1503,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
-        <div className="net-vk">{groupVk}</div>
+        <div className="net-vk">{fp ?? '…'}</div>
         {restoredRoster.length > 0 && (
           <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
         )}
@@ -1746,6 +1757,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   {backupCopied ? tt('members.fpCopied') : tt('net.backup.copy')}
                 </button>
               </div>
+              {backupCopyFailed && <p className="net-tip" role="alert">{tt('copy.failedUseDownload')}</p>}
+              {backupDownloadFailed && <p className="net-tip" role="alert">{tt('export.errDownload')}</p>}
             </div>
             <button type="button" className="cv-linkbtn" onClick={openDashboard}>
               {tt('net.backup.savedOpen')}
@@ -1838,7 +1851,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       {phase === 'done' && (
         <div className="net-done">
           <p className="net-lead">{ttr('net.done.lead')}</p>
-          <div className="net-vk">{groupVk}</div>
+          <div className="net-vk">{fp ?? '…'}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
 
           {finished && hostedState === 'registered' && (
@@ -1872,10 +1885,14 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   <div className="net-vk">{hostedAddress}</div>
                   <button
                     className="net-btn"
-                    onClick={() => void navigator.clipboard?.writeText(hostedAddress)}
+                    onClick={() => {
+                      void (async () => setAddrCopy((await copyText(hostedAddress)) ? 'copied' : 'failed'))()
+                    }}
                   >
-                    {tt('net.done.copyAddress')}
+                    {addrCopy === 'copied' ? tt('net.done.addrCopied') : tt('net.done.copyAddress')}
                   </button>
+                  <span className="visually-hidden" role="status">{addrCopy === 'copied' ? tt('net.done.addrCopied') : ''}</span>
+                  {addrCopy === 'failed' && <p className="net-tip" role="alert">{tt('toast.copyFailed')}</p>}
 
                   <div style={{ marginTop: 16 }}>
                     <button
@@ -1972,9 +1989,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           <p className="net-lead">
             {tt('net.signsession.lead')}
           </p>
-          <div className="net-vk">{groupVk}</div>
+          <div className="net-vk">{fp ?? '…'}</div>
           <p className="net-tip">{tt('net.signsession.codeLabel')}:</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
+          <div className="net-code net-code-static">{room} <CopyButton value={room} label={tt('net.restore.copySessionCode')} /></div>
           <p className="net-tip" style={{ marginTop: 12 }}>{tt('net.signsession.members')}: {signSeatCount} / {quorum}</p>
           {signSeatCount < quorum && (
             <p className="net-lead">{tt('net.signsession.waiting')}</p>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getBookWithLines, type PayrollLine, type Proposal } from './api'
+import { getBookWithLines, type Book, type PayrollLine, type Proposal } from './api'
 import { unusualFor, type UnusualReading } from './unusual'
 
 // The reading behind "Worth a second look" (UnusualNote.tsx): the vault's book with its payrolls'
@@ -23,8 +23,9 @@ function namesFrom(lines: readonly PayrollLine[], earlier: Readonly<Record<strin
   return names
 }
 
-/** null while the proposal is not one a member can act on (sent, closed, or not loaded). */
-export function useUnusual(p: Proposal | null, lines: readonly PayrollLine[]): UnusualState | null {
+/** null while the proposal is not one a member can act on (sent, closed, or not loaded). `given`: the
+ *  book the screen already read with the proposal (the web, #970); without it the book is read here. */
+export function useUnusual(p: Proposal | null, lines: readonly PayrollLine[], given?: Book): UnusualState | null {
   const [state, setState] = useState<UnusualState | null>(null)
   // Only while a member can still act on it: once it is sent or closed there is no decision to aid.
   const key = p && (p.state === 'awaiting' || p.state === 'ready') ? p.id : null
@@ -33,7 +34,7 @@ export function useUnusual(p: Proposal | null, lines: readonly PayrollLine[]): U
     let on = true
     setState({ status: 'reading' })
     void (async () => {
-      const book = await getBookWithLines()
+      const book = given ?? (await getBookWithLines())
       if (!on) return
       if (!book) { setState({ status: 'failed' }); return }
       const reading = unusualFor(p, p.kind === 'payroll' ? lines : null, book.history, book.linesById)

@@ -3,7 +3,7 @@ import { useToast } from '../toast'
 import { SkeletonRoster } from '../skeleton'
 import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
-import { Identicon } from '../avatar'
+import { Identicon, memberSeed } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { useVaultReadable } from '../vault-readable'
 import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
@@ -148,7 +148,7 @@ export default function Members() {
             const isCreator = m.name === creatorLabel
             return (
               <div className={'signer-row' + (isMe ? ' me' : '')} key={i}>
-                <Identicon seed={m.pubkey || m.name} size={40} />
+                <Identicon seed={memberSeed(vault?.id ?? '', i)} size={40} />
                 <div className="signer-main">
                   <div className="signer-name">
                     {m.name}
@@ -160,7 +160,8 @@ export default function Members() {
                     {isCreator && <span className="role-chip creator">{t('members.roleCreatorChip')}</span>}
                   </div>
                 </div>
-                <span className="signer-id mono">id {shortAddr(m.pubkey, 6, 4)}</span>
+                {/* On the web the coordinator's list carries names only, so there is no key to show (#315). */}
+                {!IS_NET && <span className="signer-id mono">id {shortAddr(m.pubkey, 6, 4)}</span>}
               </div>
             )
           })}

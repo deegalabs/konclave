@@ -54,6 +54,10 @@ pub mod net_send;
 pub mod relay_client;
 pub mod write_auth;
 
+// Test support only: fake engine scripts that are safe to run at once (ETXTBSY, #869).
+#[cfg(all(unix, any(test, feature = "test-seed")))]
+pub mod test_exec;
+
 pub use address::{validate_recipient, validate_recipient_on, AddressError, AddressReport};
 pub use money::{MoneyError, Zatoshis};
 pub use payroll::PayrollLine;
