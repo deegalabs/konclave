@@ -121,6 +121,7 @@ describe('stripComments', () => {
       'settings-no-index-css.test.ts': 'stylesheets',
       'only-pnpm.test.ts': 'package.json and .npmrc',
       'changelog-gate.test.ts': 'CHANGELOG files',
+      'web-manifest.test.ts': 'a .mjs script and ui/vercel.json',
       'changelog-shape.test.ts': 'CHANGELOG files',
       'changelog-sections.test.ts': 'CHANGELOG files',
       'changelog-fragments.test.ts': 'CHANGELOG files',

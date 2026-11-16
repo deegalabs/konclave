@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { RevealProvider } from './reveal'
 import { en as dict } from './i18n/en'
 const en = (k: string): string => dict[k] ?? k
 
@@ -33,9 +34,13 @@ describe('the signing evidence names the payment it belongs to', () => {
   afterEach(() => { cleanup(); localStorage.clear() })
 
   it('a broadcast record shows the proposal with its txid: document, amount and a link to it', async () => {
-    render(<MemoryRouter><I18nProvider><Ceremonies /></I18nProvider></MemoryRouter>)
+    // Hidden first: the amount is under a bar and not in the page (#838); revealed, it reads as before.
+    const { container } = render(<MemoryRouter><I18nProvider><RevealProvider><Ceremonies /></RevealProvider></I18nProvider></MemoryRouter>)
     expect(await screen.findByText('October rent')).toBeTruthy()
-    expect(screen.getByText('1.5000 ZEC').closest('.secret')).toBeTruthy() // the amount hides with every other amount
+    expect(container.querySelector('.secret')).toBeTruthy() // the amount hides with every other amount
+    expect(container.innerHTML).not.toContain('1.5000')
+    fireEvent.click(container.querySelector('.secret button.bar')!)
+    expect(screen.getByText('1.5000 ZEC').closest('.secret')).toBeTruthy()
     expect(screen.getByRole('link', { name: `${en('ceremonies.viewProposal')} October rent` })).toBeTruthy() // the name carries the document, so two records never read alike
   })
 

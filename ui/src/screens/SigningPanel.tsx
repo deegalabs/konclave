@@ -12,7 +12,7 @@ import { decodeBundle } from '../signing'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Dialog } from '../components'
-import { Identicon } from '../avatar'
+import { Identicon, memberSeed } from '../avatar'
 import { useI18n, useT, type TFn } from '../i18n'
 import CopyButton from '../CopyButton'
 import { useToast } from '../toast'
@@ -538,7 +538,7 @@ export default function SigningPanel() {
 
   const stageNote = connecting ? (unlocking ? t('signing.loadingUnlock') : t('signing.connecting'))
     : started || !!result || armed || !hasShare || !plan || errMsg ? ''
-    : !bg.ready ? t('signing.opening')
+    : !bg.ready ? t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')
     : !quorumHere ? t('signing.waiting')
     : t('signing.readyToSend')
 
@@ -821,9 +821,9 @@ export default function SigningPanel() {
               {roster.map((m, i) => (
                 <span
                   className={'sign-seat' + (presentFlags[i] ? ' on' : '') + (rosterSigned.includes(i + 1) ? ' signed' : '')}
-                  key={m.pubkey || m.name}
+                  key={i}
                 >
-                  <Identicon seed={m.pubkey || m.name} size={22} />
+                  <Identicon seed={memberSeed(vault?.id ?? '', i)} size={22} />
                   <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
                   {rosterSigned.includes(i + 1) && (
                     <>
@@ -953,7 +953,7 @@ export default function SigningPanel() {
               </button>
             </div>
           ) : !bg.ready ? (
-            <div className="confirm">{t('signing.opening')}</div>
+            <div className="confirm">{t(bg.elsewhere ? 'signing.elsewhere' : 'signing.opening')}</div>
           ) : !quorumHere ? (
             <>
               <div className="confirm">{t('signing.waiting')}</div>

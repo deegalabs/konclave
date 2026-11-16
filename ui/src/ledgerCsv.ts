@@ -43,8 +43,9 @@ export function ledgerCsvText(data: LedgerXlsxData, locale: CsvLocale): string {
 }
 
 /** Build the file and hand it to the browser. */
-export async function exportLedgerCsv(data: LedgerXlsxData, locale: CsvLocale): Promise<void> {
+/** Build the file and hand it to the browser: true when the browser took it. */
+export async function exportLedgerCsv(data: LedgerXlsxData, locale: CsvLocale): Promise<boolean> {
   const text = ledgerCsvText(data, locale)
   const name = `konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.csv`
-  downloadBlob(name, new Blob([text], { type: 'text/csv;charset=utf-8' }))
+  return downloadBlob(name, new Blob([text], { type: 'text/csv;charset=utf-8' }))
 }
