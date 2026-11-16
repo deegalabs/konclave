@@ -304,7 +304,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn upgrade_reports_a_failed_migration() {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-upgrade-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -312,10 +311,7 @@ mod tests {
         let wallet = dir.to_str().expect("utf8 dir");
         let fake = |name: &str, code: i32| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).expect("write");
-            let mut p = std::fs::metadata(&path).expect("stat").permissions();
-            p.set_mode(0o755);
-            std::fs::set_permissions(&path, p).expect("chmod");
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\nexit {code}\n"));
             path
         };
 

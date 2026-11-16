@@ -1,0 +1,38 @@
+name: Roadmap fresh
+
+# Once a week: does the roadmap's committed snapshot (titles and GitHub states) still match GitHub?
+# It reads `staging`, where a refresh lands, and writes nothing: a red run is the signal, and a person
+# runs `node scripts/roadmap-sync.mjs`, re-reads the step texts the script names, and opens the PR.
+# Reads public issue data only.
+
+on:
+  schedule:
+    - cron: "41 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: roadmap-fresh
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: The roadmap snapshot matches GitHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: staging
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: The snapshot matches GitHub
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/roadmap-sync.mjs --check

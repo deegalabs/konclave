@@ -9,12 +9,15 @@
 //                                           since the previous release grouped by type (git-cliff,
 //                                           cliff.toml). Falls back to Unreleased.
 //
-// After a bump: commit, then `git tag v<version> && git push --tags` — the desktop-release workflow
-// builds the installers and uses the printed notes as the release body. Vercel deploys the web from
-// the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
+// After a bump: the release goes to `staging` as a pull request, then `staging` into `main` with a
+// merge commit, and THAT merge commit is tagged (docs/RELEASING.md): `main` moves only by a release
+// merge or a tagged hotfix. The tag runs the desktop-release workflow, which builds the installers and
+// the web manifest and uses the printed notes as the release body. Vercel deploys the web from the
+// same commit, so the in-app version badge, the desktop installer, the manifest and the tag agree.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { isVersion } from './web-manifest.mjs'
 import { dirname, join } from 'node:path'
 import { hasSection, versionsIn, fragmentDirOf, compileFragments, replaceUnreleasedHeading, RELEASE_SOURCES, releaseBodyFor, readReleaseSources, semverCompare, taggedVersions, unlistedFolds, versionsToReport } from './changelog-sections.mjs'
 // Moved to the shared reader, where the docs' release pages read it too; still exported from here.
@@ -31,7 +34,6 @@ const CHANGELOG = join(root, 'CHANGELOG.md')
 // The list and its labels live in changelog-sections.mjs, which the docs' release pages read too.
 const SOURCES = RELEASE_SOURCES.map(([file, label]) => [join(root, file), label])
 
-const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
 /** The version headings in a changelog, in file order (newest first). */
 function versionsFrom(file) {
@@ -170,7 +172,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
 
   const version = (arg || '').replace(/^v/, '')
-  if (!semver.test(version)) {
+  if (!isVersion(version)) {
     console.error('usage: node scripts/release.mjs <version>   (e.g. 0.3.0)')
     console.error('       node scripts/release.mjs --notes <version>')
     process.exit(1)
@@ -232,6 +234,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ? `Cut CHANGELOG [Unreleased] to [${version}], and bumped ui/package.json and src-tauri/tauri.conf.json.`
     : `CHANGELOG already has [${version}]; bumped ui/package.json and src-tauri/tauri.conf.json.`)
   console.log('Next:')
-  console.log(`  git commit -am "release: v${version}"`)
-  console.log(`  git tag v${version} && git push origin main --tags`)
+  console.log(`  git commit -am "chore(release): v${version}", open the pull request to staging,`)
+  console.log('  merge staging into main with a merge commit, then tag that merge commit:')
+  console.log(`  git tag v${version} <merge commit> && git push origin v${version}   (docs/RELEASING.md)`)
 }

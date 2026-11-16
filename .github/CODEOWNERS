@@ -1,0 +1,10 @@
+# The dependency supply-chain check and the settings it enforces (#820). A pull request can change
+# the check, the settings and the lockfile together, so changes to these ask the maintainer to review.
+# Branch protection does not require code-owner approval: this requests the review, it does not block.
+/scripts/check-lockfile-policy.mjs @danielgorgonha
+/pnpm-workspace.yaml               @danielgorgonha
+/.npmrc                            @danielgorgonha
+/package.json                      @danielgorgonha
+/.nvmrc                            @danielgorgonha
+/.github/workflows/                @danielgorgonha
+/.github/CODEOWNERS                @danielgorgonha

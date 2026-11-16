@@ -6,6 +6,7 @@
 import { PROOF_TXS, proofOriginCounts } from '../proof-record'
 import { DESKTOP_VERSION } from '../desktop-release'
 import { ROADMAP_AS_OF, ROADMAP_LATER, ROADMAP_NOW, ROADMAP_STEPS, type Stage } from './roadmap'
+import { REFS_AS_OF } from './roadmap-refs'
 
 export type Locale = 'pt-BR' | 'en'
 export type L = { 'pt-BR': string; en: string }
@@ -863,6 +864,14 @@ export const SECTIONS: Section[] = [
           en: 'It is a shortcut you turn on in **Settings**, under **Access on this device**, with **Create a passkey**, so this device opens the vault’s books the way you unlock the device itself. It only lets you read: approving and sending always ask for your passphrase. It works only on the device where you created it and does not travel in a backup, so set it up again after restoring on a new device.',
         },
       },
+      { k: 'h', t: { 'pt-BR': 'Como sei que estou no Konclave de verdade?', en: 'How do I know I am on the real Konclave?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O Konclave na web só fica em **www.konclave.xyz**. Confira o endereço na barra do navegador antes de abrir um convite, digitar a frase-senha ou importar um backup: uma cópia do app em outro endereço parece igual e pode guardar o seu assento. As telas de criar, entrar, importar e destravar também mostram o endereço em que o app está rodando, e avisam quando não é o oficial. Mas uma cópia pode apagar esse aviso ou mostrar um endereço falso, então o que vale é a barra do navegador, não a página. Todo convite que o Konclave cria aponta para www.konclave.xyz, de onde quer que tenha sido criado; se um convite abrir em outro endereço, não continue e avise quem o enviou. O app de mesa, baixado dos lançamentos do projeto no GitHub, não tem barra de endereço: o que vale para ele é de onde você o baixou, então baixe só dessa página.',
+          en: 'On the web, Konclave only lives at **www.konclave.xyz**. Check the address in your browser’s bar before you open an invite, type your passphrase or import a backup: a copy of the app at another address looks the same and can hold your seat. The create, join, import and unlock screens also show the address the app is running on, and warn you when it is not the official one. But a copy can remove that warning or fake the address it shows, so the address bar is what counts, not the page. Every invite Konclave makes points to www.konclave.xyz, wherever it was made; if an invite opens at another address, do not go on and tell whoever sent it. The desktop app, downloaded from the project’s releases on GitHub, has no address bar: what counts for it is where you downloaded it from, so download it only from that page.',
+        },
+      },
       { k: 'h', t: { 'pt-BR': 'O Konclave é auditado? O que ainda não está pronto?', en: 'Is Konclave audited? What is not done yet?' } },
       {
         k: 'p',
@@ -879,16 +888,16 @@ export const SECTIONS: Section[] = [
     title: { 'pt-BR': 'Para onde o Konclave vai', en: 'Where Konclave is going' },
     lead: {
       'pt-BR':
-        'O caminho do Konclave, um passo de cada vez. Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. É um plano, não uma promessa: a ordem pode mudar com o que aprendermos.',
+        'O caminho do Konclave, um passo de cada vez. Cada etapa aponta para as issues e pull requests do GitHub onde o trabalho é acompanhado. É um plano, não uma promessa: a ordem pode mudar com o que aprendermos.',
       en:
-        'Konclave’s path, one step at a time. Each step points at the GitHub issues where the work is tracked. It is a plan, not a promise: the order can change with what we learn.',
+        'Konclave’s path, one step at a time. Each step points at the GitHub issues and pull requests where the work is tracked. It is a plan, not a promise: the order can change with what we learn.',
     },
     blocks: [
       {
         k: 'p',
         t: {
-          'pt-BR': `Situação em ${ROADMAP_AS_OF['pt-BR']}.`,
-          en: `As of ${ROADMAP_AS_OF.en}.`,
+          'pt-BR': `Textos das etapas revistos em ${ROADMAP_AS_OF['pt-BR']}.`,
+          en: `Step texts last reviewed on ${ROADMAP_AS_OF.en}.`,
         },
       },
       {
@@ -904,18 +913,18 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'Três termos aparecem muito aqui. A **chave de visualização** deixa ler o saldo, os pagamentos e os memos de um cofre, e não deixa gastar. O **coordenador** é o servidor que monta e transmite as transações do cofre; ele nunca recebe um pedaço da chave. O **relay** só repassa mensagens entre os aparelhos dos membros. Mais em [Coordenação](#/docs/coordination) e [Segurança e confiança](#/docs/security).',
+            'Três termos aparecem muito aqui. A **chave de visualização** deixa ler o saldo, os pagamentos e os memos de um cofre, e não deixa gastar. O **coordenador** é o servidor que monta e transmite as transações do cofre; ele nunca recebe um pedaço da chave. O **relay** só repassa mensagens entre os aparelhos dos membros e o coordenador. Mais em [Coordenação](#/docs/coordination) e [Segurança e confiança](#/docs/security).',
           en:
-            'Three terms come up often here. The **viewing key** lets someone read a vault’s balance, payments and memos, and does not let them spend. The **coordinator** is the server that builds and broadcasts the vault’s transactions; it never receives a part of the key. The **relay** only passes messages between the members’ devices. More in [Coordination](#/docs/coordination) and [Security and trust](#/docs/security).',
+            'Three terms come up often here. The **viewing key** lets someone read a vault’s balance, payments and memos, and does not let them spend. The **coordinator** is the server that builds and broadcasts the vault’s transactions; it never receives a part of the key. The **relay** only passes messages between the members’ devices and the coordinator. More in [Coordination](#/docs/coordination) and [Security and trust](#/docs/security).',
         },
       },
       {
         k: 'p',
         t: {
           'pt-BR':
-            'Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. Passe o mouse sobre um número, ou chegue nele pelo teclado, para ver o título; no celular, os títulos aparecem embaixo de cada etapa. Ler esta página não faz nenhum pedido ao GitHub; só abrir uma issue faz.',
+            `Cada etapa aponta para as issues e pull requests do GitHub onde o trabalho é acompanhado. Passe o mouse sobre um número, ou chegue nele pelo teclado, para ver o título; no celular, os títulos aparecem embaixo de cada etapa. Ler esta página não faz nenhum pedido ao GitHub; só seguir um link para lá faz. O estado ao lado de cada número é o que o GitHub mostrava em ${REFS_AS_OF['pt-BR']}: uma issue fechada ou um pull request mesclado lá não quer dizer que a mudança já está no ar.`,
           en:
-            'Each step points at the GitHub issues where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only opening an issue does.',
+            `Each step points at the GitHub issues and pull requests where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only following a link there does. The state next to each number is what GitHub showed on ${REFS_AS_OF.en}: an issue closed or a pull request merged there does not mean the change is live.`,
         },
       },
       { k: 'h', t: { 'pt-BR': 'Em paralelo às etapas', en: 'Alongside the steps' } },
@@ -936,12 +945,12 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): a varredura e o gasto na Ironwood, e sincronizar sem threads, oferecidos a quem o mantém.',
-            en: '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): Ironwood scanning and spending, and syncing without threads, offered to its maintainers.',
+            'pt-BR': '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): oferecer a quem o mantém a varredura e o gasto na Ironwood, e sincronizar sem threads.',
+            en: '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): offer its maintainers Ironwood scanning and spending, and syncing without threads.',
           },
           {
-            'pt-BR': '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): testar o suporte a Ironwood com os dados de um cofre real e relatar o que encontrarmos.',
-            en: '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): test its Ironwood support against a real vault’s data and report what we find.',
+            'pt-BR': '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): testar o suporte a Ironwood proposto para ela com os dados de um cofre real e relatar o que encontrarmos.',
+            en: '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): test the Ironwood support proposed for it against a real vault’s data and report what we find.',
           },
           {
             'pt-BR': '[librustzcash](https://github.com/zcash/librustzcash): cada lacuna de WebAssembly que aparecer, sempre com uma reprodução.',
