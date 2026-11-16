@@ -73,7 +73,8 @@ name = "konclave"
 path = "src/main.rs"
 
 [features]
-# Lets another crate's tests seed a read key. Never on in a build.
+# Lets another crate's tests use the test-only helpers (seed a read key; write a fake engine
+# script that is safe to run at once, `test_exec`). Never on in a build.
 test-seed = []
 
 [dev-dependencies]

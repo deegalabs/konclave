@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark } from './components'
-import { Identicon } from './avatar'
+import { Identicon, memberSeed } from './avatar'
 import { useT } from './i18n'
 import { useSeatRefusalCode } from './seat-registration'
 import { coordinatorCode, refusalKey } from './conclude-registration'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
-import { listVaults } from './storage'
+import { readVaults } from './storage'
 import { clearPayrollDraft } from './payroll-draft'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
@@ -17,6 +17,7 @@ import SigningPanel from './screens/SigningPanel'
 import { VersionBadge } from './UpdatePrompt'
 import AppPrefs from './AppPrefs'
 import LockOverlay from './LockOverlay'
+import { useDisclosure } from './disclosure'
 import type { VaultSrc } from './unlock'
 
 /** What the in-vault screens get from `Layout` (#467).
@@ -52,6 +53,8 @@ export default function Layout() {
   // The vault-switch popover on the footer chip (names the current vault; lists the others).
   const [switchOpen, setSwitchOpen] = useState(false)
   const [vaults, setVaults] = useState<{ id: string; name: string }[]>([])
+  // The saved-vault list threw: an empty switcher then means "could not read", not "none" (#320).
+  const [vaultsUnreadable, setVaultsUnreadable] = useState(false)
   // #467: the vault is locked and the member stays where they are. `null` = open.
   const [locked, setLocked] = useState<{ id: string; name: string; src: VaultSrc } | null>(null)
   // Bumped on unlock so the screen underneath refetches. It counts rather than flags because two
@@ -60,13 +63,10 @@ export default function Layout() {
 
   // Close the mobile "More" sheet and the vault-switch popover on any route change.
   useEffect(() => { setMoreOpen(false); setSwitchOpen(false) }, [loc.pathname])
-  // Escape closes the More sheet, so keyboard focus never sits on something it covers.
-  useEffect(() => {
-    if (!moreOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [moreOpen])
+  // Both are disclosures (#317): Escape returns focus to the button, focus leaving closes them, so
+  // keyboard focus never sits on something the sheet covers.
+  const moreD = useDisclosure(moreOpen, setMoreOpen)
+  const switchD = useDisclosure(switchOpen, setSwitchOpen)
 
   // Toggle the switcher; on open, refresh the on-device vault list (names for the popover).
   async function toggleSwitch() {
@@ -74,16 +74,23 @@ export default function Layout() {
     setSwitchOpen(opening)
     if (opening) {
       try {
-        const vs = await listVaults()
+        const vs = await readVaults()
+        setVaultsUnreadable(false)
         setVaults(vs.map((v) => ({ id: v.id, name: v.name || 'Vault' })))
-      } catch { /* no on-device records (local-bridge) - the "Manage vaults" link still works */ }
+      } catch {
+        // The "Manage vaults" link still works; the switcher says why its list is empty (#320).
+        setVaults([])
+        setVaultsUnreadable(true)
+      }
     }
   }
 
   // Switch vaults: same-session-unlocked vaults open straight; otherwise route through /vaults for
   // the unlock gate (a net vault must decrypt its share into the session before it can be used).
   function switchTo(id: string) {
-    setSwitchOpen(false)
+    // Focus back to the chip, which never unmounts: the row clicked does, and switching from the
+    // dashboard changes no route, so nothing else would take focus (a route change moves it on).
+    switchD.close(true)
     if (id === vault?.id) return
     setSelectedVault(id)
     // The rail names the vault the signer is on: re-read it, since Layout reads its own once (#610).
@@ -148,7 +155,7 @@ export default function Layout() {
   // so on every refresh a 2-of-2 vault flashed "2/3" with three strangers' faces under it, and a
   // vault that failed to load kept them. The shell says nothing until it knows.
   const quorum = vault ? `${vault.threshold}/${vault.total}` : null
-  const seeds = vault?.member_list?.length ? vault.member_list.slice(0, 3).map((m) => m.name) : []
+  const seeds = vault?.member_list?.length ? vault.member_list.slice(0, 3).map((_, i) => memberSeed(vault.id, i)) : []
 
   // Rail grouped into intent bands, ordered by the money LIFECYCLE (in -> propose -> govern), so a
   // governance vault reads as its flow rather than a flat wallet (ADR-0009, GSP IA #156, refined):
@@ -203,7 +210,7 @@ export default function Layout() {
             one vault's settings, which is where a per-VAULT setting would belong and these are not. */}
         <AppPrefs />
 
-        <nav className="railnav" aria-label="Konclave">
+        <nav className="railnav" aria-label={t('nav.vaultNav')}>
           {/* Desktop: three labelled bands. Mobile: `.rail-band` becomes display:contents and the
               labels hide, so these flatten into the tab bar (primary items) + a "More" sheet. */}
           {bands.map((band) => (
@@ -223,8 +230,7 @@ export default function Layout() {
           <button
             type="button"
             className={'nav-item nav-more-btn' + (moreOpen ? ' active' : '')}
-            aria-expanded={moreOpen}
-            aria-haspopup="menu"
+            {...moreD.trigger}
             onClick={() => setMoreOpen((v) => !v)}
           >
             <IconMore /><span>{t('nav.more')}</span>
@@ -233,13 +239,15 @@ export default function Layout() {
 
         {moreOpen && (
           <>
-            <div className="nav-more-scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
-            <div className="nav-more-sheet" role="menu" aria-label={t('nav.more')}>
+            <div className="nav-more-scrim" onClick={() => moreD.close(true)} aria-hidden="true" />
+            <div className="nav-more-sheet" {...moreD.panel} aria-label={t('nav.more')}>
               {overflow.map(([to, label, icon]) => (
                 <NavLink
                   key={to}
                   to={to}
-                  role="menuitem"
+                  // The item already open changes no route, so the route change would not close it,
+                  // and focus goes back to More rather than to the page.
+                  onClick={() => moreD.close(loc.pathname === to)}
                   className={({ isActive }) => 'nav-more-row' + (isActive ? ' active' : '')}
                 >
                   {icon}<span>{label}</span>
@@ -262,8 +270,7 @@ export default function Layout() {
             <button
               type="button"
               className={'rail-vault-chip' + (switchOpen ? ' open' : '')}
-              aria-expanded={switchOpen}
-              aria-haspopup="menu"
+              {...switchD.trigger}
               onClick={() => void toggleSwitch()}
             >
               <svg className="medallion" width="38" height="38" viewBox="0 0 42 42" fill="none" aria-hidden="true">
@@ -281,13 +288,17 @@ export default function Layout() {
 
             {switchOpen && (
               <>
-                <div className="nav-more-scrim vault-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
-                <div className="vault-pop" role="menu" aria-label={t('nav.switchVault')}>
+                <div className="nav-more-scrim vault-scrim" onClick={() => switchD.close(true)} aria-hidden="true" />
+                <div className="vault-pop" {...switchD.panel} aria-label={t('nav.switchVault')}>
+                  {vaultsUnreadable && vaults.length === 0 && (
+                    // The switcher is a disclosure panel (#317), so the line is read in order with it.
+                    <p className="vault-pop-hint">{t('vaults.unreadTitle')}</p>
+                  )}
                   {vaults.map((v) => (
                     <button
                       key={v.id}
                       type="button"
-                      role="menuitem"
+                      aria-current={v.id === vault?.id ? 'true' : undefined}
                       className={'vault-pop-row' + (v.id === vault?.id ? ' current' : '')}
                       onClick={() => switchTo(v.id)}
                     >
@@ -296,7 +307,7 @@ export default function Layout() {
                       {v.id === vault?.id && <span className="vp-check" aria-hidden="true">✓</span>}
                     </button>
                   ))}
-                  <Link to="/vaults" className="vault-pop-manage" role="menuitem">{t('nav.switchVault')} ▾</Link>
+                  <Link to="/vaults" className="vault-pop-manage" onClick={() => switchD.close(loc.pathname === '/vaults')}>{t('nav.switchVault')} <span aria-hidden="true">▾</span></Link>
                 </div>
               </>
             )}
@@ -306,14 +317,15 @@ export default function Layout() {
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
           <div className="rail-bottom">
-            {/* Two distinct states, one persistent live region:
+            {/* Two distinct states, one persistent live region (the pill carries no role of its own,
+                or a reader announces it twice, #320):
                 • live  → green pill, bridge/helper answered
                 • offline → warn/danger pill, a real vault we can't reach right now */}
             <span className="live-status" aria-live="polite">
               {live === true ? (
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
-                <span className="live offline" role="status">
+                <span className="live offline">
                   <i />{t('layout.offline')}
                 </span>
               ) : null}
