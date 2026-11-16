@@ -366,10 +366,18 @@
   border: 1px solid var(--accent-line);
   border-radius: 999px;
   background: var(--surface-2);
+  max-width: 100%;
   transition: background .15s, border-color .15s;
 }
 .docs-ref-chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 .docs-ref-num { white-space: nowrap; }
+/* The GitHub state, in words. "Open" is most of the page, so it stays quiet; any other state stands
+   out by weight and ink, never by hue: green or purple would say "done", and closed or merged on
+   GitHub is not live. Not the stage pill's style either: same shape, different meaning. */
+.docs-ref-head { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.docs-ref-sep { color: var(--text-muted); }
+.docs-ref-state { font-size: 11.5px; font-weight: 600; color: var(--text); }
+.docs-ref-state[data-state="open"] { font-weight: 400; color: var(--text-muted); }
 /* The title rides in the link's name for screen readers; on a pointer device it is shown in the card,
    on a touch device under the step (see the hover: none block). */
 .docs-ref-name {
@@ -406,6 +414,7 @@
 }
 .docs-ref-title { font-size: 14px; line-height: 1.45; color: var(--text); }
 .docs-ref-hint { font-size: 12.5px; line-height: 1.4; color: var(--text-muted); }
+.docs-ref-asof { font-size: 12.5px; line-height: 1.4; color: var(--text-muted); }
 /* No hover on a touch screen: list each issue as a line with its title, the link filling the line. */
 @media (hover: none) {
   .docs-stage-refs { flex-direction: column; align-items: stretch; gap: 6px; }
@@ -417,6 +426,14 @@
     font-family: var(--font-sans); font-size: 14px;
   }
   .docs-ref-card { display: none !important; }
+  /* A roadmap step's refs: two lines in one link, "#567 · Open", then the title. The colon is still
+     read, not shown. Scoped to the steps, so the release notes' refs keep their layout. */
+  .docs-stage-refs .docs-ref-head { display: flex; }
+  .docs-stage-refs .docs-ref-name { display: block; margin-top: 2px; }
+  .docs-stage-refs .docs-ref-colon {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
 }
 @media (prefers-reduced-motion: reduce) { .docs-ref-chip { transition: none; } }
 

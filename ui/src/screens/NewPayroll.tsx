@@ -10,13 +10,15 @@ import { PageHeader } from '../page'
 import { proposalName, titleProblem, PAYROLL_TITLE_MAX } from '../proposal-name'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
   previewPayroll, createPayroll, getSelectedVault, getBeneficiaries, getLedger, getProposals, getProposalDetail, getVault, health, classifyAddress, addressRefusal, humanError, IS_NET,
-  type Beneficiary, type Proposal, type Member, type PayrollLine,
+  type Beneficiary, type Proposal, type PayrollLine,
 } from '../api'
-import { listVaults } from '../storage'
+import { useProposer } from '../use-proposer'
+import { ProposerNotice } from '../ProposerNotice'
 import { draftKey } from '../payroll-draft'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
@@ -169,9 +171,11 @@ export default function NewPayroll() {
   // minus what open proposals already hold. This screen read `spendable_zat` on its own, so two
   // payrolls against the same funds both validated and the second died at build.
   const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
-  const reservedZat = reservedZatOf(openProps)
+  const feeEstimate = useFeeEstimate()
+  const feeEstimator = estimatorOf(feeEstimate)
+  const reservedZat = reservedZatOf(openProps, feeEstimator)
   const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
-  const balanceZat = freeZatOf(bal, openProps)
+  const balanceZat = freeZatOf(bal, openProps, feeEstimator)
   // Funds that are merely confirming, derived (total minus spendable): never `pending_zat`, which
   // the web path does not fill (#352).
   const confirmingZat = confirmingZatOf(bal)
@@ -181,7 +185,6 @@ export default function NewPayroll() {
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const feeEstimate = useFeeEstimate()
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
@@ -224,8 +227,8 @@ export default function NewPayroll() {
   const uncheckedCount = rows.filter((r) => r.check).length
   // Neutral placeholder while the real vault name loads (never a fake name).
   const [vaultName, setVaultName] = useState('…')
-  const [membersList, setMembersList] = useState<Member[]>([])
-  const [proposer, setProposer] = useState('Alice')
+  const [vaultRef, setVaultRef] = useState<{ id: string; roster_differs?: boolean; own_members?: string[] } | null>(null)
+  const { acting, name: proposer, differs: rosterDiffers, refresh: askProposer } = useProposer(vaultRef)
   const [loaded, setLoaded] = useState(false)
 
   // The draft belongs to the vault this screen opened in; with none selected nothing is kept.
@@ -271,15 +274,7 @@ export default function NewPayroll() {
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
           setVaultName(v.name)
-          const first0 = v.member_list?.[0]
-          if (first0) {
-            setMembersList(v.member_list!)
-            // Propose as THIS device's own member (never another seat). Fall back to the first
-            // seat only without an on-device record.
-            let mine: string | null = null
-            try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
-            setProposer(mine ?? first0.name)
-          }
+          setVaultRef({ id: v.id, roster_differs: v.roster_differs, own_members: v.own_members })
         }
       }
       if (on) setLoaded(true)
@@ -349,7 +344,6 @@ export default function NewPayroll() {
   // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
   // can actually be right is the helper's, using build_unproven before anyone signs (#293). `null`
   // while the estimate is unknown: the gate blocks with `fee-unknown`.
-  const feeEstimator = estimatorOf(feeEstimate)
   const feeZat = count === 0 ? 0 : feeEstimator ? feeEstimator(count) : null
   // What batching is worth, in the vault's own money. Paying these N people one at a time is N
   // single payments, each estimated by the same rule; one payroll is a single spend, N outputs and
@@ -358,7 +352,8 @@ export default function NewPayroll() {
   const soloFeeZat = count > 0 && feeEstimator ? count * (feeEstimator(1) ?? 0) : 0
   const savedZat = feeZat == null ? 0 : Math.max(0, soloFeeZat - feeZat)
 
-  const afterZat = balanceZat === null || feeZat == null ? null : balanceZat - totalZat - feeZat
+  const costNowZat = count === 0 ? totalZat : costZat(totalZat, count, feeEstimator)
+  const afterZat = balanceZat === null || costNowZat == null ? null : balanceZat - costNowZat
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.
@@ -388,7 +383,7 @@ export default function NewPayroll() {
     const k = blockMessageKey(block)
     return k ? t(k, moneyVars) : null
   })()
-  const canSubmit = count > 0 && !anyBadTouched && unvouched === 0 && !busy && block === null
+  const canSubmit = !!proposer && count > 0 && !anyBadTouched && unvouched === 0 && !busy && block === null
 
   async function submit() {
     setError(null)
@@ -404,7 +399,7 @@ export default function NewPayroll() {
     if (titleIssue === 'chars') { setError(t('payroll.errTitleChars')); return }
     setBusy(true)
     const res = await createPayroll(
-      proposer,
+      proposer ?? '', // what the screen showed; the name sent is the seat's, read at send time
       validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: amountTyped(r.value), memo: r.memo || undefined })),
       desc,
     )
@@ -432,10 +427,11 @@ export default function NewPayroll() {
         {!loaded ? <><SkeletonForm fields={2} inline /><SkeletonRows n={2} compact status={false} /></> : (<>
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
-          {membersList.length > 0 && (
+          {proposer && (
             <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
           )}
         </div>
+        <ProposerNotice acting={acting} differs={rosterDiffers} vaultId={vaultRef?.id ?? null} onUnlocked={askProposer} />
 
         {/* A payroll is a DOCUMENT, so it is laid out as one: full width for the lines, and the
             totals at the foot where a document's totals belong. The side rail this replaces was
@@ -611,7 +607,7 @@ export default function NewPayroll() {
 
           <div className="plf-act">
             <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'payroll-busy' : null, blockMsg ? 'payroll-block' : null].filter(Boolean).join(' ') || undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
-            <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>
+            {proposer && <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>}
           </div>
 
           <div className="plf-rate">

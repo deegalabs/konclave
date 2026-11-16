@@ -1,7 +1,8 @@
 import { LangToggle } from './AppPrefs'
-import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
+import { veil } from './veil'
 import { useT } from './i18n'
 import { scorePassphrase, generatePassphrase, newPassphraseProblem } from './passphrase'
 
@@ -73,7 +74,9 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
       if (!first || !last) return
       const active = document.activeElement
       // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
-      if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
+      // So does focus left on a control that was disabled while it held it: some browsers keep it
+      // there, it is not in `f`, and the default Tab would carry it out of the dialog.
+      if (!node || !node.contains(active) || (active as HTMLElement).matches(':disabled')) { e.preventDefault(); first.focus(); return }
       // Opened on the card itself (focusCard), the first Shift+Tab starts there, not on `first`.
       if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
@@ -162,7 +165,9 @@ export function Letterhead({ right }: { right?: ReactNode }) {
 }
 
 /** A sensitive value hidden behind the redaction bar (tarja) until revealed.
- *  The bar is a real button so the privacy gesture is keyboard-operable.
+ *  The bar is a real button so the privacy gesture is keyboard-operable. While hidden the value is
+ *  not in the page at all (`veil`, #838): a placeholder of about its width stands in, and a screen
+ *  reader hears "amount hidden" and then the control, and the value only once it is revealed.
  *  On paper a hidden value is not drawn at all (lacre.css, print): a bar over drawn text still
  *  leaves the text in the PDF, where it can be selected and copied (#811). */
 export function Secret({ children, sm, label, describedBy, barEvents }: {
@@ -174,9 +179,14 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
 }) {
   const { revealed, toggle } = useReveal()
   const t = useT()
+  const hiddenId = useId()
+  // The spoken word describes the control, so a keyboard user landing on a bar hears the state there
+  // and not only the name; a tip's own id rides beside it.
+  const describedByIds = [revealed ? '' : hiddenId, describedBy ?? ''].filter(Boolean).join(' ') || undefined
   return (
     <span className={'secret' + (sm ? ' sm' : '') + (revealed ? ' on' : '')}>
-      <span className="secret-val">{children}</span>
+      <span className="secret-val">{revealed ? children : veil(children)}</span>
+      {!revealed && <span id={hiddenId} className="visually-hidden">{t('secret.hidden')}</span>}
       <button
         type="button"
         className="bar"
@@ -184,11 +194,32 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
         {...barEvents}
         onClick={(e) => { toggle(); barEvents?.onClick?.(e) }}
         aria-pressed={revealed}
-        aria-describedby={describedBy}
-        aria-label={(revealed ? t('common.hide') : t('common.reveal')) + (label ? `: ${label}` : '')}
+        aria-describedby={describedByIds}
+        // One name; `aria-pressed` carries the state. A name that flipped to "Hide" while the button
+        // also said "pressed" told the state twice.
+        aria-label={t('secret.reveal') + (label ? `: ${label}` : '')}
       />
     </span>
   )
+}
+
+/** The mark a sentence carries where its amount goes. */
+export const SECRET_MARK = '\u0000'
+
+/** A sentence with its amount under the bar, wherever the language puts it: the ONE rule for it.
+ *  Translate with `{ amount: SECRET_MARK }` and pass the result as `sentence`; `children` is the
+ *  amount, drawn only when revealed. The dictionary's `**` around the mark becomes a <b>. A sentence
+ *  with no mark is said as it is. */
+export function SentenceWithSecret({ sentence, children, ...secret }: {
+  sentence: string; children: ReactNode
+} & Omit<Parameters<typeof Secret>[0], 'children'>) {
+  const at = sentence.indexOf(SECRET_MARK)
+  if (at < 0) return <>{sentence}</>
+  const pre = sentence.slice(0, at)
+  const post = sentence.slice(at + SECRET_MARK.length)
+  const bold = pre.endsWith('**') && post.startsWith('**')
+  const figure = <Secret {...secret}>{children}</Secret>
+  return <>{bold ? pre.slice(0, -2) : pre}{bold ? <b>{figure}</b> : figure}{bold ? post.slice(2) : post}</>
 }
 
 /** The reveal / hide toggle. */
@@ -257,7 +288,7 @@ export function Stepper({ step }: { step: number }) {
  * are the real security lever (not the file format).
  */
 export function PassphraseField({
-  value, onChange, placeholder, inputClassName = 'input', autoFocus,
+  value, onChange, label, labelClassName = 'pf-caption', placeholder, inputClassName = 'input', autoFocus,
   /** `current-password` for a passphrase being VERIFIED, `new-password` for one being chosen.
    *  Without it a password manager cannot tell a rotation from a login and will not offer to
    *  update the stored entry - which matters most on the one vault whose only spare key is an
@@ -267,25 +298,37 @@ export function PassphraseField({
    *  the member already has just tells them their existing key is weak at the moment they cannot
    *  act on it, and a generator there would overwrite what they came to type. */
   choosing = true,
+  /** Locked: the passphrase is being (or has been) used and must not change under the member. No
+   *  typing and no generator (it writes); the meter and the eye are read-only and stay (#928). */
+  readOnly = false,
   id, describedBy, invalid,
 }: {
   value: string
   onChange: (v: string) => void
+  /** The field's visible name, tied to the input here so no caller can leave it out. Not a
+   *  placeholder: that disappears as soon as the member types. */
+  label: string
+  /** Not `pf-label` (the strength text) or `pf-name` (the folhas list): both are taken. */
+  labelClassName?: string
   placeholder?: string
   inputClassName?: string
   autoFocus?: boolean
   autoComplete?: 'new-password' | 'current-password'
   choosing?: boolean
+  readOnly?: boolean
   id?: string
   describedBy?: string
   invalid?: boolean
 }) {
   const t = useT()
+  const autoId = useId()
+  const inputId = id ?? autoId
   const [show, setShow] = useState(false)
   const s = scorePassphrase(value)
   const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
+      <label htmlFor={inputId} className={labelClassName}>{label}</label>
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
           field was silently inheriting that list's padding, negative margin, pointer cursor and
           hover gradient. Two components, one class prefix, different meanings. */}
@@ -297,9 +340,10 @@ export function PassphraseField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
+          readOnly={readOnly}
           autoComplete={autoComplete}
           spellCheck={false}
-          id={id}
+          id={inputId}
           aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
         />
@@ -319,7 +363,7 @@ export function PassphraseField({
             </svg>
           )}
         </button>
-        {choosing && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
+        {choosing && !readOnly && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
           aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M4 20L14 10" />
