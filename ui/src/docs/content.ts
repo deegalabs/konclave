@@ -6,6 +6,7 @@
 import { PROOF_TXS, proofOriginCounts } from '../proof-record'
 import { DESKTOP_VERSION } from '../desktop-release'
 import { ROADMAP_AS_OF, ROADMAP_LATER, ROADMAP_NOW, ROADMAP_STEPS, type Stage } from './roadmap'
+import { REFS_AS_OF } from './roadmap-refs'
 
 export type Locale = 'pt-BR' | 'en'
 export type L = { 'pt-BR': string; en: string }
@@ -887,9 +888,9 @@ export const SECTIONS: Section[] = [
     title: { 'pt-BR': 'Para onde o Konclave vai', en: 'Where Konclave is going' },
     lead: {
       'pt-BR':
-        'O caminho do Konclave, um passo de cada vez. Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. É um plano, não uma promessa: a ordem pode mudar com o que aprendermos.',
+        'O caminho do Konclave, um passo de cada vez. Cada etapa aponta para as issues e pull requests do GitHub onde o trabalho é acompanhado. É um plano, não uma promessa: a ordem pode mudar com o que aprendermos.',
       en:
-        'Konclave’s path, one step at a time. Each step points at the GitHub issues where the work is tracked. It is a plan, not a promise: the order can change with what we learn.',
+        'Konclave’s path, one step at a time. Each step points at the GitHub issues and pull requests where the work is tracked. It is a plan, not a promise: the order can change with what we learn.',
     },
     blocks: [
       {
@@ -921,9 +922,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. Passe o mouse sobre um número, ou chegue nele pelo teclado, para ver o título; no celular, os títulos aparecem embaixo de cada etapa. Ler esta página não faz nenhum pedido ao GitHub; só abrir uma issue faz.',
+            `Cada etapa aponta para as issues e pull requests do GitHub onde o trabalho é acompanhado. Passe o mouse sobre um número, ou chegue nele pelo teclado, para ver o título; no celular, os títulos aparecem embaixo de cada etapa. Ler esta página não faz nenhum pedido ao GitHub; só seguir um link para lá faz. O estado ao lado de cada número é o que o GitHub mostrava em ${REFS_AS_OF['pt-BR']}: uma issue fechada ou um pull request mesclado lá não quer dizer que a mudança já está no ar.`,
           en:
-            'Each step points at the GitHub issues where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only opening an issue does.',
+            `Each step points at the GitHub issues and pull requests where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only following a link there does. The state next to each number is what GitHub showed on ${REFS_AS_OF.en}: an issue closed or a pull request merged there does not mean the change is live.`,
         },
       },
       { k: 'h', t: { 'pt-BR': 'Em paralelo às etapas', en: 'Alongside the steps' } },

@@ -5,6 +5,7 @@
 //
 //   node scripts/roadmap-sync.mjs           rewrite the file from GitHub
 //   node scripts/roadmap-sync.mjs --check   write nothing; exit 1 and print what differs
+//   ... --check --max-age-days N           also fail if the file's date is more than N days old
 //
 // The refs, the repository and each link come from ui/src/docs/roadmap.ts, imported as a module (one
 // list, one URL rule). Token: GITHUB_TOKEN, else `gh auth token`, else anonymous (under 60 calls/hour).
@@ -84,6 +85,26 @@ export function asOfFrom(dateHeader) {
   }
 }
 
+/** Whole days from one ISO day to another (both read as UTC midnight). */
+export function ageInDays(fromIso, toIso) {
+  const day = /^\d{4}-\d{2}-\d{2}$/
+  if (!day.test(fromIso) || !day.test(toIso)) throw new Error(`not an ISO date: ${fromIso} / ${toIso}`)
+  return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86_400_000)
+}
+
+/** What is wrong with the committed date, or null: its words must be its day, it cannot be after GitHub's
+ *  day (`todayIso`), and with `maxAge` it cannot be more than that many days older. */
+export function dateProblem(fileAsOf, todayIso, maxAge) {
+  const iso = fileAsOf?.iso
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(iso ?? '') ? Date.parse(`${iso}T12:00:00Z`) : NaN
+  if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== iso) return `${iso} is not a date`
+  if (JSON.stringify(asOfFrom(new Date(t).toUTCString())) !== JSON.stringify(fileAsOf)) return `the words of ${iso} do not match its day`
+  const age = ageInDays(iso, todayIso)
+  if (age < 0) return `${iso} is after GitHub's day, ${todayIso}`
+  if (maxAge !== undefined && age > maxAge) return `${iso} is more than ${maxAge} days before GitHub's ${todayIso}`
+  return null
+}
+
 /** The file's text. Titles go in as JSON, so nothing GitHub sends can become code. */
 export function render(asOf, info) {
   const rows = [...info].map(([key, v]) => `  ${JSON.stringify(key)}: ${JSON.stringify({ title: v.title, state: v.state })}`)
@@ -149,6 +170,9 @@ function tokenFromEnv() {
 
 async function main(argv) {
   const check = argv.includes('--check')
+  const ageFlag = argv.indexOf('--max-age-days')
+  const maxAge = ageFlag === -1 ? undefined : Number(argv[ageFlag + 1])
+  if (maxAge !== undefined && !(Number.isInteger(maxAge) && maxAge >= 0)) throw new Error('--max-age-days takes a whole number of days')
   const lists = ROADMAP_LISTS
   const { asOf, info } = await sync({ stages: lists, token: tokenFromEnv() })
   const current = await import(pathToFileURL(join(ROOT, OUT)).href).catch(() => ({ REF_INFO: {} }))
@@ -166,6 +190,11 @@ async function main(argv) {
     }
     if (diff.length) {
       console.error(`${OUT} differs from GitHub: run node scripts/roadmap-sync.mjs`)
+      process.exit(1)
+    }
+    const problem = dateProblem(current.REFS_AS_OF, asOf.iso, maxAge)
+    if (problem) {
+      console.error(`${OUT}: ${problem}. Run node scripts/roadmap-sync.mjs`)
       process.exit(1)
     }
     console.log(`${OUT} matches GitHub (${info.size} refs, read ${asOf.iso}; file dated ${current.REFS_AS_OF?.iso})`)
