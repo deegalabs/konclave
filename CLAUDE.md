@@ -442,8 +442,8 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
   signing room, the panel mounted at the shell, and the broadcast triggered from the Dashboard desk.
   Proven on mainnet with `78fe7dfa…` - ceremony start to signature response in **7 seconds**. The
   money gate stayed: the send is still a preview plus an explicit confirm, never a single click.
-  What is NOT done and keeps its own issues: the cross-tab lock is still an in-process `Set`
-  (#285), and the ceremony has no abort and no reload persistence (#284).
+  What is NOT done and keeps its own issues: the ceremony has no abort and no reload persistence
+  (#284). The cross-tab lock is a Web Lock per vault seat since #285 (it was an in-process `Set`).
 
 **Ceremony security (ADR-0007).** H1 transaction-swap defense = on-device ZIP-244 sighash binding
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
