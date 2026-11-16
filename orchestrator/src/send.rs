@@ -679,8 +679,8 @@ pub fn net_prepare_send(
     device_pubs: &[String],
     max_polls: u32,
     poll_delay: Duration,
-    // The chain tip for the build hold and the branch check, asked only when the table has a later
-    // upgrade to be near. The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
+    // The chain tip for the build hold, the branch check and the fee guard, read once per send (see
+    // `EpochGate::chain_tip`). The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
     // one reader of the wallet, #637); the operator's command line, which has no vault directory,
     // reads the wallet as it stands.
     tip: &dyn Fn() -> Result<u64, ToolError>,
@@ -705,8 +705,7 @@ pub fn net_prepare_send_with<T: Transport>(
     poll_delay: Duration,
     tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
-    // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
-    // upgrade to be near, which it has since the NU7 row).
+    // The live gate: mainnet's table, and the caller's tip (read once per send).
     let gate = live_gate(tip);
     net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
 }
@@ -765,6 +764,9 @@ fn prepare_capped<T: Transport>(
     if let Some(text) = crate::epoch::hold_before_build(gate.table, tip) {
         return Err(crate::epoch::refusal(text));
     }
+    // The fee guard's tip, read here, before the build, like the hold's (#969): on a one-row table
+    // the hold did not read the chain, and the guard refuses a tip of 0.
+    let fee_tip = gate.chain_tip(tip)?;
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_unproven(sc, plan)?;
@@ -773,7 +775,7 @@ fn prepare_capped<T: Transport>(
     // it. The next block is the target the wallet builds for.
     crate::fee::guard_built_fee(
         &tx1,
-        tip,
+        fee_tip,
         sc.is_mainnet(),
         sc.zip2009_permitted,
         sc.zip2009_from,
@@ -1444,6 +1446,20 @@ mod tests {
         tip: u64,
         clock_height: u64,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
+        let table = &crate::epoch::test_table::WITH_NEXT;
+        prepare_gated_on(tag, proven_bytes, plan, table, tip, clock_height)
+    }
+
+    /// [`prepare_gated_at`] over a given epoch table.
+    #[cfg(unix)]
+    fn prepare_gated_on(
+        tag: &str,
+        proven_bytes: &[u8],
+        plan: SpendPlan,
+        table: &'static konclave_seal::epochs::Table,
+        tip: u64,
+        clock_height: u64,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
         let dir = std::env::temp_dir().join(format!("konclave-gated-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1497,7 +1513,6 @@ mod tests {
             "helper",
         );
         let read_tip = move || -> Result<u64, ToolError> { Ok(tip) };
-        let table = &crate::epoch::test_table::WITH_NEXT;
         let clock = crate::epoch::test_table::clock_at(table, clock_height);
         let read_clock = move || clock;
         let gate = EpochGate {
@@ -1571,6 +1586,37 @@ mod tests {
             let e = r
                 .err()
                 .unwrap_or_else(|| panic!("{name}: tip 0 must be refused"));
+            assert!(
+                e.to_string().contains("chain tip is unknown"),
+                "{name}: {e}"
+            );
+            assert!(seen.is_empty(), "{name}: nothing reached the room");
+            assert!(!log.contains("prove"), "{name}: nothing was proven: {log}");
+        }
+    }
+
+    /// #969: on a table with one row, `EpochGate::tip()` skips the chain read (nothing to be near), but
+    /// the fee guard still needs the real tip. A known tip builds; a closure that answers 0 is still
+    /// refused by the guard, so the one-row table does not open a way around it.
+    #[cfg(unix)]
+    #[test]
+    fn a_one_row_table_still_gives_the_fee_guard_the_real_tip() {
+        let table = &crate::epoch::test_table::ONE_ROW;
+        for (name, plan) in [
+            ("payment", a_payment as fn() -> SpendPlan),
+            ("payroll", a_payroll),
+        ] {
+            let tip = 3_500_000;
+            let (r, _, log) =
+                prepare_gated_on(&format!("onerow-{name}"), PROVEN, plan(), table, tip, tip);
+            r.unwrap_or_else(|e| panic!("{name}: a known tip on a one-row table builds: {e}"));
+            assert!(log.contains("prove"), "{name}: built and proven: {log}");
+
+            let (r, seen, log) =
+                prepare_gated_on(&format!("onerow0-{name}"), PROVEN, plan(), table, 0, 0);
+            let e = r
+                .err()
+                .unwrap_or_else(|| panic!("{name}: tip 0 must still be refused"));
             assert!(
                 e.to_string().contains("chain tip is unknown"),
                 "{name}: {e}"

@@ -841,8 +841,8 @@ impl SendSteps for LiveSend<'_> {
                 "this send would be published unsealed and no seat signed it",
             )
         })?;
-        // The tip for the build hold comes from the one forced sync of the wallet (#637), and only
-        // when the table has a later upgrade to be near.
+        // The tip for the build hold and the fee guard comes from the one forced sync of the wallet
+        // (#637), read once per send.
         let tip = || self.settle_wallet().map(|v| v.tip);
         net_prepare_send(
             self.sc,
