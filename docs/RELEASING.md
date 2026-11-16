@@ -41,4 +41,6 @@ downloadable, so `scripts/verify-web.mjs` answers "inconclusive": publish the dr
 anyone checks the site: [VERIFY-WEB.md](VERIFY-WEB.md).
 
 You can also build installers for an existing tag from the Actions tab
-("Desktop release" -> Run workflow -> enter the tag).
+("Desktop release" -> Run workflow): choose the tag itself under "Use workflow from" and enter the
+same tag. A run started from a branch is refused, because the web manifest's attestation names the
+commit the run started from.

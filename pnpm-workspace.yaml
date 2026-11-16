@@ -11,14 +11,16 @@ packages:
 # version that reads them, and CI's pnpm/action-setup installs exactly that version.
 #
 # They act when pnpm RESOLVES (`pnpm add`, `pnpm update`, an install after a manifest change). CI
-# installs with --frozen-lockfile, which does not resolve, so CI does not re-check a lockfile that
-# already holds something these keys would have refused. They guard the moment the lockfile changes.
+# installs with --frozen-lockfile, which does not resolve, so a separate CI job checks the committed
+# lockfile against these keys with pnpm 12, which re-applies the age and trust rules to every locked
+# entry (scripts/check-lockfile-policy.mjs, #820).
 minimumReleaseAge: 1440        # do not pull a package published less than 24h ago (dodges fresh-publish attacks)
 trustPolicy: no-downgrade      # refuse a version with weaker trust evidence (provenance, trusted publisher) than an earlier one
 blockExoticSubdeps: true       # transitive deps must come from the registry, not git/tarball sources
 
-# The only two locked packages trustPolicy refuses, checked by enumerating the whole tree on
-# 2026-11-03. Exact versions only, so a newer release of either is checked as normal.
+# The locked packages trustPolicy refuses. Exact versions only, so a newer release of any of them is
+# checked as normal. A third one (undici-types) was found on 2026-11-15 by the lockfile check above:
+# the enumeration of 2026-11-03 had missed it.
 trustPolicyExclude:
   # A 6.x backport published in 2023, after 7.x releases that carried provenance. The check orders
   # versions by publish date, not semver, so this is a false positive.
@@ -28,3 +30,7 @@ trustPolicyExclude:
   # none. Not evidence of compromise; excluded so the build tooling installs, and worth a diff of the
   # two tarballs.
   - "@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1"
+  # Required by @types/node@22.20.1 (types only, no runtime code) as ~6.21.0. Its 6.13.0 to 6.19.2
+  # releases carried provenance and 6.21.0 carries none. Not evidence of compromise; excluded so the
+  # type definitions install.
+  - undici-types@6.21.0

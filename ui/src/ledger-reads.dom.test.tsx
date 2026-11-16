@@ -28,7 +28,7 @@ async function setup(mode: Mode) {
   else vi.stubEnv('VITE_HELPER_BASE', '')
   localStorage.setItem('konclave.locale', 'en')
   vi.resetModules()
-  const exportLedgerXlsx = vi.fn(async () => {})
+  const exportLedgerXlsx = vi.fn(async () => true)
   vi.doMock('./ledgerXlsx', async (orig) => ({ ...(await orig<typeof import('./ledgerXlsx')>()), exportLedgerXlsx }))
   const urls: string[] = []
   const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 })

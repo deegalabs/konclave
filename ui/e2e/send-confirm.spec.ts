@@ -61,8 +61,9 @@ test.beforeEach(async ({ page }) => {
 test('the send confirmation restates the amount and recipient before broadcasting', async ({ page }) => {
   await page.goto('/#/proposals')
 
-  // Open the ready-to-sign proposal (0.1200 ZEC).
-  await page.locator('.plist-row').filter({ hasText: '0.1200' }).first().click()
+  // Open the ready-to-sign proposal, the only one listed. Its amount is under the bar in the list
+  // (#838: a hidden amount is not in the page); the confirmation below restates it in full.
+  await page.locator('.plist-row').first().click()
   await expect(page).toHaveURL(/#\/proposal/)
 
   // Trigger the money-moving action.
