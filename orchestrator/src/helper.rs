@@ -4338,10 +4338,9 @@ mod tests {
     /// `balance`, and, when `upgrade_fails`, exits 1 on `upgrade` the way a failed migration does.
     #[cfg(unix)]
     fn fake_balance_devtool(dir: &Path, upgrade_fails: bool) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         if upgrade_fails {
             script.push_str(
@@ -4351,11 +4350,7 @@ mod tests {
         script.push_str(
             "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
         );
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -4449,25 +4444,8 @@ mod tests {
     /// One test at a time may write and run a fake devtool script: writing an executable and running it
     /// while another thread forks makes the kernel answer `Text file busy` (ETXTBSY) now and then, and
     /// the tests that count subprocess calls then fail with no defect behind them. Taken by every test
-    /// in this module that uses a fake devtool. It REDUCES the flake and does not close it: a fork from
-    /// a test that does not take it (the registration and engine-path tests have their own probe loop)
-    /// can still hold the script's write handle for a moment.
-    /// Wait until a script that was just written can be executed: the kernel answers `Text file busy`
-    /// (ETXTBSY) while another thread's fork still holds the file's write handle. The fake devtools
-    /// answer `--probe` without logging, so this changes nothing a test counts. This is what closes
-    /// the race; `serial()` only reduces it.
-    #[cfg(unix)]
-    fn exec_ready(script: &Path) {
-        for _ in 0..200 {
-            match std::process::Command::new(script).arg("--probe").output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
-    }
-
+    /// in this module that uses a fake devtool. `test_exec::write_script` is what closes the
+    /// ETXTBSY race (it waits until the script can be run); this only keeps the call counts apart.
     #[cfg(unix)]
     fn serial() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -4490,12 +4468,11 @@ mod tests {
     /// were used, not only which subcommand ran.
     #[cfg(unix)]
     fn fake_chain_devtool(dir: &Path, sync: FakeSync) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let synced = dir.join("synced");
         let tried = dir.join("tried");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
         match sync {
@@ -4520,11 +4497,7 @@ mod tests {
             synced.display(),
             "cd".repeat(32)
         ));
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -4828,17 +4801,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_history_that_cannot_be_listed_is_an_error_and_not_an_empty_list() {
-        use std::os::unix::fs::PermissionsExt;
         let _serial = serial();
         let dir = tmp("history-list-fails");
         let fake = dir.join("fake-devtool");
-        std::fs::write(
+        crate::test_exec::write_script(
             &fake,
-            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = list-tx ]; then echo 'database is locked' >&2; exit 1; fi\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        exec_ready(&fake);
+            "#!/bin/sh\nif [ \"$4\" = list-tx ]; then echo 'database is locked' >&2; exit 1; fi\n",
+        );
         let cfg = balance_cfg(fake, dir.join("vaults"));
 
         assert!(vault_transactions(&cfg, &reg("aaaa0007")).is_err());
@@ -4871,10 +4840,9 @@ mod tests {
     /// fail `sync`.
     #[cfg(unix)]
     fn fake_settle_devtool(dir: &Path, sync_fails: bool) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let fake = dir.join("fake-devtool");
-        let mut script = String::from("#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\n");
+        let mut script = String::from("#!/bin/sh\n");
         script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
         script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
         if sync_fails {
@@ -4890,11 +4858,7 @@ mod tests {
             "aa".repeat(32),
             "bb".repeat(32)
         ));
-        std::fs::write(&fake, script).expect("write fake devtool");
-        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).expect("chmod");
-        exec_ready(&fake);
+        crate::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -5006,7 +4970,7 @@ mod tests {
             "[ \"$4\" = sync ] && exec sleep 8\necho \"$4\" >> ",
             1,
         );
-        std::fs::write(&fake, script).unwrap();
+        crate::test_exec::write_script(&fake, &script);
         crate::wallet::set_sync_within_for_test(Some(std::time::Duration::from_millis(400)));
         let started = std::time::Instant::now();
         let r = settle_wallet(
@@ -5387,7 +5351,6 @@ mod tests {
     /// switch, through `send_config_for`, reach the builder as flags (stub signer, argv logged).
     #[cfg(unix)]
     fn built_argv(tag: &str, switch: crate::fee::FeeSwitch, fee_from: &[Option<u32>]) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-b3b-e2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -5411,23 +5374,13 @@ mod tests {
         .unwrap();
         let log = dir.join("argv.log");
         let signer = dir.join("signer");
-        std::fs::write(
+        crate::test_exec::write_script(
             &signer,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\n[ -n \"$out\" ] && printf built > \"$out\"\nexit 0\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&signer, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&signer).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10))
-                }
-                _ => break,
-            }
-        }
+        );
         let _ = std::fs::remove_file(&log);
         let mut cfg = send_cfg("main");
         cfg.vaults_dir = dir.clone();
@@ -6566,14 +6519,12 @@ mod change_receiver_tests {
     #[cfg(unix)]
     #[test]
     fn register_vault_records_cp_once() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-register-cp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let write_exe = |name: &str, body: &str| {
             let p = dir.join(name);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_exec::write_script(&p, body);
             p
         };
         let sign = write_exe(
@@ -6584,18 +6535,6 @@ mod change_receiver_tests {
             "fake-devtool",
             "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
         );
-        for p in [&sign, &devtool] {
-            // See the helper-server twin of this test: a fork by another test thread can leave the
-            // script "busy" for a moment after it is written.
-            for _ in 0..200 {
-                match std::process::Command::new(p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
-        }
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
@@ -6644,25 +6583,15 @@ mod change_receiver_tests {
     /// `registration.json` during the attempt (a write that then cannot succeed, with the real
     /// writer), `zcash-sign` answers a new
     /// address on every call (the identity is minted at random), and the signer leaves a marker so a
-    /// test can tell whether the engine ran at all. A `--probe` run changes nothing.
+    /// test can tell whether the engine ran at all.
     #[cfg(unix)]
     fn n1_fixture(name: &str) -> (HelperConfig, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-n1-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let write_exe = |file: &str, body: &str| {
             let p = dir.join(file);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-            for _ in 0..200 {
-                match std::process::Command::new(&p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
+            crate::test_exec::write_script(&p, body);
             p
         };
         let marker = dir.join("engine-ran");
@@ -6670,7 +6599,7 @@ mod change_receiver_tests {
         let sign = write_exe(
             "fake-sign",
             &format!(
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\ntouch '{m}'\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
+                "#!/bin/sh\ntouch '{m}'\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
                 m = marker.display(),
                 c = counter.display()
             ),
@@ -6730,23 +6659,12 @@ mod change_receiver_tests {
     #[cfg(unix)]
     #[test]
     fn an_honest_protocol_3_registration_records_what_the_key_derives() {
-        use std::os::unix::fs::PermissionsExt;
         let (mut cfg, dir) = n1_fixture("cp3-honest");
         let sign = dir.join("vector-sign");
         let body = format!(
             "#!/bin/sh\necho 'Orchard-only unified address: \"{EXTERNAL}\"'\necho 'Unified Full Viewing Key: \"{UFVK}\"'\n"
         );
-        std::fs::write(&sign, body).unwrap();
-        std::fs::set_permissions(&sign, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // The file was just written: wait out "text file busy", as the fixture does.
-        for _ in 0..200 {
-            match std::process::Command::new(&sign).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
+        crate::test_exec::write_script(&sign, &body);
         cfg.zcash_sign = sign;
         let key = vector_group_key();
         let reg = register_vault(&cfg, &key, "v", 2, 3, Some(3)).unwrap();

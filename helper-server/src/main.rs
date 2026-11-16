@@ -3259,34 +3259,23 @@ mod tests {
     /// `konclave-signer build-payroll` writes `unproven` to its `--out` (found by name); everything else succeeds silently.
     #[cfg(unix)]
     fn funding_engine(dir: &std::path::Path, unproven: &[u8]) -> HelperConfig {
-        use std::os::unix::fs::PermissionsExt;
         std::fs::create_dir_all(dir).unwrap();
         let pczt = dir.join("unproven.pczt");
         std::fs::write(&pczt, unproven).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\nexit 0\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            // A freshly written script can be busy for a moment (ETXTBSY); wait it out.
-            for _ in 0..200 {
-                match std::process::Command::new(&path).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10))
-                    }
-                    _ => break,
-                }
-            }
+            orchestrator::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\nexit 0\n"));
             path
         };
         let mut c = cfg();
         c.devtool = script(
             "devtool",
-            "[ \"$1\" = \"--probe\" ] && exit 0\nif [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}'; fi".to_string(),
+            "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}'; fi".to_string(),
         );
         c.konclave_signer = script(
             "signer",
             format!(
-                "[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {p} \"$out\"; fi",
+                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {p} \"$out\"; fi",
                 p = pczt.display()
             ),
         );
@@ -3475,7 +3464,6 @@ mod tests {
     /// `mined` is the txid its `list-tx` reports as mined, if any.
     #[cfg(unix)]
     fn fake_devtool(dir: &std::path::Path, mined: Option<&str>) -> (PathBuf, PathBuf) {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("calls.log");
         let fake = dir.join("fake-devtool");
         let rows = match mined {
@@ -3488,10 +3476,7 @@ mod tests {
              if [ \"$4\" = list-tx ]; then echo '{rows}'; fi\n",
             log.display()
         );
-        std::fs::write(&fake, script).unwrap();
-        let mut p = std::fs::metadata(&fake).unwrap().permissions();
-        p.set_mode(0o755);
-        std::fs::set_permissions(&fake, p).unwrap();
+        orchestrator::test_exec::write_script(&fake, &script);
         (fake, log)
     }
 
@@ -9043,21 +9028,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn two_balance_reads_of_one_vault_both_get_a_number() {
-        use std::os::unix::fs::PermissionsExt;
         let st = HelperState::new();
         seed(&st, "slowv");
         let mut c = cfg();
         let script = c.vaults_dir.join("slow-devtool");
         let trail = c.vaults_dir.join("slow-devtool.trail");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &script,
-            format!(
+            &format!(
                 "#!/bin/sh\nif [ \"$4\" = balance ]; then echo start >> \"{trail}\"; sleep 0.6; echo end >> \"{trail}\"; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":7,\"sapling_spendable\":0,\"total\":7,\"transparent_spendable\":0}}'; fi\n",
                 trail = trail.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         c.devtool = script;
         let locks = concurrency::VaultLocks::new();
         let limits = admission::Limits::new();
@@ -9354,16 +9336,13 @@ mod tests {
     /// A devtool that reports `balance` after `pause` seconds: the funding gate is in it for that long.
     #[cfg(unix)]
     fn devtool_that_pauses(dir: &std::path::Path, balance: u64, pause: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let script = dir.join("pausing-devtool");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &script,
-            format!(
+            &format!(
                 "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\n"
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         script
     }
 
@@ -9371,14 +9350,11 @@ mod tests {
     /// every gate is in it for that long (the build is the signer's, for a payment as for a payroll).
     #[cfg(unix)]
     fn signer_that_pauses(dir: &std::path::Path, pause: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let script = dir.join("pausing-signer");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &script,
-            format!("#!/bin/sh\nif [ \"$1\" = build-payroll ]; then sleep {pause}; exit 1; fi\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            &format!("#!/bin/sh\nif [ \"$1\" = build-payroll ]; then sleep {pause}; exit 1; fi\n"),
+        );
         script
     }
 
@@ -9608,21 +9584,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn reads_answer_while_a_real_write_runs_the_engine() {
-        use std::os::unix::fs::PermissionsExt;
         let st = HelperState::new();
         seed(&st, "stress1");
         let mut c = cfg();
         let log = c.vaults_dir.join("stress-calls.log");
         let script = c.vaults_dir.join("stress-devtool");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &script,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$4\" >> \"{log}\"\nif [ \"$4\" = sync ]; then sleep 2; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\n",
                 log = log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         c.devtool = script;
         let _ = orchestrator::helper::claim_members(
             &c.vaults_dir,
@@ -9722,25 +9695,14 @@ mod tests {
     /// `sync_secs`.
     #[cfg(unix)]
     fn counting_devtool(dir: &std::path::Path, sync_secs: u32) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let fake = dir.join("counting-devtool");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &fake,
-            format!(
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho \"$4\" >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nif [ \"$4\" = sync ]; then sleep {sync_secs}; fi\nif [ \"$4\" = list-tx ] && [ -e \"{d}/list-tx-fails\" ]; then echo 'database is locked' >&2; rmdir \"{d}/in-engine\" 2>/dev/null; exit 1; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = list-tx ]; then echo '[]'; fi\nrmdir \"{d}/in-engine\" 2>/dev/null\nexit 0\n",
+            &format!(
+                "#!/bin/sh\necho \"$4\" >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nif [ \"$4\" = sync ]; then sleep {sync_secs}; fi\nif [ \"$4\" = list-tx ] && [ -e \"{d}/list-tx-fails\" ]; then echo 'database is locked' >&2; rmdir \"{d}/in-engine\" 2>/dev/null; exit 1; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = list-tx ]; then echo '[]'; fi\nrmdir \"{d}/in-engine\" 2>/dev/null\nexit 0\n",
                 d = dir.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&fake).arg("--probe").output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
+        );
         fake
     }
 
@@ -9761,25 +9723,14 @@ mod tests {
     /// build running beside a sync is caught.
     #[cfg(unix)]
     fn counting_signer(dir: &std::path::Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let fake = dir.join("counting-signer");
-        std::fs::write(
+        orchestrator::test_exec::write_script(
             &fake,
-            format!(
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then\necho build-payroll >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nsleep 0.5\n: > \"$out\"\nrmdir \"{d}/in-engine\" 2>/dev/null\nfi\nexit 0\n",
+            &format!(
+                "#!/bin/sh\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then\necho build-payroll >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nsleep 0.5\n: > \"$out\"\nrmdir \"{d}/in-engine\" 2>/dev/null\nfi\nexit 0\n",
                 d = dir.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&fake).arg("--probe").output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                _ => break,
-            }
-        }
+        );
         fake
     }
 
@@ -10349,37 +10300,21 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_handler_records_the_declared_cp() {
-        use std::os::unix::fs::PermissionsExt;
         let st = HelperState::new();
         let mut c = cfg();
         let write_exe = |name: &str, body: &str| {
             let p = c.vaults_dir.join(name);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            orchestrator::test_exec::write_script(&p, body);
             p
         };
-        let ready = |p: PathBuf| {
-            // Another test thread may have forked while the script's write handle was open, which
-            // makes the first exec fail with "Text file busy" for a moment. Wait it out here, in
-            // the test, rather than let it fail the registration.
-            for _ in 0..200 {
-                match std::process::Command::new(&p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
-            p
-        };
-        c.zcash_sign = ready(write_exe(
+        c.zcash_sign = write_exe(
             "fake-sign",
             "#!/bin/sh\necho 'Orchard-only unified address: \"u1fakeaddress\"'\necho 'Unified Full Viewing Key: \"uviewfake\"'\n",
-        ));
-        c.devtool = ready(write_exe(
+        );
+        c.devtool = write_exe(
             "fake-devtool",
             "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
-        ));
+        );
         let id = format!("{:064x}", 0x5151);
         let r = handle(
             &st,
@@ -10424,7 +10359,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_registration_that_cannot_be_recorded_answers_503_and_serves_nothing() {
-        use std::os::unix::fs::PermissionsExt;
         let (st, mut c) = (HelperState::new(), cfg());
         let dir = std::env::temp_dir().join(format!("konclave-n1-door-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -10432,22 +10366,13 @@ mod tests {
         c.vaults_dir = dir.join("vaults");
         let write_exe = |name: &str, body: &str| {
             let p = dir.join(name);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-            for _ in 0..200 {
-                match std::process::Command::new(&p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
+            orchestrator::test_exec::write_script(&p, body);
             p
         };
         c.zcash_sign = write_exe(
             "fake-sign",
             &format!(
-                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
+                "#!/bin/sh\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
                 c = dir.join("identities").display()
             ),
         );
@@ -10570,7 +10495,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_engine_failure_at_the_door_is_a_502_without_a_code() {
-        use std::os::unix::fs::PermissionsExt;
         let (st, mut c) = (HelperState::new(), cfg());
         let dir = std::env::temp_dir().join(format!("konclave-door502-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -10578,21 +10502,12 @@ mod tests {
         c.vaults_dir = dir.join("vaults");
         let write_exe = |name: &str, body: &str| {
             let p = dir.join(name);
-            std::fs::write(&p, body).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-            for _ in 0..200 {
-                match std::process::Command::new(&p).arg("--probe").output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    _ => break,
-                }
-            }
+            orchestrator::test_exec::write_script(&p, body);
             p
         };
         c.zcash_sign = write_exe(
             "fake-sign",
-            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho \"Orchard-only unified address: \\\"u1fake\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake\\\"\"\n",
+            "#!/bin/sh\necho \"Orchard-only unified address: \\\"u1fake\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake\\\"\"\n",
         );
         c.devtool = write_exe(
             "fake-devtool",
@@ -10621,7 +10536,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn two_devices_registering_one_vault_at_once_are_serialised_and_move_nothing() {
-        use std::os::unix::fs::PermissionsExt;
         for round in 0..6u32 {
             let (st, mut c) = (HelperState::new(), cfg());
             let dir = std::env::temp_dir().join(format!(
@@ -10633,16 +10547,7 @@ mod tests {
             c.vaults_dir = dir.join("vaults");
             let write_exe = |name: &str, body: &str| {
                 let p = dir.join(name);
-                std::fs::write(&p, body).unwrap();
-                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-                for _ in 0..200 {
-                    match std::process::Command::new(&p).arg("--probe").output() {
-                        Err(e) if e.raw_os_error() == Some(26) => {
-                            std::thread::sleep(Duration::from_millis(10));
-                        }
-                        _ => break,
-                    }
-                }
+                orchestrator::test_exec::write_script(&p, body);
                 p
             };
             // A new identity on every call, counted; an `init-fvk` that waits (the real one talks to
@@ -10650,7 +10555,7 @@ mod tests {
             c.zcash_sign = write_exe(
                 "fake-sign",
                 &format!(
-                    "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho x >> \"{d}/sign-calls\"\necho \"Orchard-only unified address: \\\"u1fake$$\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$$\\\"\"\n",
+                    "#!/bin/sh\necho x >> \"{d}/sign-calls\"\necho \"Orchard-only unified address: \\\"u1fake$$\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$$\\\"\"\n",
                     d = dir.display()
                 ),
             );
@@ -10937,7 +10842,6 @@ mod tests {
         use konclave_seal::share_sig::{read_key_hash, sign_seat, PkpCanonical, SeatStatement};
         use rand::rngs::OsRng;
         use reddsa::frost::redpallas as frost;
-        use std::os::unix::fs::PermissionsExt;
 
         pub(super) struct Vault {
             pub pkp: PkpCanonical,
@@ -11055,16 +10959,7 @@ mod tests {
             let r = konclave_seal::receivers::vault_receivers(&ufvk, Main, &v.id).unwrap();
             let exe = |file: &str, text: String| {
                 let p = dir.join(file);
-                std::fs::write(&p, text).unwrap();
-                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-                for _ in 0..200 {
-                    match std::process::Command::new(&p).arg("--probe").output() {
-                        Err(e) if e.raw_os_error() == Some(26) => {
-                            std::thread::sleep(std::time::Duration::from_millis(10))
-                        }
-                        _ => break,
-                    }
-                }
+                orchestrator::test_exec::write_script(&p, &text);
                 p
             };
             let mut c = cfg();
