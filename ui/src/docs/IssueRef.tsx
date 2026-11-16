@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from 'react'
-import { REF_TITLES, refKey, refUrl, type Ref } from './roadmap'
+import { refKey, refUrl, type Ref } from './roadmap'
+import { REF_INFO } from './roadmap-refs'
 
 export type IssueRefLabels = { issue: string; pull: string; newTab: string; hint: string }
 
@@ -19,7 +20,7 @@ export default function IssueRef({ r, labels }: { r: Ref; labels: IssueRefLabels
   const [dx, setDx] = useState(0)
   const cardRef = useRef<HTMLSpanElement>(null)
   const hoverTimer = useRef<number | undefined>(undefined)
-  const title = REF_TITLES[refKey(r)]
+  const title = REF_INFO[refKey(r)]?.title
 
   const show = () => {
     if (closeOpenCard) closeOpenCard()

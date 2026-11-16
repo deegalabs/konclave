@@ -2,15 +2,16 @@
 // issues and pull requests where the work is tracked. It is a plan, not a promise, and it carries no
 // amounts or hour estimates (a test holds that): those belong to the founders' working notes.
 //
-// Issue titles are copied from GitHub as they read on ROADMAP_AS_OF, so showing them needs no network
-// call (no third party learns who reads the docs). A title that changes on GitHub is updated here,
-// and so is the date.
+// Each ref's title and GitHub state live in roadmap-refs.ts, written by scripts/roadmap-sync.mjs and
+// committed, so showing them needs no network call (no third party learns who reads the docs). Add a
+// ref to a step here, then run the script.
 
 import type { L } from './content'
 
 export const REPO = 'deegalabs/konclave'
 
-/** When the steps and the titles below were last checked against GitHub. Shown on the page. */
+/** When a person last re-read the step texts below against the issues. Shown on the page. Set by hand:
+ *  the script dates GitHub's states separately (REFS_AS_OF), and never this. */
 export const ROADMAP_AS_OF = { iso: '2026-11-07', 'pt-BR': '7 de novembro de 2026', en: '7 November 2026' }
 
 export type RefKind = 'issue' | 'pull'
@@ -34,47 +35,6 @@ export const refKey = (r: Ref): string => `${r.kind}:${r.n}`
 
 export const refUrl = (r: Ref): string =>
   `https://github.com/${REPO}/${r.kind === 'pull' ? 'pull' : 'issues'}/${r.n}`
-
-/** Titles as they read on GitHub. Every key is used by some step, and every step's refs are here. */
-export const REF_TITLES: Record<string, string> = {
-  'issue:567': 'Bind each approval to the content it approves, and have the device check it before signing',
-  'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
-  'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
-  'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
-  'issue:516': 'Prove on the device: remove the viewing key from the server, and measure what it costs',
-  'issue:583': "Remember whether this device has a backup, and show the vault's address only once it has one",
-  'issue:584': 'Check a backup file on this device without importing it',
-  'issue:588': 'A failure to register the seat after import is only logged to the console',
-  'issue:214': 'Export / import your vault: cross-backend (helper ↔ local-first / desktop / frost-client)',
-  'issue:309': "Tell the 'if you lose your device' story at the four moments it matters",
-  'issue:58': 'Wire RTS social recovery + inheritance into a live vault UI',
-  'issue:585': 'Report a lost device: stop sealing signing requests to it and refuse its writes',
-  'issue:593': 'EPIC: recovery an ordinary member can do',
-  'issue:406': 'Upgrade an existing vault in place, without a new DKG and without moving funds',
-  'issue:601': 'Seal the proposals and member names the coordinator stores',
-  'issue:476': 'Responses carry the viewing key and the roster in the clear to the browser',
-  'issue:340': 'The signing room now carries governance metadata the relay can read',
-  'issue:154': 'Add / change signers on an existing vault (FROST resharing), quorum-approved',
-  'issue:251': 'Decaying-quorum recovery path (no custodian)',
-  'issue:247': 'CSV batch import for payroll',
-  'issue:300': 'The book records no settlement date and no fee, so it can never reconcile to the chain',
-  'issue:305': 'is_public is asserted from a string prefix, and there is no book-vs-chain statement',
-  'issue:189': 'Vault-shared beneficiary address-book (helper-backed), not per-device',
-  'issue:245': 'Recipient allow-list + address book',
-  'issue:151': 'Notifications: tell a member when a proposal needs them (approve / ready to sign / ceremony waiting)',
-  'issue:125': 'Full in-app history (vault lifecycle, per-user, proposals) beyond the Ledger',
-  'issue:250': 'Bounded auto-approve / spending allowance (skip full quorum under a limit)',
-  'issue:150': 'R&D: fully async threshold signing (offline-tolerant, persistent sign-request)',
-  'issue:212': 'Tauri desktop: from groundwork to a working per-platform build (MVP)',
-  'issue:213': 'Relay selection + growable relay network (pick the nearest, federate over time)',
-  'issue:53': 'R1: ZcashNames (ZNS) resolve in beneficiary/recipient',
-  'issue:54': 'R2: Coinholder polling / protocol voting',
-  'issue:370': 'A staging vault: somewhere to break things that is not the one holding real ZEC',
-  'issue:141': 'Git/CI-based deploy for the helper and relay (stop manual railway up)',
-  'issue:565': 'Scaling: what grows with vault count, and what must hold before 9,000 vaults',
-  'issue:638': 'Carry NU7 in the engine before it activates on mainnet: the consensus branch id changes',
-  'pull:701': 'feat: NU7 groundwork, the epoch rules in one place, inert until the next row (#638)',
-}
 
 /** Current work that keeps the vault working as the network changes. It has a date set by the network, so it runs
  *  alongside the steps and has no place in their order. */
@@ -252,3 +212,6 @@ export const ROADMAP_LATER: Stage[] = [
     refs: [issue(370), issue(141), issue(565)],
   },
 ]
+
+/** Every list of stages, in page order. The page, the tests and the sync script read them from here. */
+export const ROADMAP_LISTS: Stage[][] = [ROADMAP_NOW, ROADMAP_STEPS, ROADMAP_LATER]
