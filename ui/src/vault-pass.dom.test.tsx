@@ -53,7 +53,7 @@ describe('a passphrase form (#929)', () => {
     const { container } = render(
       <I18nProvider><VaultPassForm vault={null}>
         <VaultPassInput autoComplete="current-password" />
-        <PassphraseField value="" onChange={() => {}} autoComplete="new-password" />
+        <PassphraseField label="New" value="" onChange={() => {}} autoComplete="new-password" />
       </VaultPassForm></I18nProvider>)
     const [cur, fresh] = Array.from(container.querySelectorAll('input[type="password"]'))
     expect(cur?.getAttribute('autocomplete')).toBe('current-password')
@@ -83,7 +83,7 @@ describe('a passphrase form (#929)', () => {
   it('hides a revealed passphrase again when the form is used', () => {
     const { container } = render(
       <I18nProvider><VaultPassForm vault={null}>
-        <PassphraseField value="x" onChange={() => {}} autoComplete="current-password" choosing={false} />
+        <PassphraseField label="Current" value="x" onChange={() => {}} autoComplete="current-password" choosing={false} />
         <button type="button">act</button>
       </VaultPassForm></I18nProvider>)
     const input = () => container.querySelector('.pf-input') as HTMLInputElement

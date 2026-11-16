@@ -11,7 +11,8 @@ import { Identicon, seedForName } from '../avatar'
 import MembersPeek from '../MembersPeek'
 import { fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
-import { balanceParts } from '../balance-parts'
+import { balanceParts, reservedZatOf } from '../balance-parts'
+import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { participation } from '../participation'
 import { monthShort } from '../period'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
@@ -27,6 +28,7 @@ import {
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
 import { readSecretFor } from '../session'
+import { ReadyCard } from '../ready-card'
 import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
@@ -87,7 +89,7 @@ export default function Dashboard() {
   const { t, locale } = useI18n()
   const tr = useTr()
   const { revealed } = useReveal()
-  const { open: openSigning, bg } = useVaultSigner()
+  const { open: openSigning } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
@@ -96,7 +98,11 @@ export default function Dashboard() {
   // skeleton until this flips, so it never flashes "not connected" while merely syncing.
   const [balLoaded, setBalLoaded] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
-  const [proposals, setProposals] = useState<Proposal[]>([])
+  // `null` until a read of the proposals has answered: a read that failed leaves `null`, not `[]`,
+  // so the Reserved and Free figures say "unknown" instead of "nothing is held" (#1017).
+  const [proposals, setProposals] = useState<Proposal[] | null>(null)
+  const feeEstimate = useFeeEstimate()
+  const feeEstimator = estimatorOf(feeEstimate)
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   // The balance and whether the coordinator's wallet is busy, moved by the same rule the payment
   // screens use (nextBalanceView): busy keeps the last balance, or the skeleton on a first load, and
@@ -292,7 +298,7 @@ export default function Dashboard() {
   // ordered by array position rather than urgency, and said "needs you" to a member who had
   // already voted. Open proposals still hold funds, so they also feed the reserved KPI below.
   // A proposal past its deadline on this clock is left out, as the list does (desk.ts).
-  const desk = rankDesk(proposals.filter((p) => !expiredByClock(p)), me, thr)
+  const desk = rankDesk((proposals ?? []).filter((p) => !expiredByClock(p)), me, thr)
   const lead = desk.items[0] ?? null
   const queue = desk.items.slice(1, 1 + QUEUE_ROWS)
   const open = desk.items.map((i) => i.p)
@@ -357,9 +363,14 @@ export default function Dashboard() {
   // made the reservation vanish the moment quorum was reached.
   // Summed in zatoshi, as the composition below is: the decimal strings would put the KPIs through
   // floating point and could show a figure a cent away from the book's.
-  const reservedZec = open.reduce((a, p) => a + p.value_zat, 0) / 1e8
+  // What open proposals hold, with each one's fee estimate, from the ONE function the payment screens
+  // use (`reservedZatOf`). `null` when the list was not read or a cost is unknown.
+  const reservedAll = reservedZatOf(proposals, feeEstimator)
   const paidZec = settled.reduce((a, p) => a + p.value_zat, 0) / 1e8
-  const reservedTxt = fmtZecExact(reservedZec)
+  // A figure that cannot be worked out is "-", and "..." only while the estimate is still loading.
+  const reservedTxt = reservedAll !== null
+    ? fmtZecExact(reservedAll / 1e8)
+    : proposals !== null && feeEstimate.state === 'loading' ? '...' : '-'
   const paidTxt = fmtZecExact(paidZec)
 
   // The balance as a composition rather than one number. `free` is spendable MINUS what open
@@ -367,21 +378,15 @@ export default function Dashboard() {
   // committed without double-committing (#293). Reserved is a product rule, not a protocol lock.
   // Integers all the way: the DTO carries zatoshi, and a proposal carries `value_zat`. Going via
   // the decimal strings would put money back through floating point, which is #303's whole point.
-  const reservedZat = open.reduce((a, p) => a + p.value_zat, 0)
-  const parts = hasBal && balance!.total_zat != null
-    ? balanceParts(balance!.total_zat, balance!.spendable_zat ?? balance!.total_zat, reservedZat)
+  const parts = hasBal && balance!.total_zat != null && reservedAll !== null
+    ? balanceParts(balance!.total_zat, balance!.spendable_zat ?? balance!.total_zat, reservedAll)
     : null
   // Who takes part, from the book. Approvals only - nothing records who SIGNED (#290), so a
   // "approved and signed" reading would be half invented.
   const part = participation(ledger ?? [], roster.map((m) => m.name))
 
-  // Can this vault pay right now? Four conditions, every one from data already on this page. The
-  // point is answering BEFORE the click what today could only be discovered after it.
-  const seatsHere = bg.seatCount
-  const quorumReachable = thr > 0 && seatsHere >= thr
-  const hasFree = parts !== null && parts.freeZat > 0
-  const backendsUp = isLive
-  const canPay = quorumReachable && hasFree && backendsUp
+  // Whether this vault can pay right now is `ReadyCard`'s (pay-readiness.ts); the page keeps no copy
+  // of the rule and reads no presence count (#693).
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
   const byMonth = new Map<string, SpendPoint>()
@@ -631,28 +636,7 @@ export default function Dashboard() {
         {/* 2a · Can this vault pay right now? Answering it here is the point: every condition below
             was previously discovered only AFTER proposing, approving, signing and waiting. */}
         {!loading && (
-          <section className={'ready ' + (canPay ? 'ok' : 'not')}>
-            <div className="ready-top">
-              <span className="ready-dot" aria-hidden="true" />
-              <b>{canPay ? t('dashboard.readyYes') : t('dashboard.readyNo')}</b>
-            </div>
-            <span className={'chk ' + (quorumReachable ? 'y' : 'n')}>
-              <span className="m" aria-hidden="true">{quorumReachable ? '✓' : '!'}</span>
-              <span>{t('dashboard.readySeats', { present: seatsHere, threshold: thr })}</span>
-            </span>
-            <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
-              <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
-              <span>{hasFree
-                ? <SentenceWithSecret sentence={t('dashboard.readyFree', { amt: SECRET_MARK })} sm>{fmtZecExact((parts?.freeZat ?? 0) / 1e8)}</SentenceWithSecret>
-                : !hasBal
-                  ? t('dashboard.readyFreeUnknown')
-                  : t('dashboard.readyNoFree')}</span>
-            </span>
-            <span className={'chk ' + (backendsUp ? 'y' : 'n')}>
-              <span className="m" aria-hidden="true">{backendsUp ? '✓' : '!'}</span>
-              <span>{backendsUp ? t('dashboard.readyBackends') : t('dashboard.readyBackendsDown')}</span>
-            </span>
-          </section>
+          <ReadyCard threshold={vault?.threshold ?? 0} total={vault?.total ?? 0} freeZat={parts?.freeZat ?? null} hasBal={hasBal && parts !== null} backendsUp={isLive} />
         )}
 
         {/* 2 · Saldo */}

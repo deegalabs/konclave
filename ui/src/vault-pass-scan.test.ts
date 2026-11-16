@@ -68,8 +68,8 @@ describe('passphrase fields (#929)', () => {
     const ac = (rel: string) => Array.from(
       all.find((f) => f.rel === rel)!.text.matchAll(/<(?:PassphraseField|VaultPassInput)\b[\s\S]*?\/>/g),
       (m) => /autoComplete="(new|current)-password"/.exec(m[0])?.[1] ?? 'none')
-    // Creation: joiner, creator. Rotation: current, new, repeat. Export: current.
-    expect(ac('screens/NetVault.tsx')).toEqual(['new', 'new'])
+    // Creation: joiner (passphrase, repeat), creator (passphrase, repeat). Rotation: current, new, repeat. Export: current.
+    expect(ac('screens/NetVault.tsx')).toEqual(['new', 'new', 'new', 'new'])
     expect(ac('screens/Settings.tsx')).toEqual(['current', 'new', 'new', 'current'])
   })
 

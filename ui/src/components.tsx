@@ -82,7 +82,9 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
       if (!first || !last) return
       const active = document.activeElement
       // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
-      if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
+      // So does focus left on a control that was disabled while it held it: some browsers keep it
+      // there, it is not in `f`, and the default Tab would carry it out of the dialog.
+      if (!node || !node.contains(active) || (active as HTMLElement).matches(':disabled')) { e.preventDefault(); first.focus(); return }
       // Opened on the card itself (focusCard), the first Shift+Tab starts there, not on `first`.
       if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
@@ -362,7 +364,7 @@ export function Stepper({ step }: { step: number }) {
  * are the real security lever (not the file format).
  */
 export function PassphraseField({
-  value, onChange, placeholder, inputClassName = 'input', autoFocus,
+  value, onChange, label, labelClassName = 'pf-caption', placeholder, inputClassName = 'input', autoFocus,
   /** `current-password` for a passphrase being VERIFIED, `new-password` for one being chosen.
    *  Without it a password manager cannot tell a rotation from a login and will not offer to
    *  update the stored entry - which matters most on the one vault whose only spare key is an
@@ -372,20 +374,31 @@ export function PassphraseField({
    *  the member already has just tells them their existing key is weak at the moment they cannot
    *  act on it, and a generator there would overwrite what they came to type. */
   choosing = true,
+  /** Locked: the passphrase is being (or has been) used and must not change under the member. No
+   *  typing and no generator (it writes); the meter and the eye are read-only and stay (#928). */
+  readOnly = false,
   id, describedBy, invalid,
 }: {
   value: string
   onChange: (v: string) => void
+  /** The field's visible name, tied to the input here so no caller can leave it out. Not a
+   *  placeholder: that disappears as soon as the member types. */
+  label: string
+  /** Not `pf-label` (the strength text) or `pf-name` (the folhas list): both are taken. */
+  labelClassName?: string
   placeholder?: string
   inputClassName?: string
   autoFocus?: boolean
   autoComplete?: 'new-password' | 'current-password'
   choosing?: boolean
+  readOnly?: boolean
   id?: string
   describedBy?: string
   invalid?: boolean
 }) {
   const t = useT()
+  const autoId = useId()
+  const inputId = id ?? autoId
   const [show, setShow] = useState(false)
   // A passphrase left visible when the form is used is one the manager may file as plain text.
   const tick = useContext(VaultPassCtx)?.tick
@@ -394,6 +407,7 @@ export function PassphraseField({
   const problem = choosing && value ? newPassphraseProblem(value) : null
   return (
     <div className="pf">
+      <label htmlFor={inputId} className={labelClassName}>{label}</label>
       {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
           field was silently inheriting that list's padding, negative margin, pointer cursor and
           hover gradient. Two components, one class prefix, different meanings. */}
@@ -405,9 +419,10 @@ export function PassphraseField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
+          readOnly={readOnly}
           autoComplete={autoComplete}
           spellCheck={false}
-          id={id}
+          id={inputId}
           aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
         />
@@ -427,7 +442,7 @@ export function PassphraseField({
             </svg>
           )}
         </button>
-        {choosing && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
+        {choosing && !readOnly && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
           aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M4 20L14 10" />

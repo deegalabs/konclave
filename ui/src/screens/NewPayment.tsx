@@ -18,6 +18,7 @@ import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, blockIsInAmount, poolsOf } from '../propose-guard'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useVaultBalance } from '../useVaultBalance'
 
 const MEMO_MAX = 512
@@ -141,11 +142,12 @@ export default function NewPayment() {
   // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
   // `spendable`: that is the number this screen used to show while the Dashboard was telling the
   // member the vault could not pay.
-  const reservedZat = reservedZatOf(openProps)
+  const feeEstimator = estimatorOf(feeEstimate)
+  const reservedZat = reservedZatOf(openProps, feeEstimator)
   // Named, not counted: "0.0004 held by Zka's proposal" tells the member who to go and ask. A bare
   // number tells them only that they are stuck.
   const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
-  const freeZat = freeZatOf(bal, openProps)
+  const freeZat = freeZatOf(bal, openProps, feeEstimator)
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; the estimate below is the one every screen shows.
@@ -153,9 +155,9 @@ export default function NewPayment() {
   const availableZat = freeZat
   // The one estimate (`fee-estimate.ts`, read from the device's rule): one destination. `null` until
   // it is known, and the gate blocks with `fee-unknown` rather than guessing.
-  const feeEstimator = estimatorOf(feeEstimate)
   const feeZat = feeEstimator ? feeEstimator(1) : null
-  const afterZat = availableZat == null || amountZat == null || feeZat == null ? null : availableZat - amountZat - feeZat
+  const costNowZat = amountZat == null ? null : costZat(amountZat, 1, feeEstimator)
+  const afterZat = availableZat == null || costNowZat == null ? null : availableZat - costNowZat
   // A fraction of the balance is only a real offer when a fraction of it can actually be sent:
   // known, above zero, and with room for the fee that 100% has to leave behind.
   const canTakeFraction = availableZat != null && feeZat != null && availableZat > feeZat

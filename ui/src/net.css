@@ -86,8 +86,7 @@
   font-size: 14px;
   color: var(--text-muted, var(--text-muted));
 }
-.net-row select,
-.net-input {
+.net-row select {
   background: var(--surface-0, var(--surface-0));
   border: 1px solid var(--line, var(--line));
   border-radius: 9px;
@@ -96,7 +95,17 @@
   font-size: 14px;
   font-family: inherit;
 }
+.net-input {
+  background: var(--surface-0, var(--surface-0));
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--text, var(--text));
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
 .net-input { width: 100%; box-sizing: border-box; letter-spacing: 0.14em; font-family: var(--font-mono, ui-monospace, monospace); }
+.net-input:hover { border-color: var(--text-muted); }
 
 /* Buttons: mirror the platform .btn / .btn.ok family (font-sans 600, --radius-sm,
    accent reserved for the single primary action). margin-top:auto keeps them
@@ -340,7 +349,9 @@
 .cv-warn-tag{display:inline-block; font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.04em;
   text-transform:uppercase; color:var(--warn,#e0a13f); margin-right:8px}
 .cv-join{margin-top:14px; display:flex; flex-direction:column; gap:10px}
-.cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input{background:var(--surface-0); border:1px solid var(--line-strong); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input[readonly], .net-input[readonly]{border-style:dashed; color:var(--text-muted); cursor:default}
+.cv-input[readonly]:hover, .net-input[readonly]:hover{border-color:var(--line-strong)}
 .cv-input:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Create-done backup card: the portable, encrypted copy of the just-created vault (download/copy). */
@@ -372,8 +383,9 @@
 
 /* Vault-name field in the create modal. */
 .cv-name{margin-bottom:12px}
-.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
+.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line-strong);
   border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
+.cv-nameinput:hover{border-color:var(--text-muted)}
 .cv-nameinput:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Invite copy hint (create modal) + the strong "don't lose your share" warning. */
