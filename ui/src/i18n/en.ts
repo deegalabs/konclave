@@ -574,6 +574,7 @@ export const en: Record<string, string> = {
   'export.errGeneric': 'Could not export the vault.',
   'export.errClipboard': 'Could not copy. Use “Download file” instead.',
   'copy.failedUseDownload': 'Could not copy. Download the file instead.',
+  'download.failed': 'This browser did not save the file. Try again, or use another browser.',
   'export.errDownload': 'The browser did not start the download. Use “Copy” instead.',
   'import.link': 'Import a vault',
   'import.eyebrow': 'Move a vault to this device',

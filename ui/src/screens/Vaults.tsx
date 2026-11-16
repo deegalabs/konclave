@@ -111,6 +111,7 @@ export default function Vaults() {
   const [resumeDone, setResumeDone] = useState<Record<string, VaultBackup | null>>({})
   const [resumeCopied, setResumeCopied] = useState(false)
   const [resumeCopyFailed, setResumeCopyFailed] = useState(false)
+  const [resumeDownloadFailed, setResumeDownloadFailed] = useState(false)
   /** A record made while this device used another coordinator than it uses now: a different server
    *  would mint a different address for the same vault, so that is asked, never assumed. */
   const sameCoord = (rec: VaultPublic) => sameCoordinator(rec.coordinator, helperBase())
@@ -520,7 +521,7 @@ export default function Vaults() {
                         <p>{t('vaults.resumeBackupTitle')}</p>
                         {!resumeDone[v.id]!.complete && <p>{t('vaults.resumeBackupIncomplete')}</p>}
                         <button type="button" className="cv-stop" style={{ marginRight: 8 }}
-                          onClick={() => downloadText(resumeDone[v.id]!.name, resumeDone[v.id]!.json)}>
+                          onClick={() => setResumeDownloadFailed(!downloadText(resumeDone[v.id]!.name, resumeDone[v.id]!.json))}>
                           {t('vaults.resumeBackupDownload')}
                         </button>
                         <button type="button" className="cv-stop"
@@ -534,6 +535,7 @@ export default function Vaults() {
                           {resumeCopied ? t('receive.copied') : t('vaults.resumeBackupCopy')}
                         </button>
                         {resumeCopyFailed && <p className="hint err" role="alert">{t('copy.failedUseDownload')}</p>}
+                        {resumeDownloadFailed && <p className="hint err" role="alert">{t('export.errDownload')}</p>}
                       </div>
                     ) : (
                       <div style={{ marginTop: 8 }}>
