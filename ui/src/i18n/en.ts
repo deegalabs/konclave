@@ -322,6 +322,7 @@ export const en: Record<string, string> = {
   'nav.pay': 'Pay',
   'nav.activity': 'Approvals',
   'nav.switchVault': 'Switch vault',
+  'nav.vaultsUnreadable': 'The saved vaults on this device could not be read.',
   'nav.more': 'More',
   'nav.bandVault': 'Vault',
   'nav.bandMoney': 'Money',

@@ -322,6 +322,7 @@ export const ptBR: Record<string, string> = {
   'nav.pay': 'Pagar',
   'nav.activity': 'Aprovações',
   'nav.switchVault': 'Trocar cofre',
+  'nav.vaultsUnreadable': 'Não foi possível ler os cofres salvos neste dispositivo.',
   'nav.more': 'Mais',
   'nav.bandVault': 'Cofre',
   'nav.bandMoney': 'Movimentos',

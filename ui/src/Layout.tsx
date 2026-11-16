@@ -53,6 +53,8 @@ export default function Layout() {
   // The vault-switch popover on the footer chip (names the current vault; lists the others).
   const [switchOpen, setSwitchOpen] = useState(false)
   const [vaults, setVaults] = useState<{ id: string; name: string }[]>([])
+  // The saved-vault list threw: an empty switcher then means "could not read", not "none" (#320).
+  const [vaultsUnreadable, setVaultsUnreadable] = useState(false)
   // #467: the vault is locked and the member stays where they are. `null` = open.
   const [locked, setLocked] = useState<{ id: string; name: string; src: VaultSrc } | null>(null)
   // Bumped on unlock so the screen underneath refetches. It counts rather than flags because two
@@ -76,8 +78,13 @@ export default function Layout() {
     if (opening) {
       try {
         const vs = await listVaults()
+        setVaultsUnreadable(false)
         setVaults(vs.map((v) => ({ id: v.id, name: v.name || 'Vault' })))
-      } catch { /* no on-device records (local-bridge) - the "Manage vaults" link still works */ }
+      } catch {
+        // The "Manage vaults" link still works; the switcher says why its list is empty (#320).
+        setVaults([])
+        setVaultsUnreadable(true)
+      }
     }
   }
 
@@ -284,6 +291,9 @@ export default function Layout() {
               <>
                 <div className="nav-more-scrim vault-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
                 <div className="vault-pop" role="menu" aria-label={t('nav.switchVault')}>
+                  {vaultsUnreadable && vaults.length === 0 && (
+                    <p className="vault-pop-hint">{t('nav.vaultsUnreadable')}</p>
+                  )}
                   {vaults.map((v) => (
                     <button
                       key={v.id}
@@ -307,14 +317,15 @@ export default function Layout() {
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
           <div className="rail-bottom">
-            {/* Two distinct states, one persistent live region:
+            {/* Two distinct states, one persistent live region (the pill carries no role of its own,
+                or a reader announces it twice, #320):
                 • live  → green pill, bridge/helper answered
                 • offline → warn/danger pill, a real vault we can't reach right now */}
             <span className="live-status" aria-live="polite">
               {live === true ? (
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
-                <span className="live offline" role="status">
+                <span className="live offline">
                   <i />{locale === 'pt-BR' ? 'Offline - sem conexão com o cofre' : "Offline - can't reach your vault"}
                 </span>
               ) : null}
