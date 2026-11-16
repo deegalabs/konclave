@@ -42,6 +42,7 @@ import {
 } from '../storage'
 import { downloadText } from '../download'
 import { removeVaultFromDevice } from '../remove-vault'
+import { RemoveVaultDialog } from '../remove-vault-dialog'
 import {
   helperConfigured,
   helperBase,
@@ -1040,18 +1041,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, finished, backup])
 
-  const doDelete = useCallback(
-    async (id: string) => {
-      try {
-        // The one removal every screen uses (#813): the record and what this device keeps with it.
-        await removeVaultFromDevice(id)
-        await refreshSaved()
-      } catch {
-        /* deletion failure is non-fatal */
-      }
-    },
-    [refreshSaved],
-  )
+  // Delete asks first: it destroys this device's only copy of the seat's share unless a backup exists.
+  const [deleting, setDeleting] = useState<VaultPublic | null>(null)
 
   // Leaving now would lose this creation (creation-guard): tell the host, warn on reload, and ask
   // before an explicit or stray close.
@@ -1451,7 +1442,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {savedVaults.length > 0 && (
           <div className="net-card" style={{ marginTop: 16 }}>
-            <h3>{L.restoreTitle}</h3>
+            <h3 id="net-restore-title" tabIndex={-1} style={{ outline: 'none' }}>{L.restoreTitle}</h3>
             {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -1471,10 +1462,18 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                 >
                   {restoreBusy === v.id ? L.unlocking : L.unlockBtn}
                 </button>
-                <button className="net-btn" onClick={() => void doDelete(v.id)}>{L.deleteBtn}</button>
+                <button className="net-btn" onClick={() => setDeleting(v)}>{L.deleteBtn}</button>
               </div>
             ))}
           </div>
+        )}
+
+        {deleting && (
+          <RemoveVaultDialog id={deleting.id} name={deleting.name}
+            remove={async () => ((await removeVaultFromDevice(deleting.id)) ? 'ok' : 'fail')}
+            onExport={() => { setSelectedVault(deleting.id); nav('/settings') }}
+            onClose={() => setDeleting(null)}
+            onRemoved={() => { setDeleting(null); void refreshSaved(); window.setTimeout(() => document.getElementById('net-restore-title')?.focus(), 0) }} />
         )}
 
         <p className="net-tip">{ttr('net.idle.tip')}</p>

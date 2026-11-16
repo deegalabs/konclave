@@ -21,7 +21,7 @@ vi.mock('./storage', async (orig) => ({
 }))
 const { default: Settings } = await import('./screens/Settings')
 
-const confirmField = () => screen.getByLabelText(en('set.confirmLabel').replace('{name}', 'Treasury')) as HTMLInputElement
+const confirmField = () => screen.getByLabelText(/Type the vault name/) as HTMLInputElement
 
 describe('the export shortcut in the removal gate', () => {
   // jsdom has no scrolling; the shortcut scrolls to the export block, and the test records where.
@@ -37,8 +37,8 @@ describe('the export shortcut in the removal gate', () => {
     render(<MemoryRouter><I18nProvider><ToastProvider><Settings /></ToastProvider></I18nProvider></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: en('settings.remove') }))
     fireEvent.change(confirmField(), { target: { value: 'Treasury' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en('set.removeExportFirst') })) })
-    expect(screen.queryByRole('button', { name: en('settings.confirmRemove') })).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en('dashboard.deleteBackupFirst') })) })
+    expect(screen.queryByRole('button', { name: en('dashboard.deletePermanently') })).toBeNull()
     expect(scrolled).toEqual(['s-keys'])
     fireEvent.click(screen.getByRole('button', { name: en('settings.remove') }))
     expect(confirmField().value).toBe('')
