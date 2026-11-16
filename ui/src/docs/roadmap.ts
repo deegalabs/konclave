@@ -213,5 +213,6 @@ export const ROADMAP_LATER: Stage[] = [
   },
 ]
 
-/** Every list of stages, in page order. The page, the tests and the sync script read them from here. */
+/** Every list of stages, in page order. The tests and the sync script read them from here; a test holds the
+ *  page's three blocks equal to it. */
 export const ROADMAP_LISTS: Stage[][] = [ROADMAP_NOW, ROADMAP_STEPS, ROADMAP_LATER]
