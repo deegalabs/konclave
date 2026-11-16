@@ -28,17 +28,19 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/proposals**', (r) => r.fulfill({ json: { proposals: BOOK } }))
 })
 
-async function printed(page: Page, width: number, height: number) {
+async function printed(page: Page, width: number, height: number, reveal = false) {
   await page.setViewportSize({ width, height })
   await page.goto('/#/ledger')
   await expect(page.locator('table.razao tbody tr')).toHaveCount(3)
+  // A hidden amount is not in the page (#838), so a test that reads one reveals it first.
+  if (reveal) await page.locator('.db-reveal').getByRole('button', { name: 'Reveal' }).click()
   await page.emulateMedia({ media: 'print' })
   return page
 }
 
 for (const [label, w, h] of [['desktop', 1280, 900], ['phone', 390, 844]] as const) {
   test(`printed at ${label} width: a document with the rows, the totals and no controls`, async ({ page }) => {
-    await printed(page, w, h)
+    await printed(page, w, h, true)
 
     // No navigation, no buttons, no filter chips.
     await expect(page.locator('.rail')).toBeHidden()
@@ -90,6 +92,9 @@ test('hidden amounts are not on the paper at all, and the page says how to print
   const paper = await page.evaluate(() => document.body.innerText)
   expect(paper).toContain('Rent')
   for (const a of AMOUNTS) expect(paper).not.toContain(a)
+  // And not in the markup either: a hidden amount is not in the page at all (#838).
+  const markup = await page.evaluate(() => document.body.innerHTML)
+  for (const a of AMOUNTS) expect(markup).not.toContain(a)
 })
 
 test('revealed amounts are printed, with the totals', async ({ page }) => {
