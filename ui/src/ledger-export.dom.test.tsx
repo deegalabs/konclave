@@ -14,9 +14,9 @@ const en = (k: string): string => dict[k] ?? k
 // everything, silently, and no row carried its txid or memo. This mounts the real screen in a
 // simulated browser over a fake book, sets the filters a treasurer would, clicks Export, and reads
 // what the export was handed.
-const exportLedgerXlsx = vi.hoisted(() => vi.fn<(d: LedgerXlsxData) => Promise<void>>(async () => {}))
+const exportLedgerXlsx = vi.hoisted(() => vi.fn<(d: LedgerXlsxData) => Promise<boolean>>(async () => true))
 vi.mock('./ledgerXlsx', async (orig) => ({ ...(await orig<typeof import('./ledgerXlsx')>()), exportLedgerXlsx }))
-const exportLedgerCsv = vi.hoisted(() => vi.fn<(d: LedgerXlsxData, locale: 'pt-BR' | 'en') => Promise<void>>(async () => {}))
+const exportLedgerCsv = vi.hoisted(() => vi.fn<(d: LedgerXlsxData, locale: 'pt-BR' | 'en') => Promise<boolean>>(async () => true))
 vi.mock('./ledgerCsv', async (orig) => ({ ...(await orig<typeof import('./ledgerCsv')>()), exportLedgerCsv }))
 const getLedger = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
@@ -190,6 +190,16 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(locale).toBe('en')
     expect(d.items.map((i) => i.memo)).toEqual(['', 'October rent'])
     expect(d.filter).toBe(en('ledger.filterPayments'))
+  })
+
+  it('says when the browser did not save the export, and clears it when the next one is saved (#983)', async () => {
+    mount()
+    await screen.findByText('October rent')
+    exportLedgerCsv.mockResolvedValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    expect((await screen.findByRole('alert')).textContent).toBe(en('download.failed'))
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    await waitFor(() => expect(screen.queryByText(en('download.failed'))).toBeNull())
   })
 
   it('a book that could not be read is said as such, not left on the skeleton forever (#320)', async () => {

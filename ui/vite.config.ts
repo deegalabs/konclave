@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { RELEASE_SOURCES, releasePagesOrFail } from '../scripts/changelog-sections.mjs'
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+import { shortCommit } from '../scripts/web-manifest.mjs'
 
 // Build-time identity for the version badge + update prompt (#pwa). Prefer Vercel's commit env;
 // fall back to git; never fail the build if neither is present. Both paths cut the full hash to the
@@ -17,7 +19,7 @@ const commitSha = (() => {
   const full = process.env.VERCEL_GIT_COMMIT_SHA || (() => {
     try { return execSync('git rev-parse HEAD').toString().trim() } catch { return '' }
   })()
-  return full ? full.slice(0, 7) : 'dev'
+  return full ? shortCommit(full) : 'dev'
 })()
 
 // The desktop build (desktop-release.yml sets KONCLAVE_DESKTOP_BUILD=1) ships a SELF-DESTROYING

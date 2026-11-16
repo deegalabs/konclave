@@ -118,6 +118,7 @@ describe('stripComments', () => {
       'only-pnpm.test.ts': 'package.json and .npmrc',
       'lockfile-policy.test.ts': 'pnpm-workspace.yaml',
       'changelog-gate.test.ts': 'CHANGELOG files',
+      'web-manifest.test.ts': 'a .mjs script and ui/vercel.json',
       'changelog-shape.test.ts': 'CHANGELOG files',
       'changelog-sections.test.ts': 'CHANGELOG files',
       'changelog-fragments.test.ts': 'CHANGELOG files',
