@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { ToastProvider } from './toast'
@@ -24,6 +24,7 @@ vi.mock('./fee-estimate', async (orig) => ({
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()),
   health: async () => true,
+  actingAs: async () => ({ ok: true, seat: 1, name: 'Ana' }),
   getVault: async () => ({ id: 'v', name: 'Vault', threshold: 2, total: 2, member_list: [] }),
   getBeneficiaries: async () => benefs.list,
   getProposals: async () => [],
@@ -95,6 +96,7 @@ describe('an address the vault cannot pay closes Propose and says why (#294)', (
     mount()
     await fill(U1)
     expect(screen.queryByText(en('payment.toSapling'))).toBeNull()
-    expect(propose().disabled).toBe(false)
+    // Propose also waits on the vault and the open proposals the mount reads; wait for them, not a render.
+    await waitFor(() => expect(propose().disabled).toBe(false))
   })
 })

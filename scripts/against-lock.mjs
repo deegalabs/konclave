@@ -3,7 +3,7 @@
 
 import { execFileSync } from "node:child_process";
 import {
-  compareRunning, exitCodeOf, lockDeployCommit, minCreationIn, uiCustomHeaders,
+  compareRunning, exitCodeOf, lockDeployCommit, minCreationIn, uiCustomHeaders, WEB_ORIGIN,
 } from "./what-is-running.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 << 20 }).trim();
@@ -12,7 +12,6 @@ const COORDINATORS = ["https://helper.konclave.xyz", "https://konclave-helper-pr
 const RELAYS = ["https://relay.konclave.xyz", "https://konclave-relay-production.up.railway.app"];
 const WEBS = ["https://www.konclave.xyz", "https://konclave-demo.vercel.app"];
 const STAGING_COORDINATOR = "https://konclave-helper-staging.up.railway.app";
-const WEB_ORIGIN = "https://www.konclave.xyz";
 // What makes up the coordinator's build: its crates, the lock pinning the tools, the image recipe.
 const SERVICE_PATHS = ["helper-server", "orchestrator", "konclave-seal", "konclave-http", "konclave-signer",
   "Cargo.toml", "Cargo.lock", "engine/versions.lock", "deploy/helper"];

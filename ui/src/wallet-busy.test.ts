@@ -155,7 +155,7 @@ describe('what the delta audit on 6445e5c asked to be pinned', () => {
     expect(codeOf('./screens/Receive.tsx')).toMatch(/if \(isHistoryAnswer\(r\)\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)/)
   })
   it('the free-funds row says it does not know while no balance has been read, busy or syncing', () => {
-    const src = codeOf('./screens/Dashboard.tsx')
+    const src = codeOf('./ready-card.tsx')
     expect(src).toMatch(/: !hasBal\s*\? t\('dashboard\.readyFreeUnknown'\)/)
     // Not a warning mark for something it does not know yet.
     expect(src).toMatch(/\{hasFree \? '✓' : hasBal \? '!' : '…'\}/)

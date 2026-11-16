@@ -10,9 +10,8 @@ import { codeOf } from './source-scan'
 const src = codeOf
 
 describe('the landing and the skeletons read the dictionary (#318)', () => {
-  it('Intro.tsx carries no inline bilingual copy and no English-only aria-label', () => {
+  it('Intro.tsx carries no English-only aria-label (inline bilingual copy: no-literal-locale-ternary.test.ts)', () => {
     const s = src('./screens/Intro.tsx')
-    expect(s).not.toMatch(/\bpt \?/)
     expect(s).not.toMatch(/aria-label="[A-Za-z]/)
     expect(s).toContain("useT()")
   })

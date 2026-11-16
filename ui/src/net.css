@@ -86,8 +86,7 @@
   font-size: 14px;
   color: var(--text-muted, var(--text-muted));
 }
-.net-row select,
-.net-input {
+.net-row select {
   background: var(--surface-0, var(--surface-0));
   border: 1px solid var(--line, var(--line));
   border-radius: 9px;
@@ -96,7 +95,17 @@
   font-size: 14px;
   font-family: inherit;
 }
+.net-input {
+  background: var(--surface-0, var(--surface-0));
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--text, var(--text));
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
 .net-input { width: 100%; box-sizing: border-box; letter-spacing: 0.14em; font-family: var(--font-mono, ui-monospace, monospace); }
+.net-input:hover { border-color: var(--text-muted); }
 
 /* Buttons: mirror the platform .btn / .btn.ok family (font-sans 600, --radius-sm,
    accent reserved for the single primary action). margin-top:auto keeps them
@@ -144,6 +153,9 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .net-code:hover { border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); }
+/* A code shown beside its own copy button: the code itself is not a control (#313). */
+.net-code.net-code-static { cursor: default; }
+.net-code.net-code-static:hover { border-color: var(--line-strong); }
 
 .net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .net-pill {
@@ -337,7 +349,9 @@
 .cv-warn-tag{display:inline-block; font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.04em;
   text-transform:uppercase; color:var(--warn,#e0a13f); margin-right:8px}
 .cv-join{margin-top:14px; display:flex; flex-direction:column; gap:10px}
-.cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input{background:var(--surface-0); border:1px solid var(--line-strong); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input[readonly], .net-input[readonly]{border-style:dashed; color:var(--text-muted); cursor:default}
+.cv-input[readonly]:hover, .net-input[readonly]:hover{border-color:var(--line-strong)}
 .cv-input:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Create-done backup card: the portable, encrypted copy of the just-created vault (download/copy). */
@@ -369,8 +383,9 @@
 
 /* Vault-name field in the create modal. */
 .cv-name{margin-bottom:12px}
-.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
+.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line-strong);
   border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
+.cv-nameinput:hover{border-color:var(--text-muted)}
 .cv-nameinput:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Invite copy hint (create modal) + the strong "don't lose your share" warning. */
@@ -416,3 +431,10 @@
 .cv-cancel { align-self: flex-end; margin-left: auto; display: block; min-height: 44px; padding: 10px 14px; font-size: 13px;
   background: none; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text); cursor: pointer; }
 .cv-cancel:hover { border-color: var(--warn-strong); }
+.net-code.cv-invite-code.cv-invite-hidden { display: block; width: 100%; background: none; border: 1px dashed var(--line-strong); color: var(--text-muted); cursor: pointer; padding: 8px; }
+
+/* Where the member is (HostNotice). Off the official host it also says so in words; the colour is
+   the second signal, --warn-strong being the AA text colour in both themes. */
+.host-notice{margin:0 0 10px; font-size:12.5px; line-height:1.45; color:var(--text); overflow-wrap:anywhere}
+.host-notice.warn{color:var(--warn-strong); background:var(--warn-soft,rgba(181,71,8,.09)); border:1px solid var(--warn-line,rgba(181,71,8,.3)); border-radius:8px; padding:8px 11px}
+.host-notice-host{font-family:var(--font-mono); font-weight:600; overflow-wrap:anywhere}

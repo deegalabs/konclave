@@ -10,13 +10,15 @@ import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from
 import { isOpen } from '../desk'
 import {
   createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, addressRefusal, humanError,
-  type Beneficiary, type Member, type Proposal,
+  type Beneficiary, type Proposal,
 } from '../api'
-import { listVaults } from '../storage'
+import { useProposer } from '../use-proposer'
+import { ProposerNotice } from '../ProposerNotice'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, blockIsInAmount, poolsOf } from '../propose-guard'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useVaultBalance } from '../useVaultBalance'
 
 const MEMO_MAX = 512
@@ -49,8 +51,8 @@ export default function NewPayment() {
   // Neutral placeholder while the real vault name loads - never a fake name flashed to a real
   // user (the real name replaces this as soon as getVault resolves).
   const [vaultName, setVaultName] = useState('…')
-  const [membersList, setMembersList] = useState<Member[]>([])
-  const [proposer, setProposer] = useState('Alice')
+  const [vaultRef, setVaultRef] = useState<{ id: string; roster_differs?: boolean; own_members?: string[] } | null>(null)
+  const { acting, name: proposer, differs: rosterDiffers, refresh: askProposer } = useProposer(vaultRef)
   const [toName, setToName] = useState<string | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
@@ -69,15 +71,7 @@ export default function NewPayment() {
       if (v) {
         setThreshold(v.threshold)
         setVaultName(v.name)
-        const first0 = v.member_list?.[0]
-        if (first0) {
-          setMembersList(v.member_list!)
-          // This device proposes as ITSELF (its own member name), never as another seat. Fall back
-          // to the first seat only when there is no on-device record (local-bridge mode).
-          let mine: string | null = null
-          try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
-          setProposer(mine ?? first0.name)
-        }
+        setVaultRef({ id: v.id, roster_differs: v.roster_differs, own_members: v.own_members })
       }
       void getProposals().then((ps) => { if (on) setOpenProps(ps) })
       if (bs) setBenefs(bs)
@@ -148,11 +142,12 @@ export default function NewPayment() {
   // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
   // `spendable`: that is the number this screen used to show while the Dashboard was telling the
   // member the vault could not pay.
-  const reservedZat = reservedZatOf(openProps)
+  const feeEstimator = estimatorOf(feeEstimate)
+  const reservedZat = reservedZatOf(openProps, feeEstimator)
   // Named, not counted: "0.0004 held by Zka's proposal" tells the member who to go and ask. A bare
   // number tells them only that they are stuck.
   const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
-  const freeZat = freeZatOf(bal, openProps)
+  const freeZat = freeZatOf(bal, openProps, feeEstimator)
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; the estimate below is the one every screen shows.
@@ -160,9 +155,9 @@ export default function NewPayment() {
   const availableZat = freeZat
   // The one estimate (`fee-estimate.ts`, read from the device's rule): one destination. `null` until
   // it is known, and the gate blocks with `fee-unknown` rather than guessing.
-  const feeEstimator = estimatorOf(feeEstimate)
   const feeZat = feeEstimator ? feeEstimator(1) : null
-  const afterZat = availableZat == null || amountZat == null || feeZat == null ? null : availableZat - amountZat - feeZat
+  const costNowZat = amountZat == null ? null : costZat(amountZat, 1, feeEstimator)
+  const afterZat = availableZat == null || costNowZat == null ? null : availableZat - costNowZat
   // A fraction of the balance is only a real offer when a fraction of it can actually be sent:
   // known, above zero, and with room for the fee that 100% has to leave behind.
   const canTakeFraction = availableZat != null && feeZat != null && availableZat > feeZat
@@ -199,7 +194,7 @@ export default function NewPayment() {
     if (!to.trim()) { setError(t('payment.errNoAddress')); return }
     setBusy(true)
     const res = await createProposal({
-      proposer, // the member seat this device holds
+      proposer: proposer ?? '', // what the screen showed; the name sent is the seat's, read at send time
       to_address: to.trim(),
       value_zec: amountTyped(value),
       memo: memo.trim() || undefined,
@@ -219,7 +214,7 @@ export default function NewPayment() {
   // `block === null` covers memo, amount and balance. The amount check used to be a looser
   // `parseFloat(value.replace(',', '.')) > 0`, which accepted a comma decimal that `parseZecToZat`
   // rejects - so the button enabled for an amount the rest of the code could not read.
-  const canSubmit = !busy && block === null && !!to.trim() && toRefused === null
+  const canSubmit = !busy && !!proposer && block === null && !!to.trim() && toRefused === null
 
   return (
     <main className="page pay">
@@ -235,10 +230,11 @@ export default function NewPayment() {
             what there is, so on a compose screen it reads. The veil governs the surfaces that
             merely DISPLAY the vault (Dashboard, Ledger, proposals). */}
         <span>{t('payment.available')} <b className="num">{shownAvailable} ZEC</b></span>
-        {membersList.length > 0 && (
+        {proposer && (
           <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
         )}
       </div>
+      <ProposerNotice acting={acting} differs={rosterDiffers} vaultId={vaultRef?.id ?? null} onUnlocked={askProposer} />
 
       <div className="pay-cols">
         {/* LEFT: the form you fill in. */}
@@ -311,7 +307,7 @@ export default function NewPayment() {
         <aside className="pay-review">
           <div className="preview">
             <div className="pv-tag">◆ {t('payment.reviewTag')}</div>
-            <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
+            {proposer && <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{amountZat != null ? fmtZecExact(amountZat / 1e8) : (value || '-')} ZEC</b>{usdOn && amountZat != null && zecToUsd(amountZat / 1e8, rate) ? <span className="pv-usd"> ≈ {zecToUsd(amountZat / 1e8, rate)}</span> : null}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
@@ -327,7 +323,7 @@ export default function NewPayment() {
           {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
               block appear, change (reserved to confirming between two polls) and clear. */}
           <div role="status" id="pay-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
-          <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
+          {proposer && <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>}
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
           <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'pay-busy' : null, blockMsg ? 'pay-block' : null, toRefused ? 'pay-to-refused' : null].filter(Boolean).join(' ') || undefined}>
