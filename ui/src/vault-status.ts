@@ -10,11 +10,16 @@
 // of open proposals and the times. Its amounts live in this tab's memory and are shown only while
 // its secret is held here, that is, while it is unlocked. An open vault keeps its figures.
 import { balanceParts, reservedZatOf } from './balance-parts'
+import { readFeeEstimator } from './fee-estimate'
 import { isOpen } from './desk'
 import { readSecretFor } from './session'
 import type { Proposal } from './api'
 
-type Amounts = { totalZat?: number; spendableZat?: number; reservedZat?: number }
+// The held amount lives in `heldZat`, a field of its own. Before #1017 the same figure was stored as
+// `reservedZat` WITHOUT the fee estimate, and `keep` merges over the previous record: a figure
+// omitted when unknown would have kept the old, value-only one beside a fresh time. The old field is
+// no longer read, so a record from an older build shows no free amount until the next read.
+type Amounts = { totalZat?: number; spendableZat?: number; heldZat?: number }
 type Times = {
   balanceAt?: number
   openCount?: number
@@ -54,7 +59,7 @@ function read(vault: string): Stored | null {
     if (!d || typeof d !== 'object') return null
     return {
       private: d.private === true,
-      totalZat: num(d.totalZat), spendableZat: num(d.spendableZat), reservedZat: num(d.reservedZat),
+      totalZat: num(d.totalZat), spendableZat: num(d.spendableZat), heldZat: num(d.heldZat),
       balanceAt: num(d.balanceAt), openCount: num(d.openCount), lastActivity: num(d.lastActivity), proposalsAt: num(d.proposalsAt),
     }
   } catch { return null }
@@ -89,7 +94,13 @@ export function rememberProposals(vault: string, proposals: readonly Proposal[] 
   if (!proposals) return
   const last = proposals.reduce<number>((m, p) => Math.max(m, p.created_at ?? 0), 0)
   // Open is the desk's own rule (`isOpen`): a proposal past its deadline on this clock is not open.
-  keep(vault, { reservedZat: reservedZatOf(proposals) ?? 0 },
+  // The reservation includes each proposal's fee estimate, which needs the wasm. Called before it is
+  // ready the estimator throws: then the reservation is unknown, and an unknown one is WRITTEN as
+  // unknown (explicit undefined, which also clears an older figure) so the list shows no free amount
+  // rather than one that includes held money.
+  let estimate: ReturnType<typeof readFeeEstimator> = null
+  try { estimate = readFeeEstimator() } catch { /* wasm not ready: unknown */ }
+  keep(vault, { heldZat: reservedZatOf(proposals, estimate) ?? undefined },
     { openCount: proposals.filter(isOpen).length, lastActivity: last || undefined, proposalsAt: now() })
 }
 
@@ -98,9 +109,9 @@ export function vaultStatus(vault: string): VaultStatus | null {
   const s = read(vault)
   if (!s || (s.balanceAt == null && s.proposalsAt == null)) return null
   const amounts: Amounts = s.private ? (isPrivate(vault) ? memory.get(vault) ?? {} : {}) : s
-  const both = amounts.totalZat != null && amounts.spendableZat != null && amounts.reservedZat != null && s.balanceAt != null && s.proposalsAt != null
+  const both = amounts.totalZat != null && amounts.spendableZat != null && amounts.heldZat != null && s.balanceAt != null && s.proposalsAt != null
   return {
-    freeZat: both ? balanceParts(amounts.totalZat!, amounts.spendableZat!, amounts.reservedZat!).freeZat : null,
+    freeZat: both ? balanceParts(amounts.totalZat!, amounts.spendableZat!, amounts.heldZat!).freeZat : null,
     freeAt: both ? Math.min(s.balanceAt!, s.proposalsAt!) : null,
     openCount: s.openCount ?? null,
     lastProposal: s.lastActivity ?? null,

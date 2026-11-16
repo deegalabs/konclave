@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Proposal } from './api'
+import type { FeeEstimator } from './fee-estimate'
 import { codeOf } from './source-scan'
 import { BURN_MONTHS, burnRate, monthlyOutflows, projection, runway, type Burn } from './treasury-metrics'
 
@@ -12,10 +13,12 @@ const at = (y: number, m: number, d = 15) => Math.floor(new Date(y, m, d).getTim
 let n = 0
 const p = (state: string, zat: number, created_at: number | undefined, o: Partial<Proposal> = {}): Proposal => ({
   id: `p${n++}`, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat: zat, value_zec: '',
-  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0, ...o,
+  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0, destinations: 1, ...o,
 })
 // "Now" is 10 November 2026: the complete months behind it are October, September, August.
 const NOW = new Date(2026, 10, 10)
+// These tests are about the pace, not fees: an estimator that adds nothing keeps their figures as they were.
+const NO_FEE: FeeEstimator = () => 0
 const bal = (spendable: number) => ({ total_zat: spendable, spendable_zat: spendable })
 const rate = (z: number): Burn => ({ kind: 'rate', zatPerMonth: z, undated: 0 })
 
@@ -81,8 +84,8 @@ describe('the pace of spending', () => {
   })
   it('says nothing about the history of a book it has not read', () => {
     expect(burnRate(null, NOW)).toEqual({ kind: 'unknown' })
-    expect(runway(bal(1000), null, burnRate(null, NOW))).toEqual({ kind: 'unknown' })
-    expect(projection(bal(1000), [], { kind: 'unknown' }, NOW)).toBeNull()
+    expect(runway(bal(1000), null, burnRate(null, NOW), NO_FEE)).toEqual({ kind: 'unknown' })
+    expect(projection(bal(1000), [], { kind: 'unknown' }, NO_FEE, NOW)).toBeNull()
   })
   it('carries the count of undated outflows so the screen can say what it left out', () => {
     const b = burnRate([p('rejected', 1, at(2026, 7, 1)), p('sent', 30, at(2026, 9)), p('sent', 7, undefined)], NOW)
@@ -92,45 +95,45 @@ describe('the pace of spending', () => {
 
 describe('runway', () => {
   it('is the free funds over the pace, in tenths of a month, rounded down', () => {
-    expect(runway(bal(1000), [], rate(300))).toEqual({ kind: 'months', tenths: 33 })
-    expect(runway(bal(299), [], rate(300))).toEqual({ kind: 'months', tenths: 9 })
-    expect(runway(bal(0), [], rate(300))).toEqual({ kind: 'none-free' })
+    expect(runway(bal(1000), [], rate(300), NO_FEE)).toEqual({ kind: 'months', tenths: 33 })
+    expect(runway(bal(299), [], rate(300), NO_FEE)).toEqual({ kind: 'months', tenths: 9 })
+    expect(runway(bal(0), [], rate(300), NO_FEE)).toEqual({ kind: 'none-free' })
     // open proposals holding more than can be spent: nothing is free now
-    expect(runway(bal(100), [p('ready', 200, at(2026, 10, 1))], rate(300))).toEqual({ kind: 'none-free' })
+    expect(runway(bal(100), [p('ready', 200, at(2026, 10, 1))], rate(300), NO_FEE)).toEqual({ kind: 'none-free' })
   })
   it('counts only the free funds: what an open proposal holds is not there to last', () => {
-    expect(runway(bal(1000), [p('awaiting', 400, at(2026, 10, 1))], rate(300))).toEqual({ kind: 'months', tenths: 20 })
+    expect(runway(bal(1000), [p('awaiting', 400, at(2026, 10, 1))], rate(300), NO_FEE)).toEqual({ kind: 'months', tenths: 20 })
   })
   it('does not divide by a pace it does not have, nor by a pace of zero', () => {
-    expect(runway(bal(1000), [], { kind: 'not-enough-history' })).toEqual({ kind: 'unknown' })
-    expect(runway(bal(1000), [], rate(0))).toEqual({ kind: 'no-spend' })
+    expect(runway(bal(1000), [], { kind: 'not-enough-history' }, NO_FEE)).toEqual({ kind: 'unknown' })
+    expect(runway(bal(1000), [], rate(0), NO_FEE)).toEqual({ kind: 'no-spend' })
   })
   it('does not guess the free funds when the balance or the proposals were not read', () => {
-    expect(runway(null, [], rate(300))).toEqual({ kind: 'unknown' })
-    expect(runway(bal(1000), null, rate(300))).toEqual({ kind: 'unknown' })
+    expect(runway(null, [], rate(300), NO_FEE)).toEqual({ kind: 'unknown' })
+    expect(runway(bal(1000), null, rate(300), NO_FEE)).toEqual({ kind: 'unknown' })
   })
   it('stays exact at the size of the whole supply', () => {
-    expect(runway(bal(21_000_000 * 100_000_000), [], rate(100_000_000))).toEqual({ kind: 'months', tenths: 210_000_000 })
+    expect(runway(bal(21_000_000 * 100_000_000), [], rate(100_000_000), NO_FEE)).toEqual({ kind: 'months', tenths: 210_000_000 })
   })
 })
 
 describe('projection', () => {
   it('repeats the pace month by month from next month and names the first month at or below zero', () => {
-    const r = projection(bal(1000), [], rate(300), NOW, 4)!
+    const r = projection(bal(1000), [], rate(300), NO_FEE, NOW, 4)!
     expect(r.points.map((x) => x.balanceZat)).toEqual([700, 400, 100, -200])
     expect(r.points[0]!.from).toBe(Math.floor(new Date(2026, 11, 1).getTime() / 1000))
     expect(r.runsOutIndex).toBe(3)
   })
   it('is flat with no spending, and absent without a pace or a balance', () => {
-    expect(projection(bal(500), [], rate(0), NOW, 2)).toEqual({ points: [
+    expect(projection(bal(500), [], rate(0), NO_FEE, NOW, 2)).toEqual({ points: [
       { from: Math.floor(new Date(2026, 11, 1).getTime() / 1000), balanceZat: 500 },
       { from: Math.floor(new Date(2027, 0, 1).getTime() / 1000), balanceZat: 500 },
     ], runsOutIndex: null })
-    expect(projection(bal(500), [], { kind: 'not-enough-history' }, NOW)).toBeNull()
-    expect(projection(null, [], rate(10), NOW)).toBeNull()
+    expect(projection(bal(500), [], { kind: 'not-enough-history' }, NO_FEE, NOW)).toBeNull()
+    expect(projection(null, [], rate(10), NO_FEE, NOW)).toBeNull()
   })
   it('says the funds are out from the first month when nothing is free', () => {
-    expect(projection(bal(0), [], rate(10), NOW, 2)!.runsOutIndex).toBe(0)
+    expect(projection(bal(0), [], rate(10), NO_FEE, NOW, 2)!.runsOutIndex).toBe(0)
   })
 })
 

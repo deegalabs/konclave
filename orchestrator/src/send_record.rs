@@ -825,6 +825,9 @@ pub struct LiveSend<'a> {
     pub max_polls: u32,
     pub vault_id: &'a str,
     pub vaults_dir: &'a Path,
+    /// The clock the sync window reads, the same one the coordinator's reads use
+    /// ([`crate::helper::HelperConfig::clock`]).
+    pub clock: fn() -> u64,
 }
 
 impl SendSteps for LiveSend<'_> {
@@ -862,6 +865,7 @@ impl SendSteps for LiveSend<'_> {
             &self.sc.lightwalletd,
             self.vaults_dir,
             self.vault_id,
+            self.clock,
         )
     }
 }
@@ -2373,6 +2377,7 @@ mod tests {
             max_polls: 1,
             vault_id: VAULT,
             vaults_dir: Path::new("/nonexistent/vaults"),
+            clock: crate::helper::now_secs,
         };
         let err = live.prepare().unwrap_err().to_string();
         assert!(err.contains("unsealed"), "{err}");
