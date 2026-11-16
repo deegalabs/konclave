@@ -15,7 +15,7 @@ import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
   getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
-  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
+  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx, type Book,
 } from '../api'
 import { useVaultReadable } from '../vault-readable'
 import { readPlan } from '../approved-payment'
@@ -64,7 +64,10 @@ export default function Proposal() {
   // Locked: the reads would 401 and the proposal would read as not there. Nothing is read until the
   // passphrase lands, and then the screen reads once (#439).
   const readable = useVaultReadable()
-  const unusual = useUnusual(readable ? p : null, lines)
+  // The book read with the proposal when it opened (the web), for the note; the poll does not replace
+  // it, since the note reads once per proposal (#970).
+  const [book, setBook] = useState<Book | undefined>(undefined)
+  const unusual = useUnusual(readable ? p : null, lines, book)
 
   useEffect(() => {
     if (!readable) return
@@ -87,7 +90,12 @@ export default function Proposal() {
         id = (list?.find((x) => x.state === 'awaiting') ?? list?.[0])?.id
       }
       const detail = id ? await getProposalDetail(id) : null
+      // Built here, in the same batch as the proposal; a book that cannot be built is left to the
+      // note's own read.
+      let opened: Book | undefined
+      try { opened = detail?.book?.() } catch { opened = undefined }
       if (on) {
+        setBook(opened)
         setPid(id ?? null)
         setP(detail?.proposal ?? null)
         setLines(detail?.lines ?? [])
