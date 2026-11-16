@@ -49,6 +49,10 @@ connected to `deegalabs/konclave`. A push to `main` builds and promotes to produ
   `.github/workflows/desktop-release.yml` because the workflow cannot read Vercel's (#664). Change
   them in both places together; the release fails when its bundle does not carry both
   (`scripts/check-desktop-bundle-cli.mjs`).
+- The app reads each variable on its own (`import.meta.env.VITE_HELPER_BASE`), never the env object,
+  so a variable only Vercel sets (it injects `VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG`) does not
+  reach the bundle, and a build of the same commit with the two values above gives the same bytes
+  Vercel serves (#605). CI fails a build that carries any env key name.
 - `ui/src/wasm-pkg/` is committed, so the build needs no Rust toolchain
 
 **Verify:** the footer shows `v<version> · <commit>`. Compare the commit with `main`.
