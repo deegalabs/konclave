@@ -81,6 +81,8 @@ function measure() {
   const vw = document.documentElement.clientWidth
   for (const el of Array.from(document.querySelectorAll('*'))) {
     if (el.closest('.top-progress')) continue
+    // Screen-reader-only text (#838's "amount hidden", the labels beside icons) is clipped by design.
+    if (el.closest('.visually-hidden')) continue
     const cs = getComputedStyle(el)
     if (cs.display === 'none' || cs.visibility === 'hidden') continue
     const r = el.getBoundingClientRect()

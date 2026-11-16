@@ -61,6 +61,8 @@ async function openDashboard(page: Page) {
   await expect(page.getByRole('heading', { name: 'V', exact: true })).toBeVisible()
   // Measure the layout a member sees, in the app's own font, not one caught mid-load.
   await page.evaluate(() => document.fonts.ready)
+  // A hidden amount is not in the page (#838): the figures below are read and measured revealed.
+  await page.locator('.entry .reveal-btn').click()
 }
 
 /** The figure stays inside its box: its right edge does not pass the box's. */
