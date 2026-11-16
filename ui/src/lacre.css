@@ -405,8 +405,12 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .nav-more-btn{display:flex; background:transparent; border:0; cursor:pointer; font-family:inherit; color:var(--text-muted)}
   .nav-more-btn.active{color:var(--accent)}
   .nav-more-scrim{display:block; position:fixed; inset:0; z-index:49; background:rgba(8,11,15,.5); backdrop-filter:blur(1px)}
+  /* The switcher's scrim only catches the outside click, as on desktop: dimmed, it covered the chip
+     that keeps focus while the switcher is open, and with it the chip's focus ring (#317). */
+  .nav-more-scrim.vault-scrim{background:transparent; backdrop-filter:none}
   .nav-more-sheet{display:flex; flex-direction:column; gap:2px; position:fixed; left:0; right:0; z-index:51;
     bottom:calc(60px + env(safe-area-inset-bottom)); background:var(--surface-1);
+    max-height:calc(100dvh - 76px - env(safe-area-inset-bottom)); overflow-y:auto;
     border-top:1px solid var(--line); box-shadow:0 -10px 30px -14px rgba(0,0,0,.8); padding:8px}
   .nav-more-row{display:flex; align-items:center; gap:12px; padding:13px 16px; border-radius:8px;
     color:var(--text); text-decoration:none; font-size:14px; font-weight:500}
