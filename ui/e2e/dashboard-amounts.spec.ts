@@ -1,4 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { test, expect, type Locator, type Page } from '@playwright/test'
+import { initSync, estimatedFeeZat } from '../src/wasm-pkg/konclave_wasm.js'
+
+// The fee estimate the app adds to an open proposal is the rule's own (konclave_seal, read through
+// the wasm with the clock). The spec reads the SAME rule here instead of typing a figure, so the
+// expectations follow it when the floor is re-measured or the fee switches.
+initSync({ module: readFileSync(fileURLToPath(new URL('../src/wasm-pkg/konclave_wasm_bg.wasm', import.meta.url))) })
 
 // Daniel, 2026-11-07 (#859 review). The Dashboard shows every amount exactly, one precision for one
 // figure: the balance, its composition, the desk, the movements and the KPIs. An exact balance can
@@ -12,6 +20,8 @@ const proposal = (id: string, state: string, zat: number, memo: string) => ({
   id, vault_id: VAULT_ID, kind: 'payment', state, proposer: 'A', value_zat: zat,
   value_zec: (zat / 1e8).toFixed(8), memo, to_address: 'u1dest', is_public: false,
   expiry_unix: NOW + 72 * 3600, created_at: NOW - 3600, approvals: ['A'], refusals: [], approvals_count: 1,
+  // The bridge says how many outputs a proposal pays (1 for a payment), which its fee estimate needs.
+  destinations: 1,
   ...(state === 'sent' ? { txid: 'cd'.repeat(32) } : {}),
 })
 
@@ -61,6 +71,8 @@ async function openDashboard(page: Page) {
   await expect(page.getByRole('heading', { name: 'V', exact: true })).toBeVisible()
   // Measure the layout a member sees, in the app's own font, not one caught mid-load.
   await page.evaluate(() => document.fonts.ready)
+  // A hidden amount is not in the page (#838): the figures below are read and measured revealed.
+  await page.locator('.entry .reveal-btn').click()
 }
 
 /** The figure stays inside its box: its right edge does not pass the box's. */
@@ -81,13 +93,18 @@ test('the balance shows every decimal and a long figure stays inside its card', 
 
 test('the composition, the desk, the movements and the KPIs use the same exact figures', async ({ page }) => {
   await openDashboard(page)
-  // Free is what the open proposal does not hold: 0.01234567 - 0.00012345.
-  await expect(page.locator('.comp-legend')).toContainText('0.01222222')
+  // The open proposal holds its amount plus the estimate of its network fee (#1017), and Free is
+  // what that does not hold. The estimate is the rule's, for one destination.
+  const fee = estimatedFeeZat(1)
+  const exact = (zat: number) => (zat / 1e8).toFixed(8)
+  const held = 12_345 + fee
+  await expect(page.locator('.comp-legend')).toContainText(exact(1_234_567 - held))
+  // The desk still shows the proposal's own amount, not what it holds.
   await expect(page.locator('.ny-amt')).toContainText('0.00012345')
   // The movement of 0.00015 (out, so with its minus sign), not 0.0001.
   await expect(page.getByText(/^−0\.00015$/).first()).toBeAttached()
   const kpis = page.locator('.kpis .kpi')
-  await expect(kpis.nth(1).locator('.kpi-v b')).toHaveText('0.00012345')
+  await expect(kpis.nth(1).locator('.kpi-v b')).toHaveText(exact(held))
   await expect(kpis.nth(2).locator('.kpi-v b')).toHaveText('0.01234567')
   for (const i of [1, 2]) {
     const kpi = kpis.nth(i)

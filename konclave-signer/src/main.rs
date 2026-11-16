@@ -81,6 +81,26 @@ enum Cmd {
     },
 }
 
+/// The confirmations a vault's build asks of its notes (#870), set here by name so a library update
+/// cannot change them unnoticed: 3 for the wallet's own change and the anchor depth, 10 for notes
+/// received from others. These are ZIP 315's counts. Since NU7, blocks come every 25 seconds, so the
+/// same counts are about a third of the time they were; they stay ZIP 315's because the library
+/// warns that a policy of one's own can make a wallet's transactions distinguishable, and ZIP 218
+/// does not argue for reducing them. Revisit when ZIP 315 is updated for NU7.
+const TRUSTED_CONFIRMATIONS: u32 = 3;
+const UNTRUSTED_CONFIRMATIONS: u32 = 10;
+
+fn vault_confirmations() -> zcash_client_backend::data_api::wallet::ConfirmationsPolicy {
+    use std::num::NonZeroU32;
+    zcash_client_backend::data_api::wallet::ConfirmationsPolicy::new(
+        NonZeroU32::new(TRUSTED_CONFIRMATIONS).expect("a count above zero"),
+        NonZeroU32::new(UNTRUSTED_CONFIRMATIONS).expect("a count above zero"),
+        // As ZIP 315's default; a vault has no transparent funds to shield.
+        true,
+    )
+    .expect("the trusted count is not above the untrusted one")
+}
+
 /// The ZIP 317 fee rule at a marginal fee: the one place a rule is constructed. Grace actions and the
 /// P2PKH sizes are ZIP 317's own (the vault has no transparent part), only the marginal moves.
 fn build_fee_rule(marginal: u64) -> Result<prim_zip317::FeeRule> {
@@ -270,7 +290,7 @@ fn build_payroll(
             wallet::{
                 create_pczt_from_proposal,
                 input_selection::{GreedyInputSelector, SpendPolicy},
-                propose_transfer, ConfirmationsPolicy,
+                propose_transfer,
             },
             Account as _, WalletRead,
         },
@@ -341,7 +361,7 @@ fn build_payroll(
     // inside `fee_required` would disagree with its own threshold. The wallet's tip only rises, so
     // the height the proposal uses is never below this one; at the switch the build pays the
     // lower-height (legacy) fee, which a device accepts and the network relays.
-    let confirmations = ConfirmationsPolicy::default();
+    let confirmations = vault_confirmations();
     let (target, _anchor) = db
         .get_target_and_anchor_heights(confirmations.trusted())
         .map_err(|e| anyhow!("target height: {e:?}"))?
@@ -453,6 +473,36 @@ mod tests {
     const IW_PROVEN: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
     const IW_SIGNED: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
     const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
+
+    /// #870: the vault's build asks ZIP 315's confirmation counts by name, and the library's default
+    /// is still those same counts: a library update that moves either fails here instead of moving
+    /// the vault's anchor depth unnoticed.
+    #[test]
+    fn the_vault_asks_zip_315s_confirmations_and_the_library_default_has_not_moved() {
+        use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
+        let ours = vault_confirmations();
+        assert_eq!(ours.trusted().get(), 3, "the wallet's own change");
+        assert_eq!(ours.untrusted().get(), 10, "notes received from others");
+        assert_eq!(
+            ours,
+            ConfirmationsPolicy::default(),
+            "zcash_client_backend's default moved: decide whether the vault follows (#870)"
+        );
+        // The build reads the named policy, not the library's default.
+        let src = include_str!("main.rs");
+        let body = &src[src.find("fn build_payroll(").unwrap()..src.find("#[cfg(test)]").unwrap()];
+        assert!(body.contains("vault_confirmations()"));
+        assert!(!body.contains(concat!("ConfirmationsPolicy::", "default()")));
+        // The app says the same counts (ui/src/api.ts, the "waiting for confirmations" line): one
+        // rule, so the screen cannot keep a number the build no longer asks.
+        let ui = include_str!("../../ui/src/api.ts");
+        assert!(ui.contains(&format!(
+            "CONFIRMATIONS_TRUSTED = {TRUSTED_CONFIRMATIONS}\n"
+        )));
+        assert!(ui.contains(&format!(
+            "CONFIRMATIONS_UNTRUSTED = {UNTRUSTED_CONFIRMATIONS}\n"
+        )));
+    }
 
     fn parse(bytes: &[u8]) -> Pczt {
         Pczt::parse(bytes).expect("fixture is a valid PCZT")
