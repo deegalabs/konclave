@@ -70,4 +70,22 @@ describe('the web manifest in the release workflow (#605)', () => {
     expect(c).toMatch(/echo "\$FINGERPRINT  web-manifest\.json" \| sha256sum -c -/)
     expect(c.slice(0, sums)).not.toMatch(/--clobber/)
   })
+
+  it('checks production against the manifest after attaching it, on a tag push only', () => {
+    const c = job('checksums')
+    const attach = c.indexOf('gh release upload "$TAG" web-manifest.json')
+    const prod = c.indexOf('node scripts/verify-web.mjs --manifest="$RUNNER_TEMP/web-manifest.json" --expect-version="${TAG#v}"')
+    expect(prod).toBeGreaterThan(attach)
+    // Last: a red production check never leaves the release without its sums, and a usage error
+    // (exit 3) is not retried.
+    expect(prod).toBeGreaterThan(c.indexOf('sha256sum -- *'))
+    expect(c).toMatch(/\[ "\$code" -eq 3 \] && exit 3/)
+    expect(c).toMatch(/- name: Production serves this release\n\s+if: github\.event_name == 'push'/)
+  })
+
+  it('release.mjs prints the release steps RELEASING.md gives: tag the merge commit, never push main', () => {
+    const rel = readFileSync(new URL('../../scripts/release.mjs', import.meta.url), 'utf8')
+    expect(rel).not.toMatch(/push origin main/)
+    expect(rel).toMatch(/tag that merge commit/)
+  })
 })
