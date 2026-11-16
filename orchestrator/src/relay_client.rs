@@ -644,34 +644,19 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_transport_runs_curl_with_exactly_the_hardened_arguments() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-fake-curl-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("argv");
         let program = dir.join("curl");
-        std::fs::write(
+        crate::test_exec::write_script(
             &program,
-            format!(
+            &format!(
                 "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$@\" > '{}'\nprintf ok\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let t = CurlTransport { program };
-        // A freshly written script can be briefly busy while another test thread forks.
-        let retry = |call: &dyn Fn() -> Result<Vec<u8>, String>| {
-            for _ in 0..20 {
-                match call() {
-                    Err(e) if e.contains("busy") => {
-                        std::thread::sleep(std::time::Duration::from_millis(20))
-                    }
-                    other => return other,
-                }
-            }
-            call()
-        };
         let url = "https://relay.test/api/relay/ROOM2345";
         let recorded = || {
             std::fs::read_to_string(&log)
@@ -681,9 +666,9 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(retry(&|| t.get(url)).unwrap(), b"ok");
+        assert_eq!(t.get(url).unwrap(), b"ok");
         assert_eq!(recorded(), curl_args(false, url));
-        assert_eq!(retry(&|| t.post(url, b"{}")).unwrap(), b"ok");
+        assert_eq!(t.post(url, b"{}").unwrap(), b"ok");
         assert_eq!(recorded(), curl_args(true, url));
         let _ = std::fs::remove_dir_all(&dir);
     }

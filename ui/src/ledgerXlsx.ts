@@ -316,10 +316,10 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   return wb
 }
 
-/** Build the workbook and trigger a download. Returns once the file has been handed to the browser. */
-export async function exportLedgerXlsx(data: LedgerXlsxData): Promise<void> {
+/** Build the workbook and trigger a download: true when the browser took the file. */
+export async function exportLedgerXlsx(data: LedgerXlsxData): Promise<boolean> {
   const wb = await buildLedgerWorkbook(data)
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  downloadBlob(`konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`, blob)
+  return downloadBlob(`konclave-${data.vaultName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ledger'}.xlsx`, blob)
 }

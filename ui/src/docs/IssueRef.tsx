@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from 'react'
-import { REF_TITLES, refKey, refUrl, type Ref } from './roadmap'
+import { refKey, refUrl, type Ref } from './roadmap'
+import { REF_INFO } from './roadmap-refs'
+import { wordFor, type RefStateWords } from './ref-state'
 
-export type IssueRefLabels = { issue: string; pull: string; newTab: string; hint: string }
+/** `asOf` opens the card's state line: "On GitHub on 15 November 2026". */
+export type IssueRefLabels = { issue: string; pull: string; newTab: string; hint: string; states: RefStateWords; asOf: string }
 
 /** Only one card open at a time: hovering one number while another has focus would stack two. */
 let closeOpenCard: (() => void) | null = null
@@ -13,13 +16,19 @@ const HOVER_DELAY_MS = 120
  *  reader's list of links reads titles, not bare numbers; on a phone the title is shown under the
  *  step. With a mouse or a keyboard, the title also opens in a small card that is only visual
  *  (aria-hidden), stays up while the pointer is over it, and closes on Escape (WCAG 1.4.13). The
- *  title comes from a local copy, so reading the docs makes no call to GitHub. */
-export default function IssueRef({ r, labels }: { r: Ref; labels: IssueRefLabels }) {
+ *  title comes from a local copy, so reading the docs makes no call to GitHub.
+ *
+ *  With `showState` (the roadmap's steps, and only them) the link also says the ref's GitHub state in
+ *  words, from the same committed snapshot. Release notes never pass it: a state as of today, inside a
+ *  sentence written weeks ago, would read as part of that sentence. */
+export default function IssueRef({ r, labels, showState = false }: { r: Ref; labels: IssueRefLabels; showState?: boolean }) {
   const [open, setOpen] = useState(false)
   const [dx, setDx] = useState(0)
   const cardRef = useRef<HTMLSpanElement>(null)
   const hoverTimer = useRef<number | undefined>(undefined)
-  const title = REF_TITLES[refKey(r)]
+  const info = REF_INFO[refKey(r)]
+  const title = info?.title
+  const stateWord = showState && info ? wordFor(r.kind, info.state, labels.states) : undefined
 
   const show = () => {
     if (closeOpenCard) closeOpenCard()
@@ -88,9 +97,18 @@ export default function IssueRef({ r, labels }: { r: Ref; labels: IssueRefLabels
       onBlur={hide}
     >
       <a className="docs-ref-chip" href={refUrl(r)} target="_blank" rel="noopener noreferrer">
-        <span className="docs-ref-num">#{r.n}</span>
+        <span className="docs-ref-head">
+          <span className="docs-ref-num">#{r.n}</span>
+          {stateWord && (
+            <>
+              <span className="visually-hidden">, </span>
+              <span className="docs-ref-sep" aria-hidden="true">·</span>
+              <span className="docs-ref-state" data-state={info!.state}>{stateWord}</span>
+            </>
+          )}
+        </span>
         <span className="docs-ref-name">
-          {': '}
+          <span className="docs-ref-colon">{': '}</span>
           <span lang="en">{title}</span>
         </span>
         <span className="visually-hidden"> ({labels.newTab})</span>
@@ -106,6 +124,7 @@ export default function IssueRef({ r, labels }: { r: Ref; labels: IssueRefLabels
           {r.kind === 'pull' ? labels.pull : labels.issue} #{r.n}
         </span>
         <span className="docs-ref-title" lang="en">{title}</span>
+        {stateWord && <span className="docs-ref-asof">{labels.asOf}: {stateWord.toLocaleLowerCase(document.documentElement.lang || undefined)}.</span>}
         <span className="docs-ref-hint">{labels.hint}</span>
       </span>
     </span>

@@ -6,8 +6,9 @@ const RevealCtx = createContext<{ revealed: boolean; toggle: () => void }>({
   toggle: () => {},
 })
 
-export function RevealProvider({ children }: { children: ReactNode }) {
-  const [revealed, setRevealed] = useState(false)
+/** `initial` is for tests that read a figure: every real load starts hidden. */
+export function RevealProvider({ children, initial = false }: { children: ReactNode; initial?: boolean }) {
+  const [revealed, setRevealed] = useState(initial)
   return (
     <RevealCtx.Provider value={{ revealed, toggle: () => setRevealed((v) => !v) }}>
       {children}

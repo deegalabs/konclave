@@ -23,10 +23,10 @@ import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
 import type { SendReply, TooLarge } from './send-outcome'
 
-const ENV = import.meta.env as Record<string, string | undefined>
+// The env is read one key at a time, never as an object (#605, src/env-reads.test.ts).
 
 /** The BUILT-IN hosted helper's base URL ("our helper"), or '' when none is baked in. */
-export const HELPER_BASE: string = ENV.VITE_HELPER_BASE ?? ''
+export const HELPER_BASE: string = import.meta.env.VITE_HELPER_BASE ?? ''
 
 // Coordination mode - the user's runtime choice of WHERE the blind helper lives (desktop):
 //   'ours'   → the built-in HELPER_BASE (default when one is baked in)
