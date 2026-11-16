@@ -204,7 +204,7 @@ export default function Layout() {
             one vault's settings, which is where a per-VAULT setting would belong and these are not. */}
         <AppPrefs />
 
-        <nav className="railnav" aria-label="Konclave">
+        <nav className="railnav" aria-label={t('nav.vaultNav')}>
           {/* Desktop: three labelled bands. Mobile: `.rail-band` becomes display:contents and the
               labels hide, so these flatten into the tab bar (primary items) + a "More" sheet. */}
           {bands.map((band) => (

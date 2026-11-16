@@ -323,6 +323,7 @@ export const en: Record<string, string> = {
   'nav.activity': 'Approvals',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
+  'nav.vaultNav': 'Main',
   'nav.bandVault': 'Vault',
   'nav.bandMoney': 'Money',
   'nav.bandGovernance': 'Governance',
