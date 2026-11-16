@@ -825,6 +825,9 @@ pub struct LiveSend<'a> {
     pub max_polls: u32,
     pub vault_id: &'a str,
     pub vaults_dir: &'a Path,
+    /// The clock the sync window reads, the same one the coordinator's reads use
+    /// ([`crate::helper::HelperConfig::clock`]).
+    pub clock: fn() -> u64,
 }
 
 impl SendSteps for LiveSend<'_> {
@@ -838,8 +841,8 @@ impl SendSteps for LiveSend<'_> {
                 "this send would be published unsealed and no seat signed it",
             )
         })?;
-        // The tip for the build hold comes from the one forced sync of the wallet (#637), and only
-        // when the table has a later upgrade to be near.
+        // The tip for the build hold and the fee guard comes from the one forced sync of the wallet
+        // (#637), read once per send.
         let tip = || self.settle_wallet().map(|v| v.tip);
         net_prepare_send(
             self.sc,
@@ -862,6 +865,7 @@ impl SendSteps for LiveSend<'_> {
             &self.sc.lightwalletd,
             self.vaults_dir,
             self.vault_id,
+            self.clock,
         )
     }
 }
@@ -2373,6 +2377,7 @@ mod tests {
             max_polls: 1,
             vault_id: VAULT,
             vaults_dir: Path::new("/nonexistent/vaults"),
+            clock: crate::helper::now_secs,
         };
         let err = live.prepare().unwrap_err().to_string();
         assert!(err.contains("unsealed"), "{err}");

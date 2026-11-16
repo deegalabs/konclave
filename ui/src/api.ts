@@ -98,6 +98,10 @@ export type Proposal = {
   approvals: string[]
   refusals: string[]
   approvals_count: number
+  /** How many outputs it pays: 1 for a payment, the line count for a payroll (#1017). What the fee
+   *  estimate takes. Absent or null means it could not be read, and a reader must treat it as
+   *  unknown (`proposalCostZat` answers null), never as 1. */
+  destinations?: number | null
 }
 
 export type Balance = {
@@ -123,8 +127,9 @@ export type Balance = {
   ironwood_spendable_zat?: number
 }
 
-const ENV = import.meta.env as Record<string, string | undefined>
-const BASE: string = ENV.VITE_API_BASE ?? ''
+// One key at a time, never the env object: an object would be inlined whole, with every variable
+// the host adds, and the build would stop being reproducible (#605, src/env-reads.test.ts).
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
@@ -159,6 +164,7 @@ export function mapNetProposal(p: NetProposal): Proposal {
     approvals: p.approvals,
     refusals: p.refusals,
     approvals_count: p.approvals.length,
+    destinations: p.kind === 'payroll' ? (p.lines?.length ? p.lines.length : undefined) : 1,
   }
 }
 
@@ -483,20 +489,76 @@ export async function writeProof(
   }
 }
 
+/** Who this device writes as in a vault, for a write that carries a name (#591). */
+export type ActingAs =
+  | { ok: true; seat: number; name: string }
+  | { ok: false; why: 'locked' | 'list-unread' | 'no-seat-name' }
+
+/** The sentence for each reason `actingAs` can refuse (the screens and `humanError` both read it). */
+export const ACTING_KEYS: Record<'locked' | 'list-unread' | 'no-seat-name', string> = {
+  locked: 'payment.actingLocked',
+  'list-unread': 'payment.actingListUnread',
+  'no-seat-name': 'payment.actingNoSeatName',
+}
+
+/** The ONE answer to "who does this device propose as in this vault": the name the coordinator
+ *  serves for the seat the unlocked share holds, which is the rule it checks the write against
+ *  (`seat_acts_as`). Read at send time, and the same seat signs the proof.
+ *
+ *  Never another member's name. Not the first member, not `myName` (a label that can be stale), not
+ *  this device's own roster, and not the `member N` placeholder: it reads the coordinator's SERVED
+ *  list, raw, and a seat it cannot name is a refusal that says why. The local bridge signs no
+ *  writes (ADR-0011, 2026-09-05) and keeps its behaviour, here and nowhere else. */
+export async function actingAs(vaultId: string): Promise<ActingAs> {
+  if (!NET) {
+    let mine: string | undefined
+    try { mine = (await listVaults()).find((s) => s.id === vaultId)?.myName } catch { /* no record */ }
+    const name = (mine ?? (await getVault())?.member_list?.[0]?.name ?? '').trim()
+    return name ? { ok: true, seat: 0, name } : { ok: false, why: 'no-seat-name' }
+  }
+  const share = getUnlockedShare(vaultId)
+  if (!share) return { ok: false, why: 'locked' }
+  let seat: number
+  try { seat = decodeBundle(share).seat } catch { return { ok: false, why: 'locked' } }
+  const served = await netListMembers(vaultId)
+  if (served === null) return { ok: false, why: 'list-unread' }
+  // Compared by the coordinator at the edges only (`member_key` trims); nothing else is normalised.
+  const name = typeof served[seat - 1] === 'string' ? served[seat - 1]!.trim() : ''
+  return name ? { ok: true, seat, name } : { ok: false, why: 'no-seat-name' }
+}
+
+/** The proof for a proposal under `who`'s name, or `null` when the device now holds another seat than
+ *  the one the name was read for (the share changed between the two reads). Then nothing is sent: an
+ *  unsigned proposal is accepted by a vault without signed actions, under a name this seat does not
+ *  hold. `undefined` is "could not sign" as ever (`writeProof`), which is not this case. */
+async function proposeProof(vaultId: string, who: { seat: number; name: string }): Promise<{ proof: WriteProof | undefined } | null> {
+  const share = getUnlockedShare(vaultId)
+  let held: number | undefined
+  try { held = share ? decodeBundle(share).seat : undefined } catch { held = undefined }
+  if (held !== who.seat) return null
+  return { proof: await writeProof(vaultId, 'propose', who.name) }
+}
+
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return { ok: false, error: 'no vault' }
     const zat = parseZecToZat(input.value_zec)
     if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+    // The name and the proof come from one reading of the seat, taken now. The screen's name is only
+    // what it showed (#591).
+    const who = await actingAs(id)
+    if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
+    const signed = await proposeProof(id, who)
+    if (!signed) return { ok: false, error: 'proposer unresolved', detail: 'locked' }
     const p = await netCreateProposal({
       vault: id,
-      proposer: input.proposer,
+      proposer: who.name,
       to: input.to_address,
       amountZat: zat,
       memo: input.memo,
       // Bound to the proposer's name, which the helper checks against the signing seat (#288).
-      proof: await writeProof(id, 'propose', input.proposer.trim()),
+      proof: signed.proof,
     })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // EVERY failure used to be reported as `invalid address`, whatever went wrong: a locked device
@@ -572,9 +634,10 @@ export function errorCode(error?: string, detail?: string): FailureCode {
 }
 
 /**
- * How many confirmations a note needs before the wallet will spend it. Not our choice: it is
- * `ConfirmationsPolicy::default()` in zcash_client_backend (data_api/wallet.rs:450-461), and we
- * never pass `--min-confirmations`, so the default is what every vault gets.
+ * How many confirmations a note needs before the wallet will spend it: ZIP 315's counts, which the
+ * vault's build names in konclave-signer (`vault_confirmations`, #870) and which are also
+ * zcash_client_backend's default, the one the wallet's balance read uses (we never pass
+ * `--min-confirmations`). A test in konclave-signer fails if these two numbers and its own differ.
  *
  * There are two numbers, and the difference is worth showing: money that arrived from OUTSIDE is
  * untrusted and waits 10; the change from the vault's own payment is trusted and waits 3.
@@ -611,6 +674,8 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   // #821. Before every rule that reads text: the counts are the message, and its detail must never be
   // mistaken for another refusal.
   if (tooLarge) return tooLargeText(t, tooLarge)
+  // #591: this device could not say who it proposes as; the reason is the message.
+  if (error === 'proposer unresolved' && detail && detail in ACTING_KEYS) return t(ACTING_KEYS[detail as keyof typeof ACTING_KEYS])
   if ((error ?? '').toLowerCase() === TOO_MANY_ACTIONS) return t('error.tooLarge')
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
@@ -853,7 +918,11 @@ export async function createPayroll(
       if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
-    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, title: description, proof: await writeProof(id, 'propose', proposer.trim()) })
+    const who = await actingAs(id)
+    if (!who.ok) return { ok: false, error: 'proposer unresolved', detail: who.why }
+    const signed = await proposeProof(id, who)
+    if (!signed) return { ok: false, error: 'proposer unresolved', detail: 'locked' }
+    const p = await netCreatePayroll({ vault: id, proposer: who.name, lines: mapped, title: description, proof: signed.proof })
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.
@@ -1014,6 +1083,17 @@ function netLines(hp: { lines?: Array<{ label?: string | null; to: string; amoun
   }))
 }
 
+/** The vault's book with its payrolls' lines, what a proposal is compared with (unusual.ts). */
+export type Book = { history: Proposal[]; linesById: Record<string, PayrollLine[]> }
+
+/** The book from the web's list of the vault's proposals, which carries every payroll's lines. The
+ *  one place that builds it: `getBookWithLines` and `getProposalDetail` both read through here. */
+function bookFromNet(ps: NetProposal[]): Book {
+  const linesById: Record<string, PayrollLine[]> = {}
+  for (const hp of ps) if (hp.lines && hp.lines.length > 0) linesById[hp.id] = netLines(hp)
+  return { history: ps.map(mapNetProposal), linesById }
+}
+
 /** Settled payrolls whose lines the local bridge reads one by one, newest first. */
 export const BRIDGE_PAYROLLS_READ = 12
 
@@ -1022,15 +1102,13 @@ export const BRIDGE_PAYROLLS_READ = 12
  *  ONE read. The local bridge serves lines by id only, so there the newest settled payrolls are
  *  read, up to BRIDGE_PAYROLLS_READ; a payroll past that has no lines here, and the comparison says
  *  it is partial. null when the book itself could not be read. */
-export async function getBookWithLines(): Promise<{ history: Proposal[]; linesById: Record<string, PayrollLine[]> } | null> {
+export async function getBookWithLines(): Promise<Book | null> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return null
     const ps = await netListProposals(id)
     if (!ps) return null
-    const linesById: Record<string, PayrollLine[]> = {}
-    for (const hp of ps) if (hp.lines && hp.lines.length > 0) linesById[hp.id] = netLines(hp)
-    return { history: ps.map(mapNetProposal), linesById }
+    return bookFromNet(ps)
   }
   const history = await getLedger()
   if (!history) return null
@@ -1052,14 +1130,21 @@ export async function getProposalDetail(
   /** The vault to read it from. The signer passes its own: the selection lives in shared storage,
    *  so another tab switching vaults would otherwise change which vault this reads (#610 review). */
   vaultId?: string,
-): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
+): Promise<{
+  proposal: Proposal
+  lines: PayrollLine[]
+  /** Web only: the book from the same list this read already holds, built only when asked (#970).
+   *  Lazy so the signer and the poll, which never ask, do not map every proposal on each read, and a
+   *  malformed OTHER proposal cannot make this read fail. */
+  book?: () => Book
+} | null> {
   if (NET) {
     const vid = vaultId ?? getSelectedVault()
     if (!vid) return null
     const ps = await netListProposals(vid)
     const hp = ps?.find((x) => x.id === id)
-    if (!hp) return null
-    return { proposal: mapNetProposal(hp), lines: netLines(hp) }
+    if (!ps || !hp) return null
+    return { proposal: mapNetProposal(hp), lines: netLines(hp), book: () => bookFromNet(ps) }
   }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return null

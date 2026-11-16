@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { RevealProvider } from './reveal'
 import { en as dict } from './i18n/en'
 import { explorerTxUrl, fmtDate } from './format'
 import type { LedgerXlsxData } from './ledgerXlsx'
@@ -13,9 +14,9 @@ const en = (k: string): string => dict[k] ?? k
 // everything, silently, and no row carried its txid or memo. This mounts the real screen in a
 // simulated browser over a fake book, sets the filters a treasurer would, clicks Export, and reads
 // what the export was handed.
-const exportLedgerXlsx = vi.hoisted(() => vi.fn<(d: LedgerXlsxData) => Promise<void>>(async () => {}))
+const exportLedgerXlsx = vi.hoisted(() => vi.fn<(d: LedgerXlsxData) => Promise<boolean>>(async () => true))
 vi.mock('./ledgerXlsx', async (orig) => ({ ...(await orig<typeof import('./ledgerXlsx')>()), exportLedgerXlsx }))
-const exportLedgerCsv = vi.hoisted(() => vi.fn<(d: LedgerXlsxData, locale: 'pt-BR' | 'en') => Promise<void>>(async () => {}))
+const exportLedgerCsv = vi.hoisted(() => vi.fn<(d: LedgerXlsxData, locale: 'pt-BR' | 'en') => Promise<boolean>>(async () => true))
 vi.mock('./ledgerCsv', async (orig) => ({ ...(await orig<typeof import('./ledgerCsv')>()), exportLedgerCsv }))
 const getLedger = vi.hoisted(() => vi.fn())
 const getVault = vi.hoisted(() => vi.fn())
@@ -39,7 +40,8 @@ const lines = [
   { label: 'Bob', address: 'u1bob', value_zat: 80000000, value_zec: '0.8', memo: '', is_public: false },
 ]
 
-const mount = () => render(<MemoryRouter><I18nProvider><Ledger /></I18nProvider></MemoryRouter>)
+// A test that reads a figure mounts it revealed; every real load starts hidden (#838).
+const mount = (initial = false) => render(<MemoryRouter><I18nProvider><RevealProvider initial={initial}><Ledger /></RevealProvider></I18nProvider></MemoryRouter>)
 const exported = (): LedgerXlsxData => exportLedgerXlsx.mock.lastCall![0]
 const clickExport = async () => {
   fireEvent.click(screen.getByRole('button', { name: en('ledger.exportXlsx') }))
@@ -89,7 +91,7 @@ describe('the Ledger screen exports what it shows (#302)', () => {
   it('shows a row and the totals to the zatoshi, not rounded to four places (#303)', async () => {
     const stipend = { ...rent, id: 'p4', memo: 'Stipend', to_address: 'u1stip', value_zat: 1234, value_zec: '0.00001234' }
     getLedger.mockResolvedValue([stipend, pending])
-    mount()
+    mount(true)
     await screen.findByText('Stipend')
     expect(screen.getAllByText('−0.00001234').length).toBe(2) // the row, and the band's "Settled out"
     expect(screen.getByText('0.2500')).toBeTruthy() // the band's "Open": four places at least, zeros past them trimmed
@@ -188,6 +190,16 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(locale).toBe('en')
     expect(d.items.map((i) => i.memo)).toEqual(['', 'October rent'])
     expect(d.filter).toBe(en('ledger.filterPayments'))
+  })
+
+  it('says when the browser did not save the export, and clears it when the next one is saved (#983)', async () => {
+    mount()
+    await screen.findByText('October rent')
+    exportLedgerCsv.mockResolvedValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    expect((await screen.findByRole('alert')).textContent).toBe(en('download.failed'))
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.exportCsv') }))
+    await waitFor(() => expect(screen.queryByText(en('download.failed'))).toBeNull())
   })
 
   it('a book that could not be read is said as such, not left on the skeleton forever (#320)', async () => {

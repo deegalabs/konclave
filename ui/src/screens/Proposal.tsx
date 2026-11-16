@@ -6,16 +6,17 @@ import { usePoll } from '../usePoll'
 import { Link, useLocation } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
-import { Identicon } from '../avatar'
+import { Identicon, seedForName } from '../avatar'
 import { fmtZecExact, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
+import { costZat } from '../proposal-cost'
 import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
   getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
-  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
+  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx, type Book,
 } from '../api'
 import { useVaultReadable } from '../vault-readable'
 import { readPlan } from '../approved-payment'
@@ -49,6 +50,8 @@ export default function Proposal() {
   const feeEstimate = useFeeEstimate()
   const [rosterDiffers, setRosterDiffers] = useState(false)
   const [members, setMembers] = useState<string[]>([])
+  // The vault's id and member list, for each person's face (#315).
+  const [who, setWho] = useState<{ vaultId: string; list: { name: string }[] } | null>(null)
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
   // vault record. A device may only ever cast its OWN vote (never another member's).
   const [me, setMe] = useState<string | null>(null)
@@ -64,7 +67,10 @@ export default function Proposal() {
   // Locked: the reads would 401 and the proposal would read as not there. Nothing is read until the
   // passphrase lands, and then the screen reads once (#439).
   const readable = useVaultReadable()
-  const unusual = useUnusual(readable ? p : null, lines)
+  // The book read with the proposal when it opened (the web), for the note; the poll does not replace
+  // it, since the note reads once per proposal (#970).
+  const [book, setBook] = useState<Book | undefined>(undefined)
+  const unusual = useUnusual(readable ? p : null, lines, book)
 
   useEffect(() => {
     if (!readable) return
@@ -74,6 +80,7 @@ export default function Proposal() {
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
+        setWho({ vaultId: v.id, list: v.members_read === false ? [] : v.member_list })
         setRosterDiffers(!!v.roster_differs)
         try {
           const saved = await listVaults()
@@ -87,7 +94,12 @@ export default function Proposal() {
         id = (list?.find((x) => x.state === 'awaiting') ?? list?.[0])?.id
       }
       const detail = id ? await getProposalDetail(id) : null
+      // Built here, in the same batch as the proposal; a book that cannot be built is left to the
+      // note's own read.
+      let opened: Book | undefined
+      try { opened = detail?.book?.() } catch { opened = undefined }
       if (on) {
+        setBook(opened)
         setPid(id ?? null)
         setP(detail?.proposal ?? null)
         setLines(detail?.lines ?? [])
@@ -227,10 +239,11 @@ export default function Proposal() {
   const feeEstimator = estimatorOf(feeEstimate)
   const cost = (() => {
     const amountZat = plan.totalZat
-    if (!feeEstimator) return null
-    const feeZat = feeEstimator(Math.max(1, plan.lines.length))
-    if (feeZat === null) return null
-    const totalZat = amountZat + feeZat
+    // The one addition (`costZat`). Lines not read (none) is unknown, never one destination: that
+    // would show the floor as the fee of a payroll whose size is not known.
+    const totalZat = costZat(amountZat, plan.lines.length, feeEstimator)
+    if (totalZat === null) return null
+    const feeZat = totalZat - amountZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }
   })()
@@ -363,7 +376,7 @@ export default function Proposal() {
             const s = stance(m)
             return (
               <div className="who-row" key={m}>
-                <Identicon seed={m} size={30} />
+                <Identicon seed={seedForName(who?.vaultId, who?.list, m)} size={30} />
                 <span className="who-name">{m}</span>
                 <span className={'who-st ' + s.cls}>{s.label}</span>
               </div>

@@ -31,9 +31,10 @@ describe('the proposal says what approving and signing do, where the buttons are
 describe('Settings offers the export before the removal, and points at the day the device is lost', () => {
   const src = codeOf('screens/Settings.tsx')
   it('the remove gate links to the export block and the docs page', () => {
-    expect(src).toMatch(/t\('set\.removeExportFirst'\)/)
+    // the Export-first action is the shared dialog's; Settings only says where it leads
+    expect(src).toMatch(/<RemoveVaultDialog/)
     // a button, not a hash link: the app routes by hash, so "#s-keys" would be a route
-    expect(src).toMatch(/setConfirming\(false\); setConfirmName\(''\); setErr\(null\); setXpErr\(null\); setXpOpen\(true\)/)
+    expect(src).toMatch(/setConfirming\(false\); setXpErr\(null\); setXpOpen\(true\)/)
     expect(src).toMatch(/to="\/docs\/recovery"/)
     expect(src).toMatch(/t\('set\.loseDevice'\)/)
   })
