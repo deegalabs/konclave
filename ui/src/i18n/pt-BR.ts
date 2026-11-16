@@ -569,6 +569,7 @@ export const ptBR: Record<string, string> = {
   'export.errPass': 'Digite a frase-senha do cofre.',
   'export.errGeneric': 'Não foi possível exportar o cofre.',
   'export.errClipboard': 'Não foi possível copiar. Use “Baixar arquivo”.',
+  'copy.failedUseDownload': 'Não foi possível copiar. Baixe o arquivo.',
   'export.errDownload': 'O navegador não iniciou o download. Use “Copiar”.',
   'import.link': 'Importar um cofre',
   'import.eyebrow': 'Trazer um cofre para este aparelho',
