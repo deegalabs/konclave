@@ -25,6 +25,7 @@
 // main module?" test to get wrong (see check-sw-cli.mjs for why that matters on Windows).
 
 import { createRequire } from 'node:module'
+import { ENV_NAME } from './web-manifest.mjs'
 
 /** The variables the desktop bundle must carry, in the order they are reported. */
 export const REQUIRED = ['VITE_HELPER_BASE', 'VITE_RELAY_BASE']
@@ -75,7 +76,7 @@ export function carries(source, value) {
 /** The env key names (`VITE_` and anything after it) used as object keys in `source`, sorted. A name
  *  in a string, a comment or a longer identifier (`INVITE_LENGTH`) is not one. */
 export function envKeysIn(source) {
-  return [...scan(source).keys].filter((k) => /^VITE_\w+$/.test(k)).sort()
+  return [...scan(source).keys].filter((k) => ENV_NAME.test(k)).sort()
 }
 
 /** Every problem with this env and these built sources; an empty list means the bundle is good.

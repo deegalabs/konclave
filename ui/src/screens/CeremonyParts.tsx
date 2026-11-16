@@ -2,7 +2,8 @@
 // comparing the code, and stopping. Kept apart from NetVault so the copy that carries the security
 // (the PIN travels apart; each person reads THEIR code first; an unknown name is a stop) is in one
 // place.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { copyText } from '../clipboard'
 import encodeQR from '@paulmillr/qr'
 import { formatInvite, formatRoomPin, spokenRoomPin, inviteLink, MIN_PIN_LENGTH } from '../net'
 
@@ -50,38 +51,67 @@ function useFocusOnMount<T extends HTMLElement>() {
   return ref
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
+/** The QR, drawn once per showing (a status message re-renders the card; it must not re-encode). */
+function InviteQr({ link, pe }: { link: string; pe: Pe }) {
+  const svg = useMemo(() => encodeQR(link, 'svg'), [link])
+  return (
+    <div className="cv-invite-qr" role="img" aria-label={pe('QR do link do convite. O PIN não está nele.', 'QR of the invite link. The PIN is not in it.')}
+      dangerouslySetInnerHTML={{ __html: svg }} />
+  )
 }
 
-/** The invite the creator hands out: the code, a link that opens the join screen, its QR, and the
- *  PIN to say on a call. */
-export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: Pe }) {
+/** The part of the invite that is built from the code alone: the code, the link, copy, share and
+ *  the QR. It has no `pin` in scope on purpose, so nothing here can carry it; `children` (the PIN
+ *  block) is rendered between the status line and the QR and is the only thing that knows the PIN.
+ *  The code and the QR are not in the tree until the creator asks (#625): they are absent, not
+ *  covered, and a new invite is a new mount, so each starts hidden. */
+function InviteLinks({ code, pe, children }: { code: string; pe: Pe; children?: ReactNode }) {
   const link = inviteLink(code)
   const [status, setStatus] = useState('')
-  const [showPin, setShowPin] = useState(false)
-  const [pinNote, setPinNote] = useState('') // the spoken PIN, for a screen reader only
+  const [showCode, setShowCode] = useState(false)
+  const [showQr, setShowQr] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+  const frame = useRef<number | undefined>(undefined)
+  useEffect(() => () => { window.clearTimeout(timer.current); window.cancelAnimationFrame(frame.current!) }, [])
+  const say = (text: string) => {
+    window.clearTimeout(timer.current) // an older message must not wipe this one
+    window.cancelAnimationFrame(frame.current!)
+    // Empty first, then the text on the next frame: a repeated message is a change a screen reader
+    // announces, instead of the same text set over itself.
+    setStatus('')
+    frame.current = window.requestAnimationFrame(() => {
+      setStatus(text)
+      timer.current = window.setTimeout(() => setStatus(''), 2500)
+    })
+  }
   const act = async (what: 'share' | 'link' | 'code') => {
     if (what === 'share' && navigator.share) {
       try { await navigator.share({ url: link }); return } catch { /* cancelled: nothing to say */ return }
     }
     const ok = await copyText(what === 'code' ? code : link)
-    setStatus(ok
+    say(ok
       ? (what === 'code' ? pe('Código copiado.', 'Code copied.') : pe('Link copiado.', 'Link copied.'))
-      : pe('Não deu para copiar aqui. Toque e segure no código para copiar.', 'Could not copy here. Press and hold the code to copy it.'))
-    window.setTimeout(() => setStatus(''), 2500)
+      : showCode
+        ? pe('Não deu para copiar aqui. Toque e segure no código para copiar.', 'Could not copy here. Press and hold the code to copy it.')
+        : pe('Não deu para copiar aqui. Mostre o código e copie à mão.', 'Could not copy here. Show the code and copy it by hand.'))
   }
+  // The labels say what a press does; a pressed state on top of a flipping label reads as the opposite.
   return (
-    <div className="cv-invite">
-      <p className="cv-lead">{pe(
-        'Em seguida, vocês vão ler um código curto uns para os outros. Juntem todo mundo numa ligação, ou no mesmo lugar, antes de entrar.',
-        'Next, you will all read a short code to each other. Get everyone on one call, or in one room, before they join.')}</p>
-      <CodeText code={formatInvite(code)} label={pe('Convite', 'Invite')} className="cv-invite-code" />
+    <>
+      {showCode
+        ? <CodeText code={formatInvite(code)} label={pe('Convite', 'Invite')} className="cv-invite-code" />
+        : (
+          <>
+            <button type="button" className="net-code cv-invite-code cv-invite-hidden" aria-describedby="cv-invite-hint" onClick={() => void act('code')}>
+              <span aria-hidden="true">{'•'.repeat(12)}</span>
+              <span className="sr-only">{pe('Copiar o código do convite', 'Copy the invite code')}</span>
+            </button>
+            <p id="cv-invite-hint" className="cv-seatlabel">{pe('O código está oculto. Copie ou compartilhe sem mostrá-lo.', 'The code is hidden. Copy or share it without showing it.')}</p>
+          </>
+        )}
+      <button type="button" className="cv-linkbtn" onClick={() => { setShowCode((v) => !v); say(showCode ? pe('Código do convite oculto.', 'Invite code hidden.') : pe('Código do convite visível.', 'Invite code shown.')) }}>
+        {showCode ? pe('ocultar o código do convite', 'hide the invite code') : pe('mostrar o código do convite', 'show the invite code')}
+      </button>
       <div className="cv-invite-actions">
         {typeof navigator.share === 'function' && (
           <button type="button" className="net-btn primary" onClick={() => void act('share')}>{pe('Compartilhar convite', 'Share invite')}</button>
@@ -90,25 +120,52 @@ export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: P
           {pe('Copiar link do convite', 'Copy invite link')}
         </button>
         <button type="button" className="net-btn" onClick={() => void act('code')}>{pe('Copiar só o código', 'Copy the code only')}</button>
+        <button type="button" className="net-btn" onClick={() => { setShowQr((v) => !v); say(showQr ? pe('QR oculto.', 'QR hidden.') : pe('QR visível.', 'QR shown.')) }}>
+          {showQr ? pe('Ocultar QR do convite', 'Hide the invite QR') : pe('Mostrar QR do convite', 'Show the invite QR')}
+        </button>
       </div>
       <p className="cv-status" role="status">{status}</p>
-      <span className="sr-only" role="status">{pinNote}</span>
-      <div className="cv-warn" role="note">
-        <strong>{pe('O PIN vai por outro caminho.', 'The PIN goes another way.')}</strong>{' '}
-        {pe('Diga o PIN numa ligação, nunca na mesma mensagem do convite.', 'Say the PIN on a call, never in the same message as the invite.')}
-        <span className="cv-pin">
-          {pe('PIN da sala', 'Room PIN')}: {showPin
-            ? <span className="cv-pin-value"><span aria-hidden="true">{formatRoomPin(pin)}</span><span className="sr-only">{spokenRoomPin(pin)}</span></span>
-            : <><span className="cv-pin-value" aria-hidden="true">{'•'.repeat(Math.max(MIN_PIN_LENGTH, pin.length))}</span><span className="sr-only">{pe('oculto', 'hidden')}</span></>}{' '}
-          {/* The label says what a press does; a pressed state on top of a flipping label reads as
-              the opposite ("hide, pressed"). */}
-          <button type="button" className="cv-linkbtn" onClick={() => { setShowPin((v) => !v); setPinNote(showPin ? '' : pe(`PIN da sala: ${spokenRoomPin(pin)}`, `Room PIN: ${spokenRoomPin(pin)}`)) }}>
-            {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}<span className="sr-only">{pe(' o PIN da sala', ' the room PIN')}</span>
-          </button>
-        </span>
-      </div>
-      <div className="cv-invite-qr" role="img" aria-label={pe('QR do link do convite. O PIN não está nele.', 'QR of the invite link. The PIN is not in it.')}
-        dangerouslySetInnerHTML={{ __html: encodeQR(link, 'svg') }} />
+      {children}
+      {showQr && (
+        <>
+          <InviteQr link={link} pe={pe} />
+          <p className="cv-seatlabel">{pe(
+            'Qualquer câmera que enxergue esta tela fica com o convite. É o PIN que barra um estranho, então mande o PIN por outro caminho. Oculte o QR quando todos entrarem.',
+            'Any camera that sees this screen has the invite. The PIN is what keeps a stranger out, so send it another way. Hide the QR once everyone has joined.')}</p>
+        </>
+      )}
+    </>
+  )
+}
+
+/** The invite the creator hands out: the code, a link that opens the join screen, its QR, and the
+ *  PIN to say on a call. Only the PIN block lives here; everything built from the code is in
+ *  `InviteLinks`, which is never given the PIN. */
+export function InviteCard({ code, pin, pe }: { code: string; pin: string; pe: Pe }) {
+  const [showPin, setShowPin] = useState(false)
+  const [pinNote, setPinNote] = useState('') // the spoken PIN, for a screen reader only
+  return (
+    <div className="cv-invite">
+      <p className="cv-lead">{pe(
+        'Em seguida, vocês vão ler um código curto uns para os outros. Juntem todo mundo numa ligação, ou no mesmo lugar, antes de entrar.',
+        'Next, you will all read a short code to each other. Get everyone on one call, or in one room, before they join.')}</p>
+      <InviteLinks code={code} pe={pe}>
+        <span className="sr-only" role="status">{pinNote}</span>
+        <div className="cv-warn" role="note">
+          <strong>{pe('O PIN vai por outro caminho.', 'The PIN goes another way.')}</strong>{' '}
+          {pe('Diga o PIN numa ligação, nunca na mesma mensagem do convite.', 'Say the PIN on a call, never in the same message as the invite.')}
+          <span className="cv-pin">
+            {pe('PIN da sala', 'Room PIN')}: {showPin
+              ? <span className="cv-pin-value"><span aria-hidden="true">{formatRoomPin(pin)}</span><span className="sr-only">{spokenRoomPin(pin)}</span></span>
+              : <><span className="cv-pin-value" aria-hidden="true">{'•'.repeat(Math.max(MIN_PIN_LENGTH, pin.length))}</span><span className="sr-only">{pe('oculto', 'hidden')}</span></>}{' '}
+            {/* The label says what a press does; a pressed state on top of a flipping label reads as
+                the opposite ("hide, pressed"). */}
+            <button type="button" className="cv-linkbtn" aria-label={showPin ? pe('ocultar o PIN da sala', 'hide the room PIN') : pe('mostrar o PIN da sala', 'show the room PIN')} onClick={() => { setShowPin((v) => !v); setPinNote(showPin ? '' : pe(`PIN da sala: ${spokenRoomPin(pin)}`, `Room PIN: ${spokenRoomPin(pin)}`)) }}>
+              {showPin ? pe('ocultar', 'hide') : pe('mostrar', 'show')}
+            </button>
+          </span>
+        </div>
+      </InviteLinks>
     </div>
   )
 }
