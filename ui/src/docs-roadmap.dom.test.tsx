@@ -64,8 +64,8 @@ describe('the roadmap page', () => {
 
   // Two dates: the step texts' (set by hand, at the top) and the GitHub read (the script, in the sentence).
   for (const [locale, gh, notLive, texts] of [
-    ['en', `what GitHub showed on ${REFS_AS_OF.en}`, 'an issue closed or a pull request merged there does not mean the change is live', `As of ${ROADMAP_AS_OF.en}.`],
-    ['pt-BR', `o que o GitHub mostrava em ${REFS_AS_OF['pt-BR']}`, 'uma issue fechada ou um pull request mesclado lá não quer dizer que a mudança já está no ar', `Situação em ${ROADMAP_AS_OF['pt-BR']}.`],
+    ['en', `what GitHub showed on ${REFS_AS_OF.en}`, 'an issue closed or a pull request merged there does not mean the change is live', `Step texts last reviewed on ${ROADMAP_AS_OF.en}.`],
+    ['pt-BR', `o que o GitHub mostrava em ${REFS_AS_OF['pt-BR']}`, 'uma issue fechada ou um pull request mesclado lá não quer dizer que a mudança já está no ar', `Textos das etapas revistos em ${ROADMAP_AS_OF['pt-BR']}.`],
   ] as const) {
     it(`dates the states by the GitHub read and the texts by their review, and says closed is not live (${locale})`, async () => {
       open(locale)

@@ -888,8 +888,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': `Situação em ${ROADMAP_AS_OF['pt-BR']}.`,
-          en: `As of ${ROADMAP_AS_OF.en}.`,
+          'pt-BR': `Textos das etapas revistos em ${ROADMAP_AS_OF['pt-BR']}.`,
+          en: `Step texts last reviewed on ${ROADMAP_AS_OF.en}.`,
         },
       },
       {
@@ -905,9 +905,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'Três termos aparecem muito aqui. A **chave de visualização** deixa ler o saldo, os pagamentos e os memos de um cofre, e não deixa gastar. O **coordenador** é o servidor que monta e transmite as transações do cofre; ele nunca recebe um pedaço da chave. O **relay** só repassa mensagens entre os aparelhos dos membros. Mais em [Coordenação](#/docs/coordination) e [Segurança e confiança](#/docs/security).',
+            'Três termos aparecem muito aqui. A **chave de visualização** deixa ler o saldo, os pagamentos e os memos de um cofre, e não deixa gastar. O **coordenador** é o servidor que monta e transmite as transações do cofre; ele nunca recebe um pedaço da chave. O **relay** só repassa mensagens entre os aparelhos dos membros e o coordenador. Mais em [Coordenação](#/docs/coordination) e [Segurança e confiança](#/docs/security).',
           en:
-            'Three terms come up often here. The **viewing key** lets someone read a vault’s balance, payments and memos, and does not let them spend. The **coordinator** is the server that builds and broadcasts the vault’s transactions; it never receives a part of the key. The **relay** only passes messages between the members’ devices. More in [Coordination](#/docs/coordination) and [Security and trust](#/docs/security).',
+            'Three terms come up often here. The **viewing key** lets someone read a vault’s balance, payments and memos, and does not let them spend. The **coordinator** is the server that builds and broadcasts the vault’s transactions; it never receives a part of the key. The **relay** only passes messages between the members’ devices and the coordinator. More in [Coordination](#/docs/coordination) and [Security and trust](#/docs/security).',
         },
       },
       {
@@ -937,12 +937,12 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): a varredura e o gasto na Ironwood, e sincronizar sem threads, oferecidos a quem o mantém.',
-            en: '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): Ironwood scanning and spending, and syncing without threads, offered to its maintainers.',
+            'pt-BR': '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): oferecer a quem o mantém a varredura e o gasto na Ironwood, e sincronizar sem threads.',
+            en: '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): offer its maintainers Ironwood scanning and spending, and syncing without threads.',
           },
           {
-            'pt-BR': '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): testar o suporte a Ironwood com os dados de um cofre real e relatar o que encontrarmos.',
-            en: '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): test its Ironwood support against a real vault’s data and report what we find.',
+            'pt-BR': '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): testar o suporte a Ironwood proposto para ela com os dados de um cofre real e relatar o que encontrarmos.',
+            en: '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): test the Ironwood support proposed for it against a real vault’s data and report what we find.',
           },
           {
             'pt-BR': '[librustzcash](https://github.com/zcash/librustzcash): cada lacuna de WebAssembly que aparecer, sempre com uma reprodução.',

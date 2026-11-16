@@ -12,7 +12,7 @@ export const REPO = 'deegalabs/konclave'
 
 /** When a person last re-read the step texts below against the issues. Shown on the page. Set by hand:
  *  the script dates GitHub's states separately (REFS_AS_OF), and never this. */
-export const ROADMAP_AS_OF = { iso: '2026-11-07', 'pt-BR': '7 de novembro de 2026', en: '7 November 2026' }
+export const ROADMAP_AS_OF = { iso: '2026-11-15', 'pt-BR': '15 de novembro de 2026', en: '15 November 2026' }
 
 export type RefKind = 'issue' | 'pull'
 export type Ref = { kind: RefKind; n: number }
@@ -45,11 +45,11 @@ export const ROADMAP_NOW: Stage[] = [
     title: { 'pt-BR': 'Acompanhar a atualização da rede (NU7)', en: 'Keep up with the network upgrade (NU7)' },
     body: {
       'pt-BR':
-        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). O que falta está em #638.',
+        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). A próxima data da rede é a taxa menor da ZIP 2009, a partir do bloco 3.590.000: os aparelhos já a aceitam, e o coordenador ainda paga a taxa antiga (#847).',
       en:
-        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). What remains is tracked in #638.',
+        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). The network’s next date is the lower ZIP 2009 fee from block 3,590,000: devices already accept it, and the coordinator still pays the old fee (#847).',
     },
-    refs: [issue(638), pull(701)],
+    refs: [issue(638), pull(701), issue(847)],
   },
 ]
 
@@ -57,14 +57,32 @@ export const ROADMAP_NOW: Stage[] = [
 export const ROADMAP_STEPS: Stage[] = [
   {
     id: 'own-defects',
+    // The #605 sentence is true while #1028-#1031 are in review. When they merge into staging, swap it for:
+    //   pt-BR: A primeira parte da #605 foi integrada e ainda não saiu em versão: uma lista com o SHA-256 de cada arquivo
+    //          de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a
+    //          partir da primeira versão que publicar a lista.
+    //   en:    The first part of #605 is merged, not yet released: a list of the SHA-256 of every file of each web
+    //          release, and a script anyone can run to compare the live site with it, from the first release that
+    //          publishes the list.
+    // When the release that publishes web-manifest.json is out, swap it for:
+    //   pt-BR: A primeira parte da #605 está no ar: cada versão publica o SHA-256 de cada arquivo do app web, e
+    //          scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app
+    //          modificado entregue a quem roda o script, naquele momento; não impede um servidor comprometido, e o app
+    //          instalado ainda não recusa uma atualização que não seja uma versão publicada.
+    //   en:    The first part of #605 is live: each release publishes the SHA-256 of every file of the web app, and
+    //          scripts/verify-web.mjs compares what the live site serves with it. It can notice a modified app served
+    //          to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not
+    //          yet refuse an update that is not a release.
+    // Either swap goes through the text audit, re-reads every step (not only step 0) and moves ROADMAP_AS_OF to
+    // that day, and fixes the #605 line of ui/changelog.d/changed/roadmap-texts-reviewed.md if it is not released yet.
     n: 0,
     status: 'now',
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada (#605). Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
+        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 está em revisão: uma lista com o SHA-256 de cada arquivo de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a partir da primeira versão que publicar a lista. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
       en:
-        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and nothing yet lets a member check that the app our server sends is a published release (#605). This step and step 1 can move at the same time.',
+        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and nothing yet lets a member check that the app our server sends is a published release (#605). The first part of #605 is under review: a list of the SHA-256 of every file of each web release, and a script anyone can run to compare the live site with it, from the first release that publishes the list. This step and step 1 can move at the same time.',
     },
     refs: [issue(575), issue(577), issue(567), issue(605)],
   },
@@ -75,9 +93,9 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Medir, desenhar e revisar', en: 'Measure, design and review' },
     body: {
       'pt-BR':
-        'Parte desta etapa está feita: o tempo de gerar a prova de uma transação pequena (duas ações) no navegador de um celular já foi medido, com um teste que qualquer pessoa roda ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). A mediana de cinco execuções foi de 17 a 35 segundos num Galaxy S24 Ultra, cerca de 49 num Galaxy A72, e 132 num Galaxy A14 com o Firefox e 279 com o Chrome. Falta medir: procurar na blockchain os pagamentos do cofre, como a prova cresce numa folha de pagamento, o armazenamento e a bateria. Depois: escrever o plano técnico para tirar a chave de visualização do coordenador, e ter uma revisão independente desse plano, publicada na íntegra. Esta etapa espera por um revisor de fora do time.',
+        'Parte desta etapa está feita: o tempo de gerar a prova de uma transação pequena (duas ações) no navegador de um celular já foi medido, com um teste que qualquer pessoa roda ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). A mediana de cada sessão (de três a cinco execuções) foi de 13 a 35 segundos num Galaxy S24 Ultra, cerca de 49 num Galaxy A72, e 132 num Galaxy A14 com o Firefox e de 268 a 279 com o Chrome. O mesmo teste já mede, com dados sintéticos, o trabalho de processador de procurar os pagamentos do cofre, e, num computador, como a prova cresce com o número de ações. Falta medir: a procura numa blockchain de verdade (com download e armazenamento), o crescimento da prova num celular, e a bateria. Depois: escrever o plano técnico para tirar a chave de visualização do coordenador, e ter uma revisão independente desse plano, publicada na íntegra. Esta etapa espera por um revisor de fora do time.',
       en:
-        'Part of this step is done: making the proof for one small transaction (two actions) in a phone’s browser is measured, with a test anyone can run ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). The median of five runs was 17 to 35 seconds on a Galaxy S24 Ultra, about 49 on a Galaxy A72, and 132 on a Galaxy A14 with Firefox and 279 with Chrome. Still to measure: finding the vault’s payments on the blockchain, how the proof grows with a payroll, storage and battery. Then: write the technical plan for taking the viewing key off the coordinator, and have an independent review of that plan, published in full. This step waits on a reviewer from outside the team.',
+        'Part of this step is done: making the proof for one small transaction (two actions) in a phone’s browser is measured, with a test anyone can run ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). The median of each session (three to five runs) was 13 to 35 seconds on a Galaxy S24 Ultra, about 49 on a Galaxy A72, and 132 on a Galaxy A14 with Firefox and 268 to 279 with Chrome. The same test already measures, on synthetic data, the processor work of finding the vault’s payments, and, on a computer, how the proof grows with the number of actions. Still to measure: finding payments on the real blockchain (with download and storage), how the proof grows on a phone, and battery. Then: write the technical plan for taking the viewing key off the coordinator, and have an independent review of that plan, published in full. This step waits on a reviewer from outside the team.',
     },
     refs: [issue(516)],
   },
@@ -114,9 +132,9 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Recuperar um assento perdido', en: 'Get a lost seat back' },
     body: {
       'pt-BR':
-        'Quem perdeu o aparelho recupera o assento com a ajuda dos outros membros, sem mover os fundos, depois de os outros confirmarem quem está pedindo.',
+        'Num cofre com mais membros do que o quórum, quem perdeu o aparelho recupera o assento com a ajuda dos outros membros, sem mover os fundos, depois de os outros confirmarem quem está pedindo. Num cofre em que todos precisam assinar, isso não é possível.',
       en:
-        'A member who lost a device gets the seat back with the other members’ help, without moving the funds, once the others have confirmed who is asking.',
+        'In a vault with more members than its quorum, a member who lost a device gets the seat back with the other members’ help, without moving the funds, once the others have confirmed who is asking. In a vault where everyone must sign, this is not possible.',
     },
     refs: [issue(58), issue(585), issue(593)],
   },
@@ -205,9 +223,9 @@ export const ROADMAP_LATER: Stage[] = [
     title: { 'pt-BR': 'Base e operação', en: 'Foundations and operations' },
     body: {
       'pt-BR':
-        'Um ambiente de teste que já existe, à parte do que guarda ZEC de verdade, e que ainda precisa saber falhar de propósito; entrega automática dos servidores; e o que precisa aguentar quando houver milhares de cofres.',
+        'Um ambiente de teste que já existe, separado do de produção (também na mainnet, com valores mínimos), e que ainda precisa saber falhar de propósito; entrega automática dos servidores; e o que precisa aguentar quando houver milhares de cofres.',
       en:
-        'A test environment that already exists apart from the one holding real ZEC, and still has to learn to fail on purpose; automatic deploys for the servers; and what has to hold once there are thousands of vaults.',
+        'A test environment that already exists, separate from production (also on mainnet, with minimal amounts), and still has to learn to fail on purpose; automatic deploys for the servers; and what has to hold once there are thousands of vaults.',
     },
     refs: [issue(370), issue(141), issue(565)],
   },
