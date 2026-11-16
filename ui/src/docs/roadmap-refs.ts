@@ -13,6 +13,7 @@ export const REFS_AS_OF = {"iso":"2026-11-16","pt-BR":"16 de novembro de 2026","
 export const REF_INFO: Record<string, RefInfo> = {
   "issue:638": {"title":"Carry NU7 in the engine before it activates on mainnet: the consensus branch id changes","state":"open"},
   "pull:701": {"title":"feat: NU7 groundwork, the epoch rules in one place, inert until the next row (#638)","state":"merged"},
+  "issue:847": {"title":"ZIP 2009: pay the lower fee from block 3,590,000","state":"open"},
   "issue:575": {"title":"An approval planted while a vault took unsigned writes keeps counting after it requires signatures","state":"open"},
   "issue:577": {"title":"A member can claim a colleague's unclaimed seat, and then vote as them","state":"open"},
   "issue:567": {"title":"Bind each approval to the content it approves, and have the device check it before signing","state":"open"},

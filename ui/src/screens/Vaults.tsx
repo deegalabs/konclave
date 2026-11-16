@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
+import { copyText } from '../clipboard'
 import { SentenceWithSecret, SECRET_MARK } from '../components'
 import { vaultStatus, readAt, readIsStale, openBadgeKey } from '../vault-status'
 import { TipAnchor, TipButton, TipGroup } from '../card-tip'
@@ -109,6 +110,8 @@ export default function Vaults() {
   const [resumeMsg, setResumeMsg] = useState<Record<string, string>>({})
   const [resumeDone, setResumeDone] = useState<Record<string, VaultBackup | null>>({})
   const [resumeCopied, setResumeCopied] = useState(false)
+  const [resumeCopyFailed, setResumeCopyFailed] = useState(false)
+  const [resumeDownloadFailed, setResumeDownloadFailed] = useState(false)
   /** A record made while this device used another coordinator than it uses now: a different server
    *  would mint a different address for the same vault, so that is asked, never assumed. */
   const sameCoord = (rec: VaultPublic) => sameCoordinator(rec.coordinator, helperBase())
@@ -518,13 +521,21 @@ export default function Vaults() {
                         <p>{t('vaults.resumeBackupTitle')}</p>
                         {!resumeDone[v.id]!.complete && <p>{t('vaults.resumeBackupIncomplete')}</p>}
                         <button type="button" className="cv-stop" style={{ marginRight: 8 }}
-                          onClick={() => downloadText(resumeDone[v.id]!.name, resumeDone[v.id]!.json)}>
+                          onClick={() => setResumeDownloadFailed(!downloadText(resumeDone[v.id]!.name, resumeDone[v.id]!.json))}>
                           {t('vaults.resumeBackupDownload')}
                         </button>
                         <button type="button" className="cv-stop"
-                          onClick={() => { void navigator.clipboard.writeText(resumeDone[v.id]!.json).then(() => { setResumeCopied(true); window.setTimeout(() => setResumeCopied(false), 1500) }).catch(() => {}) }}>
+                          onClick={() => {
+                            void (async () => {
+                              const ok = await copyText(resumeDone[v.id]!.json)
+                              setResumeCopyFailed(!ok); setResumeCopied(ok)
+                              if (ok) window.setTimeout(() => setResumeCopied(false), 1500)
+                            })()
+                          }}>
                           {resumeCopied ? t('receive.copied') : t('vaults.resumeBackupCopy')}
                         </button>
+                        {resumeCopyFailed && <p className="hint err" role="alert">{t('copy.failedUseDownload')}</p>}
+                        {resumeDownloadFailed && <p className="hint err" role="alert">{t('export.errDownload')}</p>}
                       </div>
                     ) : (
                       <div style={{ marginTop: 8 }}>

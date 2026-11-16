@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { copyText } from '../clipboard'
 import { Letterhead, Stepper } from '../components'
 import CopyButton from '../CopyButton'
 import { useT, useTr } from '../i18n'
@@ -25,6 +26,7 @@ export default function Ceremony() {
   // creation, not at first unlock when the share is already committed (#171).
   const [confirmWord, setConfirmWord] = useState('')
   const [wordCopied, setWordCopied] = useState(false)
+  const [wordCopyFailed, setWordCopyFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band. Surfaced here
   // at creation - the moment it matters most (confirm everyone joined the SAME vault) - and again in
@@ -79,13 +81,16 @@ export default function Ceremony() {
               <div className="word-head">{tr('ceremony.wordHead')}</div>
               <div className="word-value mono">{passphrase}</div>
               <div className="btns">
-                <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
+                <button className="btn ghost sm-btn" onClick={() => {
+                  void (async () => { const ok = await copyText(passphrase); setWordCopied(ok); setWordCopyFailed(!ok) })()
+                }}>
                   {wordCopied ? t('ceremony.wordCopied') : t('ceremony.wordCopy')}
                 </button>
                 {/* User-driven paper/PDF backup: the app never writes the secret to disk itself
                     (§6.3); printing is the member's own choice, like a seed-phrase backup. */}
                 <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ceremony.wordPrint')}</button>
               </div>
+              {wordCopyFailed && <p className="hint err" role="alert">{t('toast.copyFailed')}</p>}
               <div className="word-warn">
                 {tr('ceremony.wordWarn')}
                 <div className="hint mt-xs">{tr('ceremony.wordWarnHint')}</div>
