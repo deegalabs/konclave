@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { ToastProvider } from './toast'
@@ -96,6 +96,7 @@ describe('an address the vault cannot pay closes Propose and says why (#294)', (
     mount()
     await fill(U1)
     expect(screen.queryByText(en('payment.toSapling'))).toBeNull()
-    expect(propose().disabled).toBe(false)
+    // Propose also waits on the vault and the open proposals the mount reads; wait for them, not a render.
+    await waitFor(() => expect(propose().disabled).toBe(false))
   })
 })

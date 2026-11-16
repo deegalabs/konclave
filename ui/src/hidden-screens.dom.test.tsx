@@ -22,6 +22,11 @@ const getBalance = vi.hoisted(() => vi.fn())
 vi.mock('./api', async (orig) => ({
   ...(await orig<typeof import('./api')>()), getVault, getProposals, getLedger, readBalance, readTransactions, getProposalDetail, getBalance, IS_NET: false,
 }))
+// #1017: Reserved, and so the composition bar, waits for the fee estimate; a fixed one, so the figures below are known.
+vi.mock('./fee-estimate', async (orig) => ({
+  ...(await orig<typeof import('./fee-estimate')>()),
+  useFeeEstimate: () => ({ state: 'ready', estimate: () => 10_000 }),
+}))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [] }))
 vi.mock('./VaultSigner', () => ({ useVaultSigner: () => ({ open: () => {}, bg: { seatCount: 2 } }) }))
 vi.mock('./toast', async (orig) => ({ ...(await orig<typeof import('./toast')>()), useToast: () => ({ ok: () => {}, err: () => {}, warn: () => {}, info: () => {} }) }))
@@ -33,13 +38,13 @@ const { default: Proposal } = await import('./screens/Proposal')
 const ADDR = 'u1' + 'q'.repeat(76)
 const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice'], refusals: [], approvals_count: 1, created_at: 1759300000 }
 // Figures chosen so no one of them is a substring of another or of a fee.
-const open = { ...base, id: 'p1', kind: 'payment', state: 'awaiting', memo: 'Rent', to_address: ADDR, value_zat: 123456789, value_zec: '1.23456789' }
+const open = { ...base, id: 'p1', kind: 'payment', state: 'awaiting', destinations: 1, memo: 'Rent', to_address: ADDR, value_zat: 123456789, value_zec: '1.23456789' }
 const sent = { ...base, id: 'p2', kind: 'payment', state: 'confirmed', memo: 'Fuel', to_address: ADDR, value_zat: 234567891, value_zec: '2.34567891', txid: 'a'.repeat(64) }
 // A second month, so the monthly spend chart has two bars to draw (it draws from two).
 const sentOld = { ...base, id: 'p4', kind: 'payment', state: 'confirmed', memo: 'Tools', to_address: ADDR, value_zat: 345678912, value_zec: '3.45678912', txid: 'b'.repeat(64), created_at: 1756700000 }
-// total 7.77654321, spendable 6, reserved by `open` 1.23456789: free 4.76543211, confirming 1.77654321
+// total 7.77654321, spendable 6, reserved by `open` 1.23456789 plus a 0.0001 fee: 1.23466789, free 4.76533211, confirming 1.77654321
 const bal = { configured: true, total_zat: 777654321, total_zec: '7.77654321', spendable_zat: 600000000, spendable_zec: '6' }
-const FIGURES = ['7.77654321', '4.76543211', '1.77654321', '1.23456789', '2.34567891', '3.45678912']
+const FIGURES = ['7.77654321', '4.76533211', '1.23466789', '1.77654321', '1.23456789', '2.34567891', '3.45678912']
 
 const shell = (el: ReactElement) => render(
   <MemoryRouter initialEntries={[{ pathname: '/', state: { id: 'p1' } }]}><I18nProvider><ToastProvider>
