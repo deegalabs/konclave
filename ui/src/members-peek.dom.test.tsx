@@ -9,7 +9,7 @@ import MembersPeek from './MembersPeek'
 // alone. It is now a state: hover and focus open it, mouse leave, blur and Escape close it.
 
 const roster = [{ name: 'Alice', pubkey: 'a' }, { name: 'Bob', pubkey: 'b' }]
-const mount = () => render(<MemoryRouter><I18nProvider><MembersPeek members={2} thr={2} n={2} roster={roster} creator="Alice" me="Bob" /></I18nProvider></MemoryRouter>)
+const mount = () => render(<MemoryRouter><I18nProvider><MembersPeek vaultId="v" members={2} thr={2} n={2} roster={roster} creator="Alice" me="Bob" /></I18nProvider></MemoryRouter>)
 const peek = () => document.querySelector('.members-peek') as HTMLElement
 const link = () => screen.getByRole('link')
 afterEach(cleanup)

@@ -26,6 +26,10 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
 
+# Read-only (CodeQL actions/missing-workflow-permissions): it builds and tests, and writes nothing.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Desktop shell (fmt · clippy · test)
