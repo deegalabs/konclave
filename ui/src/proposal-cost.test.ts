@@ -52,3 +52,15 @@ describe('costZat', () => {
     expect(proposalCostZat(p, estimate)).toBe(costZat(777, 5, estimate))
   })
 })
+
+import { codeOf } from './source-scan'
+describe('the proposal page and the build screens add value and fee in one place', () => {
+  it('Proposal.tsx uses costZat and never estimates one destination for a payroll with unread lines', () => {
+    const code = codeOf('screens/Proposal.tsx')
+    expect(code).toMatch(/costZat\(amountZat, plan\.lines\.length, feeEstimator\)/)
+    expect(code).not.toMatch(/Math\.max\(1, plan\.lines\.length\)/)
+  })
+  it('the signing panel stays on the device\'s own reading, not the coordinator\'s destinations', () => {
+    expect(codeOf('screens/SigningPanel.tsx')).not.toMatch(/\.destinations\b/)
+  })
+})

@@ -873,7 +873,7 @@ export const en: Record<string, string> = {
   // Reservation is OUR rule, not the network's (\u00a76.14) - the funds are real and the engine would
   // spend them. So the message owes the member the arithmetic and the name of whoever is holding
   // it: "you are short" would be a lie, and it would hide the one thing they can act on.
-  'money.blockReserved': 'The vault has the funds, but {reserved} ZEC is committed to open proposals ({held}). {free} ZEC is free to propose right now \u00b7 it is released when those are sent or refused.',
+  'money.blockReserved': 'The vault has the funds, but {reserved} ZEC is committed to open proposals ({held}), estimated fees included. {free} ZEC is free to propose right now \u00b7 it is released when those are sent or refused.',
   'money.blockNoFunds': "This vault has nothing spendable yet. Funds received recently may still be confirming.",
   'money.blockConfirming': 'The vault holds the amount, but {confirming} ZEC is still confirming. Propose it once that lands.',
   'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
@@ -1153,7 +1153,7 @@ export const en: Record<string, string> = {
   'ledger.xlsxOutPayrolls': 'Settled out: payrolls',
   'ledger.xlsxByState': 'Entries by state',
   'ledger.xlsxPosition': 'Position (total)',
-  'ledger.xlsxCommitted': 'Committed to open proposals (value, fees excluded)',
+  'ledger.xlsxCommitted': 'Committed to open proposals (value plus estimated fees)',
   'ledger.xlsxAvailable': 'Available',
   'ledger.xlsxConfirming': 'Confirming',
   'ledger.xlsxAsOf': 'Balance as of (whole vault, not the period)',
@@ -1223,6 +1223,7 @@ export const en: Record<string, string> = {
   'analyses.free': 'Free',
   'analyses.reserved': 'Held by open proposals',
   'analyses.confirming': 'Confirming',
+  'analyses.feeEstimateNotReady': 'The fee estimate is not ready, so the parts of the balance are not shown.',
   'analyses.balanceUnread': 'The balance could not be read, so its parts are not shown.',
   'analyses.runwayAwaitsBalance': 'Shown once the balance is read.',
   'analyses.noFreeNow': 'Nothing is free to spend now: open proposals hold all of it, or the vault is empty.',
@@ -1251,7 +1252,7 @@ export const en: Record<string, string> = {
   'analyses.secProjection': 'Projection',
   'analyses.srcInVault': 'The balance the vault read when this file was made.',
   'analyses.srcFree': 'In the vault, less what is confirming and what open proposals hold.',
-  'analyses.srcReserved': 'The sum of the proposals still awaiting approval or ready to send, capped at what can be spent.',
+  'analyses.srcReserved': 'The sum of the proposals still awaiting approval or ready to send, each with its fee estimate, capped at what can be spent.',
   'analyses.srcConfirming': 'Received, not yet spendable.',
   'analyses.srcMonth': 'Payments sent or confirmed, placed by the date they were proposed.',
   'analyses.srcProjected': 'Free funds less the pace for each month ahead. Projected, not recorded.',
