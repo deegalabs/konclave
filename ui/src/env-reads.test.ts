@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { codeAt } from './source-scan'
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
+import { ENV_NAME } from '../../scripts/web-manifest.mjs'
 
 // #605: the web build must be reproducible from the repository, so that a rebuild at a release tag
 // gives the bytes the host serves. Reading `import.meta.env` as a whole object makes Vite inline
@@ -30,7 +32,7 @@ describe('the app reads the build env one key at a time (#605)', () => {
       for (const m of text.matchAll(/import\.meta\??\.env\b(\??\.([A-Za-z_$][\w$]*))?/g)) {
         reads++
         const name = m[2]
-        if (name === undefined || !(BUILT_IN.has(name) || /^VITE_[A-Z0-9_]+$/.test(name))) {
+        if (name === undefined || !(BUILT_IN.has(name) || ENV_NAME.test(name))) {
           offenders.push(`${f.slice(src.length + 1)}: ${m[0]}`)
         }
       }
