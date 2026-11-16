@@ -26,7 +26,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup } from '../build-backup'
 import { useT, useTr, useI18n } from '../i18n'
-import { Dialog, Letterhead, PassphraseField } from '../components'
+import { Letterhead, PassphraseField } from '../components'
 import { newPassphraseProblem } from '../passphrase'
 import {
   saveVault,
@@ -41,6 +41,7 @@ import {
 } from '../storage'
 import { downloadText } from '../download'
 import { removeVaultFromDevice } from '../remove-vault'
+import { RemoveVaultDialog } from '../remove-vault-dialog'
 import {
   helperConfigured,
   helperBase,
@@ -1036,19 +1037,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   // Delete asks first: it destroys this device's only copy of the seat's share unless a backup exists.
   const [deleting, setDeleting] = useState<VaultPublic | null>(null)
-  const doDelete = useCallback(
-    async (id: string) => {
-      setDeleting(null)
-      try {
-        // The one removal every screen uses (#813): the record and what this device keeps with it.
-        await removeVaultFromDevice(id)
-        await refreshSaved()
-      } catch {
-        /* deletion failure is non-fatal */
-      }
-    },
-    [refreshSaved],
-  )
 
   // Leaving now would lose this creation (creation-guard): tell the host, warn on reload, and ask
   // before an explicit or stray close.
@@ -1448,7 +1436,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
         {savedVaults.length > 0 && (
           <div className="net-card" style={{ marginTop: 16 }}>
-            <h3>{L.restoreTitle}</h3>
+            <h3 id="net-restore-title" tabIndex={-1} style={{ outline: 'none' }}>{L.restoreTitle}</h3>
             {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -1475,29 +1463,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         )}
 
         {deleting && (
-          <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="net-remove-title" focusCard
-            onClose={() => setDeleting(null)}>
-            <h2 id="net-remove-title">{ttr('dashboard.deleteConfirmTitle', { name: deleting.name ?? '' })}</h2>
-            <p className="rm-lead">{ttr('dashboard.deleteConfirmBody')}</p>
-            <div className="rm-funds">
-              <span className="rm-ic" aria-hidden="true">!</span>
-              <p>{ttr('dashboard.deleteFundsWarn')}</p>
-            </div>
-            <p className="rm-quiet">{ttr('dashboard.deleteLocalHint')}</p>
-            <button type="button" className="rm-backup" onClick={() => {
-              setSelectedVault(deleting.id)
-              nav('/settings')
-            }}>
-              {tt('dashboard.deleteBackupFirst')}
-            </button>
-            <p className="rm-quiet rm-why">{ttr('dashboard.deleteBackupWhy')}</p>
-            <div className="unlock-btns">
-              <button className="rd-enter" onClick={() => setDeleting(null)}>{tt('common.cancel')}</button>
-              <button className="rd-enter danger" onClick={() => void doDelete(deleting.id)}>
-                {tt('dashboard.deletePermanently')}
-              </button>
-            </div>
-          </Dialog>
+          <RemoveVaultDialog id={deleting.id} name={deleting.name}
+            remove={async () => ((await removeVaultFromDevice(deleting.id)) ? 'ok' : 'fail')}
+            onExport={() => { setSelectedVault(deleting.id); nav('/settings') }}
+            onClose={() => setDeleting(null)}
+            onRemoved={() => { setDeleting(null); void refreshSaved(); window.setTimeout(() => document.getElementById('net-restore-title')?.focus(), 0) }} />
         )}
 
         <p className="net-tip">{ttr('net.idle.tip')}</p>
