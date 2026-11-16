@@ -4,4 +4,4 @@
   switcher listed vaults with a reader that answers an empty list when this browser has no storage or
   the database will not open, so it could not tell "none saved" from "could not read". It now reads
   with the one the Vaults list uses, and says "Could not read the vaults on this device" when that
-  read fails; the line is a disabled menu item, so menu navigation reaches it.
+  read fails; the line sits inside the switcher, read in order with it.

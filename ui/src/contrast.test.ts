@@ -120,6 +120,18 @@ for (const theme of ['light', 'dark'] as const) {
       expect(ratio(t(fg!), t(bg!))).toBeGreaterThanOrEqual(4.5)
     })
 
+    // The notice on a host that is not the official one: text on its own wash, over the card. The
+    // fill and edge are decorative (the words carry the warning), but they must exist in BOTH themes:
+    // they were undefined, and every use fell back to a light-theme brown that vanished in dark.
+    it('the host notice clears AA on its warning wash, and the wash and edge are defined', () => {
+      const wash = over(t('warn-soft'), well())
+      expect(ratio(t('warn-strong'), wash)).toBeGreaterThanOrEqual(4.5)
+      expect(ratio(t('text'), wash)).toBeGreaterThanOrEqual(4.5)
+      expect(t('warn-line')).toMatch(/^rgba\(/)
+      // Visible against the card in dark too, not just there in the stylesheet.
+      expect(ratio(over(t('warn-line'), wash), well())).toBeGreaterThan(1.3)
+    })
+
     it('the network pill clears AA on its own wash', () => {
       expect(ratio(t('accent-on-soft'), accentCard())).toBeGreaterThanOrEqual(4.5)
     })

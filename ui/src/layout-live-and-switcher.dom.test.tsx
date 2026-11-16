@@ -29,7 +29,7 @@ const mount = () => render(
 )
 const openSwitcher = async () => {
   fireEvent.click(await screen.findByRole('button', { name: /Caixa/ }))
-  await screen.findByRole('menu')
+  await waitFor(() => expect(document.querySelector('.vault-pop')).not.toBeNull())
 }
 
 beforeEach(() => {
@@ -83,10 +83,11 @@ describe('the vault switcher says when it cannot read the saved vaults (#320)', 
     fireEvent.click(chip) // reopen: this read succeeds
     await waitFor(() => expect(hint()).toBeNull())
   })
-  it('puts the hint where menu navigation reaches it', async () => {
+  it('puts the hint inside the switcher panel, read in order with it (#317 disclosure)', async () => {
     mount()
     await openSwitcher()
-    const item = await screen.findByRole('menuitem', { name: en('vaults.unreadTitle') })
-    expect(item.getAttribute('aria-disabled')).toBe('true')
+    const line = await screen.findByText(en('vaults.unreadTitle'))
+    expect(line.closest('.vault-pop')).not.toBeNull()
+    expect(line.getAttribute('role')).toBeNull()
   })
 })
