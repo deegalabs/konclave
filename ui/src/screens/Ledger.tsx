@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { startVisiblePoll } from '../usePoll'
-import { Secret, RevealButton, activateOnKey } from '../components'
+import { Secret, SentenceWithSecret, SECRET_MARK, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
@@ -22,7 +22,7 @@ import { useVaultReadable } from '../vault-readable'
 import { useReveal } from '../reveal'
 
 // Where the difference goes in the reconciliation sentence, so it can be drawn under the bar.
-const DIFF_MARK = '\u0000'
+const DIFF_MARK = SECRET_MARK
 // Closed without payment: refused, expired, cancelled, invalidated. Neither settled nor open, so
 // outside both totals; shown with its own state and no outflow sign, because the money never left.
 const CLOSED = (p: Proposal) => !SETTLED(p.state) && !isOpen(p)
@@ -57,6 +57,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [pKind, setPKind] = useState<PeriodKind>('all')
   const [pOffset, setPOffset] = useState(0)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'csv'>(null)
+  // The last export the browser did not save (#983): said where the buttons are.
+  const [exportFailed, setExportFailed] = useState(false)
   // The book by beneficiary (#778): opened on demand, since it reads every payroll's lines.
   const [showPivot, setShowPivot] = useState(false)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
@@ -223,10 +225,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   async function exportAs(kind: 'xlsx' | 'csv') {
     if (exporting) return
     setExporting(kind)
+    setExportFailed(false)
     try {
       const data = await exportData(kind)
-      if (kind === 'xlsx') await exportLedgerXlsx(data)
-      else await exportLedgerCsv(data, locale)
+      const saved = kind === 'xlsx' ? await exportLedgerXlsx(data) : await exportLedgerCsv(data, locale)
+      setExportFailed(!saved)
+    } catch {
+      // A file that could not be built is not saved either: said, as Analyses does.
+      setExportFailed(true)
     } finally {
       setExporting(null)
     }
@@ -257,10 +263,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const pivotWarn = showPivot && !pivotVs.ok && !pivotReading
   // The difference is an amount like any other: under the bar on screen and absent from paper while
   // hidden, and exact to the zatoshi, like the book's totals.
-  const withVeiledDiff = (text: string) => {
-    const [before, after = ''] = text.split(DIFF_MARK)
-    return <>{before}<Secret sm label={t('ledger.pivotDiff')}><span>{fmtZatExact(pivotVs.diffZat)}</span></Secret>{after}</>
-  }
+  const withVeiledDiff = (text: string) => (
+    <SentenceWithSecret sentence={text} sm label={t('ledger.pivotDiff')}><span>{fmtZatExact(pivotVs.diffZat)}</span></SentenceWithSecret>
+  )
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
   // from the rows it carries (#302).
   const periodOf = (list: Proposal[]) => {
@@ -288,6 +293,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.csvIncludes')} onClick={() => void exportAs('csv')}>{exporting === 'csv' ? t('ledger.exporting') : t('ledger.exportCsv')}</button>
       <button className="btn ghost sm-btn" disabled={exporting !== null || rows === null} title={t('ledger.xlsxIncludes')} onClick={() => void exportAs('xlsx')}>{exporting === 'xlsx' ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
+      {exportFailed && <p className="hint err" role="alert">{t('download.failed')}</p>}
     </>
   )
 

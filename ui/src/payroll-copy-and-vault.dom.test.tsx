@@ -24,7 +24,7 @@ vi.mock('./fee-estimate', async (orig) => ({
   useFeeEstimate: () => ({ state: 'ready', estimate: (d: number) => 5000 * Math.max(3, Math.max(1, d) + 1) }),
 }))
 vi.mock('./api', async (orig) => ({
-  ...(await orig<typeof import('./api')>()), health, getBeneficiaries, getLedger, getVault, getProposals, getProposalDetail, readBalance, IS_NET: true,
+  ...(await orig<typeof import('./api')>()), actingAs: async () => ({ ok: true, seat: 1, name: 'Alice' }), health, getBeneficiaries, getLedger, getVault, getProposals, getProposalDetail, readBalance, IS_NET: true,
 }))
 vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults: async () => [] }))
 vi.mock('./toast', () => ({ useToast: () => ({ ok: () => {}, err: () => {}, warn: () => {}, info: () => {} }) }))

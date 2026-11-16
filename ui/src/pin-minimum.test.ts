@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { codeOf } from './source-scan'
+import { en } from './i18n/en'
+import { ptBR } from './i18n/pt-BR'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import { deriveRoom, pinIsLongEnough, MIN_PIN_LENGTH } from './net'
@@ -132,6 +134,11 @@ describe('room PIN minimum', () => {
       expect(src).not.toMatch(/\b4\b[^'`]{0,12}(digits|dígitos)/)
       expect(src).not.toMatch(/Math\.max\(4,/)
     }
+    // /net's words live in the dictionary since #318: they are held to the same rule.
+    for (const v of [...Object.values(en), ...Object.values(ptBR)]) {
+      expect(v).not.toMatch(/4 to 6|4 a 6/)
+      expect(v).not.toMatch(/\b4\b.{0,12}(digits|dígitos)/)
+    }
   })
 
   // The hidden PIN is drawn as bullets; a screen reader must not read them out one by one.
@@ -143,7 +150,7 @@ describe('room PIN minimum', () => {
     // ...but it hears that a PIN is there and hidden, and the toggle names what it shows.
     expect(html).toMatch(/<span class="sr-only">hidden<\/span>/)
     expect(html).not.toMatch(/aria-pressed/)
-    expect(html).toMatch(/<button[^>]*>show<span class="sr-only"> the room PIN<\/span><\/button>/)
+    expect(html).toMatch(/<button[^>]*aria-label="show the room PIN"[^>]*>show<\/button>/)
   })
 })
 
@@ -151,10 +158,13 @@ describe('room PIN minimum', () => {
 // out. So the help does not promise that the invite alone cannot find the room.
 describe('the PIN help, on what the PIN does', () => {
   it('does not promise that the invite alone cannot find the room', () => {
+    // The words live in the dictionary since #318 moved /net's inline pairs there.
     const code = codeOf('screens/NetVault.tsx')
-    expect(code).not.toMatch(/cannot find the room/)
-    expect(code).not.toMatch(/não acha a sala/)
-    // The own-PIN help says what a made-up PIN costs instead.
-    expect(code).toMatch(/A PIN you make up is easier to guess than the one the app made/)
+    const words = [code, ...Object.values(en), ...Object.values(ptBR)].join('\n')
+    expect(words).not.toMatch(/cannot find the room/)
+    expect(words).not.toMatch(/não acha a sala/)
+    // The own-PIN help says what a made-up PIN costs instead, and the screen shows that help.
+    expect(en['net.create.pinChooseHint']).toMatch(/A PIN you make up is easier to guess than the one the app made/)
+    expect(code).toMatch(/tt\('net\.create\.pinChooseHint'\)/)
   })
 })

@@ -1,5 +1,7 @@
 // The command the desktop release runs, after `pnpm -C ui run build`, with the env the build had:
-//   node scripts/check-desktop-bundle-cli.mjs [distDir]      (distDir defaults to ui/dist)
+//   node scripts/check-desktop-bundle-cli.mjs [distDir]        (distDir defaults to ui/dist)
+// and ci.yml, after the web build, checks only that no env key name was inlined (#605):
+//   node scripts/check-desktop-bundle-cli.mjs --web [distDir]
 //
 // A file of its own, with no "am I the main module?" test, like check-sw-cli.mjs: comparing
 // import.meta.url with argv[1] misses when the path runs through a symlink, or on Windows, and the
@@ -9,16 +11,20 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { bundleProblems, REQUIRED } from './check-desktop-bundle.mjs'
 
-const dist = process.argv[2] ?? join('ui', 'dist')
+const args = process.argv.slice(2)
+const web = args[0] === '--web'
+const dist = (web ? args[1] : args[0]) ?? join('ui', 'dist')
+const label = web ? 'web bundle' : 'desktop bundle'
 const assets = join(dist, 'assets')
 if (!existsSync(assets)) {
   console.error(`no built bundle at ${assets}: run \`pnpm -C ui run build\` first`)
   process.exit(1)
 }
 const sources = readdirSync(assets).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(assets, f), 'utf8'))
-const problems = bundleProblems(process.env, sources)
+const problems = bundleProblems(process.env, sources, { web })
 if (problems.length) {
-  for (const p of problems) console.error(`desktop bundle: ${p}`)
+  for (const p of problems) console.error(`${label}: ${p}`)
   process.exit(1)
 }
-for (const name of REQUIRED) console.log(`desktop bundle: ${name}=${process.env[name]}`)
+if (web) console.log(`${label}: no env key name inlined`)
+else for (const name of REQUIRED) console.log(`${label}: ${name}=${process.env[name]}`)
