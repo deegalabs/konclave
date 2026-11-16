@@ -634,9 +634,10 @@ export function errorCode(error?: string, detail?: string): FailureCode {
 }
 
 /**
- * How many confirmations a note needs before the wallet will spend it. Not our choice: it is
- * `ConfirmationsPolicy::default()` in zcash_client_backend (data_api/wallet.rs:450-461), and we
- * never pass `--min-confirmations`, so the default is what every vault gets.
+ * How many confirmations a note needs before the wallet will spend it: ZIP 315's counts, which the
+ * vault's build names in konclave-signer (`vault_confirmations`, #870) and which are also
+ * zcash_client_backend's default, the one the wallet's balance read uses (we never pass
+ * `--min-confirmations`). A test in konclave-signer fails if these two numbers and its own differ.
  *
  * There are two numbers, and the difference is worth showing: money that arrived from OUTSIDE is
  * untrusted and waits 10; the change from the vault's own payment is trusted and waits 3.
