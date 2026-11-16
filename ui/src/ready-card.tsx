@@ -1,6 +1,7 @@
-import { useI18n, useTr } from './i18n'
+import { useI18n } from './i18n'
 import { payReadiness } from './pay-readiness'
 import { fmtZecExact } from './format'
+import { SentenceWithSecret, SECRET_MARK } from './components'
 
 export interface ReadyCardProps {
   threshold: number
@@ -13,7 +14,6 @@ export interface ReadyCardProps {
 /** The Dashboard's "can this vault pay right now" card. */
 export function ReadyCard({ threshold, total, freeZat, hasBal, backendsUp }: ReadyCardProps) {
   const { t } = useI18n()
-  const tr = useTr()
   const hasFree = freeZat !== null && freeZat > 0
   const { canPay } = payReadiness({ hasFree, backendsUp })
   return (
@@ -32,7 +32,7 @@ export function ReadyCard({ threshold, total, freeZat, hasBal, backendsUp }: Rea
       <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
         <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
         <span>{hasFree
-          ? tr('dashboard.readyFree', { amt: fmtZecExact((freeZat ?? 0) / 1e8) })
+          ? <SentenceWithSecret sentence={t('dashboard.readyFree', { amt: SECRET_MARK })} sm>{fmtZecExact((freeZat ?? 0) / 1e8)}</SentenceWithSecret>
           : !hasBal
             ? t('dashboard.readyFreeUnknown')
             : t('dashboard.readyNoFree')}</span>

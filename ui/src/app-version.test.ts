@@ -105,6 +105,8 @@ describe('the banner and the menu above it (delta audits on 6445e5c)', () => {
     expect(css).toMatch(/\.lv-docs \.version-badge a\{border-bottom:0; color:var\(--text-muted\)\}/)
   })
   it('Escape closes the More sheet, so the keyboard never sits under it', () => {
-    expect(codeOf('./Layout.tsx')).toMatch(/if \(e\.key === 'Escape'\) setMoreOpen\(false\)/)
+    // Since #317 the sheet is a disclosure: Escape closes it and returns focus to More. The behaviour
+    // is tested on the real Layout in nav-disclosure.dom.test.tsx; this pins that the sheet uses it.
+    expect(codeOf('./Layout.tsx')).toMatch(/useDisclosure\(moreOpen, setMoreOpen\)/)
   })
 })

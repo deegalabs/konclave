@@ -2,12 +2,12 @@ import { useEffect, useState, useRef } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
-import { BannerWarn, Seal, Secret, RevealButton } from '../components'
+import { BannerWarn, Seal, Secret, SentenceWithSecret, SECRET_MARK, RevealButton } from '../components'
 import { SkeletonStat, SkeletonRows, SkeletonDetail } from '../skeleton'
 import { DashboardSkeleton } from '../dashboard-skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
-import { Identicon } from '../avatar'
+import { Identicon, seedForName } from '../avatar'
 import MembersPeek from '../MembersPeek'
 import { fmtZecExact, expiryLabel, fmtDate } from '../format'
 import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
@@ -20,6 +20,7 @@ import { proposalName } from '../proposal-name'
 import { WALLET_BUSY } from '../helper'
 import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useI18n, useTr } from '../i18n'
+import { useReveal } from '../reveal'
 import {
   getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
   type Vault, type Proposal,
@@ -86,6 +87,7 @@ function whatOf(p: Proposal, t: (k: string) => string): string {
 export default function Dashboard() {
   const { t, locale } = useI18n()
   const tr = useTr()
+  const { revealed } = useReveal()
   const { open: openSigning } = useVaultSigner()
   const seatRefused = useSeatRefusal(getSelectedVault())
   const { begin, end } = useLoading()
@@ -423,7 +425,7 @@ export default function Dashboard() {
           eyebrow={t('dashboard.collectiveVault')}
           title={name}
           subtitle={<>
-            {tr('dashboard.vmetaPre')} · <MembersPeek members={members} thr={thr} n={n} roster={roster} creator={creator} me={me} />
+            {tr('dashboard.vmetaPre')} · <MembersPeek vaultId={vault?.id ?? ''} members={members} thr={thr} n={n} roster={roster} creator={creator} me={me} />
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
@@ -487,7 +489,7 @@ export default function Dashboard() {
               {desk.open > 1 && <span className="desk-count">{t('desk.openCount', { n: desk.open })}</span>}
             </div>
             <div className="ny-body">
-              <Identicon seed={lead.p.proposer} size={38} />
+              <Identicon seed={seedForName(vault?.id, vault?.members_read === false ? null : roster, lead.p.proposer)} size={38} />
               <div className="ny-main">
                 <div className="ny-amt"><Secret>{fmtZecExact(lead.p.value_zat / 1e8)}</Secret> <span className="dim small">ZEC</span></div>
                 <div className="a-to">{tr('dashboard.whatProposedBy', { what: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
@@ -552,7 +554,9 @@ export default function Dashboard() {
               {spendSeries.length >= 2 && (
                 <section className="panel">
                   <h3>{t('dashboard.spendByMonth')}</h3>
-                  <SpendBars data={spendSeries} />
+                  {/* Each bar's title and the table behind the chart carry every month's figure, so
+                      the chart is drawn only once revealed (as Analyses does), never under a bar. */}
+                  {revealed ? <SpendBars data={spendSeries} /> : <p className="hint">{t('dashboard.spendHidden')}</p>}
                 </section>
               )}
               {part.considered > 0 && (
@@ -654,11 +658,15 @@ export default function Dashboard() {
               {parts && parts.totalZat > 0 && (
                 <div className="bal-comp">
                   <div className="comp" role="img"
-                    aria-label={t('dashboard.compAria', {
-                      free: fmtZecExact(parts.freeZat / 1e8),
-                      reserved: fmtZecExact(parts.reservedZat / 1e8),
-                      confirming: fmtZecExact(parts.confirmingZat / 1e8),
-                    })}>
+                    aria-label={revealed
+                      ? t('dashboard.compAria', {
+                        free: fmtZecExact(parts.freeZat / 1e8),
+                        reserved: fmtZecExact(parts.reservedZat / 1e8),
+                        confirming: fmtZecExact(parts.confirmingZat / 1e8),
+                      })
+                      // The three parts sit under the veil in the legend; read aloud here they would
+                      // be the amounts the veil is there to keep back (#838).
+                      : t('dashboard.compAriaHidden')}>
                     {parts.pct.free > 0 && <span className="c-free" style={{ width: `${parts.pct.free}%` }} />}
                     {parts.pct.reserved > 0 && <span className="c-res" style={{ width: `${parts.pct.reserved}%` }} />}
                     {parts.pct.confirming > 0 && <span className="c-conf" style={{ width: `${parts.pct.confirming}%` }} />}
@@ -690,7 +698,7 @@ export default function Dashboard() {
                       same money counted twice, on the balance card. The composition bar (when
                       `parts` is available) shows the split honestly; this is its fallback and has
                       to be equally honest. */}
-                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: fmtZecExact(pendNum) })}</span>}
+                  {!parts && <span className="pd"><SentenceWithSecret sentence={t('dashboard.confirming', { amt: SECRET_MARK })} sm>{fmtZecExact(pendNum)}</SentenceWithSecret></span>}
                   {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.
@@ -767,7 +775,7 @@ export default function Dashboard() {
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
               <span className={'kpi-v' + (paidTxt.length > 7 ? ' kpi-long' : '')}><Secret sm><b>{paidTxt}</b></Secret> <span className="kpi-u">ZEC</span></span>
-              {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
+              {usdPaid && <span className="kpi-sub">≈ <Secret sm>{usdPaid}</Secret></span>}
             </div>
           </section>
         )}

@@ -43,6 +43,11 @@ describe('the invite card', () => {
     expect(c).toMatch(/navigator\.share\(\{ url: link \}\)/)
     expect(c).toMatch(/copyText\(what === 'code' \? code : link\)/)
     expect(c).toMatch(/encodeQR\(link, 'svg'\)/)
+    // #625: the hidden field copies through the same `act`, not a second copy path, and the QR is
+    // drawn from that one link only.
+    expect((c.match(/copyText\(/g) ?? []).length).toBe(1)
+    expect((c.match(/encodeQR\(/g) ?? []).length).toBe(1)
+    expect(c).toMatch(/cv-invite-hidden" aria-describedby="cv-invite-hint" onClick=\{\(\) => void act\('code'\)\}/)
   })
 })
 

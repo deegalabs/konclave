@@ -86,7 +86,7 @@ describe('FundsLine', () => {
     expect(out).not.toContain('funds-proj below')
     expect(out).toContain('>Now 3.0000 ZEC<')
     expect(out).toContain('>Projected 1.0000 ZEC<')
-    expect(out).toContain(`<figcaption class="chart-src">${base.source.replace("'", '&#x27;')}</figcaption>`)
+    expect(out).toContain(`<figcaption class="chart-src">${base.source.replaceAll("'", '&#x27;')}</figcaption>`)
   })
 
   it('keeps the drawing out of the tab order and away from a screen reader, which reads the table', () => {

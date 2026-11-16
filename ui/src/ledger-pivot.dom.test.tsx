@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
+import { RevealProvider } from './reveal'
 import { en as dict } from './i18n/en'
 const en = (k: string, v: Record<string, string> = {}): string =>
   Object.entries(v).reduce((s, [key, val]) => s.replaceAll(`{${key}}`, val), dict[k] ?? k)
@@ -33,7 +34,8 @@ const lines: Record<string, ReturnType<typeof line>[]> = {
   p5: [line('Carla', 'u1carla', 30000000)],
 }
 
-const mount = () => render(<MemoryRouter><I18nProvider><Ledger /></I18nProvider></MemoryRouter>)
+// Hidden, as every load starts; only a test that reads a figure mounts it revealed (#838).
+const mount = (initial = false) => render(<MemoryRouter><I18nProvider><RevealProvider initial={initial}><Ledger /></RevealProvider></I18nProvider></MemoryRouter>)
 const openPivot = async () => {
   await screen.findByText(/Payroll/)
   fireEvent.click(screen.getByRole('button', { name: new RegExp(en('ledger.byPayee')) }))
@@ -51,7 +53,7 @@ describe('the book by beneficiary, as the member reads it (#778)', () => {
 
   it('says the sums match, and prints every figure to the zatoshi', async () => {
     getLedger.mockResolvedValue([pending, payroll, rent])
-    mount()
+    mount(true)
     await openPivot()
     await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMatches')))
     const foot = document.querySelector('.pivot-tbl tfoot') as HTMLElement
@@ -62,7 +64,7 @@ describe('the book by beneficiary, as the member reads it (#778)', () => {
   it('names a payroll whose lines could not be read, with its count and the difference under the bar', async () => {
     getLedger.mockResolvedValue([pending, payroll, rent, refused])
     getProposalDetail.mockResolvedValue(null)
-    mount()
+    mount(true)
     await openPivot()
     // The refused payroll is unreadable too, but it counts in neither total, so it is not in the count.
     await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMismatch', { diff: '2.0000', n: '1' })))
@@ -74,33 +76,30 @@ describe('the book by beneficiary, as the member reads it (#778)', () => {
     // 2.00000001 ZEC unread: four decimals would print 2.0000 and hide the last zatoshi.
     getLedger.mockResolvedValue([{ ...payroll, value_zat: 200000001, value_zec: '2.00000001' }])
     getProposalDetail.mockResolvedValue(null)
-    mount()
+    mount(true)
     await openPivot()
     await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMismatch', { diff: '2.00000001', n: '1' })))
     expect(status().querySelector('.secret')?.textContent).toBe('2.00000001')
   })
 
-  it('keeps every amount of the table under the bar, rows and footer', async () => {
+  it('keeps every amount of the table out of the page while hidden, rows and footer', async () => {
     getLedger.mockResolvedValue([pending, payroll, rent])
     mount()
     await openPivot()
     await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMatches')))
-    const cells = [...document.querySelectorAll('.pivot-tbl tbody td.num, .pivot-tbl tfoot th.num')]
-      .filter((c) => /\d\.\d/.test(c.textContent ?? ''))
-    // Rows: Alice 1.2, rent 1.50000001, Bob 0.8, open 0.25; footer: the two totals.
+    // Rows: Alice 1.2, rent 1.50000001, Bob 0.8, open 0.25; footer: the two totals. One veil each.
+    const cells = [...document.querySelectorAll('.pivot-tbl tbody td.num, .pivot-tbl tfoot th.num')].filter((c) => c.querySelector('.secret'))
     expect(cells).toHaveLength(6)
-    for (const c of cells) {
-      const veil = c.querySelector('.secret')
-      expect(veil, c.textContent ?? '').not.toBeNull()
-      expect(veil!.textContent).toBe(c.textContent)
-      expect(veil!.querySelector('button.bar')).not.toBeNull()
+    for (const c of cells) expect(c.querySelector('button.bar'), c.innerHTML).not.toBeNull()
+    for (const f of ['1.2', '1.50000001', '0.8', '0.25', '3.50000001', '0.2500']) {
+      expect(document.querySelector('.pivot-tbl')!.innerHTML, f).not.toContain(f)
     }
   })
 
   it('does not say "nothing settled" when every payroll in view is unreadable and the book has a total', async () => {
     getLedger.mockResolvedValue([payroll])
     getProposalDetail.mockResolvedValue(null)
-    mount()
+    mount(true)
     await openPivot()
     await waitFor(() => expect(status().textContent).toBe(en('ledger.pivotMismatch', { diff: '2.0000', n: '1' })))
     expect(status().textContent).not.toBe(en('ledger.pivotEmpty'))
