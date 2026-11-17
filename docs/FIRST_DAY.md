@@ -3,7 +3,8 @@
 > For a group that has just created a Konclave vault, and for the treasurer who will run it. It says
 > what to do on day one, how money comes in, how a payment goes out, and what to do if something
 > stops working. It is written from [GUIDE.md](GUIDE.md), [RECOVERY.md](RECOVERY.md),
-> [CLAIMS.md](CLAIMS.md) and the [README](../README.md); where they say more, they win.
+> [CLAIMS.md](CLAIMS.md), the [README](../README.md) and the app's own screens; where they say
+> more, they win.
 
 Start small: Konclave runs on the Zcash main network, with real ZEC. It has not been independently
 audited, and until [#567](https://github.com/deegalabs/konclave/issues/567) is fixed a payment the
