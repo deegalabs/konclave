@@ -10,14 +10,24 @@
 //! fvk      = ak || nk || rivk_ext
 //! ```
 //!
-//! Written from the ZIP text and checked in CI against vectors produced elsewhere
-//! (`tests/zip2005_use_qsk.rs`). No product path calls it yet: today a vault's viewing key is
+//! Checked in CI against vectors produced elsewhere (`tests/zip2005_use_qsk.rs`). Read the
+//! agreement for what it is: this function follows the ZIP text, but it was written after reading
+//! the frost-tools PR #610 test and uses the same crates as zafe-core, which produced the vectors,
+//! so a mistake shared by those crates would pass here. The ZIP's own steps were re-checked by hand
+//! in the 2026-11-17 security review. No product path calls it yet: today a vault's viewing key is
 //! minted at random (#428). When one does, it calls this function; a second copy of the
 //! derivation is the failure CLAUDE.md §11 describes.
 //!
-//! `qsk` is a secret held as securely as a share (ZIP 2005: "at least as securely and reliably as
-//! ask"). This function returns it so the vectors can be checked; a caller that does not need it
-//! drops it.
+//! Why this is Rust here and not a call into the engine (CLAUDE.md §3, "do not reimplement
+//! crypto"): no official tool or library exposes this derivation. orchard 0.16 and zcash_spec do
+//! not, and `zcash-sign` at frost-tools PR #610 carries only test vectors for it. If the engine
+//! later offers it, the product uses ONE of the two, and the vector test keeps comparing them
+//! until the other is removed.
+//!
+//! `qsk` is a secret that MUST be retained: ZIP 2005 asks each participant to hold it "at least as
+//! securely and reliably as ask", because funds can be lost without it if the Recovery Protocol is
+//! ever needed (or `sk` must be kept, with `use_qsk` and `ak`, to re-derive it). Before a product
+//! path calls this, the secret outputs move to zeroizing types and their storage is decided.
 
 use blake2b_simd::Params;
 use ff::{FromUniformBytes, PrimeField};
