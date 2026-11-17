@@ -295,6 +295,16 @@ for (const theme of ['light', 'dark'] as const) {
       expect(appRule('.plr-val, .plr-memo')).not.toMatch(/outline:\s*none/)
     })
 
+    // #903: in dark the veil's ink was about the colour of the page (1.03 to 1.28:1), so the control
+    // that reveals a figure was close to invisible. Its edge is what has to reach 3:1, on every
+    // surface a figure sits on, and the rule that ships is what is read.
+    it('the veil has a perceptible edge on every surface (1.4.11, #903)', () => {
+      expect(lruleIn('.secret .bar')).toMatch(/box-shadow:\s*inset 0 0 0 1px var\(--tarja-edge\)/)
+      for (const s of ['surface-0', 'surface-1', 'surface-2', 'surface-3']) {
+        expect(ratio(t('tarja-edge'), t(s)), `--tarja-edge on ${s}`).toBeGreaterThanOrEqual(3)
+      }
+    })
+
     it('the focus ring is visible against what surrounds it', () => {
       for (const [name, bg] of [
         ['page', page()], ['danger card', dangerCard()], ['accent card', accentCard()],

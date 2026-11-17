@@ -259,16 +259,27 @@ export function Secret({ children, sm, label, describedBy, barEvents }: {
   // The spoken word describes the control, so a keyboard user landing on a bar hears the state there
   // and not only the name; a tip's own id rides beside it.
   const describedByIds = [revealed ? '' : hiddenId, describedBy ?? ''].filter(Boolean).join(' ') || undefined
+  const valueRef = useRef<HTMLSpanElement>(null)
   return (
     <span className={'secret' + (sm ? ' sm' : '') + (revealed ? ' on' : '')}>
-      <span className="secret-val">{revealed ? children : veil(children)}</span>
+      {/* Focusable only from code: it is where focus goes when its own bar reveals it (#904). */}
+      <span className="secret-val" ref={valueRef} tabIndex={-1}>{revealed ? children : veil(children)}</span>
       {!revealed && <span id={hiddenId} className="visually-hidden">{t('secret.hidden')}</span>}
+      {/* Once revealed the bar is drawn away, so it leaves the Tab order and the accessibility tree
+          too (#904): a keyboard stop on nothing visible. The mouse cannot reach it either (App.css,
+          pointer-events), so the page's Reveal/Hide button is what hides the figures again, for both. */}
       <button
         type="button"
         className="bar"
         data-label={t('secret.tarja')}
         {...barEvents}
-        onClick={(e) => { toggle(); barEvents?.onClick?.(e) }}
+        onClick={(e) => {
+          // Focus moves before the bar goes, so it never sits on a control that has left the tree.
+          if (!revealed) valueRef.current?.focus()
+          toggle(); barEvents?.onClick?.(e)
+        }}
+        tabIndex={revealed ? -1 : undefined}
+        aria-hidden={revealed || undefined}
         aria-pressed={revealed}
         aria-describedby={describedByIds}
         // One name; `aria-pressed` carries the state. A name that flipped to "Hide" while the button

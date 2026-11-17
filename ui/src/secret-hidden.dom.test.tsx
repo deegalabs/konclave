@@ -6,7 +6,7 @@ import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 import { RevealProvider } from './reveal'
-import { Secret, SentenceWithSecret } from './components'
+import { RevealButton, Secret, SentenceWithSecret } from './components'
 import { veilWidthCh } from './veil'
 
 // #838: the bar hid a value from the eye only. The value stayed in the page as text, so a screen
@@ -95,21 +95,59 @@ describe('a hidden amount is not in the page (#838)', () => {
     expect(bar.getAttribute('aria-describedby')).toBeNull()
   })
 
-  it('revealing puts the value in, takes the spoken word out and leaves focus on the bar; hiding takes it out again', () => {
+  it('revealing puts the value in, takes the spoken word out and moves focus to the value; hiding takes it out again', () => {
     localStorage.setItem('konclave.locale', 'en')
-    const c = render(<I18nProvider><RevealProvider><Secret sm><b>{S}</b></Secret></RevealProvider></I18nProvider>).container
+    const c = render(<I18nProvider><RevealProvider><Secret sm><b>{S}</b></Secret><RevealButton /></RevealProvider></I18nProvider>).container
     const bar = screen.getByRole('button', { name: en['secret.reveal']! })
     bar.focus()
     fireEvent.click(bar)
     expect(c.textContent).toContain(S)
     expect(c.querySelector('.visually-hidden')).toBeNull()
-    const pressed = screen.getByRole('button', { name: en['secret.reveal']! })
-    expect(pressed.getAttribute('aria-pressed')).toBe('true')
-    expect(document.activeElement).toBe(pressed)
-    fireEvent.click(pressed)
+    // #904: the bar is gone from sight, so focus may not stay on it. It lands on the value it uncovered.
+    expect(document.activeElement).toBe(c.querySelector('.secret-val'))
+    fireEvent.click(screen.getByRole('button', { name: en['common.hide']! }))
     expect(leaked(c.innerHTML)).toBe(false)
-    expect(document.activeElement).toBe(pressed)
-    expect(pressed.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: en['secret.reveal']! })).toBe(bar)
+    expect(bar.getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+/** What Tab stops on, in order: what a keyboard user reaches. jsdom has no Tab key, so this is the
+ *  browser's rule for it: focusable, not taken out with a negative tabindex. */
+const tabStops = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')]
+    .filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled)
+
+describe('a revealed bar is out of the keyboard order (#904)', () => {
+  afterEach(() => { cleanup(); localStorage.clear() })
+  const page = (initial: boolean) => render(
+    <I18nProvider><RevealProvider initial={initial}>
+      <Secret>{S}</Secret><Secret sm label="Alice">{S}</Secret><RevealButton />
+    </RevealProvider></I18nProvider>,
+  ).container
+
+  it('while hidden, Tab stops on every bar and then on the page toggle', () => {
+    const c = page(false)
+    const stops = tabStops(c)
+    expect(stops.map((el) => el.className)).toEqual(['bar', 'bar', 'reveal-btn'])
+  })
+
+  it('once revealed, Tab skips the invisible bars and stops only on the page toggle, which hides them again', () => {
+    const c = page(true)
+    expect(tabStops(c).map((el) => el.className)).toEqual(['reveal-btn'])
+    // Nor does a screen reader find a control nobody can see.
+    for (const bar of c.querySelectorAll('button.bar')) expect(bar.getAttribute('aria-hidden')).toBe('true')
+    expect(screen.queryAllByRole('button', { name: new RegExp(en['secret.reveal']!) })).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: en['common.hide']! }))
+    expect(tabStops(c).map((el) => el.className)).toEqual(['bar', 'bar', 'reveal-btn'])
+  })
+
+  it('revealing with one bar moves focus to its own value, not to another one', () => {
+    const c = page(false)
+    const [, second] = [...c.querySelectorAll<HTMLButtonElement>('button.bar')]
+    second!.focus()
+    fireEvent.click(second!)
+    expect(document.activeElement).toBe(second!.closest('.secret')!.querySelector('.secret-val'))
   })
 })
 
