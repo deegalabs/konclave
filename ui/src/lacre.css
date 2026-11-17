@@ -40,6 +40,8 @@
   --danger-soft:rgba(180,35,24,.08); --danger-line:rgba(180,35,24,.30);
   /* signature devices - the redaction bar stays a solid dark ink bar (pops harder on white) */
   --tarja-ink:#101828; --tarja-text:rgba(255,255,255,.72);
+  /* the bar's 1px edge: the ink itself here, where the bar already stands out (#903) */
+  --tarja-edge:#101828;
   /* type */
   --font-sans:"Archivo",system-ui,sans-serif;
   --font-mono:"Spline Sans Mono",ui-monospace,monospace;
@@ -77,6 +79,9 @@
   --danger:#e77f74; --danger-text:#ef9a92;
   --danger-soft:rgba(231,127,116,.10); --danger-line:rgba(231,127,116,.30);
   --tarja-ink:#0c1014; --tarja-text:rgba(230,227,219,.60);
+  /* the ink is about the page's colour in dark (1.03 to 1.28:1), so the edge is what shows the
+     control: 3.45:1 or more on every surface (#903) */
+  --tarja-edge:#6b7b90;
   --shadow-overlay:0 30px 60px -24px rgba(0,0,0,.8);
   --shadow-sm:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
 }
@@ -180,7 +185,8 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .secret{position:relative; display:inline-block}
 .secret .bar{position:absolute; inset:-2px -6px; background:var(--tarja-ink); cursor:pointer;
   border:0; padding:0; margin:0; font:inherit; appearance:none; -webkit-appearance:none;
-  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);}
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);
+  box-shadow:inset 0 0 0 1px var(--tarja-edge);}
 .secret .bar:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .secret.sm .bar{inset:-1px -4px}
 .secret .bar::after{content:attr(data-label); position:absolute; left:7px; top:50%; transform:translateY(-50%);
