@@ -340,8 +340,8 @@ Cross-cutting guarantees that hold across every use case:
   share**). The result screen shows the one-time vault passphrase, receive address, group key;
   "Go to vault" is gated on acknowledging the passphrase is saved.
 - **Quorum default:** the create flow defaults to **`2-of-3`** (redundant by construction) and, if
-  you pick `n === t` (e.g. 2-of-2), shows a **non-blocking warning badge** that a lost device then
-  locks the funds ([ADR-0010](adr/0010-quorum-redundancy-default.md)). It is a product guardrail,
+  you pick `n === t` (e.g. 2-of-2), shows a **non-blocking warning badge** that losing a device and its
+  backup then locks the funds ([ADR-0010](adr/0010-quorum-redundancy-default.md)). It is a product guardrail,
   not a protocol constraint: `n === t` is still allowed.
 - **Postcondition:** a vault with sealed shares, key never reconstituted.
 - **Honest limits:** single-device demo runs all participants as threads; the legacy `/create`
