@@ -14,6 +14,9 @@
 
 use std::io::Read;
 
+mod selection;
+use selection::Selection;
+
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use konclave_seal::spends::spends_to_sign;
@@ -78,6 +81,14 @@ enum Cmd {
         /// Without it the permission is not used, so a rolled-back caller is read as legacy.
         #[arg(long)]
         zip2009_from: Option<u32>,
+        /// Which notes the build takes first: the fewest, largest first (default), or the oldest
+        /// (the library's own order, kept for comparison in tests; the coordinator never asks for it).
+        #[arg(long, value_enum, default_value_t = Selection::Largest)]
+        selection: Selection,
+        /// Pay any change to ONE output instead of splitting it into up to four (the coordinator
+        /// asks for it only when the split would take the transaction past what the vault can sign).
+        #[arg(long)]
+        single_change: bool,
     },
 }
 
@@ -248,6 +259,7 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
 /// Build an unproven Orchard PCZT paying N recipients in one transaction: the one builder, for a
 /// payroll and for a single payment (a payroll of one line). It mirrors what `zcash-devtool pczt
 /// create` did (which only pays one) and extends it to a multi-payment ZIP 321 request.
+#[allow(clippy::too_many_arguments)]
 fn build_payroll(
     wallet: &str,
     account_uuid: &str,
@@ -256,33 +268,21 @@ fn build_payroll(
     network: &str,
     zip2009_permitted: bool,
     zip2009_from: Option<u32>,
+    selection: Selection,
+    single_change: bool,
 ) -> Result<()> {
-    use std::num::NonZeroUsize;
     use std::str::FromStr;
 
     use rand10::{rand_core::UnwrapErr, rngs::SysRng};
     use serde::Deserialize;
     use uuid::Uuid;
     use zcash_address::ZcashAddress;
-    use zcash_client_backend::{
-        data_api::{
-            error::Error as WalletErr,
-            wallet::{
-                create_pczt_from_proposal,
-                input_selection::{GreedyInputSelector, SpendPolicy},
-                propose_transfer, ConfirmationsPolicy,
-            },
-            Account as _, WalletRead,
-        },
-        fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy},
-        wallet::OvkPolicy,
-    };
+    use zcash_client_backend::data_api::{wallet::ConfirmationsPolicy, Account as _, WalletRead};
     use zcash_client_sqlite::{util::SystemClock, AccountUuid, WalletDb};
     use zcash_protocol::{
         consensus::Network,
         memo::{Memo, MemoBytes},
         value::Zatoshis,
-        ShieldedPool,
     };
     use zip321::{Payment, TransactionRequest};
 
@@ -352,47 +352,125 @@ fn build_payroll(
         zip2009_permitted,
         zip2009_from,
     );
+    let pczt = propose_and_build(
+        &mut db,
+        &params,
+        account.id(),
+        request,
+        marginal,
+        selection,
+        single_change,
+    )?;
+
+    let bytes = pczt
+        .serialize()
+        .map_err(|e| anyhow!("serialize payroll PCZT: {:?}", e))?;
+    std::fs::write(out, bytes)?;
+    println!("wrote payroll PCZT ({} outputs) to {}", lines.len(), out);
+    Ok(())
+}
+
+/// The proposal and the unproven PCZT a vault's build makes from a wallet, a request and a marginal
+/// fee: the input selector, the spend policy, the confirmations and the change strategy live HERE
+/// and nowhere else, so a test that drives this function drives what the coordinator builds.
+fn propose_and_build<C, P, CL, R>(
+    db: &mut zcash_client_sqlite::WalletDb<C, P, CL, R>,
+    params: &P,
+    account_id: zcash_client_sqlite::AccountUuid,
+    request: zip321::TransactionRequest,
+    marginal: u64,
+    selection: Selection,
+    single_change: bool,
+) -> Result<Pczt>
+where
+    P: zcash_protocol::consensus::Parameters + Clone,
+    zcash_client_sqlite::WalletDb<C, P, CL, R>:
+        zcash_client_backend::data_api::WalletRead<
+                Error = zcash_client_sqlite::error::SqliteClientError,
+                AccountId = zcash_client_sqlite::AccountUuid,
+            > + zcash_client_backend::data_api::WalletWrite
+            + zcash_client_backend::data_api::InputSource<
+                Error = zcash_client_sqlite::error::SqliteClientError,
+                AccountId = zcash_client_sqlite::AccountUuid,
+                NoteRef = zcash_client_sqlite::ReceivedNoteId,
+            > + zcash_client_backend::data_api::WalletCommitmentTrees,
+{
+    use std::num::NonZeroUsize;
+
+    use rand10::{rand_core::UnwrapErr, rngs::SysRng};
+    use zcash_client_backend::{
+        data_api::{
+            error::Error as WalletErr,
+            wallet::{
+                create_pczt_from_proposal,
+                input_selection::{GreedyInputSelector, SpendPolicy},
+                propose_transfer,
+            },
+        },
+        fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy},
+        wallet::OvkPolicy,
+    };
+    use zcash_client_sqlite::util::SystemClock;
+    use zcash_protocol::{value::Zatoshis, ShieldedPool};
+
+    // The same confirmations `build_payroll` reads the target height with (the library's default
+    // on this line).
+    let confirmations = zcash_client_backend::data_api::wallet::ConfirmationsPolicy::default();
     let fee_rule = build_fee_rule(marginal)?;
     let change_strategy = MultiOutputChangeStrategy::new(
         fee_rule,
         None,
         ShieldedPool::Orchard,
         DustOutputPolicy::default(),
-        SplitPolicy::with_min_output_value(
-            NonZeroUsize::new(4).unwrap(),
-            Zatoshis::from_u64(10_000_000).unwrap(),
-        ),
+        // The vault keeps up to four notes of at least 0.1 ZEC (parallel spends) unless the
+        // coordinator asks for one change output, which it does only when that split would take the
+        // transaction past what the vault can sign.
+        if single_change {
+            SplitPolicy::single_output()
+        } else {
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(4).unwrap(),
+                Zatoshis::from_u64(10_000_000).unwrap(),
+            )
+        },
     );
-    let input_selector = GreedyInputSelector::new();
-
-    let proposal = propose_transfer(
-        &mut db,
-        &params,
-        account.id(),
-        &input_selector,
-        &change_strategy,
-        request,
-        confirmations,
-        &SpendPolicy::default(),
-        None,
-        // proposed_version: None -> build at the version implied by the target height (V6 from
-        // NU6.3/Ironwood onward), so the pool is resolved from consensus, not pinned here.
-        None,
-    )
-    .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| {
-        anyhow!("propose_transfer: {e:?}")
-    })?;
+    // The same call for both orders: only the selector differs (selection.rs).
+    macro_rules! propose {
+        ($selector:expr) => {
+            propose_transfer(
+                db,
+                params,
+                account_id,
+                &$selector,
+                &change_strategy,
+                request,
+                confirmations,
+                &SpendPolicy::default(),
+                None,
+                // proposed_version: None -> build at the version implied by the target height (V6
+                // from NU6.3/Ironwood onward), so the pool is resolved from consensus, not here.
+                None,
+            )
+            .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| {
+                anyhow!("propose_transfer: {e:?}")
+            })?
+        };
+    }
+    let proposal = match selection {
+        Selection::Largest => propose!(selection::LargestFirstSelector::new()),
+        Selection::Oldest => propose!(GreedyInputSelector::new()),
+    };
 
     // `None` expiry (the caller syncs before building) and the DEFAULT Orchard-pool padding; the
     // pool (Orchard pre-NU6.3, Ironwood post-NU6.3) is resolved from consensus at the target height.
     // The final arg changed from an orchard `BundleType` to `BundlePadding` in the Ironwood line
     // (backend 0.24); DEFAULT preserves the previous behavior.
-    let pczt = create_pczt_from_proposal(
-        &mut db,
-        &params,
+    create_pczt_from_proposal(
+        db,
+        params,
         &SystemClock,
         &mut UnwrapErr(SysRng),
-        account.id(),
+        account_id,
         OvkPolicy::Sender,
         &proposal,
         None,
@@ -402,14 +480,7 @@ fn build_payroll(
         |e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {
             anyhow!("create_pczt_from_proposal: {e:?}")
         },
-    )?;
-
-    let bytes = pczt
-        .serialize()
-        .map_err(|e| anyhow!("serialize payroll PCZT: {:?}", e))?;
-    std::fs::write(out, bytes)?;
-    println!("wrote payroll PCZT ({} outputs) to {}", lines.len(), out);
-    Ok(())
+    )
 }
 
 fn main() -> Result<()> {
@@ -424,6 +495,8 @@ fn main() -> Result<()> {
             network,
             zip2009_permitted,
             zip2009_from,
+            selection,
+            single_change,
         } => build_payroll(
             &wallet,
             &account,
@@ -432,6 +505,8 @@ fn main() -> Result<()> {
             &network,
             zip2009_permitted,
             zip2009_from,
+            selection,
+            single_change,
         ),
     }
 }
@@ -700,8 +775,9 @@ mod tests {
         }
     }
 
-    // M1: the dispatch in `main` hands the two flags to `build_payroll` as they were parsed, and not
-    // a constant: the flag a member's vault was permitted by must reach the decision.
+    // M1: the dispatch in `main` hands the flags to `build_payroll` as they were parsed, and not a
+    // constant: the flag a member's vault was permitted by must reach the decision, and the note
+    // order the coordinator asked for must reach the build.
     #[test]
     fn main_hands_the_parsed_flags_to_the_build() {
         let src = include_str!("main.rs");
@@ -709,7 +785,7 @@ mod tests {
             ..src.find("// Destructive tests").unwrap()];
         let flat: String = body.split_whitespace().collect();
         assert!(
-            flat.contains("zip2009_permitted,zip2009_from,}=>build_payroll(&wallet,&account,&spec,&out,&network,zip2009_permitted,zip2009_from,)"),
+            flat.contains("zip2009_permitted,zip2009_from,selection,single_change,}=>build_payroll(&wallet,&account,&spec,&out,&network,zip2009_permitted,zip2009_from,selection,single_change,)"),
             "{flat}"
         );
     }
@@ -760,5 +836,405 @@ mod tests {
         let flat: String = body.split_whitespace().collect();
         assert!(flat.contains("marginal_for_build(matches!(params,Network::MainNetwork),u32::from(target),zip2009_permitted,zip2009_from,)"));
         assert!(flat.contains("build_fee_rule(marginal)"));
+    }
+}
+
+// Which notes a build spends: the fewest, the largest first, whatever smaller notes the vault
+// received earlier. Driven through `propose_and_build`, the builder the coordinator runs, against the
+// library's own wallet test harness (a real sqlite wallet, fake compact blocks, Ironwood active). The
+// cap itself is the coordinator's (`build_within_cap` and its tests in orchestrator/src/send.rs).
+#[cfg(test)]
+mod note_order {
+    use super::*;
+    use zcash_client_backend::data_api::testing::{
+        orchard::OrchardPoolTester, pool::ShieldedPoolTester, AddressType, FakeCompactOutput,
+        IronwoodFvk, TestBuilder,
+    };
+    use zcash_client_backend::data_api::Account as _;
+    use zcash_client_sqlite::testing::{db::TestDbFactory, BlockCache};
+    use zcash_primitives::block::BlockHash;
+    use zcash_protocol::{consensus::BlockHeight, local_consensus::LocalNetwork, value::Zatoshis};
+
+    /// The sealed cap for 1 to 31 devices as `orchestrator/src/net_send.rs` pins it today; a
+    /// secondary check only (the rule under test is the spend count).
+    const SEALED_CAP: usize = 6;
+    /// What `funding_check` builds at: always the legacy marginal fee (F3, `orchestrator/src/send.rs`).
+    const PROBE_MARGINAL: u64 = 5_000;
+    /// A small payment a vault receives (0.0001 ZEC).
+    const SMALL_NOTE: u64 = 10_000;
+    const ZEC: u64 = 100_000_000;
+
+    fn network(nu7: bool) -> LocalNetwork {
+        let at = BlockHeight::from_u32(100_000);
+        LocalNetwork {
+            nu6: Some(at),
+            nu6_1: Some(at),
+            nu6_2: Some(at),
+            nu6_3: Some(at),
+            nu7: nu7.then_some(at),
+            ..TestBuilder::<(), ()>::DEFAULT_NETWORK
+        }
+    }
+
+    /// One block of the vault's history: notes of these values, Ironwood unless `orchard`, to the
+    /// external address unless `change`.
+    #[derive(Clone)]
+    struct Block {
+        values: Vec<u64>,
+        orchard: bool,
+        change: bool,
+    }
+
+    fn small_notes(n: usize) -> Block {
+        Block {
+            values: vec![SMALL_NOTE; n],
+            orchard: false,
+            change: false,
+        }
+    }
+
+    fn notes(values: &[u64]) -> Block {
+        Block {
+            values: values.to_vec(),
+            orchard: false,
+            change: false,
+        }
+    }
+
+    struct Wallet {
+        blocks: Vec<Block>,
+        /// Empty blocks after the last one (10 makes every note spendable).
+        confirmations: u32,
+        /// Blocks appended after the confirmations (not yet spendable).
+        recent: Vec<Block>,
+        nu7: bool,
+    }
+
+    impl Wallet {
+        fn of(blocks: Vec<Block>) -> Self {
+            Wallet {
+                blocks,
+                // The library default asks 10 for notes received from others.
+                confirmations: 10,
+                recent: vec![],
+                nu7: false,
+            }
+        }
+    }
+
+    /// Builds a payment of `lines` x `pay` from the wallet in the given order.
+    fn build(w: &Wallet, lines: usize, pay: u64, selection: Selection) -> Result<Pczt, String> {
+        build_with(w, lines, pay, selection, false)
+    }
+
+    fn build_with(
+        w: &Wallet,
+        lines: usize,
+        pay: u64,
+        selection: Selection,
+        single_change: bool,
+    ) -> Result<Pczt, String> {
+        let mut st = TestBuilder::new()
+            .with_network(network(w.nu7))
+            .with_data_store_factory(TestDbFactory::default())
+            .with_block_cache(BlockCache::new())
+            .with_account_from_sapling_activation(BlockHash([0; 32]))
+            .build();
+        let ofvk = st.test_account_orchard().unwrap().clone();
+        let ifvk = IronwoodFvk(ofvk.clone());
+        let account_id = st.test_account().unwrap().id();
+        let mut heights: Vec<BlockHeight> = vec![];
+        macro_rules! add {
+            ($b:expr) => {{
+                let b: &Block = $b;
+                let scope = if b.change {
+                    AddressType::Internal
+                } else {
+                    AddressType::DefaultExternal
+                };
+                let h = if b.orchard {
+                    let outs: Vec<_> = b
+                        .values
+                        .iter()
+                        .map(|v| {
+                            FakeCompactOutput::new(
+                                ofvk.clone(),
+                                scope,
+                                Zatoshis::const_from_u64(*v),
+                            )
+                        })
+                        .collect();
+                    st.generate_next_block_multi(&outs).0
+                } else {
+                    let outs: Vec<_> = b
+                        .values
+                        .iter()
+                        .map(|v| {
+                            FakeCompactOutput::new(
+                                ifvk.clone(),
+                                scope,
+                                Zatoshis::const_from_u64(*v),
+                            )
+                        })
+                        .collect();
+                    st.generate_next_block_multi(&outs).0
+                };
+                heights.push(h);
+            }};
+        }
+        for b in &w.blocks {
+            add!(b);
+        }
+        for _ in 0..w.confirmations {
+            heights.push(st.generate_empty_block().0);
+        }
+        for b in &w.recent {
+            add!(b);
+        }
+        let (first, count) = (heights[0], heights.len());
+        st.scan_cached_blocks(first, count);
+
+        let to = OrchardPoolTester::sk_default_address(&OrchardPoolTester::sk(&[0xf5; 32]));
+        let payments = (0..lines)
+            .map(|_| {
+                zip321::Payment::new(
+                    to.to_zcash_address(st.network()),
+                    Some(Zatoshis::from_u64(pay).unwrap()),
+                    None,
+                    None,
+                    None,
+                    vec![],
+                )
+                .unwrap()
+            })
+            .collect();
+        let request = zip321::TransactionRequest::new(payments).unwrap();
+        let params = network(w.nu7);
+        propose_and_build(
+            st.wallet_mut().db_mut(),
+            &params,
+            account_id,
+            request,
+            PROBE_MARGINAL,
+            selection,
+            single_change,
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// The values of the notes a PCZT really spends (padding spends carry zero), both pools, read
+    /// through the same low-level signer role the bridge uses.
+    fn spent(p: &Pczt) -> Vec<u64> {
+        let mut v = vec![];
+        let mut take = |bundle: &orchard::pczt::Bundle| {
+            for a in bundle.actions() {
+                if let Some(x) = a.spend().value() {
+                    if x.inner() > 0 {
+                        v.push(x.inner());
+                    }
+                }
+            }
+        };
+        LowSigner::new(p.clone())
+            .sign_orchard_with(|_, b, _| {
+                take(b);
+                Ok::<(), OErr>(())
+            })
+            .unwrap()
+            .sign_ironwood_with(|_, b, _| {
+                take(b);
+                Ok::<(), OErr>(())
+            })
+            .unwrap();
+        v.sort_unstable();
+        v
+    }
+
+    fn actions(p: &Pczt) -> usize {
+        konclave_seal::spends::action_count(p)
+    }
+
+    /// The control: with no small notes, a 0.01 ZEC payment from a 1 ZEC note fits the cap.
+    #[test]
+    fn control_a_lone_large_note_pays_within_the_cap() {
+        let p = build(
+            &Wallet::of(vec![notes(&[ZEC])]),
+            1,
+            ZEC / 100,
+            Selection::Largest,
+        )
+        .unwrap();
+        assert_eq!(spent(&p), vec![ZEC]);
+        assert!(actions(&p) <= SEALED_CAP);
+    }
+
+    /// The control: small notes NEWER than the large note are not reached.
+    #[test]
+    fn control_small_notes_after_the_large_note_are_not_selected() {
+        let w = Wallet::of(vec![notes(&[ZEC]), small_notes(10)]);
+        let p = build(&w, 1, ZEC / 100, Selection::Largest).unwrap();
+        assert_eq!(spent(&p), vec![ZEC]);
+    }
+
+    /// With seven notes of 0.0001 ZEC older than the vault's 1 ZEC note,
+    /// a 0.01 ZEC payment that note covers alone is paid from that note.
+    #[test]
+    fn a_payment_one_note_covers_is_paid_from_that_note() {
+        let w = Wallet::of(vec![small_notes(7), notes(&[ZEC])]);
+        let p = build(&w, 1, ZEC / 100, Selection::Largest).unwrap();
+        assert_eq!(spent(&p), vec![ZEC], "no small note is spent");
+        assert!(actions(&p) <= SEALED_CAP, "{} actions", actions(&p));
+    }
+
+    /// The timing-free form: after any payment the vault's funds are a change
+    /// note newer than every small note already received.
+    #[test]
+    fn a_payment_change_covers_is_paid_from_the_change() {
+        let change = Block {
+            values: vec![ZEC],
+            orchard: false,
+            change: true,
+        };
+        let p = build(
+            &Wallet::of(vec![small_notes(7), change]),
+            1,
+            ZEC / 100,
+            Selection::Largest,
+        )
+        .unwrap();
+        assert_eq!(spent(&p), vec![ZEC]);
+    }
+
+    /// The same once NU7 is active (its fee and block rules are not the selection's).
+    #[test]
+    fn a_payment_one_note_covers_is_paid_from_that_note_under_nu7() {
+        let mut w = Wallet::of(vec![small_notes(7), notes(&[ZEC])]);
+        w.nu7 = true;
+        let p = build(&w, 1, ZEC / 100, Selection::Largest).unwrap();
+        assert_eq!(spent(&p), vec![ZEC]);
+    }
+
+    /// No single note covers: the fewest notes, the largest first, and still no small note.
+    #[test]
+    fn with_no_single_covering_note_the_largest_notes_pay_and_no_small_note() {
+        let w = Wallet::of(vec![
+            small_notes(7),
+            notes(&[40_000_000, 40_000_000, 40_000_000]),
+        ]);
+        let p = build(&w, 1, ZEC, Selection::Largest).unwrap();
+        assert_eq!(spent(&p), vec![40_000_000; 3]);
+    }
+
+    /// The order changes nothing about eligibility: a large note still under the confirmations a
+    /// note from outside needs is not taken.
+    #[test]
+    fn an_unconfirmed_large_note_is_not_taken() {
+        let mut w = Wallet::of(vec![small_notes(7), notes(&[5_000_000])]);
+        w.recent = vec![notes(&[ZEC])];
+        let p = build(&w, 1, ZEC / 100, Selection::Largest).unwrap();
+        assert_eq!(spent(&p), vec![5_000_000]);
+    }
+
+    /// A shortfall is still the library's, with its numbers, in both orders (the coordinator parses
+    /// it into `Funding::Short`).
+    #[test]
+    fn a_shortfall_is_still_reported_by_the_library_in_both_orders() {
+        let w = Wallet::of(vec![small_notes(3), notes(&[ZEC])]);
+        for sel in [Selection::Largest, Selection::Oldest] {
+            let e = build(&w, 1, 2 * ZEC, sel).unwrap_err();
+            assert!(e.contains("InsufficientFunds"), "{sel:?}: {e}");
+        }
+    }
+
+    /// A vault whose funds are an Orchard note: small notes received now land in Ironwood (no receive into Orchard
+    /// after NU6.3) and are not taken.
+    #[test]
+    fn a_vault_on_an_orchard_note_is_not_reached() {
+        let large = Block {
+            values: vec![ZEC],
+            orchard: true,
+            change: false,
+        };
+        let p = build(
+            &Wallet::of(vec![small_notes(7), large]),
+            1,
+            ZEC / 100,
+            Selection::Largest,
+        )
+        .unwrap();
+        assert_eq!(spent(&p), vec![ZEC]);
+    }
+
+    /// A payroll whose split change would take it over: two older 0.3 ZEC notes and a newer 2 ZEC
+    /// note, five lines of 0.1 ZEC. The fewest notes is the 2 ZEC note, and its change split in
+    /// several outputs makes 7 actions; the coordinator's second build pays the change to one output
+    /// (`build_within_cap`), which lands at 6, as the old order did.
+    #[test]
+    fn the_five_line_payroll_lands_at_six_actions_with_one_change_output() {
+        let w = Wallet::of(vec![notes(&[30_000_000, 30_000_000]), notes(&[2 * ZEC])]);
+        let split = build(&w, 5, ZEC / 10, Selection::Largest).unwrap();
+        let single = build_with(&w, 5, ZEC / 10, Selection::Largest, true).unwrap();
+        assert!(
+            actions(&split) > 6,
+            "the split build is the case: {}",
+            actions(&split)
+        );
+        assert_eq!(actions(&single), 6);
+        assert_eq!(
+            spent(&single),
+            spent(&split),
+            "the same notes, only the change differs"
+        );
+    }
+
+    /// The same payroll in a vault that also holds older small notes: the second build spends the
+    /// 2 ZEC note alone and lands at 6.
+    #[test]
+    fn the_five_line_payroll_with_older_small_notes_lands_at_six_actions() {
+        let w = Wallet::of(vec![
+            small_notes(6),
+            notes(&[30_000_000, 30_000_000]),
+            notes(&[2 * ZEC]),
+        ]);
+        let single = build_with(&w, 5, ZEC / 10, Selection::Largest, true).unwrap();
+        assert_eq!(actions(&single), 6);
+        assert_eq!(spent(&single), vec![2 * ZEC]);
+    }
+
+    /// The order arrives on the command line: largest first unless the coordinator names the
+    /// oldest, and nothing else is accepted.
+    #[test]
+    fn the_note_order_defaults_to_largest_first_and_parses_oldest() {
+        let base = [
+            "konclave-signer",
+            "build-payroll",
+            "--wallet",
+            "w",
+            "--account",
+            "a",
+            "--spec",
+            "s",
+            "--out",
+            "o",
+        ];
+        let get = |extra: &[&str]| match Cli::try_parse_from(base.iter().chain(extra)).unwrap().cmd
+        {
+            Cmd::BuildPayroll { selection, .. } => selection,
+            _ => unreachable!(),
+        };
+        assert_eq!(get(&[]), Selection::Largest);
+        assert_eq!(get(&["--selection", "oldest"]), Selection::Oldest);
+        assert_eq!(get(&["--selection", "largest"]), Selection::Largest);
+        assert!(Cli::try_parse_from(base.iter().chain(&["--selection", "newest"])).is_err());
+        let single =
+            |extra: &[&str]| match Cli::try_parse_from(base.iter().chain(extra)).unwrap().cmd {
+                Cmd::BuildPayroll { single_change, .. } => single_change,
+                _ => unreachable!(),
+            };
+        assert!(
+            !single(&[]),
+            "the change is split unless the coordinator asks"
+        );
+        assert!(single(&["--single-change"]));
     }
 }
