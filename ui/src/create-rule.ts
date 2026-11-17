@@ -14,11 +14,13 @@ export function recommendedRule(t: number): { t: number; n: number } {
   return t < CREATE_DEVICE_CAP ? { t, n: t + 1 } : { t: CREATE_DEVICE_CAP - 1, n: CREATE_DEVICE_CAP }
 }
 
-/** The warning under a rule where every device has to sign (t of t). */
+/** The warning under a rule where every device has to sign (t of t). A member's backup restores their
+ *  seat on a new device (docs/RECOVERY.md, procedure A), so what locks the funds is losing a device
+ *  and its backup, not the device alone (#1049). */
 export function noMarginWarning(t: number, pe: Pe): string {
   const r = recommendedRule(t)
   return pe(
-    `Se um aparelho for perdido, os fundos ficam presos, sem como recuperar. Recomendamos ${r.t} de ${r.n}.`,
-    `If one device is lost, the funds are locked, with no way to recover. We recommend ${r.t} of ${r.n}.`,
+    `Se um aparelho for perdido e o backup dele também, os fundos ficam presos, sem como recuperar. Recomendamos ${r.t} de ${r.n}.`,
+    `If one device is lost and its backup too, the funds are locked, with no way to recover. We recommend ${r.t} of ${r.n}.`,
   )
 }
