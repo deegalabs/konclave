@@ -31,11 +31,18 @@ pasta_curves = { version = "0.5", default-features = false, optional = true }
 # Only for `share-sig`: what a usable write key is, and a certificate's one JSON form.
 ed25519-dalek = { version = "2", default-features = false, optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
+# Only for `zip2005`: the key derivation ZIP 2005 asks of a FROST account (use_qsk). PRF^expand is
+# BLAKE2b-512, H^qk is BLAKE3; the field types are the pasta release orchard 0.16 links, so the
+# derived bytes are read back by orchard itself. No product path calls it yet (#428).
+blake2b_simd = { version = "1", optional = true }
+blake3 = { version = "1.8.7", default-features = false, optional = true }
+pasta_curves_orchard = { package = "pasta_curves", version = "0.6.1", default-features = false, optional = true }
 
 [features]
 pczt = ["dep:orchard", "dep:ff", "dep:pczt"]
 share-sig = ["dep:reddsa", "dep:pasta_curves", "dep:ed25519-dalek", "dep:serde"]
 receivers = ["dep:orchard", "dep:zcash_address", "dep:zcash_protocol"]
+zip2005 = ["dep:orchard", "dep:ff", "dep:blake2b_simd", "dep:blake3", "dep:pasta_curves_orchard"]
 
 [dev-dependencies]
 # A real dealer's package, to test the package check on what the library produces.
@@ -44,3 +51,6 @@ reddsa = { version = "0.5.2", features = ["frost"] }
 pczt = { version = "0.10.0", default-features = false, features = ["orchard"] }
 # Seeded dealer keys for the committed signing fixture (deterministic, so it can be regenerated).
 rand_chacha = "0.3"
+# Test-only for `zip2005`: the UFVK string a vector names, encoded by the library that encodes it.
+zcash_address = "0.14.0"
+zcash_protocol = { version = "0.11.0", default-features = false }

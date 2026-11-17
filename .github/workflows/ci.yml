@@ -181,6 +181,7 @@ jobs:
           cargo check --manifest-path konclave-seal/Cargo.toml --features pczt
           cargo check --manifest-path konclave-seal/Cargo.toml --features share-sig
           cargo check --manifest-path konclave-seal/Cargo.toml --features receivers
+          cargo check --manifest-path konclave-seal/Cargo.toml --features zip2005
 
   wasm:
     name: WASM (konclave-wasm → browser build)
