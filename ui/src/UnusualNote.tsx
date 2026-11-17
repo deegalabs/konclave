@@ -31,13 +31,23 @@ function oncePerAddress(findings: readonly Unusual[]): Unusual[] {
   return findings.filter((f) => !seen.has(f.address) && (seen.add(f.address), true))
 }
 
+/** The order the note lists findings in, so that past SHOWN what is counted in "and N more" is what
+ *  matters least: an amount above usual and a person dropped from the payroll first, then an address
+ *  with no earlier payment, and a changed amount last, since a round of raises is ordinary. */
+const WEIGHT: Record<Unusual['kind'], number> = {
+  'above-usual': 0, 'payroll-removed': 1, 'first-payment': 2, 'payroll-added': 3, 'payroll-amount': 4,
+}
+const byWeight = (findings: readonly Unusual[]): Unusual[] => [...findings].sort((a, b) => WEIGHT[a.kind] - WEIGHT[b.kind])
+
 function Body({ state, lines }: { state: UnusualState; lines: readonly PayrollLine[] }) {
   const t = useT()
   if (state.status === 'reading') return <p className="hint">{t('unusual.reading')}</p>
   if (state.status === 'failed') return <p className="hint">{t('unusual.failed')}</p>
   const { reading, names } = state
   if (reading.findings.length === 0 && !reading.incomplete) return null
-  const findings = oncePerAddress(reading.findings)
+  // One per address first, in the rule's order (which decides that a newcomer is a first payment),
+  // then by weight.
+  const findings = byWeight(oncePerAddress(reading.findings))
   const who = (address: string) => {
     const label = names.get(address)
     return label ? `${label} (${shortAddr(address)})` : shortAddr(address)
