@@ -35,6 +35,11 @@ pub fn decode_exact<const N: usize>(s: &str) -> Option<[u8; N]> {
     decode(s)?.try_into().ok()
 }
 
+/// `bytes` as lowercase hex, two digits per byte: the one encoder, used for certificates and ids.
+pub fn encode_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

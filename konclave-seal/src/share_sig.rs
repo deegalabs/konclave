@@ -149,10 +149,6 @@ pub struct ProofJson {
     pub sig: String,
 }
 
-fn hex_lower(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 fn lower_hex_bytes<const N: usize>(text: &str) -> Option<[u8; N]> {
     if text.bytes().any(|b| b.is_ascii_uppercase()) {
         return None;
@@ -164,10 +160,10 @@ impl From<&SeatProof> for ProofJson {
     fn from(p: &SeatProof) -> Self {
         ProofJson {
             seat: p.seat,
-            comms_pub: hex_lower(&p.comms_pub),
-            write_pub: hex_lower(&p.write_pub),
-            read_key_hash: hex_lower(&p.read_key_hash),
-            sig: hex_lower(&p.sig),
+            comms_pub: crate::hex::encode_lower(&p.comms_pub),
+            write_pub: crate::hex::encode_lower(&p.write_pub),
+            read_key_hash: crate::hex::encode_lower(&p.read_key_hash),
+            sig: crate::hex::encode_lower(&p.sig),
         }
     }
 }

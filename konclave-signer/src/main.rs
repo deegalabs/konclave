@@ -378,8 +378,10 @@ fn build_payroll(
         None,
         ShieldedPool::Orchard,
         DustOutputPolicy::default(),
+        // How many change outputs the builder may make is konclave-seal's number, the one the
+        // device's check will allow, so the two cannot drift.
         SplitPolicy::with_min_output_value(
-            NonZeroUsize::new(4).unwrap(),
+            NonZeroUsize::new(konclave_seal::proposal::CHANGE_SPLIT_MAX).unwrap(),
             Zatoshis::from_u64(10_000_000).unwrap(),
         ),
     );
