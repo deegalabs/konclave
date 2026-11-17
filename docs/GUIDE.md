@@ -657,7 +657,9 @@ before the builder if `sum + fee > available`.
 
 ## 7. Step-by-step quick reference
 
-The everyday flow, route by route:
+The everyday flow, route by route. For a group that has just created its vault, the plain-language
+version, with the day-one checklist and what to do if something stops working, is
+[FIRST_DAY.md](FIRST_DAY.md).
 
 1. **Create or join a vault** - open the create modal from `/vaults` (the embedded
    `<NetVault embedded />` flow; standalone `/create` and `/net` are legacy/diagnostics). Members +
