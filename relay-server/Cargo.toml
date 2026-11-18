@@ -7,6 +7,8 @@ description = "Konclave's blind mailbox relay, standalone + public (CORS) for ko
 
 # Its own workspace (not a member of the repository's), so its Cargo.lock is the one the image
 # builds with `--locked` and the one CI tests: one lock, no copy to keep in step (audit F8, design B).
+# A dependency fix lands here as well as in the root lock: `cargo update --manifest-path
+# relay-server/Cargo.toml -p <crate>`, and an advisory scan reads `cargo audit --file relay-server/Cargo.lock`.
 [workspace]
 
 [[bin]]

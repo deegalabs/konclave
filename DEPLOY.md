@@ -26,7 +26,7 @@ guessing, and an ambiguous 404 reads as "behind" until you do.
 `node scripts/check-deployed.mjs --against-lock --relay-digest=<16 hex>` asks the stronger question:
 does every public host run the deploy `engine/versions.lock` records (read from `staging`, where the
 lock PRs land)? It compares the coordinator's commit and creation protocol on both names, the relay's
-source digest with `relay-server --digest` built at the recorded commit, the web's `version.json`
+source digest with `relay-server --digest` built at the recorded commit (`cargo run -q --manifest-path relay-server/Cargo.toml -- --digest`; the relay is its own cargo workspace, with its own `Cargo.lock`), the web's `version.json`
 with the tip of `main` (what Vercel publishes) and the latest release version, and the preflight of
 every coordinator and relay name with the custom headers the app sends it.
 Any difference fails the run; the staging coordinator is reported and never fails it. The
