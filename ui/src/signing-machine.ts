@@ -361,6 +361,13 @@ export class SigningMachine {
     return { stage: 'ok', sighash, spends, payment }
   }
 
+  /** A request passed over because its transaction is not the one it names is evidence the member
+   *  should see when it is all there is: with nothing else held and the signature complete, say so,
+   *  as the device said when it refused such a request before it was passed over here. */
+  private saySwapped(): void {
+    if (this.heldReqs.size === 0 && this.coordinatorNow() !== null) this.d.onError(this.d.tt('net.err.sighashMismatch'))
+  }
+
   /** Whether this device would sign `req`: its PCZT passes every check of `vet`, it has a spend to
    *  sign, and it is the transaction the request names. */
   private wouldSign(req: SignRequest): boolean {
@@ -389,10 +396,12 @@ export class SigningMachine {
       named = hex(pcztSighash(hexBytes(helperReq.pcztHex)))
     } catch {
       this.d.onLog('~ a signing request whose transaction cannot be read was passed over')
+      this.saySwapped()
       return true
     }
     if (named !== helperReq.sighash.toLowerCase()) {
       this.d.onLog('~ a signing request that names another transaction than it carries was passed over')
+      this.saySwapped()
       return true
     }
     if (!this.heldReqs.has(named)) {

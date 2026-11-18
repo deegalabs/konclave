@@ -1746,6 +1746,18 @@ describe('a signing request is the coordinator\'s', () => {
     expect(B.sig?.ok).toBe(true)
   })
 
+  it('a request whose transaction is not the one it names, alone, is refused where the member sees it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const honest = signRequestFor(withExpiry(dkgProvenPczt())).json
+    bus.post('helper', tamper(honest, (r) => { r.sighash = 'ab'.repeat(32) }))
+    await runCeremony(A, B, bus)
+    expect(B.errors).toContain('net.err.sighashMismatch')
+    expect(B.sig).toBeNull()
+  })
+
   it('a first request with nothing to sign does not stop the coordinator asking for the real one', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
