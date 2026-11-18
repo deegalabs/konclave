@@ -110,8 +110,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 ### Added
 
 - **`/api/health` lists the light-client servers (`light_servers`).** Each entry is `{host, ok, chain, height_lag}`:
-  `ok` is true when the last background check found the server on the configured chain and within 20 blocks of the
-  median of the answers, false when it did not answer or fell outside that, and `null` before any check has run
+  `ok` is true when the last background check found the server on the configured chain and, once three or more
+  answered, within 20 blocks of the median of the answers, false when it did not answer or fell outside that, and `null` before any check has run
   (always, with a single configured server, which is not checked). `height_lag` is how many blocks it is behind that
   median. The route serves the cache the background check fills and never starts a check itself; the hosts are public
   and nothing in the entry concerns a vault. The boot log lists each server.
@@ -121,6 +121,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   coordinator keeps the server it is on while that one answers and stays near the others, and moves only when it
   stops answering or falls well behind and at least three others agree. A new vault's wallet starts from a height
   taken from the middle of the answers, and only when three of them agree.
+  An entry that is not `host:port` (a scheme, a path, a space) stops the coordinator at boot and is named in the error.
 - **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
   optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
@@ -222,6 +223,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   configured server, within three minutes in all. A server that answers and refuses it is not asked again elsewhere.
   When no server takes it, the answer says the transaction may have reached the network and not to send it again
   before checking, and the attempt record stays, as it does for any broadcast error.
+- **A send no longer fails because one light-client server stops answering.** The broadcast goes to the server the send
+  has been using; if that attempt does not answer within its time limit, the same signed transaction goes to the next
+  configured server that is within 3 blocks of the median, within three minutes in all. Any other failure of the
+  broadcast is reported as it is and not tried elsewhere. When no server takes it after a time-out, the answer says the
+  transaction may have reached the network and not to send it again before checking, and the attempt record stays, as
+  it does for any broadcast error.
 
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
