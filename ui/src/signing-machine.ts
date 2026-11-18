@@ -115,6 +115,8 @@ export interface SigningDeps {
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+/** The most raw requests a device holds before a ceremony starts. Bounds what a flood of them costs. */
+const MAX_HELD_REQUESTS = 16
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
@@ -199,8 +201,15 @@ export class SigningMachine {
   private chosenSeats: number[] = []
   private toldAside = new Set<number>()
   private sigDone = false
-  // Architecture B: a helper's raw sign-request; the aggregate signature is posted back to it RAW.
+  // Architecture B: the helper's raw sign-request this ceremony signs (set when it starts); the
+  // aggregate signature is posted back to it RAW.
   private helperReq: SignRequest | null = null
+  // The raw requests seen before a ceremony starts, by sighash, first arrival kept. A raw request
+  // carries no sender, so a later one must not displace an earlier one: the `sreq` names which one
+  // the ceremony signs, and each device looks that one up here.
+  private heldReqs = new Map<string, SignRequest>()
+  // The coordinator asks once per ceremony: a second raw request does not produce a second `sreq`.
+  private sreqSent = false
   // Multi-spend: every real spend (index + alpha), driven SEQUENTIALLY, one ceremony each.
   private spends: { index: number; alpha: Uint8Array }[] = []
   private cur = 0 // 0-based position of the spend being signed right now
@@ -288,6 +297,8 @@ export class SigningMachine {
     this.toldAside = new Set()
     this.sigDone = false
     this.helperReq = null
+    this.heldReqs = new Map()
+    this.sreqSent = false
     this.spends = []
     this.cur = 0
     this.sigs = []
@@ -302,22 +313,26 @@ export class SigningMachine {
     // A request that arrives while a ceremony is under way is not taken up, and not kept: the next
     // ceremony reads the room afresh (`rearm`).
     if (this.started) return false
-    this.helperReq = helperReq
+    const key = helperReq.sighash.toLowerCase()
+    if (!this.heldReqs.has(key) && this.heldReqs.size < MAX_HELD_REQUESTS) this.heldReqs.set(key, helperReq)
     // Nobody is named yet (the completing signature has not reached this device): the request waits,
     // unconsumed, and the session re-drives the signer when a signature changes the tally.
     if (this.coordinatorNow() === null) return false
     // The coordinator kicks the ceremony over the helper's real PCZT. `sreq` carries the sighash +
     // PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one ceremony at a
     // time, so single- and multi-note transactions take the same path.
-    if (this.isCoordinator(this.d.myTag()) && !this.sigDone && helperReq.spends.length >= 1) {
+    // The request asked for is the FIRST one held, not the last one to arrive.
+    const first = this.heldReqs.values().next().value as SignRequest | undefined
+    if (first && this.isCoordinator(this.d.myTag()) && !this.sigDone && !this.sreqSent && first.spends.length >= 1) {
+      this.sreqSent = true
       await this.d.send({
         type: 'sreq',
-        msg: b64(hexBytes(helperReq.sighash)),
+        msg: b64(hexBytes(first.sighash)),
         // A sealed request means this device opened it; on a protocol-3 vault a seat with no box gets
         // nothing here and does not arm. Each device that opened it already holds the
         // PCZT: omit it here or it leaks the payment to the relay (#63). A plaintext (compat)
         // request still carries it inline for an older device that only reads the sreq.
-        ...(helperReq.sealed ? {} : { pczt: b64(hexBytes(helperReq.pcztHex)) }),
+        ...(first.sealed ? {} : { pczt: b64(hexBytes(first.pcztHex)) }),
       })
     }
     return true
@@ -392,12 +407,14 @@ export class SigningMachine {
       // A device that already holds the helper's request signs that PCZT, and the sreq has to name
       // its sighash. The inline PCZT is only for a device that holds no request.
       let pczt: Uint8Array | null
-      if (this.helperReq) {
-        if (!bytesEqual(unb64(parsed.msg), hexBytes(this.helperReq.sighash))) {
+      if (this.heldReqs.size > 0) {
+        const named = this.heldReqs.get(hex(unb64(parsed.msg)))
+        if (!named) {
           this.d.onError(this.d.tt('net.err.sighashMismatch'))
           return true
         }
-        pczt = hexBytes(this.helperReq.pcztHex)
+        this.helperReq = named
+        pczt = hexBytes(named.pcztHex)
       } else {
         pczt = parsed.pczt ? unb64(parsed.pczt) : null
       }

@@ -1694,6 +1694,20 @@ describe('a signing request is the coordinator\'s', () => {
     expect(A.sig?.ok).toBe(true)
   })
 
+  it('a raw request posted after the helper\'s does not displace it, and the coordinator asks once', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    // Anyone who can write to the room posts another raw request right behind the helper's.
+    bus.post('Z', signRequestFor(otherPczt(), withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(bus.msgs.filter((m) => m.from === 'A' && typeOf(m) === 'sreq'), 'the coordinator asked once').toHaveLength(1)
+    expect(A.sig?.ok, 'A signed the approved transaction').toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
   it('a second helper request while a ceremony is under way is not taken up', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
