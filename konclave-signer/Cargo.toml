@@ -38,6 +38,8 @@ uuid = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zcash_address = "0.14.0"
+# The transparent types the largest-first wallet view (src/selection.rs) passes through unchanged.
+zcash_transparent = "0.11.0"
 zip321 = "0.10.0"
 zcash_client_backend = { version = "0.25.0", features = ["orchard", "pczt", "unstable"] }
 zcash_client_sqlite = { version = "0.23.0", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
@@ -49,3 +51,7 @@ zcash_client_sqlite = { version = "0.23.0", features = ["transparent-inputs", "o
 [dev-dependencies]
 # The device's own sighash, to run the signer and the device side by side on the real NU7 vector.
 konclave-wasm = { path = "../konclave-wasm" }
+# The library's own wallet test harness, so a real sqlite wallet with fake blocks is driven through
+# `propose_and_build` (the note-order tests). Test builds only.
+zcash_client_backend = { version = "0.25.0", features = ["test-dependencies"] }
+zcash_client_sqlite = { version = "0.23.0", features = ["test-dependencies"] }

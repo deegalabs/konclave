@@ -1178,7 +1178,7 @@ pub mod dkg {
 // nobody who sees the others' material can choose its own to land on a matching code.
 pub mod creation {
     use super::*;
-    use frost::keys::dkg::{part1, part2, part3, round1, round2};
+    use frost::keys::dkg::{part1, part2, round1, round2};
     use frost::Identifier;
     use seal::share_sig;
 
@@ -1620,24 +1620,28 @@ pub mod creation {
             if self.r2_in.len() < self.n as usize - 1 {
                 return Ok(false);
             }
-            let mut r1 = BTreeMap::new();
-            let mut r2 = BTreeMap::new();
+            // Round 3 is `dkg::part3_wire`'s, the one place FROST's `part3` runs. ZIP 312's key
+            // negation is inside `part3`, so it applied here before as well; going through
+            // `part3_wire` is what puts this path under `tests/dkg_even_y.rs`. This only hands it
+            // the revealed round-1 packages and the opened round-2 boxes, by seat.
+            let mut r1 = Vec::new();
+            let mut r2 = Vec::new();
             for (seat, m) in &self.members {
                 if *seat == self.my_seat {
                     continue;
                 }
                 let (pkg, _) = m.reveal.as_ref().expect("frozen");
-                r1.insert(id(*seat)?, round1::Package::deserialize(pkg).map_err(e)?);
-                r2.insert(
-                    id(*seat)?,
-                    round2::Package::deserialize(&self.r2_in[seat]).map_err(e)?,
-                );
+                let label = id(*seat)?.serialize();
+                r1.push((label.clone(), pkg.clone()));
+                r2.push((label, self.r2_in[seat].clone()));
             }
-            let (kp, pk) = part3(self.r2_secret.as_ref().expect("checked"), &r1, &r2)
-                .map_err(|x| format!("round 3 failed: {x}"))?;
-            self.group_vk = pk.verifying_key().serialize().map_err(e)?;
-            self.key_package = kp.serialize().map_err(e)?;
-            self.pubkeys = pk.serialize().map_err(e)?;
+            let (kp, pk) =
+                super::dkg::part3_wire(self.r2_secret.as_ref().expect("checked"), &r1, &r2)
+                    .map_err(|x| format!("round 3 failed: {x}"))?;
+            let group = frost::keys::PublicKeyPackage::deserialize(&pk).map_err(e)?;
+            self.group_vk = group.verifying_key().serialize().map_err(e)?;
+            self.key_package = kp;
+            self.pubkeys = pk;
             Ok(true)
         }
 
