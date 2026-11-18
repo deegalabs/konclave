@@ -144,7 +144,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("konclave-pczt-hang-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let hang = dir.join("devtool");
-        crate::test_exec::write_script(&hang, "#!/bin/sh\nsleep 30\n");
+        crate::test_exec::write_script(&hang, "#!/bin/sh\nexec sleep 30\n");
         crate::lightclient::set_within_for_test(Some(std::time::Duration::from_millis(300)));
         let started = std::time::Instant::now();
         let r = send(&hang, "/w", "zec.rocks:443", b"signed");

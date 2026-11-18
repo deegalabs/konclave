@@ -85,21 +85,24 @@ mod tests {
     use super::*;
 
     /// No call names a server anywhere else: a call that does is a call with no deadline. Reads the
-    /// crate's own sources (tests excluded), so a new call that bypasses this module fails here.
+    /// production code (top-level test modules skipped, as `the_wallet_is_synced_and_stamped_in_one_place`
+    /// reads it) of every crate that could call the engine, recursively; each root must hold sources,
+    /// so a vanished root does not pass by being empty. The needle is a quote followed by the flag, so
+    /// `"--connection=direct"` is caught as well, and it is assembled from parts so this file's own
+    /// test does not match it.
     #[test]
     fn every_server_call_is_made_here() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut offenders = vec![];
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs")
-                || path.file_name().and_then(|n| n.to_str()) == Some("lightclient.rs")
-            {
-                continue;
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
             }
-            let src = std::fs::read_to_string(&path).unwrap();
-            // The file without its top-level test modules (`#[cfg(test)]` + `mod x {` up to the
-            // closing brace in column 0), as `the_wallet_is_synced_and_stamped_in_one_place` reads it.
+        }
+        fn production(src: &str) -> String {
             let mut code = Vec::new();
             let mut lines = src.lines().peekable();
             while let Some(line) = lines.next() {
@@ -113,10 +116,25 @@ mod tests {
                 }
                 code.push(line);
             }
-            if code.join("\n").contains("\"--connection\"") {
-                offenders.push(path.display().to_string());
-            }
+            code.join("\n")
         }
+        let needle = ["\"", "--conn", "ection"].concat();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut files = Vec::new();
+        for crate_src in ["orchestrator/src", "helper-server/src", "src-tauri/src"] {
+            let before = files.len();
+            walk(&root.join(crate_src), &mut files);
+            assert!(
+                files.len() > before,
+                "the scan found sources under {crate_src}"
+            );
+        }
+        let offenders: Vec<String> = files
+            .iter()
+            .filter(|f| !f.ends_with("orchestrator/src/lightclient.rs"))
+            .filter(|f| production(&std::fs::read_to_string(f).unwrap()).contains(&needle))
+            .map(|f| f.display().to_string())
+            .collect();
         assert!(
             offenders.is_empty(),
             "server named outside lightclient: {offenders:?}"
@@ -130,7 +148,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("konclave-lightclient-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let hang = dir.join("devtool");
-        crate::test_exec::write_script(&hang, "#!/bin/sh\nsleep 30\n");
+        crate::test_exec::write_script(&hang, "#!/bin/sh\nexec sleep 30\n");
         set_within_for_test(Some(Duration::from_millis(300)));
         for call in [
             Call::Broadcast,
