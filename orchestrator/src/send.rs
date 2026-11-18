@@ -237,7 +237,7 @@ pub fn parse_insufficient_funds(stderr: &str) -> Option<(u64, u64)> {
 /// Ask the WALLET whether this plan can be paid, before anyone is asked to approve or sign.
 ///
 /// This is the only honest answer to "does it fit": the fee depends on which notes the wallet
-/// selects, so no client-side estimate can be right. `build_unproven` is what makes it cheap enough
+/// selects, so no client-side estimate can be right. `build_within_cap` is what makes it cheap enough
 /// to ask - it touches no share, needs no relay, no ceremony and nobody's attention, and it is
 /// already step 1 of a real send. Asking it early costs one build; not asking it cost a payroll
 /// that was proposed, approved by two people and signed by both before the engine refused it.
@@ -275,7 +275,7 @@ fn funding_check_capped(
         zip2009_from: None,
         ..sc.clone()
     };
-    let outcome = build_unproven(&probe, plan);
+    let outcome = build_within_cap(&probe, plan, max_actions);
     // #427. Building is necessary and not sufficient: the wallet will happily select notes from
     // BOTH shielded pools when neither covers the amount alone, and the signing bridge refuses a
     // transaction that spends from both. Until now that refusal ran at `signer::extract` inside the
@@ -337,7 +337,47 @@ fn funding_check_capped(
     }
 }
 
+/// The build a proposal and a send both use: the one place a transaction is fitted to the cap.
+///
+/// The signer takes the fewest notes, the largest first, so smaller notes are not taken while larger
+/// ones cover the payment. Its change is split into up to four notes (so the vault keeps notes for
+/// parallel spends), and leaving a large note's change can take more outputs; so when that build is
+/// larger than the vault can sign, the same notes are asked for again with ONE change output, and the
+/// smaller build is kept. Which notes are spent never changes between the two; only how the change is
+/// paid. The cap itself is `max_actions`, which every caller reads from
+/// [`net_send::max_signable_actions`]: no number goes to the signer.
+pub(crate) fn build_within_cap(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    max_actions: usize,
+) -> Result<Vec<u8>, ToolError> {
+    let first = build_unproven(sc, plan)?;
+    // A PCZT whose actions cannot be read is left to the checks after the build, as before.
+    let Ok(first_actions) = pczt::action_count_of(&first) else {
+        return Ok(first);
+    };
+    if first_actions <= max_actions {
+        return Ok(first);
+    }
+    match build_unproven_with(sc, plan, true) {
+        Ok(alt) if pczt::action_count_of(&alt).is_ok_and(|a| a < first_actions) => Ok(alt),
+        // Not smaller, or the second build failed (a signer without the option, say): the first build
+        // stands and the callers refuse it with its own count.
+        _ => Ok(first),
+    }
+}
+
 pub(crate) fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
+    build_unproven_with(sc, plan, false)
+}
+
+/// [`build_unproven`], with the change paid to one output when `single_change`. Only
+/// [`build_within_cap`] asks for that.
+fn build_unproven_with(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    single_change: bool,
+) -> Result<Vec<u8>, ToolError> {
     // One builder for both plans (B3a). A single payment is a payroll of one line, so the same
     // strategy, policies and padding build it and nothing is left to `zcash-devtool pczt create`,
     // which took the address and the memo on its command line (visible to any process on the host).
@@ -394,6 +434,9 @@ pub(crate) fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8
         }
         if let Some(from) = &from {
             args.extend(["--zip2009-from", from]);
+        }
+        if single_change {
+            args.push("--single-change");
         }
         crate::tools::run(&sc.konclave_signer, &args, None)
     })
@@ -759,7 +802,7 @@ fn prepare_capped<T: Transport>(
     let payroll = matches!(plan, SpendPlan::Payroll { .. });
 
     // 0) the build hold: no new transaction is built for a branch that is about to stop being valid.
-    // Both a single payment and a payroll go through `build_unproven` below, so one gate covers both.
+    // Both a single payment and a payroll go through `build_within_cap` below, so one gate covers both.
     let tip = gate.tip()?;
     if let Some(text) = crate::epoch::hold_before_build(gate.table, tip) {
         return Err(crate::epoch::refusal(text));
@@ -769,7 +812,7 @@ fn prepare_capped<T: Transport>(
     let fee_tip = gate.chain_tip(tip)?;
 
     // 1) build + prove the PCZT for the vault's own address.
-    let tx1 = build_unproven(sc, plan)?;
+    let tx1 = build_within_cap(sc, plan, max_actions)?;
     // The guard: the coordinator reads the fee its own build pays, with the reader the devices judge
     // with, and refuses its own transaction if the rule for this vault at this height does not permit
     // it. The next block is the target the wallet builds for.
@@ -2205,7 +2248,9 @@ mod tests {
     fn the_guard_runs_on_the_built_transaction_before_it_is_proven() {
         let src = include_str!("send.rs");
         let body = &src[src.find("fn prepare_capped<T").unwrap()..];
-        let build = body.find("build_unproven(sc, plan)?").unwrap();
+        let build = body
+            .find("build_within_cap(sc, plan, max_actions)?")
+            .unwrap();
         let guard = body.find("guard_built_fee(").unwrap();
         let prove = body.find("pczt::prove(").unwrap();
         assert!(build < guard && guard < prove);
@@ -2455,6 +2500,175 @@ mod tests {
     #[test]
     fn hex_encode_is_lowercase_padded() {
         assert_eq!(hex_encode(&[0x00, 0x0f, 0xff]), "000fff");
+    }
+
+    /// Two real PCZTs with different action counts, (smaller, larger), from the repo's vectors.
+    fn two_sizes() -> (&'static [u8], usize, &'static [u8], usize) {
+        let vs: [&'static [u8]; 4] = [
+            VECTOR,
+            PROVEN,
+            include_bytes!(
+                "../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt"
+            ),
+            include_bytes!("../../konclave-wasm/tests/vectors/nu7_testnet.proven.pczt"),
+        ];
+        let mut sized: Vec<(usize, &'static [u8])> = vs
+            .iter()
+            .map(|v| (pczt::action_count_of(v).unwrap(), *v))
+            .collect();
+        sized.sort_by_key(|(a, _)| *a);
+        let (small_a, small) = sized[0];
+        let (big_a, big) = *sized.last().unwrap();
+        assert!(small_a < big_a, "the vectors must differ in size");
+        (small, small_a, big, big_a)
+    }
+
+    /// A stand-in signer writing `split` for the default build and `single` for `--single-change`
+    /// (`None`: that build fails), logging every call; and a configuration that uses it.
+    #[cfg(unix)]
+    fn cap_stand_in(dir: &std::path::Path, split: &[u8], single: Option<&[u8]>) -> SendConfig {
+        let (l, o, log) = (
+            dir.join("split.pczt"),
+            dir.join("single.pczt"),
+            dir.join("log"),
+        );
+        std::fs::write(&l, split).unwrap();
+        let single_arm = match single {
+            Some(b) => {
+                std::fs::write(&o, b).unwrap();
+                format!("cp {} \"$out\"", o.display())
+            }
+            None => "exit 1".to_string(),
+        };
+        let signer = dir.join("signer");
+        crate::test_exec::write_script(
+            &signer,
+            &format!(
+                "#!/bin/sh\necho \"$*\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) case \"$*\" in *--single-change*) {single_arm};; *) cp {} \"$out\";; esac;; *) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; esac\n",
+                log.display(),
+                l.display(),
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32)
+            ),
+        );
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        serde_json::from_value(serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn build_calls(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("build-payroll"))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[cfg(unix)]
+    fn cap_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("konclave-cap-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// What `build_within_cap` returned and how the signer was asked to build.
+    #[cfg(unix)]
+    fn within_cap(
+        tag: &str,
+        split: &[u8],
+        single: Option<&[u8]>,
+        max: usize,
+    ) -> (Vec<u8>, Vec<String>) {
+        let dir = cap_dir(tag);
+        let sc = cap_stand_in(&dir, split, single);
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let built = build_within_cap(&sc, &plan, max).unwrap();
+        let calls = build_calls(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+        (built, calls)
+    }
+
+    /// A build that fits is the build: the signer is asked once, with no change mode named.
+    #[cfg(unix)]
+    #[test]
+    fn a_build_that_fits_is_kept_and_asked_once() {
+        let (small, _, big, big_a) = two_sizes();
+        let (built, calls) = within_cap("fits", big, Some(small), big_a);
+        assert_eq!(built, big);
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(!calls[0].contains("--single-change"), "{calls:?}");
+    }
+
+    /// The payroll case: leaving a large note's change can take more outputs, so a build over the
+    /// cap is asked for again with one change output, and the smaller one is kept.
+    #[cfg(unix)]
+    #[test]
+    fn a_build_over_the_cap_is_rebuilt_with_one_change_output_and_the_smaller_kept() {
+        let (small, small_a, big, _) = two_sizes();
+        let (built, calls) = within_cap("fallback", big, Some(small), small_a);
+        assert_eq!(built, small);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[1].contains("--single-change"), "{calls:?}");
+        assert!(
+            !calls[1].contains("--selection"),
+            "the notes chosen never change: {calls:?}"
+        );
+    }
+
+    /// The second build never makes a build larger: one that is not smaller leaves the first, which
+    /// the callers refuse with its own count.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_build_that_is_not_smaller_leaves_the_first() {
+        let (small, small_a, big, _) = two_sizes();
+        let (built, calls) = within_cap("not-smaller", small, Some(big), small_a - 1);
+        assert_eq!(built, small);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+    }
+
+    /// A second build that fails (a signer without the option) leaves the first.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_build_that_fails_leaves_the_first() {
+        let (small, small_a, _, _) = two_sizes();
+        let (built, calls) = within_cap("fails", small, None, small_a - 1);
+        assert_eq!(built, small);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+    }
+
+    /// The proposal's check goes through the same fitting: a build over the cap that fits with one
+    /// change output is a payment the vault can make, not a refusal.
+    #[cfg(unix)]
+    #[test]
+    fn funding_check_fits_through_the_one_change_output_build() {
+        let (small, small_a, big, big_a) = two_sizes();
+        let dir = cap_dir("funding");
+        let sc = cap_stand_in(&dir, big, Some(small));
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let out = funding_check_capped(&sc, &plan, small_a);
+        let calls = build_calls(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            matches!(out, Ok(Funding::Ok)),
+            "{out:?} (big {big_a}, small {small_a})"
+        );
+        assert_eq!(calls.len(), 2, "{calls:?}");
     }
 }
 
