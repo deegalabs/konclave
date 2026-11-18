@@ -99,6 +99,9 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Known limits
 
+- **A copy the browser stored before this version stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
+
 - **The address the relay counts a request under is only as good as the forwarding header and the
   setting.** Unset, `KONCLAVE_TRUSTED_PROXY_HOPS` keeps the first hop of `X-Forwarded-For`, which is
   right only where the platform rebuilds the header. Set it from a measurement (`DEPLOY.md`).

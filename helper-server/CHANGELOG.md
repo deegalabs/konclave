@@ -242,6 +242,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **A copy the browser stored before this version stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
+
 - **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
   operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block
   3,590,417). Even so, a vault pays it only when every seat has reported that its device accepts it. A seat's report is

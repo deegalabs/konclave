@@ -2105,13 +2105,18 @@ pub fn handle_secured(
         origin,
         csrf_token,
     );
-    // No API answer is kept by the browser's HTTP cache: the reads carry the vault in the URL, and a
-    // stored copy would outlive the session. The static page and its assets keep their caching.
+    no_store_for_api(raw_path, &mut resp);
+    resp
+}
+
+/// No API answer is kept by the browser's HTTP cache: the reads carry the vault in the URL, and a
+/// stored copy would outlive the session. The static page and its assets keep their caching. Every
+/// answer the bridge sends goes through here (`handle_secured`, and the size refusal in `serve`).
+fn no_store_for_api(raw_path: &str, resp: &mut Response) {
     if raw_path.starts_with("/api/") {
         resp.headers
             .push(("Cache-Control".into(), "no-store".into()));
     }
-    resp
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2210,7 +2215,10 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
             let _ = req.as_reader().read_to_end(&mut body);
         }
         let resp = if too_large {
-            Response::json(413, &serde_json::json!({ "error": "payload too large" }))
+            let mut refused =
+                Response::json(413, &serde_json::json!({ "error": "payload too large" }));
+            no_store_for_api(&url, &mut refused);
+            refused
         } else {
             handle_secured(
                 &cfg,
