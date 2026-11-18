@@ -324,6 +324,16 @@ pub fn birthday(obs: &[Observed], network: &str) -> Option<u64> {
     a.median.map(|m| m.saturating_sub(BIRTHDAY_BACK))
 }
 
+/// One server as the health route reports it. No vault data: hosts are public.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ServerStatus {
+    pub host: String,
+    /// `None` until a probe has run (and always, with one server and no probe thread).
+    pub ok: Option<bool>,
+    pub chain: Option<String>,
+    pub height_lag: Option<i64>,
+}
+
 struct State {
     current: usize,
     obs: Vec<Observed>,
@@ -432,6 +442,43 @@ impl Servers {
             }
         }
         out
+    }
+
+    /// What the last probe says of each server, in list order, for the health route. Reads the cache
+    /// only: it never probes, and the route it feeds is open to anyone.
+    pub fn status(&self) -> Vec<ServerStatus> {
+        let st = self.lock();
+        let a = assess(&st.obs, &self.network);
+        let strict = a.eligible.len() >= MIN_AGREE;
+        self.list
+            .iter()
+            .enumerate()
+            .map(|(i, host)| match &st.obs[i] {
+                Observed::Unknown => ServerStatus {
+                    host: host.clone(),
+                    ok: None,
+                    chain: None,
+                    height_lag: None,
+                },
+                Observed::Failed => ServerStatus {
+                    host: host.clone(),
+                    ok: Some(false),
+                    chain: None,
+                    height_lag: None,
+                },
+                Observed::Answered(info) => ServerStatus {
+                    host: host.clone(),
+                    ok: Some(if strict {
+                        a.in_band.contains(&i)
+                    } else {
+                        a.eligible.contains(&i)
+                    }),
+                    chain: Some(info.chain.clone()),
+                    // Blocks behind the median of the answers; negative is ahead of it.
+                    height_lag: a.median.map(|m| m as i64 - info.height as i64),
+                },
+            })
+            .collect()
     }
 
     /// The wallet birthday a new wallet should be given, or `None` for the engine's default.
@@ -1389,5 +1436,55 @@ mod tests {
             2,
             "both send paths use the one function"
         );
+    }
+
+    // ---- the health view ------------------------------------------------------------------------
+
+    #[test]
+    fn status_reads_the_cache_and_marks_each_server() {
+        let sv = Servers::parse("a:443,b:443,c:443,d:443,e:443", "main");
+        // Before any probe: every server unknown, nothing else known.
+        for st in sv.status() {
+            assert_eq!((st.ok, st.chain, st.height_lag), (None, None, None));
+        }
+        sv.record(vec![
+            main_at(1000),
+            main_at(1002),
+            main_at(1001),
+            main_at(100),
+            Observed::Failed,
+        ]);
+        let st = sv.status();
+        assert_eq!(
+            st.iter().map(|x| x.host.as_str()).collect::<Vec<_>>(),
+            ["a:443", "b:443", "c:443", "d:443", "e:443"]
+        );
+        // median of [100,1000,1001,1002] = 1000
+        assert_eq!(st[0].ok, Some(true));
+        assert_eq!(st[0].chain.as_deref(), Some("main"));
+        assert_eq!(st[0].height_lag, Some(0));
+        assert_eq!(st[1].height_lag, Some(-2));
+        assert_eq!(st[3].ok, Some(false), "far behind the median is not ok");
+        assert_eq!(st[3].height_lag, Some(900));
+        assert_eq!(st[4].ok, Some(false));
+        assert_eq!(st[4].chain, None);
+        let json = serde_json::to_value(&st[0]).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"host":"a:443","ok":true,"chain":"main","height_lag":0})
+        );
+    }
+
+    #[test]
+    fn one_server_reports_one_unknown_entry() {
+        let sv = Servers::parse("zec.rocks:443", "main");
+        let st = sv.status();
+        assert_eq!(st.len(), 1);
+        assert_eq!(st[0].host, "zec.rocks:443");
+        assert_eq!(st[0].ok, None);
+        // A server on another chain is not ok.
+        let sv = Servers::parse("a:443", "main");
+        sv.record(vec![info("test", NU7, 5)]);
+        assert_eq!(sv.status()[0].ok, Some(false));
     }
 }

@@ -304,6 +304,11 @@ fn handle_request(
                 // How many proxies in front of it this coordinator trusts (`DEPLOY.md`); `null`
                 // is the default rule. What a deploy reads to see the setting arrived.
                 "trusted_proxy_hops": konclave_http::forwarding_rule().trusted_hops(),
+                // The light-client servers and what the background probe last found, FROM THE CACHE
+                // ONLY: this route is open, and a probe here would let anyone with no credential
+                // start a request to every server (and make the liveness route wait on them). Hosts
+                // are public; nothing here is about a vault.
+                "light_servers": cfg.servers.status(),
             })
             .to_string(),
         ),
@@ -2816,10 +2821,12 @@ fn main() {
     let cfg = Arc::new(config_from_env());
     // More than one light-client server: a background probe keeps the choice current. With one there
     // is no thread and nothing changes (the probe never runs inside a request).
+    for (i, host) in cfg.servers.list().iter().enumerate() {
+        eprintln!("konclave-helper: light server {}: {host}", i + 1);
+    }
     if orchestrator::lightclient::spawn_probe(&cfg.servers, std::path::PathBuf::from("curl")) {
         eprintln!(
-            "konclave-helper: light servers {} (probed every {}s, never inside a request)",
-            cfg.servers.list().join(", "),
+            "konclave-helper: light servers probed every {}s, never inside a request",
             orchestrator::lightclient::PROBE_EVERY.as_secs()
         );
     }
@@ -5030,6 +5037,50 @@ mod tests {
             v["trusted_proxy_hops"].as_u64().map(|n| n as usize),
             konclave_http::forwarding_rule().trusted_hops()
         );
+    }
+
+    /// Health lists each light-client server from the cache, and reading it starts no probe: with
+    /// nothing probed every entry is `null`, whatever the servers are.
+    #[test]
+    fn health_lists_the_light_servers_from_the_cache_only() {
+        use orchestrator::lightclient::{Info, Observed, Servers};
+        let st = HelperState::new();
+        let mut c = cfg();
+        c.servers = Servers::parse("a.test:443,b.test:443,c.test:443", "main");
+        let read = |c: &HelperConfig| -> serde_json::Value {
+            let r = handle(&st, c, &Method::Get, "/api/health", b"");
+            assert_eq!(r.status, 200);
+            serde_json::from_str(&r.body).unwrap()
+        };
+        let v = read(&c);
+        let list = v["light_servers"]
+            .as_array()
+            .expect("light_servers is a list");
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0]["host"], "a.test:443");
+        assert!(list
+            .iter()
+            .all(|e| e["ok"].is_null() && e["height_lag"].is_null()));
+        // What a probe round recorded is what health says.
+        let answer = |h: u64| {
+            Observed::Answered(Info {
+                version: String::new(),
+                chain: "main".into(),
+                branch: "77190ad9".into(),
+                height: h,
+                subversion: String::new(),
+            })
+        };
+        c.servers
+            .record(vec![answer(100), answer(101), Observed::Failed]);
+        let v = read(&c);
+        assert_eq!(v["light_servers"][0]["ok"], true);
+        assert_eq!(v["light_servers"][0]["chain"], "main");
+        assert_eq!(v["light_servers"][2]["ok"], false);
+        // One server, never probed: one entry, ok null.
+        let one = read(&cfg());
+        assert_eq!(one["light_servers"].as_array().unwrap().len(), 1);
+        assert!(one["light_servers"][0]["ok"].is_null());
     }
 
     #[test]

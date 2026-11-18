@@ -109,6 +109,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Added
 
+- **`/api/health` lists the light-client servers (`light_servers`).** Each entry is `{host, ok, chain, height_lag}`:
+  `ok` is true when the last background check found the server on the configured chain and within 20 blocks of the
+  median of the answers, false when it did not answer or fell outside that, and `null` before any check has run
+  (always, with a single configured server, which is not checked). `height_lag` is how many blocks it is behind that
+  median. The route serves the cache the background check fills and never starts a check itself; the hosts are public
+  and nothing in the entry concerns a vault. The boot log lists each server.
 - **The coordinator can use several light-client servers.** `KONCLAVE_LIGHTWALLETD` takes one server or a
   comma-separated list (one value behaves as before: no probe, nothing else changes). With a list, a background
   check asks each server every 60 seconds which chain and height it reports, never inside a request, and the
