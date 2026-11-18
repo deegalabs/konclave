@@ -2123,10 +2123,10 @@ fn config_with(
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
         // `utest1…` vault addresses that would lose real funds. A testnet dev deploy sets these.
-        servers: orchestrator::lightclient::Servers::parse(
+        servers: orchestrator::lightclient::Servers::try_parse(
             &env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
             &env("KONCLAVE_NETWORK", "main"),
-        ),
+        )?,
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
@@ -8453,6 +8453,26 @@ mod tests {
         assert_eq!(list.list(), ["zec.rocks:443", "eu.zec.rocks:443"]);
         assert!(list.is_list());
         assert_eq!(list.current(), "zec.rocks:443");
+    }
+
+    /// A light-client server that is not `host:port` stops the coordinator at boot, naming the entry.
+    #[test]
+    fn a_malformed_light_server_refuses_to_boot() {
+        for bad in [
+            "https://zec.rocks:443",
+            "zec.rocks",
+            "a:443,b c:443",
+            "",
+            "zec.rocks:443/x",
+        ] {
+            let v = bad.to_string();
+            let r = config_with(&move |k| (k == "KONCLAVE_LIGHTWALLETD").then(|| v.clone()));
+            let e = r.err().unwrap_or_else(|| panic!("{bad:?} booted"));
+            assert!(
+                e.contains("light-client server") || e.contains("KONCLAVE_LIGHTWALLETD"),
+                "{e}"
+            );
+        }
     }
 
     /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly

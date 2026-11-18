@@ -703,7 +703,7 @@ pub(crate) fn broadcast_signed(sc: &SendConfig, signed: &SignedSend) -> Result<S
 fn broadcast_bytes(sc: &SendConfig, signed: &[u8]) -> Result<String, ToolError> {
     let servers = match &sc.servers {
         Some(s) => s.clone(),
-        None => crate::lightclient::Servers::parse(&sc.lightwalletd, &sc.network),
+        None => crate::lightclient::Servers::single(&sc.lightwalletd, &sc.network),
     };
     crate::lightclient::broadcast(
         &sc.devtool,

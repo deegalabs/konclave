@@ -126,6 +126,20 @@ pub fn run_within(
     stdin_data: Option<&[u8]>,
     within: std::time::Duration,
 ) -> Result<Vec<u8>, ToolError> {
+    run_within_capped(program, args, stdin_data, within, usize::MAX)
+}
+
+/// [`run_within`] that also refuses to read more than `max_stdout` bytes of stdout: a program that
+/// writes more is stopped as soon as the cap is passed, and the call fails with a `Parse` error, so
+/// what a remote party can make this process hold in memory is the cap and not the deadline times
+/// the link speed. Stderr is capped the same way. The ONE place the cap lives.
+pub fn run_within_capped(
+    program: &Path,
+    args: &[&str],
+    stdin_data: Option<&[u8]>,
+    within: std::time::Duration,
+    max_stdout: usize,
+) -> Result<Vec<u8>, ToolError> {
     use std::io::Read;
     use std::sync::mpsc;
     let program_name = program.display().to_string();
@@ -161,23 +175,45 @@ pub fn run_within(
             let _ = stdin.write_all(&data);
         });
     }
-    fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> mpsc::Receiver<Vec<u8>> {
+    // Reads at most `cap + 1` bytes: one over the cap is how "too much" is told from "exactly the cap",
+    // and the reader stops there and drops the pipe, so a writer that keeps going is cut off.
+    fn drain<R: Read + Send + 'static>(
+        pipe: Option<R>,
+        cap: usize,
+        over: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    ) -> mpsc::Receiver<Vec<u8>> {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = Vec::new();
-            if let Some(mut p) = pipe {
-                let _ = p.read_to_end(&mut buf);
+            if let Some(p) = pipe {
+                let _ = p.take((cap as u64).saturating_add(1)).read_to_end(&mut buf);
+            }
+            if let (Some(flag), true) = (over, buf.len() > cap) {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             let _ = tx.send(buf);
         });
         rx
     }
-    let out = drain(child.stdout.take());
-    let err = drain(child.stderr.take());
+    let too_much = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let is_over = || too_much.load(std::sync::atomic::Ordering::SeqCst);
+    let over_cap = || {
+        ToolError::parse(
+            "output",
+            format!("{program_name} wrote more than {max_stdout} bytes"),
+        )
+    };
+    let out = drain(child.stdout.take(), max_stdout, Some(too_much.clone()));
+    let err = drain(child.stderr.take(), 1 << 20, None);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait().map_err(ToolError::Io)? {
             Some(status) => break status,
+            None if is_over() => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(over_cap());
+            }
             None if started.elapsed() >= within => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -190,6 +226,9 @@ pub fn run_within(
     let stdout = out
         .recv_timeout(left())
         .map_err(|_| timed_out("exited but left its output open"))?;
+    if stdout.len() > max_stdout {
+        return Err(over_cap());
+    }
     let stderr = err
         .recv_timeout(left())
         .map_err(|_| timed_out("exited but left its output open"))?;
@@ -435,5 +474,25 @@ mod tests {
         assert!(ToolError::parse("wallet output", "bad json")
             .to_string()
             .contains("failed to parse wallet output: bad json"));
+    }
+
+    /// A program that writes more than the cap is stopped and refused, however fast it writes; one
+    /// that writes exactly the cap is read whole.
+    #[cfg(unix)]
+    #[test]
+    fn output_over_the_cap_is_refused_and_exactly_the_cap_is_read() {
+        let dir = std::env::temp_dir().join(format!("konclave-cap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("big");
+        crate::test_exec::write_script(&big, "#!/bin/sh\nexec head -c 50000000 /dev/zero\n");
+        let started = std::time::Instant::now();
+        let r = run_within_capped(&big, &[], None, std::time::Duration::from_secs(20), 1000);
+        assert!(matches!(r, Err(ToolError::Parse { .. })), "{r:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let exact = dir.join("exact");
+        crate::test_exec::write_script(&exact, "#!/bin/sh\nexec head -c 1000 /dev/zero\n");
+        let r = run_within_capped(&exact, &[], None, std::time::Duration::from_secs(20), 1000);
+        assert_eq!(r.unwrap().len(), 1000);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

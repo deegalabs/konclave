@@ -21,12 +21,6 @@ pub const BROADCAST_WITHIN: Duration = Duration::from_secs(120);
 /// lock and a worker for as long as it runs, so the budget is total, never per server.
 pub const BROADCAST_TOTAL: Duration = Duration::from_secs(180);
 
-/// What `zcash-devtool` prints when the server ANSWERED and refused the transaction
-/// (`Error::SendFailed`'s display, `src/error.rs` at the commit `engine/versions.lock` pins:
-/// `"Send failed: ({code}) {reason}"`). A refusal is not retried on another server. Pinned by a test
-/// that builds the line the way the engine does, so a change of wording breaks a test, not a send.
-pub const REJECTION_MARKER: &str = "Send failed: (";
-
 /// How long a short call to a server may take: registering a viewing key (`init-fvk`), reading the
 /// chain's tip (`get-info`).
 pub const CALL_WITHIN: Duration = Duration::from_secs(120);
@@ -113,6 +107,15 @@ use std::sync::{Arc, Mutex};
 /// 25 seconds a block).
 pub const MAX_LAG: u64 = 20;
 
+/// How many blocks from the median a server may be and still be a place to broadcast to: a node a few
+/// blocks behind may not know the anchor the transaction was built on (about 75 seconds at 25 seconds
+/// a block). Reads keep [`MAX_LAG`].
+pub const MAX_BROADCAST_LAG: u64 = 3;
+
+/// The largest height an answer may carry. Heights are `u32` on the chain and in the engine; a larger
+/// number is not a height, and is a failed probe rather than something to take a median of.
+pub const MAX_HEIGHT: u64 = u32::MAX as u64;
+
 /// How many answers that agree (all within [`MAX_LAG`] of the median) a decision that leaves a
 /// server that still answers, or sets a wallet birthday, needs.
 pub const MIN_AGREE: usize = 3;
@@ -122,6 +125,10 @@ pub const PROBE_EVERY: Duration = Duration::from_secs(60);
 
 /// How long one probe may take.
 pub const PROBE_WITHIN: Duration = Duration::from_secs(10);
+
+/// The most a probe may read from a server, by `curl --max-filesize` and by the reader that stops at
+/// it. A real `GetLightdInfo` is a few hundred bytes.
+pub const PROBE_MAX_BYTES: usize = 65536;
 
 /// How far below the median height a new wallet's birthday is set.
 pub const BIRTHDAY_BACK: u64 = 100;
@@ -163,12 +170,66 @@ pub fn parse_list(raw: &str) -> Vec<String> {
     out
 }
 
+/// Whether `entry` is `host:port` and nothing else: a DNS name or IPv4 address, a numeric port, no
+/// scheme, no path, no spaces. What the probe puts into a URL and the engine into its `-s` must
+/// mean the same server, so anything either could read differently is refused when the list is read.
+pub fn validate_entry(entry: &str) -> Result<(), String> {
+    let bad = |why: &str| {
+        Err(format!(
+            "light-client server {entry:?} is not host:port ({why})"
+        ))
+    };
+    let Some((host, port)) = entry.rsplit_once(':') else {
+        return bad("no port");
+    };
+    if host.is_empty() || host.len() > 253 {
+        return bad("no host");
+    }
+    if !host
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        || host.starts_with(['.', '-'])
+        || host.ends_with(['.', '-'])
+        || host.contains("..")
+    {
+        return bad("the host may hold only letters, digits, dots and hyphens");
+    }
+    match port.parse::<u16>() {
+        Ok(p) if p > 0 && port.bytes().all(|b| b.is_ascii_digit()) => Ok(()),
+        _ => bad("the port is not a number from 1 to 65535"),
+    }
+}
+
 struct Assessment {
     /// Answered, on the configured chain, on the branch most answers report.
     eligible: Vec<usize>,
     median: Option<u64>,
     /// Eligible and within [`MAX_LAG`] of the median.
     in_band: Vec<usize>,
+    /// The height each eligible server reported.
+    heights: Vec<(usize, u64)>,
+}
+
+impl Assessment {
+    /// THE rule for "a server a decision may move to", read by the choice, the broadcast order and the
+    /// health route alike: in band when enough answered to have a band (and any are in it), else
+    /// every eligible server. A rule with three copies is what let the health route call a server not
+    /// ok while the broadcast still used it.
+    fn usable(&self) -> &[usize] {
+        if self.eligible.len() >= MIN_AGREE && !self.in_band.is_empty() {
+            &self.in_band
+        } else {
+            &self.eligible
+        }
+    }
+
+    /// Whether server `i` is eligible and within `lag` blocks of the median.
+    fn within(&self, i: usize, lag: u64) -> bool {
+        match (self.median, self.heights.iter().find(|(j, _)| *j == i)) {
+            (Some(m), Some((_, h))) => h.abs_diff(m) <= lag,
+            _ => false,
+        }
+    }
 }
 
 fn assess(obs: &[Observed], network: &str) -> Assessment {
@@ -203,12 +264,14 @@ fn assess(obs: &[Observed], network: &str) -> Assessment {
         Observed::Answered(info) => info.height,
         _ => 0,
     };
-    let mut heights: Vec<u64> = eligible.iter().map(|i| height(*i)).collect();
+    let pairs: Vec<(usize, u64)> = eligible.iter().map(|i| (*i, height(*i))).collect();
+    let mut heights: Vec<u64> = pairs.iter().map(|(_, h)| *h).collect();
     heights.sort_unstable();
+    // The middle of two is `lo + (hi - lo) / 2`: sorted, so it cannot overflow, whatever a server says.
     let median = match heights.len() {
         0 => None,
         n if n % 2 == 1 => Some(heights[n / 2]),
-        n => Some((heights[n / 2 - 1] + heights[n / 2]) / 2),
+        n => Some(heights[n / 2 - 1] + (heights[n / 2] - heights[n / 2 - 1]) / 2),
     };
     let in_band = match median {
         Some(m) => eligible
@@ -222,6 +285,7 @@ fn assess(obs: &[Observed], network: &str) -> Assessment {
         eligible,
         median,
         in_band,
+        heights: pairs,
     }
 }
 
@@ -268,7 +332,6 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
     if a.in_band.contains(&current) {
         return keep(None);
     }
-    let strict = a.eligible.len() >= MIN_AGREE;
     if a.eligible.contains(&current) {
         // Eligible but out of band.
         if a.in_band.len() >= MIN_AGREE {
@@ -292,8 +355,7 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
         )));
     }
     // The current server failed.
-    let pool = if strict { &a.in_band } else { &a.eligible };
-    match pool.first() {
+    match a.usable().first() {
         Some(&to) => Choice {
             index: to,
             note: Some(format!(
@@ -306,7 +368,7 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
             )),
         },
         None => keep(Some(format!(
-            "kept {}: it failed and no other server is eligible; heights {}",
+            "kept {}: it failed and no server is eligible; heights {}",
             list[current],
             describe(list, obs, &all),
         ))),
@@ -359,9 +421,28 @@ impl std::fmt::Debug for Servers {
 }
 
 impl Servers {
-    /// From a `KONCLAVE_LIGHTWALLETD` value and the network ("main" or "test") the chain must be.
-    pub fn parse(raw: &str, network: &str) -> Servers {
+    /// From a `KONCLAVE_LIGHTWALLETD` value and the network ("main" or "test") the chain must be,
+    /// refusing any entry that is not `host:port` ([`validate_entry`]) and a value with no entry. What
+    /// the coordinator reads its configuration with.
+    pub fn try_parse(raw: &str, network: &str) -> Result<Servers, String> {
         let list = parse_list(raw);
+        if list.len() == 1 && list[0].is_empty() {
+            return Err("KONCLAVE_LIGHTWALLETD names no server".to_string());
+        }
+        for entry in &list {
+            validate_entry(entry)?;
+        }
+        Ok(Servers::parse(raw, network))
+    }
+
+    /// One server, taken as it is: not split at commas, not checked. For the local bridge and the
+    /// command line, which name one server in their own configuration (and may use the engine's own
+    /// shorthand for it).
+    pub fn single(server: &str, network: &str) -> Servers {
+        Servers::from_list(vec![server.to_string()], network)
+    }
+
+    fn from_list(list: Vec<String>, network: &str) -> Servers {
         let n = list.len();
         Servers {
             list: Arc::new(list),
@@ -372,6 +453,12 @@ impl Servers {
                 last_note: None,
             })),
         }
+    }
+
+    /// Like [`Servers::try_parse`] without the check: for values already known to be well formed
+    /// (tests, and a list that was validated where it was read).
+    pub fn parse(raw: &str, network: &str) -> Servers {
+        Servers::from_list(parse_list(raw), network)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -415,12 +502,12 @@ impl Servers {
 
     /// The servers a broadcast may be tried on, in order: `start` (the one the operation has been
     /// using) first, then the others in list order, leaving out any the last probe found failed, on
-    /// another chain or branch, or (with at least [`MIN_AGREE`] in band) out of band. A server not
-    /// probed yet is kept: a probe that has not run is not a verdict.
+    /// another chain or branch, not usable by the one rule ([`Assessment::usable`]) or more than
+    /// [`MAX_BROADCAST_LAG`] blocks from the median. A server not probed yet is kept: a probe that has
+    /// not run is not a verdict.
     pub fn broadcast_order(&self, start: &str) -> Vec<String> {
         let st = self.lock();
         let a = assess(&st.obs, &self.network);
-        let strict = a.in_band.len() >= MIN_AGREE;
         let mut out = vec![start.to_string()];
         for (i, host) in self.list.iter().enumerate() {
             if host == start {
@@ -429,13 +516,7 @@ impl Servers {
             let keep = match &st.obs[i] {
                 Observed::Unknown => true,
                 Observed::Failed => false,
-                Observed::Answered(_) => {
-                    if strict {
-                        a.in_band.contains(&i)
-                    } else {
-                        a.eligible.contains(&i)
-                    }
-                }
+                Observed::Answered(_) => a.usable().contains(&i) && a.within(i, MAX_BROADCAST_LAG),
             };
             if keep {
                 out.push(host.clone());
@@ -449,7 +530,6 @@ impl Servers {
     pub fn status(&self) -> Vec<ServerStatus> {
         let st = self.lock();
         let a = assess(&st.obs, &self.network);
-        let strict = a.eligible.len() >= MIN_AGREE;
         self.list
             .iter()
             .enumerate()
@@ -468,14 +548,13 @@ impl Servers {
                 },
                 Observed::Answered(info) => ServerStatus {
                     host: host.clone(),
-                    ok: Some(if strict {
-                        a.in_band.contains(&i)
-                    } else {
-                        a.eligible.contains(&i)
-                    }),
+                    ok: Some(a.usable().contains(&i)),
                     chain: Some(info.chain.clone()),
                     // Blocks behind the median of the answers; negative is ahead of it.
-                    height_lag: a.median.map(|m| m as i64 - info.height as i64),
+                    height_lag: a.median.map(|m| {
+                        i64::try_from(i128::from(m) - i128::from(info.height))
+                            .unwrap_or(if m > info.height { i64::MAX } else { i64::MIN })
+                    }),
                 },
             })
             .collect()
@@ -487,27 +566,29 @@ impl Servers {
     }
 }
 
-/// Whether a failed attempt may be made again on another server: the call did not finish (a
-/// deadline, a broken pipe) or the engine failed without the server having refused. Not when the
-/// server answered and refused ([`REJECTION_MARKER`]), and not when the engine could not even start.
-fn retryable(e: &ToolError) -> bool {
+/// What a failed attempt allows. `Some(true)`: our own deadline stopped it, so the server may have
+/// received the transaction, and it is tried on the next server. `Some(false)`: the engine could not be
+/// started, so nothing was sent anywhere. `None`: anything else, and above all ANY non-zero exit of the
+/// engine, with its text or without: the engine ran and said no, or failed locally, and a different
+/// server will not change that. Those surface as the tool's own error. (What a server refuses is not
+/// read from the engine's wording: it varies by server software, and a rule that depends on it would
+/// retry what the network has already answered.)
+fn retry(e: &ToolError) -> Option<bool> {
     match e {
-        ToolError::Io(_) => true,
-        ToolError::NonZero { stderr, .. } => !stderr.contains(REJECTION_MARKER),
-        // The tool ran and printed a failure, or what it printed could not be read: not a connection
-        // problem, and the same on every server.
-        ToolError::Parse { .. } | ToolError::Spawn { .. } => false,
+        ToolError::Io(io) if io.kind() == std::io::ErrorKind::TimedOut => Some(true),
+        ToolError::Spawn { .. } => Some(false),
+        _ => None,
     }
 }
 
-/// Broadcast `signed` (the same bytes every time) starting on `start`, and on a timeout or a
-/// connection failure on the next server of [`Servers::broadcast_order`]; a refusal by a server stops
-/// it. THE one place a transaction is sent: both send paths call it, and `send_with` still sees one
+/// Broadcast `signed` (the same bytes every time) starting on `start`, and, only when an attempt was
+/// stopped at OUR deadline (or the engine could not start), on the next server of
+/// [`Servers::broadcast_order`]; any other failure stops it and is the tool's error. THE one place a transaction is sent: both send paths call it, and `send_with` still sees one
 /// call and one result. Rebroadcasting the identical transaction is not signing again: same bytes,
 /// same txid.
 ///
-/// The whole thing stops at [`BROADCAST_TOTAL`]. When no server accepted it and any attempt did not
-/// finish, the error says the transaction may have reached the network: an attempt that timed out may
+/// The whole thing stops at [`BROADCAST_TOTAL`]. When no server accepted it and any attempt was stopped
+/// at the deadline, the error says the transaction may have reached the network: an attempt that timed out may
 /// have been received, and the attempt record the caller keeps is what a later settle reads.
 pub fn broadcast(
     devtool: &Path,
@@ -547,13 +628,13 @@ fn broadcast_within(
         match attempt {
             Ok(txid) => return Ok(txid),
             Err(e) => {
-                if !retryable(&e) {
-                    // A refusal after an attempt that did not finish may still be the answer of a
-                    // server that already has it (a duplicate).
+                let Some(delivered_maybe) = retry(&e) else {
+                    // The engine ran and failed: the same on every server. Whatever an earlier
+                    // attempt left in doubt stays in doubt, and is said below.
                     last = Some(e);
                     break;
-                }
-                unfinished = true;
+                };
+                unfinished |= delivered_maybe;
                 match order.get(n + 1) {
                     Some(next) => eprintln!(
                         "konclave-helper: broadcast to {server} did not finish; trying {next} with the same transaction"
@@ -569,7 +650,8 @@ fn broadcast_within(
         return Err(ToolError::parse(
             "broadcast",
             format!(
-                "the transaction may have reached the network (a server did not answer in time or                  was unreachable); do not send it again before checking: {e}"
+                "the transaction may have reached the network (a server did not answer in time); \
+                 do not send it again before checking: {e}"
             ),
         ));
     }
@@ -649,11 +731,12 @@ pub fn decode_info(frame: &[u8]) -> Option<Info> {
     if chain.is_empty() {
         return None;
     }
+    let height = height.filter(|h| *h <= MAX_HEIGHT)?;
     Some(Info {
         version,
         chain,
         branch,
-        height: height?,
+        height,
         subversion: sub,
     })
 }
@@ -669,28 +752,41 @@ fn probe_within() -> Duration {
 /// Ask one server who it is, with `curl` over HTTP/2 (the image has it; the engine's own `get-info`
 /// is a 100 MB process that needs a wallet directory). Stopped at [`PROBE_WITHIN`].
 pub fn probe_one(curl: &Path, server: &str) -> Observed {
-    let base = if server.contains("://") {
-        server.trim_end_matches('/').to_string()
-    } else {
-        format!("https://{server}")
-    };
-    let url = format!("{base}{LIGHTD_INFO_PATH}");
+    let url = format!("https://{server}{LIGHTD_INFO_PATH}");
     let secs = PROBE_WITHIN.as_secs().to_string();
+    let max = PROBE_MAX_BYTES.to_string();
     let args = [
+        // First, so that no `.curlrc` of the user the coordinator runs as can add an option.
+        "--disable",
         "--http2",
         "--silent",
         "--show-error",
         "--max-time",
         secs.as_str(),
+        "--max-filesize",
+        max.as_str(),
+        // TLS only, no redirect (none is asked for), and no proxy from the environment: the engine's
+        // own client uses none, so the probe would otherwise look down a different road.
+        "--proto",
+        "=https",
+        "--noproxy",
+        "*",
         "-H",
         "content-type: application/grpc",
         "-H",
         "te: trailers",
         "--data-binary",
         "@-",
+        "--url",
         url.as_str(),
     ];
-    match crate::tools::run_within(curl, &args, Some(&EMPTY_FRAME), probe_within()) {
+    match crate::tools::run_within_capped(
+        curl,
+        &args,
+        Some(&EMPTY_FRAME),
+        probe_within(),
+        PROBE_MAX_BYTES,
+    ) {
         Ok(out) => match decode_info(&out) {
             Some(info) => Observed::Answered(info),
             None => Observed::Failed,
@@ -1254,66 +1350,63 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Any non-zero exit of the engine is the tool's error and is not sent on: with the engine's
+    /// refusal text, with a gRPC status as another server software words it, or a local failure. A
+    /// different server would answer the same, and the bytes would go to more operators for nothing.
     #[cfg(unix)]
     #[test]
-    fn a_connection_failure_is_sent_on_the_next_server() {
-        let (dev, dir) = stand_in(
-            "conn",
-            &format!(
-                "  a:443) echo 'Error: transport error: connection refused' >&2; exit 1 ;;\n  *) echo {TXID} ;;"
+    fn no_non_zero_exit_is_sent_on_whatever_it_says() {
+        for (name, stderr) in [
+            (
+                "marker",
+                "Error: Send failed: (-26) bad-txns-inputs-missingorspent",
             ),
-        );
-        let r = broadcast(&dev, "/w", &three(), "a:443", b"x");
-        assert_eq!(r.unwrap(), TXID);
-        assert_eq!(tried(&dir), ["a:443", "b:443"]);
-        std::fs::remove_dir_all(&dir).ok();
+            (
+                "status",
+                "Error: status: InvalidArgument, message: \"transaction rejected\"",
+            ),
+            (
+                "local",
+                "Error: Failed to extract and store transaction from PCZT",
+            ),
+            ("transport", "Error: transport error: connection refused"),
+        ] {
+            let (dev, dir) = stand_in(
+                name,
+                &format!("  a:443) echo '{stderr}' >&2; exit 1 ;;\n  *) echo {TXID} ;;"),
+            );
+            let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
+            assert_eq!(tried(&dir), ["a:443"], "{name}: went to a second server");
+            let text = e.to_string();
+            assert!(
+                text.contains(&stderr[7..20]),
+                "{name}: the tool's text is kept: {text}"
+            );
+            assert!(!text.contains("may have reached"), "{name}: {text}");
+            std::fs::remove_dir_all(&dir).ok();
+        }
     }
 
-    #[cfg(unix)]
     #[test]
-    fn a_rejection_is_not_retried_on_another_server() {
-        let (dev, dir) = stand_in(
-            "reject",
-            &format!(
-                "  a:443) echo 'Error: Send failed: (-26) bad-txns-inputs-missingorspent' >&2; exit 1 ;;\n  *) echo {TXID} ;;"
-            ),
-        );
-        let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
-        assert_eq!(tried(&dir), ["a:443"], "a refusal went to a second server");
-        let text = e.to_string();
-        assert!(text.contains("bad-txns-inputs-missingorspent"), "{text}");
-        assert!(
-            !text.contains("may have reached"),
-            "a plain refusal is not 'may have gone out': {text}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// The marker is the engine's own wording, built here the way `zcash-devtool` builds it
-    /// (`Error::SendFailed`'s display at the pinned commit), so a change of wording on either side is
-    /// a red test and not a retried refusal.
-    #[test]
-    fn the_rejection_marker_matches_the_engines_wording() {
-        let (code, reason) = (-26, "bad-txns-inputs-missingorspent");
-        let line = format!("Error: Send failed: ({code}) {reason}");
-        assert!(line.contains(REJECTION_MARKER));
-        assert_eq!(REJECTION_MARKER, "Send failed: (");
-        let refusal = ToolError::NonZero {
+    fn only_our_deadline_or_a_start_failure_allows_another_server() {
+        let timed_out = ToolError::Io(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        assert_eq!(retry(&timed_out), Some(true));
+        let spawn = ToolError::Spawn {
             program: "d".into(),
-            code: Some(1),
-            stderr: line,
+            source: std::io::Error::from(std::io::ErrorKind::NotFound),
         };
-        assert!(!retryable(&refusal));
-        let down = ToolError::NonZero {
-            program: "d".into(),
-            code: Some(1),
-            stderr: "Error: transport error".into(),
-        };
-        assert!(retryable(&down));
-        assert!(retryable(&ToolError::Io(std::io::Error::from(
-            std::io::ErrorKind::TimedOut
-        ))));
-        assert!(!retryable(&ToolError::parse("broadcast", "no txid")));
+        assert_eq!(retry(&spawn), Some(false));
+        let other_io = ToolError::Io(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+        assert_eq!(retry(&other_io), None);
+        for stderr in ["Send failed: (-1) x", "transport error", ""] {
+            let nz = ToolError::NonZero {
+                program: "d".into(),
+                code: Some(1),
+                stderr: stderr.into(),
+            };
+            assert_eq!(retry(&nz), None, "{stderr:?}");
+        }
+        assert_eq!(retry(&ToolError::parse("broadcast", "no txid")), None);
     }
 
     #[cfg(unix)]
@@ -1486,5 +1579,282 @@ mod tests {
         let sv = Servers::parse("a:443", "main");
         sv.record(vec![info("test", NU7, 5)]);
         assert_eq!(sv.status()[0].ok, Some(false));
+    }
+
+    // ---- one rule for a usable server, bands, overflow, the probe's argv and bound ---------------
+
+    #[test]
+    fn one_rule_decides_what_the_choice_the_broadcast_and_the_health_route_use() {
+        // [1000, 1000, 1100]: median 1000, three eligible, two in band. c is not usable anywhere.
+        let sv = Servers::parse("a:443,b:443,c:443", "main");
+        sv.record(vec![main_at(1000), main_at(1000), main_at(1100)]);
+        assert_eq!(sv.broadcast_order("a:443"), ["a:443", "b:443"]);
+        let st = sv.status();
+        assert_eq!(
+            [st[0].ok, st[1].ok, st[2].ok],
+            [Some(true), Some(true), Some(false)]
+        );
+        // And the choice, with the current one failed, never goes to the one out of band.
+        let list = s(&["a", "b", "c", "d"]);
+        let obs = [
+            Observed::Failed,
+            main_at(1100),
+            main_at(1000),
+            main_at(1000),
+        ];
+        assert_eq!(choose(&list, 0, &obs, "main").index, 2);
+        // For every server the three agree: usable in the health route <=> in the broadcast order
+        // (the order also needs the tighter broadcast band, so b qualifies here).
+        for (i, host) in ["a:443", "b:443", "c:443"].iter().enumerate() {
+            let in_order = sv.broadcast_order("zzz").iter().any(|h| h == host);
+            assert_eq!(st[i].ok == Some(true), in_order, "{host}");
+        }
+    }
+
+    #[test]
+    fn an_even_split_still_has_a_server_to_go_to() {
+        // Two honest, two 100 ahead: the median is between them, nobody is in band. The failed
+        // current still goes to the first eligible server, and the note does not say none is.
+        let list = s(&["a", "b", "c", "d", "e"]);
+        let obs = [
+            Observed::Failed,
+            main_at(1000),
+            main_at(1000),
+            main_at(1100),
+            main_at(1100),
+        ];
+        let c = choose(&list, 0, &obs, "main");
+        assert_eq!(c.index, 1);
+        assert!(!c.note.unwrap().contains("no server is eligible"));
+        // Nothing eligible at all: kept, and the note says so.
+        let obs = [Observed::Failed, Observed::Failed];
+        let c = choose(&s(&["a", "b"]), 0, &obs, "main");
+        assert!(c.note.unwrap().contains("no server is eligible"));
+    }
+
+    #[test]
+    fn the_broadcast_band_is_three_blocks_and_reads_keep_twenty() {
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        // median of 1000, 1001, 1002, 1010 is 1001: c (1010) is 9 away, in the read band, out of the
+        // broadcast band.
+        sv.record(vec![
+            main_at(1000),
+            main_at(1002),
+            main_at(1010),
+            main_at(1001),
+        ]);
+        assert_eq!(sv.broadcast_order("a:443"), ["a:443", "b:443", "d:443"]);
+        assert!(
+            sv.status()[2].ok == Some(true),
+            "c is still fine to read through"
+        );
+        assert_eq!(MAX_BROADCAST_LAG, 3);
+        assert_eq!(MAX_LAG, 20);
+    }
+
+    #[test]
+    fn with_fewer_than_three_eligible_the_eligible_ones_are_ok() {
+        let sv = Servers::parse("a:443,b:443,c:443", "main");
+        sv.record(vec![main_at(1000), main_at(1010), Observed::Failed]);
+        let st = sv.status();
+        assert_eq!(
+            [st[0].ok, st[1].ok, st[2].ok],
+            [Some(true), Some(true), Some(false)]
+        );
+        assert_eq!((st[0].height_lag, st[1].height_lag), (Some(5), Some(-5)));
+        // One eligible, on another chain next to it.
+        let sv = Servers::parse("a:443,b:443", "main");
+        sv.record(vec![main_at(7), info("test", NU7, 7)]);
+        let st = sv.status();
+        assert_eq!([st[0].ok, st[1].ok], [Some(true), Some(false)]);
+    }
+
+    #[test]
+    fn a_branch_tie_goes_to_the_branch_of_the_earliest_server() {
+        let list = s(&["a", "b"]);
+        let obs = [
+            info("main", "aaaa0001", 1000),
+            info("main", "bbbb0002", 1000),
+        ];
+        // a's branch wins the tie: b is not eligible, so a current b has failed.
+        assert_eq!(choose(&list, 1, &obs, "main").index, 0);
+        let sv = Servers::parse("a:443,b:443", "main");
+        sv.record(vec![obs[0].clone(), obs[1].clone()]);
+        assert_eq!(sv.status()[0].ok, Some(true));
+        assert_eq!(sv.status()[1].ok, Some(false));
+    }
+
+    #[test]
+    fn heights_that_would_overflow_are_handled_and_refused_at_the_decoder() {
+        // The middle of two cannot overflow, however large one of them is.
+        let list = s(&["a", "b", "c"]);
+        let obs = [main_at(1000), main_at(u64::MAX), main_at(u64::MAX - 1)];
+        let _ = choose(&list, 0, &obs, "main");
+        let _ = birthday(&obs, "main");
+        let sv = Servers::parse("a:443,b:443", "main");
+        sv.record(vec![main_at(1000), main_at(u64::MAX)]);
+        let st = sv.status();
+        assert!(st[0].height_lag.is_some() && st[1].height_lag.is_some());
+        // A frame whose height is not a u32 is a failed probe.
+        let mut m = Vec::new();
+        field_str(&mut m, 4, "main");
+        field_varint(&mut m, 7, u64::from(u32::MAX) + 1);
+        assert!(decode_info(&frame(&m)).is_none());
+        let mut m = Vec::new();
+        field_str(&mut m, 4, "main");
+        field_varint(&mut m, 7, u64::from(u32::MAX));
+        assert_eq!(decode_info(&frame(&m)).unwrap().height, u64::from(u32::MAX));
+        // A ten-byte varint that fits u64 is read, and is then over the bound.
+        let mut m = Vec::new();
+        field_str(&mut m, 4, "main");
+        field_varint(&mut m, 7, u64::MAX);
+        assert!(decode_info(&frame(&m)).is_none());
+    }
+
+    #[test]
+    fn the_decoder_skips_fixed_width_fields() {
+        let mut m = lightd_info_message();
+        m.push(20 << 3 | 1);
+        m.extend_from_slice(&[0; 8]);
+        m.push(21 << 3 | 5);
+        m.extend_from_slice(&[0; 4]);
+        assert_eq!(decode_info(&frame(&m)).unwrap().height, 3_586_790);
+        // Cut short inside a fixed-width field.
+        let mut m = lightd_info_message();
+        m.push(20 << 3 | 1);
+        m.extend_from_slice(&[0; 3]);
+        assert!(decode_info(&frame(&m)).is_none());
+    }
+
+    #[test]
+    fn a_server_is_host_and_port_and_nothing_else() {
+        for ok in [
+            "zec.rocks:443",
+            "zcash.mysideoftheweb.com:9067",
+            "10.0.0.1:9067",
+            "a-b.c:1",
+        ] {
+            assert!(validate_entry(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "https://zec.rocks:443",
+            "zec.rocks:443/x",
+            "zec rocks:443",
+            "zec.rocks",
+            ":443",
+            "zec.rocks:0",
+            "zec.rocks:70000",
+            "zec.rocks:+443",
+            "zec.rocks:44 3",
+            "-a.b:443",
+            "a..b:443",
+            "a.b.:443",
+            "[::1]:443",
+            "zecrocks",
+            "a@b:443",
+        ] {
+            assert!(validate_entry(bad).is_err(), "{bad}");
+        }
+        assert!(Servers::try_parse("a.b:443, c.d:9067", "main").is_ok());
+        let e = Servers::try_parse("a.b:443,https://c.d:443", "main").unwrap_err();
+        assert!(
+            e.contains("https://c.d:443") && e.contains("not host:port"),
+            "{e}"
+        );
+        assert!(Servers::try_parse("", "main").is_err());
+        assert!(Servers::try_parse(" , ", "main").is_err());
+    }
+
+    #[test]
+    fn the_local_path_keeps_one_string_and_never_splits_it() {
+        let one = Servers::single("a:443,b:443", "main");
+        assert_eq!(one.list(), ["a:443,b:443"]);
+        assert_eq!(one.current(), "a:443,b:443");
+        assert_eq!(one.broadcast_order("a:443,b:443"), ["a:443,b:443"]);
+    }
+
+    /// The probe's whole command line, and what it feeds curl: pinned, so that dropping the hygiene
+    /// flags, the bound or the headers is a red test.
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_runs_curl_with_exactly_these_arguments() {
+        let dir = std::env::temp_dir().join(format!("konclave-probe-argv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let curl = dir.join("curl");
+        crate::test_exec::write_script(
+            &curl,
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {d}/argv\ncat > {d}/stdin\n",
+                d = dir.display()
+            ),
+        );
+        let _ = probe_one(&curl, "a.test:443");
+        let argv: Vec<String> = std::fs::read_to_string(dir.join("argv"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            argv,
+            [
+                "--disable",
+                "--http2",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                "10",
+                "--max-filesize",
+                "65536",
+                "--proto",
+                "=https",
+                "--noproxy",
+                "*",
+                "-H",
+                "content-type: application/grpc",
+                "-H",
+                "te: trailers",
+                "--data-binary",
+                "@-",
+                "--url",
+                "https://a.test:443/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo",
+            ]
+        );
+        assert_eq!(std::fs::read(dir.join("stdin")).unwrap(), [0u8; 5]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A server that sends far more than a `GetLightdInfo` is a failed probe, and what is read is
+    /// bounded, whatever curl does.
+    #[cfg(unix)]
+    #[test]
+    fn a_probe_reply_over_the_bound_is_a_failure() {
+        let dir = std::env::temp_dir().join(format!("konclave-probe-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let curl = dir.join("curl");
+        crate::test_exec::write_script(&curl, "#!/bin/sh\nexec head -c 50000000 /dev/zero\n");
+        let started = std::time::Instant::now();
+        assert_eq!(probe_one(&curl, "a.test:443"), Observed::Failed);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// With a list the background probe really runs and fills the cache; with a failing curl every
+    /// server reads as failed.
+    #[cfg(unix)]
+    #[test]
+    fn a_list_starts_the_probe_thread_and_it_fills_the_cache() {
+        let dir = std::env::temp_dir().join(format!("konclave-probe-spawn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let curl = dir.join("curl");
+        crate::test_exec::write_script(&curl, "#!/bin/sh\nexit 22\n");
+        let sv = Servers::parse("a.test:443,b.test:443", "main");
+        assert!(spawn_probe(&sv, curl));
+        let until = std::time::Instant::now() + Duration::from_secs(10);
+        while sv.status()[0].ok.is_none() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(sv.status()[0].ok, Some(false));
+        assert_eq!(sv.status()[1].ok, Some(false));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
