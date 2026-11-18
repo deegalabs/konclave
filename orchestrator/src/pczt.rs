@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use crate::tools::{run, run_text, ToolError};
+use crate::tools::{run, ToolError};
 
 /// `zcash-devtool pczt -w <dir> prove` - reads a PCZT on stdin, returns the proven PCZT.
 pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, ToolError> {
@@ -26,19 +26,13 @@ pub(crate) fn send(
     server: &str,
     signed_pczt: &[u8],
 ) -> Result<String, ToolError> {
-    let out = run_text(
+    // Stopped at its deadline: a server that never answers must not hold the worker and the vault.
+    let out = crate::lightclient::run_text(
         devtool,
-        &[
-            "pczt",
-            "-w",
-            wallet_dir,
-            "send",
-            "-s",
-            server,
-            "--connection",
-            "direct",
-        ],
+        &["pczt", "-w", wallet_dir, "send"],
+        server,
         Some(signed_pczt),
+        crate::lightclient::Call::Broadcast,
     )?;
     parse_txid(&out)
 }
@@ -141,6 +135,27 @@ fn is_txid(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A broadcast to a server that never answers is stopped at its deadline, not held for as long as
+    /// the server hangs (it holds a worker and the vault's lock while it waits).
+    #[cfg(unix)]
+    #[test]
+    fn a_broadcast_to_a_server_that_never_answers_is_stopped() {
+        let dir = std::env::temp_dir().join(format!("konclave-pczt-hang-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hang = dir.join("devtool");
+        crate::test_exec::write_script(&hang, "#!/bin/sh\nsleep 30\n");
+        crate::lightclient::set_within_for_test(Some(std::time::Duration::from_millis(300)));
+        let started = std::time::Instant::now();
+        let r = send(&hang, "/w", "zec.rocks:443", b"signed");
+        crate::lightclient::set_within_for_test(None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(r.is_err());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the broadcast was not stopped"
+        );
+    }
 
     // The repo's Ironwood vector. Its expected values do NOT come from the functions under test:
     // the sighash is `konclave-signer extract`'s, the txid is `zcash-devtool pczt inspect`'s (another
