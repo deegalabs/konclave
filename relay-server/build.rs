@@ -63,7 +63,14 @@ fn main() {
     // still agree, which is what CI compares.
     //
     // Sorted, so the digest does not depend on the order the filesystem hands them back.
-    let mut parts: Vec<String> = vec!["Cargo.toml".into(), "../konclave-http/Cargo.toml".into()];
+    // The lock and this script are digested too (audit F8): the same sources built against other
+    // dependency versions, or by another build script, are another relay.
+    let mut parts: Vec<String> = vec![
+        "Cargo.toml".into(),
+        "Cargo.lock".into(),
+        "build.rs".into(),
+        "../konclave-http/Cargo.toml".into(),
+    ];
     walk("src", &mut parts);
     walk("../konclave-http/src", &mut parts);
     parts.sort();

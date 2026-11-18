@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0 OR MIT"
 description = "Konclave's blind mailbox relay, standalone + public (CORS) for konclave.xyz multi-device ceremonies. Mirrors orchestrator/src/relay.rs; carries only opaque/encrypted bytes."
 
+# Its own workspace (not a member of the repository's), so its Cargo.lock is the one the image
+# builds with `--locked` and the one CI tests: one lock, no copy to keep in step (audit F8, design B).
+[workspace]
+
 [[bin]]
 name = "relay-server"
 path = "src/main.rs"

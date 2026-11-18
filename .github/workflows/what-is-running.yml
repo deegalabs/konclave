@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           deploy=$(node -e 'import("./scripts/what-is-running.mjs").then(m => console.log(m.lockDeployCommit(require("child_process").execFileSync("git", ["show", "origin/staging:engine/versions.lock"], {encoding: "utf8"}))))')
           git worktree add --detach "$RUNNER_TEMP/deploy" "$deploy"
-          digest=$(cd "$RUNNER_TEMP/deploy" && cargo run -q -p relay-server -- --digest)
+          digest=$(cd "$RUNNER_TEMP/deploy" && cargo run -q --manifest-path relay-server/Cargo.toml -- --digest)
           echo "deploy $deploy relay digest $digest"
           echo "value=$digest" >> "$GITHUB_OUTPUT"
       - name: Compare

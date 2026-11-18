@@ -7,9 +7,11 @@ members = [
   "konclave-seal",
   "konclave-signer",
   "konclave-wasm",
-  "relay-server",
   "src-tauri",
 ]
+# The relay is its own workspace, with its own Cargo.lock, so the image builds with `--locked` from
+# exactly the lock CI tests (audit F8, design B). Build it with `--manifest-path relay-server/Cargo.toml`.
+exclude = ["relay-server"]
 
 # NO [patch.crates-io]. Every librustzcash / orchard crate comes straight from crates.io at a
 # RELEASED version - there are zero git sources in Cargo.lock. Keep it that way: a git rev is a
