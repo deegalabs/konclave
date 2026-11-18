@@ -95,6 +95,25 @@ pub fn inject(
     Ok(())
 }
 
+/// The exit status `konclave-signer inject` uses when it checked a signature and refused it. Every
+/// other failure exits 1. Must equal `EXIT_SIGNATURE_REJECTED` in `konclave-signer/src/main.rs`; a
+/// test reads that file and holds the two together.
+pub const INJECT_EXIT_SIGNATURE_REJECTED: i32 = 3;
+
+/// What an attempted inject says about the signatures it was given: valid (and the signed PCZT is
+/// written), refused by the check, or nothing at all because the check did not run.
+pub fn inject_verdict(result: &Result<(), ToolError>) -> crate::net_send::Verdict {
+    use crate::net_send::Verdict;
+    match result {
+        Ok(()) => Verdict::Valid,
+        Err(ToolError::NonZero {
+            code: Some(INJECT_EXIT_SIGNATURE_REJECTED),
+            ..
+        }) => Verdict::Invalid,
+        Err(_) => Verdict::CouldNotRun,
+    }
+}
+
 // ---- hex helpers (dependency-free) ----
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -119,6 +138,39 @@ fn hex32(s: &str, what: &str) -> Result<[u8; 32], ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_signers_refusal_judges_an_answer() {
+        use crate::net_send::Verdict;
+        let nz = |code| {
+            Err(ToolError::NonZero {
+                program: "konclave-signer".into(),
+                code,
+                stderr: String::new(),
+            })
+        };
+        assert_eq!(inject_verdict(&Ok(())), Verdict::Valid);
+        assert_eq!(inject_verdict(&nz(Some(3))), Verdict::Invalid);
+        assert_eq!(inject_verdict(&nz(Some(1))), Verdict::CouldNotRun);
+        assert_eq!(inject_verdict(&nz(None)), Verdict::CouldNotRun);
+        let spawn = Err(ToolError::Spawn {
+            program: "konclave-signer".into(),
+            source: std::io::Error::from(std::io::ErrorKind::NotFound),
+        });
+        assert_eq!(inject_verdict(&spawn), Verdict::CouldNotRun);
+    }
+
+    /// The status is chosen in one binary and read in another crate. This reads the signer's own
+    /// source, so a change on one side fails here rather than quietly turning every refusal into
+    /// "did not run" (or the reverse).
+    #[test]
+    fn the_refusal_status_is_the_one_the_signer_exits_with() {
+        let src = include_str!("../../konclave-signer/src/main.rs");
+        let want =
+            format!("const EXIT_SIGNATURE_REJECTED: i32 = {INJECT_EXIT_SIGNATURE_REJECTED};");
+        assert!(src.contains(&want), "konclave-signer must declare `{want}`");
+        assert!(src.contains("std::process::exit(EXIT_SIGNATURE_REJECTED)"));
+    }
 
     // Real `konclave-signer extract` output from the vertical slice.
     const EXTRACT: &str = "SIGHASH 9d65aa4b4c1b23e777006823381a5228d8a7171c6f5c77c2cfaba2b001b19849\nRANDOMIZER 1 320f2f9d61fd336a03db6609953704d49ce13ab059711c87e332ed240a569911\n";

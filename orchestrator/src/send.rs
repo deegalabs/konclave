@@ -895,6 +895,7 @@ fn prepare_capped<T: Transport>(
     let tx3_path = format!("{}/net-tx3-signed.pczt", sc.work_dir);
     let mut since = posted;
     let mut collected = None;
+    let mut retries = net_send::Retries::default();
     for _ in 0..max_polls {
         // Verify each candidate by trial-injecting it: `inject` checks every redpallas signature
         // as it applies it, so a real device's response injects cleanly (and tx3_path is then the
@@ -904,11 +905,20 @@ fn prepare_capped<T: Transport>(
         // DoS every send by posting one junk response. (Cost: an inject subprocess per structurally
         // -valid candidate. Authenticating room writes, #63, would stop the injection at the
         // source.)
+        // A refusal by the signer's check judges the candidate; any other failure (the signer could
+        // not start, the PCZT could not be read or written) says nothing about it, and the candidate
+        // is read again on a later poll instead of being lost.
         let verify = |sigs: &net_send::SpendSigs| {
-            signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs).is_ok()
+            signer::inject_verdict(&signer::inject(
+                &sc.konclave_signer,
+                &tx2_path,
+                &tx3_path,
+                sigs,
+            ))
         };
-        let (found, next) = net_send::collect_response(client, &req, since, verify)
-            .map_err(|e| ToolError::parse("relay", e))?;
+        let (found, next) =
+            net_send::collect_response_retrying(client, &req, since, verify, &mut retries)
+                .map_err(|e| ToolError::parse("relay", e))?;
         since = next;
         if found.is_some() {
             collected = found;
@@ -1236,11 +1246,18 @@ mod tests {
             ),
         );
         // `extract <pczt>` prints the vector's sighash; `inject <pczt> <out> --sig ...` writes the
-        // signed PCZT, as the real one does only if every signature verifies.
+        // signed PCZT, as the real one does only if every signature verifies, and exits 3 when a
+        // signature is refused. A tag starting with `flaky` makes the first inject fail as a check
+        // that did not run (exit 1), whatever it was given.
+        let flaky = dir.join("fail-once");
+        if tag.starts_with("flaky") {
+            std::fs::write(&flaky, b"").unwrap();
+        }
+        let flaky = flaky.display();
         let signer = script(
             "signer",
             format!(
-                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) case \"$*\" in *{}*) cp {} \"$3\";; *) exit 1;; esac;; esac",
+                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) [ -e {flaky} ] && {{ rm {flaky}; exit 1; }}; case \"$*\" in *{}*) cp {} \"$3\";; *) exit 3;; esac;; esac",
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
                 "ab".repeat(64),
@@ -1801,6 +1818,16 @@ mod tests {
             ["ab".repeat(64)],
             "the signature that was taken is the devices', not a junk one"
         );
+    }
+
+    /// A check that did not run, at the moment the devices' answer is read, does not lose the answer:
+    /// it is read again on the next poll and the send goes through.
+    #[cfg(unix)]
+    #[test]
+    fn the_send_survives_a_check_that_did_not_run_on_the_devices_answer() {
+        let (result, _) = prepare_against_stand_ins("flaky-answer", PROVEN);
+        let signed = result.expect("the devices' answer was read again");
+        assert_eq!(signed.signatures(), ["ab".repeat(64)]);
     }
 
     /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
