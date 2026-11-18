@@ -90,13 +90,19 @@ What is fixed and what is open, by kind of attack:
   to the exact content of the proposal, and the approved payment a device compares with is
   fetched from the coordinator when it signs (#567). Until that is fixed, a malicious or
   compromised coordinator could change a proposal after it was approved: a payment the quorum
-  signs is only as safe as the hosted coordinator.
+  signs is only as safe as the hosted coordinator. Also open: a device's record of what it signed
+  stays on that device, so a member who signs for the same seat on another device (a backup restored
+  there included), in another browser or a private window, or after clearing the browser's storage
+  is not warned there that the seat already signed that payment, and signing again could pay it
+  twice. A device that reads the chain itself would narrow this (#516, not scheduled).
 - **Acting as another member.** Fixed: every vote, proposal, payroll, rename and send is signed by
   the member's device and checked by the coordinator, and votes, proposals and payrolls are
   recorded under the seat that signed them (#288, #569); seats in the signing room, and the
   messages that carry the arming tally, are authenticated (#401, #424, #425); two writes to one
   vault no longer run unserialised (#576, since 2026-10-04; a read does not queue behind a write, and the ones that record a mined send take the lock only when it is free). Open: on a vault created before 8 November 2026, a
-  member can claim a colleague's seat before the colleague does, and then vote as them (#577); an approval recorded while a vault still
+  member can claim a colleague's seat before the colleague does, and then vote as them (#577; a vault
+  created since then takes a seat only with that seat's own certificate, ADR-0012, which leaves the
+  older vaults as they are: covering them needs an in-place upgrade, tracked in #406 and not built); an approval recorded while a vault still
   took unsigned writes keeps counting after it requires signatures (#575, narrowed on 2026-10-04 and
   not closed by it); and the write check turns on per vault, the first time a member unlocks it, so
   until then that vault still accepts unsigned writes.
