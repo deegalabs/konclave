@@ -95,17 +95,63 @@ pub fn inject(
     Ok(())
 }
 
-/// The exit status `konclave-signer inject` uses when it checked a signature and refused it. Every
-/// other failure exits 1. Must equal `EXIT_SIGNATURE_REJECTED` in `konclave-signer/src/main.rs`; a
-/// test reads that file and holds the two together.
-pub const INJECT_EXIT_SIGNATURE_REJECTED: i32 = 3;
+pub use konclave_seal::spends::INJECT_EXIT_SIGNATURE_REJECTED;
+
+/// Whether this `konclave-signer` exits with [`INJECT_EXIT_SIGNATURE_REJECTED`] for a refused
+/// signature. A build that predates it exits 1 for every failure, and reading that as "the check did
+/// not run" would hold the cursor on every refused answer; so it is asked, not assumed, and any
+/// failure to answer (no such command, a different number, no answer within the deadline) is "no".
+pub fn speaks_refusal_status(konclave_signer: &Path) -> bool {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let Ok(mut child) = Command::new(konclave_signer)
+        .arg("inject-statuses")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return false,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+        }
+    }
+    let mut out = String::new();
+    if child
+        .stdout
+        .take()
+        .map(|mut s| s.read_to_string(&mut out))
+        .is_none()
+    {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("signature_rejected").and_then(|n| n.as_i64()))
+        == Some(i64::from(INJECT_EXIT_SIGNATURE_REJECTED))
+}
 
 /// What an attempted inject says about the signatures it was given: valid (and the signed PCZT is
 /// written), refused by the check, or nothing at all because the check did not run.
-pub fn inject_verdict(result: &Result<(), ToolError>) -> crate::net_send::Verdict {
+///
+/// With a signer that does not speak the refusal status (`speaks` false), every failure is read as a
+/// refusal, as before that status existed: an answer is then never read again, which loses one whose
+/// check did not run but cannot hold the cursor.
+pub fn inject_verdict(result: &Result<(), ToolError>, speaks: bool) -> crate::net_send::Verdict {
     use crate::net_send::Verdict;
     match result {
         Ok(()) => Verdict::Valid,
+        Err(_) if !speaks => Verdict::Invalid,
         Err(ToolError::NonZero {
             code: Some(INJECT_EXIT_SIGNATURE_REJECTED),
             ..
@@ -149,27 +195,48 @@ mod tests {
                 stderr: String::new(),
             })
         };
-        assert_eq!(inject_verdict(&Ok(())), Verdict::Valid);
-        assert_eq!(inject_verdict(&nz(Some(3))), Verdict::Invalid);
-        assert_eq!(inject_verdict(&nz(Some(1))), Verdict::CouldNotRun);
-        assert_eq!(inject_verdict(&nz(None)), Verdict::CouldNotRun);
+        assert_eq!(inject_verdict(&Ok(()), true), Verdict::Valid);
+        assert_eq!(inject_verdict(&nz(Some(3)), true), Verdict::Invalid);
+        assert_eq!(inject_verdict(&nz(Some(1)), true), Verdict::CouldNotRun);
+        assert_eq!(inject_verdict(&nz(None), true), Verdict::CouldNotRun);
+        // A signer that predates the status: every failure is a refusal, never a hold.
+        assert_eq!(inject_verdict(&Ok(()), false), Verdict::Valid);
+        assert_eq!(inject_verdict(&nz(Some(1)), false), Verdict::Invalid);
+        assert_eq!(inject_verdict(&nz(Some(3)), false), Verdict::Invalid);
         let spawn = Err(ToolError::Spawn {
             program: "konclave-signer".into(),
             source: std::io::Error::from(std::io::ErrorKind::NotFound),
         });
-        assert_eq!(inject_verdict(&spawn), Verdict::CouldNotRun);
+        assert_eq!(inject_verdict(&spawn, true), Verdict::CouldNotRun);
     }
 
-    /// The status is chosen in one binary and read in another crate. This reads the signer's own
-    /// source, so a change on one side fails here rather than quietly turning every refusal into
-    /// "did not run" (or the reverse).
+    #[cfg(unix)]
+    fn stand_in(name: &str, body: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-statuses-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("signer");
+        crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
+        path
+    }
+
+    /// The coordinator asks the signer, and only an exact answer turns the refusal status on: an
+    /// older signer (no such command), a different number or a missing binary all read as "no".
+    #[cfg(unix)]
     #[test]
-    fn the_refusal_status_is_the_one_the_signer_exits_with() {
-        let src = include_str!("../../konclave-signer/src/main.rs");
-        let want =
-            format!("const EXIT_SIGNATURE_REJECTED: i32 = {INJECT_EXIT_SIGNATURE_REJECTED};");
-        assert!(src.contains(&want), "konclave-signer must declare `{want}`");
-        assert!(src.contains("std::process::exit(EXIT_SIGNATURE_REJECTED)"));
+    fn the_refusal_status_is_asked_of_the_signer_not_assumed() {
+        let speaks = stand_in(
+            "speaks",
+            r#"[ "$1" = inject-statuses ] && echo '{"signature_rejected":3}'"#,
+        );
+        assert!(speaks_refusal_status(&speaks));
+        let older = stand_in("older", "echo 'error: unrecognized subcommand' >&2; exit 2");
+        assert!(!speaks_refusal_status(&older));
+        let other = stand_in("other", r#"echo '{"signature_rejected":4}'"#);
+        assert!(!speaks_refusal_status(&other));
+        assert!(!speaks_refusal_status(Path::new(
+            "/nonexistent/konclave-signer"
+        )));
     }
 
     // Real `konclave-signer extract` output from the vertical slice.

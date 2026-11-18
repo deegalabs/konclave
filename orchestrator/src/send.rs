@@ -896,6 +896,8 @@ fn prepare_capped<T: Transport>(
     let mut since = posted;
     let mut collected = None;
     let mut retries = net_send::Retries::default();
+    // Asked once per send, so a signer swapped under a running coordinator is read for what it is.
+    let speaks = signer::speaks_refusal_status(&sc.konclave_signer);
     for _ in 0..max_polls {
         // Verify each candidate by trial-injecting it: `inject` checks every redpallas signature
         // as it applies it, so a real device's response injects cleanly (and tx3_path is then the
@@ -909,12 +911,10 @@ fn prepare_capped<T: Transport>(
         // not start, the PCZT could not be read or written) says nothing about it, and the candidate
         // is read again on a later poll instead of being lost.
         let verify = |sigs: &net_send::SpendSigs| {
-            signer::inject_verdict(&signer::inject(
-                &sc.konclave_signer,
-                &tx2_path,
-                &tx3_path,
-                sigs,
-            ))
+            signer::inject_verdict(
+                &signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs),
+                speaks,
+            )
         };
         let (found, next) =
             net_send::collect_response_retrying(client, &req, since, verify, &mut retries)
@@ -1254,10 +1254,19 @@ mod tests {
             std::fs::write(&flaky, b"").unwrap();
         }
         let flaky = flaky.display();
+        // A tag starting with `older` is a signer that predates the refusal status: it has no
+        // `inject-statuses` command, and every inject failure exits 1.
+        let older = tag.starts_with("older");
+        let statuses = if older {
+            "exit 2".to_string()
+        } else {
+            r#"echo '{"signature_rejected":3}'"#.to_string()
+        };
+        let refused = if older { 1 } else { 3 };
         let signer = script(
             "signer",
             format!(
-                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) [ -e {flaky} ] && {{ rm {flaky}; exit 1; }}; case \"$*\" in *{}*) cp {} \"$3\";; *) exit 3;; esac;; esac",
+                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject-statuses) {statuses};; inject) [ -e {flaky} ] && {{ rm {flaky}; exit 1; }}; case \"$*\" in *{}*) cp {} \"$3\";; *) exit {refused};; esac;; esac",
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
                 "ab".repeat(64),
@@ -1828,6 +1837,16 @@ mod tests {
         let (result, _) = prepare_against_stand_ins("flaky-answer", PROVEN);
         let signed = result.expect("the devices' answer was read again");
         assert_eq!(signed.signatures(), ["ab".repeat(64)]);
+    }
+
+    /// With a signer that predates the refusal status, a refused answer is still passed over at once
+    /// (as before), so junk ahead of the devices' answer cannot hold the cursor.
+    #[cfg(unix)]
+    #[test]
+    fn with_an_older_signer_a_refused_answer_is_passed_over_at_once() {
+        let extra = net_send::MAX_CANDIDATES_PER_POLL + 4;
+        let (result, _) = prepare_against_stand_ins_with_extra("older-behind", PROVEN, extra);
+        assert_eq!(result.expect("reached").signatures(), ["ab".repeat(64)]);
     }
 
     /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay

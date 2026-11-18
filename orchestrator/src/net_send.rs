@@ -381,9 +381,10 @@ pub fn collect_response_retrying<T: Transport, V: Into<Verdict>>(
                     Some((seq, left)) if seq == msg.seq => left,
                     _ => MAX_RETRIES_PER_CANDIDATE,
                 };
-                if left > 0 {
+                // Held only for a message strictly after `since` (a relay that answered otherwise is
+                // not trusted to number its messages), so the cursor never moves backwards.
+                if left > 0 && msg.seq > since {
                     retries.held = Some((msg.seq, left - 1));
-                    // `msg.seq > since`, so this never moves the cursor backwards.
                     return Ok((None, msg.seq - 1));
                 }
                 retries.held = None;
@@ -911,6 +912,12 @@ mod tests {
             found.is_some(),
             "the real answer behind a stuck candidate was reached"
         );
+    }
+
+    /// How often a candidate whose check did not run is read again is a number somebody chose.
+    #[test]
+    fn a_candidate_is_read_again_the_chosen_number_of_times() {
+        assert_eq!(MAX_RETRIES_PER_CANDIDATE, 3);
     }
 
     /// The number of candidates one poll looks at is a number somebody chose, and a test says it, so

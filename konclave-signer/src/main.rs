@@ -90,6 +90,10 @@ enum Cmd {
         #[arg(long)]
         single_change: bool,
     },
+    /// Print the exit status `inject` uses for a refused signature, as
+    /// `{"signature_rejected": <n>}`. A build that predates the status has no such command, which is
+    /// how the coordinator knows not to read its exits that way.
+    InjectStatuses,
 }
 
 /// The confirmations a vault's build asks of its notes (#870), set here by name so a library update
@@ -270,10 +274,10 @@ fn inject_sigs(pczt: Pczt, sigs: &[(usize, [u8; 64])]) -> Result<Pczt> {
     Ok(signer.finish())
 }
 
-/// The exit status of `inject` when a signature was checked and refused. Every other failure (the
-/// PCZT could not be read, the output could not be written) exits 1, so the caller can tell "this
-/// answer is wrong" from "the check did not run" without reading the error text.
-const EXIT_SIGNATURE_REJECTED: i32 = 3;
+// The exit status of `inject` when a signature was checked and refused; every other failure (the
+// PCZT could not be read, the output could not be written) exits 1, so the caller can tell "this
+// answer is wrong" from "the check did not run" without reading the error text.
+use konclave_seal::spends::INJECT_EXIT_SIGNATURE_REJECTED as EXIT_SIGNATURE_REJECTED;
 
 /// A signature that was checked against the transaction and refused.
 #[derive(Debug)]
@@ -526,6 +530,10 @@ where
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Extract { pczt } => extract(&pczt),
+        Cmd::InjectStatuses => {
+            println!("{{\"signature_rejected\":{EXIT_SIGNATURE_REJECTED}}}");
+            Ok(())
+        }
         Cmd::Inject { pczt, out, sig } => match inject(&pczt, &out, sig) {
             Err(e) if e.downcast_ref::<SignatureRejected>().is_some() => {
                 eprintln!("Error: {e:#}");
