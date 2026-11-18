@@ -2095,6 +2095,36 @@ pub fn handle_secured(
     origin: Option<&str>,
     csrf_token: Option<&str>,
 ) -> Response {
+    let mut resp = handle_secured_uncached(
+        cfg,
+        session_token,
+        method,
+        raw_path,
+        body,
+        host,
+        origin,
+        csrf_token,
+    );
+    // No API answer is kept by the browser's HTTP cache: the reads carry the vault in the URL, and a
+    // stored copy would outlive the session. The static page and its assets keep their caching.
+    if raw_path.starts_with("/api/") {
+        resp.headers
+            .push(("Cache-Control".into(), "no-store".into()));
+    }
+    resp
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_secured_uncached(
+    cfg: &Config,
+    session_token: &str,
+    method: &str,
+    raw_path: &str,
+    body: &[u8],
+    host: Option<&str>,
+    origin: Option<&str>,
+    csrf_token: Option<&str>,
+) -> Response {
     if !host_is_local(host) {
         return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
     }
@@ -2307,6 +2337,41 @@ mod tests {
         );
     }
     use super::*;
+
+    /// No API answer of the local bridge may be kept by the browser's HTTP cache, a refusal
+    /// included; the page itself is not affected.
+    #[test]
+    fn no_api_answer_may_be_kept_by_the_browser_cache() {
+        let cfg = cfg_with(tmp_db(), None);
+        let cache = |r: &Response| {
+            r.headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("Cache-Control"))
+                .map(|(_, v)| v.clone())
+        };
+        let ok = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("127.0.0.1:8787"),
+            None,
+            None,
+        );
+        let refused = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("evil.example"),
+            None,
+            None,
+        );
+        assert_eq!(cache(&ok).as_deref(), Some("no-store"));
+        assert_eq!(cache(&refused).as_deref(), Some("no-store"));
+    }
 
     struct FakeWallet {
         result: Result<Balance, String>,

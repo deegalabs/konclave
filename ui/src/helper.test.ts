@@ -159,3 +159,23 @@ describe('reads are never kept by the browser cache', () => {
     }
   })
 })
+
+describe('the relay and the local bridge reads are never kept by the browser cache', () => {
+  it('relayPoll passes cache: no-store', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"messages":[],"next":0,"peers":0}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const { relayPoll } = await import('./net')
+    await relayPoll('room', 0, 'me')
+    expect(spy).toHaveBeenCalledOnce()
+    expect((spy.mock.calls[0]![1] as RequestInit | undefined)?.cache).toBe('no-store')
+    spy.mockRestore()
+  })
+
+  it('the bridge JSON read asks for no-store (its module picks the bridge or the coordinator at load)', async () => {
+    const { codeOf } = await import('./source-scan')
+    const src = codeOf('./api.ts')
+    const body = src.slice(src.indexOf('async function getJson<T>('), src.indexOf('async function getJson<T>(') + 600)
+    expect(body).toContain("cache: 'no-store'")
+  })
+})

@@ -787,6 +787,9 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     if json {
         resp.add_header(header("Content-Type", "application/json; charset=utf-8"));
     }
+    // Every answer goes through here, so none is kept by the browser's HTTP cache: a room is read
+    // under a URL that names it, and a stored copy would outlive the session.
+    resp.add_header(header("Cache-Control", "no-store"));
     resp
 }
 
@@ -889,6 +892,22 @@ mod tests {
         assert_ne!(d, "0000000000000000", "the build script digested nothing");
     }
     use super::*;
+
+    /// No answer of the relay may be kept by the browser's HTTP cache: a room's messages are read
+    /// under a URL that names the room, and a legacy vault's signing request can cross unsealed.
+    #[test]
+    fn no_answer_may_be_kept_by_the_browser_cache() {
+        fn cache_of<R: Read>(r: &Response<R>) -> Option<String> {
+            r.headers()
+                .iter()
+                .find(|h| h.field.equiv("Cache-Control"))
+                .map(|h| h.value.as_str().to_string())
+        }
+        let preflight = with_cors(Response::empty(204), false);
+        let answer = with_cors(Response::from_string("{}"), true);
+        assert_eq!(cache_of(&preflight).as_deref(), Some("no-store"));
+        assert_eq!(cache_of(&answer).as_deref(), Some("no-store"));
+    }
 
     #[test]
     fn the_limiter_blocks_past_max_then_resets_next_window() {

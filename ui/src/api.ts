@@ -206,7 +206,8 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
+    // Not kept by the browser's cache: the bridge's reads carry the vault in the URL.
+    const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal, cache: 'no-store' })
     if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'bridge'); return null }
     const data = (await res.json()) as T
     recordRead(path, null)

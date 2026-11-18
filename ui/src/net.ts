@@ -105,8 +105,10 @@ export async function relayPoll(
 ): Promise<{ messages: RelayMsg[]; next: number; peers: number } | null> {
   try {
     const qs = `since=${since}&from=${encodeURIComponent(from)}`
+    // Not kept by the browser's cache, as the relay also says: the URL names the room.
     const res = await fetch(`${relayBase()}/api/relay/${encodeURIComponent(room)}?${qs}`, {
       method: 'GET',
+      cache: 'no-store',
     })
     if (!res.ok) return null
     return (await res.json()) as { messages: RelayMsg[]; next: number; peers: number }
