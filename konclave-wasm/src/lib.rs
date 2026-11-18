@@ -7253,3 +7253,10 @@ mod js_pczt {
         Ok(digest.to_vec())
     }
 }
+
+// Oblivious HTTP client (the browser calls a helper read through a forwarding relay). Behind the
+// `ohttp` feature, off by default. It is declared at the END of this file on purpose: the wasm
+// embeds the line number of every panic site, so a declaration anywhere above them would shift
+// those numbers and change the bytes of the default build even with the feature off. Keep it last.
+#[cfg(feature = "ohttp")]
+pub mod ohttp_api;

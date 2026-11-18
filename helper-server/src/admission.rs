@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use konclave_http::{ClientAddress, RateKey, RateLimiter};
+use konclave_http::{ClientAddress, ObliviousBudget, RateKey, RateLimiter};
 
 /// Requests one client address may make per window, on every route but health. These are the
 /// relay's numbers. Read from the app: one member with one tab sends about 4 requests per 10
@@ -64,12 +64,15 @@ pub enum Refused {
     Flood,
     TooManyNewVaults,
     NewVaultsPaused,
+    /// The budget for ALL oblivious traffic together is spent. The text is the flood's: it says
+    /// nothing a caller could use to tell the two limits apart.
+    ObliviousBudget,
 }
 
 impl Refused {
     pub fn message(self) -> &'static str {
         match self {
-            Refused::Flood => "rate limited",
+            Refused::Flood | Refused::ObliviousBudget => "rate limited",
             Refused::TooManyNewVaults => "too many new vaults from this address, try again later",
             Refused::NewVaultsPaused => {
                 "the coordinator is not accepting new vaults right now, try again later"
@@ -80,6 +83,7 @@ impl Refused {
 
 pub struct Limits {
     flood: RateLimiter,
+    oblivious: ObliviousBudget,
     new_vaults: NewVaults,
     free_space: FreeSpace,
 }
@@ -117,6 +121,7 @@ impl Limits {
     pub fn with_free_space(free_space: FreeSpace) -> Self {
         Limits {
             flood: RateLimiter::new(FLOOD_WINDOW_SECS, MAX_RATE_KEYS),
+            oblivious: ObliviousBudget::new(),
             new_vaults: NewVaults::default(),
             free_space,
         }
@@ -190,6 +195,17 @@ pub fn refuse_flood(
         None
     } else {
         Some(Refused::Flood)
+    }
+}
+
+/// The limit for oblivious traffic: one budget for all of it, in `konclave-http`, and no address
+/// bucket, because there is no address. Health is not exempt here: a monitor that matters comes
+/// direct, and an oblivious health check is a member's.
+pub fn refuse_oblivious(limits: &Limits, now: i64) -> Option<Refused> {
+    if limits.oblivious.allow(now) {
+        None
+    } else {
+        Some(Refused::ObliviousBudget)
     }
 }
 

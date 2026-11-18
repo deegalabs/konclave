@@ -92,6 +92,12 @@ impl std::fmt::Display for ClientAddress {
     }
 }
 
+mod oblivious;
+pub use oblivious::{
+    route_is_oblivious, ObliviousBudget, Origin, OBLIVIOUS_MAX, OBLIVIOUS_ROUTES,
+    OBLIVIOUS_WINDOW_SECS, RELAY_SECRET_HEADER,
+};
+
 /// What a [`RateLimiter`] counts by. Opaque: it is built here, by one of three constructors, and
 /// nowhere else, so no caller can hand the limiter a string of its own.
 ///
@@ -115,6 +121,48 @@ impl RateKey {
     /// Everything one address does.
     pub fn address(addr: &ClientAddress) -> Self {
         RateKey(format!("ip:{addr}"))
+    }
+
+    /// Everything one NETWORK does, where a network is an IPv6 /64 (what one subscriber or one
+    /// server is routinely given: its addresses are free to it, so each address is not a client).
+    /// An IPv4 address, and no address at all, are the same key as [`RateKey::address`].
+    ///
+    /// Only a caller that asks for this gets it. [`RateKey::address`] stays per address, because
+    /// changing it would change the limits the coordinator and the mailbox enforce today; the
+    /// OHTTP relay uses this one. The text has a `/64` suffix, which no address text has, so a
+    /// prefix key never equals an address key.
+    pub fn address_prefix64(addr: &ClientAddress) -> Self {
+        match addr.0 {
+            Some(std::net::IpAddr::V6(v6)) => {
+                let mut octets = v6.octets();
+                octets[8..].fill(0);
+                RateKey(format!("ip:{}/64", std::net::Ipv6Addr::from(octets)))
+            }
+            _ => Self::address(addr),
+        }
+    }
+
+    /// The second level above [`RateKey::address_prefix64`]: an IPv6 /48 (what a tunnel broker or
+    /// a site is given: 65,536 /64s). `None` for IPv4 and for no address, which have nothing above
+    /// the address. The text has a `/48` suffix, so it equals no other key.
+    pub fn address_prefix48(addr: &ClientAddress) -> Option<Self> {
+        match addr.0 {
+            Some(std::net::IpAddr::V6(v6)) => {
+                let mut octets = v6.octets();
+                octets[6..].fill(0);
+                Some(RateKey(format!(
+                    "ip:{}/48",
+                    std::net::Ipv6Addr::from(octets)
+                )))
+            }
+            _ => None,
+        }
+    }
+
+    /// The one key of the global oblivious budget. It names no address, and starts with a kind
+    /// prefix no other key has.
+    pub(crate) fn oblivious() -> Self {
+        RateKey("oblivious:all".to_string())
     }
 
     /// What one address does under a sender tag.
@@ -261,6 +309,21 @@ fn rule_from_os_value(value: Option<&std::ffi::OsStr>) -> Result<ForwardingRule,
                 "{TRUSTED_PROXY_HOPS_VAR} must be a whole number from 0 to {MAX_TRUSTED_PROXY_HOPS}, or unset; got a value that is not text"
             )),
         },
+    }
+}
+
+/// The rule a server run by SOMEONE ELSE must be told: [`rule_from_os_value`], except that a value
+/// that is missing or blank is an error and never the default. The default ([`ForwardingRule::FirstHop`])
+/// is the value the client writes, so for a public server whose proxy the author cannot know, "not
+/// chosen" must stop the boot rather than turn that default on. One parser: the number is read by
+/// [`ForwardingRule::from_setting`] and nothing else, so a caller cannot accept what that refuses
+/// or refuse what it accepts.
+pub fn require_trusted_hops(value: Option<&std::ffi::OsStr>) -> Result<ForwardingRule, String> {
+    match rule_from_os_value(value)? {
+        rule @ ForwardingRule::TrustedHops(_) => Ok(rule),
+        ForwardingRule::FirstHop => Err(format!(
+            "{TRUSTED_PROXY_HOPS_VAR} must be set explicitly: the number of proxies in front of this server, 0 if none"
+        )),
     }
 }
 
@@ -434,6 +497,53 @@ pub(crate) fn client_address<'a>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_v6_slash_48_is_one_key_above_the_slash_64_and_v4_has_none() {
+        let k = |t: &str| {
+            RateKey::address_prefix48(&ClientAddress::from_ip(t.parse().expect("an address")))
+        };
+        assert_eq!(k("2001:db8:aaaa:1::1"), k("2001:db8:aaaa:ffff:1:2:3:4"));
+        assert_ne!(k("2001:db8:aaaa:1::1"), k("2001:db8:aaab:1::1"));
+        assert!(k("198.51.100.7").is_none());
+        assert!(k("::ffff:198.51.100.7").is_none());
+        assert!(RateKey::address_prefix48(&ClientAddress::unknown()).is_none());
+        let a = ClientAddress::from_ip("2001:db8:aaaa::".parse().expect("an address"));
+        assert_ne!(
+            RateKey::address_prefix48(&a),
+            Some(RateKey::address_prefix64(&a))
+        );
+    }
+
+    #[test]
+    fn a_v6_slash_64_is_one_key_for_the_relay_and_other_keys_are_unchanged() {
+        let k = |t: &str| {
+            RateKey::address_prefix64(&ClientAddress::from_ip(t.parse().expect("a test address")))
+        };
+        // Same /64: one key, whatever the interface id.
+        assert_eq!(k("2001:db8:1:2::1"), k("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+        assert_eq!(k("2001:DB8:1:2::1"), k("2001:db8:1:2:0:0:0:7"));
+        // Another /64, even the neighbouring one, is another key.
+        assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:1:3::1"));
+        assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:2:2::1"));
+        // IPv4 (also written v4-mapped) and no address are the per-address key.
+        for t in ["203.0.113.7", "::ffff:203.0.113.7"] {
+            let a = ClientAddress::from_ip(t.parse().unwrap());
+            assert_eq!(RateKey::address_prefix64(&a), RateKey::address(&a), "{t}");
+        }
+        assert_eq!(
+            RateKey::address_prefix64(&ClientAddress::unknown()),
+            RateKey::address(&ClientAddress::unknown())
+        );
+        assert_ne!(k("203.0.113.7"), k("203.0.113.8"));
+        // A prefix key never equals the per-address key of any address, including the all-zero host.
+        let a = ClientAddress::from_ip("2001:db8:1:2::".parse().unwrap());
+        assert_ne!(RateKey::address_prefix64(&a), RateKey::address(&a));
+        // `RateKey::address` is untouched: two addresses of one /64 are still two keys.
+        let b = ClientAddress::from_ip("2001:db8:1:2::1".parse().unwrap());
+        let c = ClientAddress::from_ip("2001:db8:1:2::2".parse().unwrap());
+        assert_ne!(RateKey::address(&b), RateKey::address(&c));
+    }
+
     use super::*;
     use std::collections::HashSet;
 
@@ -894,6 +1004,36 @@ mod tests {
         ] {
             let err = ForwardingRule::from_setting(Some(bad)).expect_err(bad);
             assert!(err.contains(TRUSTED_PROXY_HOPS_VAR), "{bad}: {err}");
+        }
+    }
+
+    /// A server run by someone else is told its proxy count: blank is "not chosen", never the
+    /// first-hop default, and the number goes through the one parser the other servers use.
+    #[test]
+    fn a_required_setting_refuses_blank_and_shares_the_parser() {
+        use std::ffi::OsStr;
+        for blank in [None, Some(""), Some(" "), Some("\t"), Some("  \n ")] {
+            let err = require_trusted_hops(blank.map(OsStr::new)).expect_err("blank");
+            assert!(err.contains(TRUSTED_PROXY_HOPS_VAR), "{blank:?}: {err}");
+        }
+        for n in 0..=MAX_TRUSTED_PROXY_HOPS {
+            let text = n.to_string();
+            assert_eq!(
+                require_trusted_hops(Some(OsStr::new(&text))),
+                ForwardingRule::from_setting(Some(&text)),
+                "{n}"
+            );
+        }
+        for bad in ["abc", "-1", "+1", "9", "1 2", "1,2"] {
+            assert!(
+                require_trusted_hops(Some(OsStr::new(bad))).is_err(),
+                "{bad}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert!(require_trusted_hops(Some(OsStr::from_bytes(b"\xff"))).is_err());
         }
     }
 

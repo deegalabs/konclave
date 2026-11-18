@@ -1,0 +1,41 @@
+[package]
+name = "konclave-ohttp"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+
+# Oblivious HTTP (RFC 9458) for Konclave's calls to its own servers: the ONE place that maps a
+# request to BHTTP (RFC 9292), pads it. Which routes may be reached obliviously is NOT decided
+# here: that rule lives in konclave-http, which has no HPKE.
+# Plain RFC 9458 both ways: the crate's `stream` feature is NOT enabled (it has no "plain request,
+# chunked response" mode). konclave-wasm takes the `client` half only and never links `ohttp` or
+# `bhttp` itself, so the BHTTP mapping exists once. Experimental proof of concept.
+[features]
+default = ["client", "server"]
+# Each half forwards to the same half of the `ohttp` crate, so a client-only build (the browser's)
+# does not carry the server half at all.
+client = ["ohttp/client"]
+server = ["ohttp/server"]
+# The tests that pin fixed bytes need the published test-vector key, which `key_config_from_text`
+# refuses. Enabled only by this crate's own dev-dependency below; no server build turns it on.
+test-keys = []
+
+[dependencies]
+ohttp = { version = "=0.7.2", default-features = false, features = ["rust-hpke"] }
+bhttp = "0.7"
+sha2 = "0.10"
+thiserror = "2"
+# The key material read from a key file is wiped once the key is derived. Already in the lock.
+zeroize = "=1.9.0"
+
+# getrandom has no default backend on wasm32: 0.3 is reached through ohttp's rand 0.9, 0.2 through
+# hpke's rand_core 0.6 (konclave-wasm already enables `js` for 0.2; a standalone build needs it too).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+konclave-ohttp = { path = ".", features = ["test-keys"] }
+serde_json = "1"
+# Only the tests: the route rule they exercise lives there, not in this crate.
+konclave-http = { path = "../konclave-http" }

@@ -1,0 +1,48 @@
+[package]
+name = "konclave-ohttp-relay"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Konclave's Oblivious HTTP relay (RFC 9458): forwards one opaque body to one configured gateway and holds no key. Experimental proof of concept."
+
+# The relay is ONE small async binary: hyper 1.x, HTTP/1 only, in front (src/lib.rs); hyper's HTTP/1
+# client connection over tokio-rustls behind (src/upstream.rs); the gateway is identified by WebPKI
+# and its hostname, with no pin (the reasons are in upstream.rs).
+#
+# This binary only FORWARDS. It links no HPKE, no ohttp, no bhttp and not konclave-ohttp: a relay
+# that can open nothing cannot be made to. `konclave-ohttp` is a DEV-dependency, for the tests
+# only (the size cap pinned to the padding table, and the end-to-end seal/open).
+[[bin]]
+name = "konclave-ohttp-relay"
+path = "src/main.rs"
+
+# Every version is exact (`=`), so a new build never takes a newer crate on its own; the lock is
+# read with `--locked`. Every feature is chosen: default features are OFF everywhere.
+# - hyper: `http1` + `server` + `client` only. No `http2` (so no `h2`), no `ffi`, no `tracing`.
+# - hyper-util: `tokio` only, for `TokioIo` and `TokioTimer`. hyper PANICS in `serve_connection` if
+#   `header_read_timeout` is set without a timer, and this is the timer.
+# - http-body-util: `Full`, `Limited` and `BodyExt` (no `channel`).
+# - tokio: no `macros` (so no `tokio-macros`, no `syn`), no `io-util`, no `signal`, no `process`,
+#   no `fs`: a runtime, TCP, timers and a semaphore.
+# - tokio-rustls and rustls: the `ring` provider, NOT aws-lc-rs (which needs a C toolchain and
+#   cmake), no `tls12` (the hop is TLS 1.3 only, and the code for 1.2 is not compiled in), no
+#   `logging` (no `log` crate).
+# - webpki-roots: the bundled Mozilla roots, so the host's trust store is never consulted. The
+#   roots ride in this binary: when the list changes, a new pinned commit is published and an
+#   operator rebuilds.
+[dependencies]
+konclave-http = { path = "../konclave-http" }
+hyper = { version = "=1.11.0", default-features = false, features = ["http1", "server", "client"] }
+hyper-util = { version = "=0.1.20", default-features = false, features = ["tokio"] }
+http-body-util = { version = "=0.1.5", default-features = false }
+tokio = { version = "=1.53.3", default-features = false, features = ["rt", "rt-multi-thread", "net", "time", "sync"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
+webpki-roots = "=1.0.12"
+
+[dev-dependencies]
+konclave-ohttp = { path = "../konclave-ohttp" }
+# Test-only certificates, made at test time (a CA, a leaf, an expired leaf).
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring", "pem"] }
+# Test-only: a TLS 1.2 server, to show the relay refuses to speak it. The relay's own build has no tls12.
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }

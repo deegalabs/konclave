@@ -4,6 +4,8 @@ members = [
   "orchestrator",
   "helper-server",
   "konclave-http",
+  "konclave-ohttp",
+  "konclave-ohttp-relay",
   "konclave-seal",
   "konclave-signer",
   "konclave-wasm",
