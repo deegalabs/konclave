@@ -17,7 +17,7 @@ import { quorumIsPossible, DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConf
 import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
 import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, type RelayMsg } from '../net'
-import { decodeBundle } from '../signing'
+import { decodeBundle, encodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
 import { signRejoin, rejoinIsProven } from '../room-auth'
@@ -927,15 +927,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       const cfg = configRef.current
       // The secret bundle (encrypted at rest): the share plus the public bytes a restored device
       // would need to sign again (pubkeys, seat, config). Public metadata rides outside, in clear.
-      const bundle = new TextEncoder().encode(
-        JSON.stringify({
-          kp: b64(dkg.keyPackage()),
-          pubkeys: b64(dkg.pubkeys()),
-          seat: mySeatRef.current,
-          n: cfg?.n ?? 0,
-          t: cfg?.t ?? 0,
-        }),
-      )
+      const bundle = encodeBundle(dkg, mySeatRef.current, cfg?.n ?? 0, cfg?.t ?? 0)
       const nm = ceremonyRef.current?.config?.vn || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
       const mine = ceremonyRef.current?.nameOf(myTagRef.current) || myNameRef.current.trim() || undefined

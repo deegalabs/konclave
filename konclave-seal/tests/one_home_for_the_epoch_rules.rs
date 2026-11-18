@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 const ROOTS: &[&str] = &[
     "orchestrator/src",
+    "orchestrator/examples",
     "helper-server/src",
     "konclave-wasm/src",
     "konclave-signer/src",
