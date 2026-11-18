@@ -1708,6 +1708,79 @@ describe('a signing request is the coordinator\'s', () => {
     expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
   })
 
+  const tamper = (json: string, f: (r: Record<string, unknown>) => void) => {
+    const r = JSON.parse(json) as Record<string, unknown>
+    f(r)
+    return JSON.stringify(r)
+  }
+
+  it('a raw request posted BEFORE the helper\'s, that no device would sign, is not the one asked for', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const honest = signRequestFor(withExpiry(dkgProvenPczt())).json
+    // A few bytes of junk, and a request that names a transaction other than the one it carries.
+    // (A readable transaction this vault would refuse, posted first while the coordinator is known,
+    // is still asked for and refused, as before this change: that needs the round messages
+    // authenticated, which is not this fix.)
+    bus.post('Z', tamper(honest, (r) => { r.pczt_hex = '00'; r.sighash = 'ab'.repeat(32) }))
+    bus.post('Z', tamper(honest, (r) => { r.sighash = 'ab'.repeat(32) }))
+    bus.post('helper', honest)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok, 'A signed the approved transaction').toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
+  it('a raw request that borrows the helper\'s sighash over other bytes does not take its place', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const honest = signRequestFor(withExpiry(dkgProvenPczt())).json
+    const other = JSON.parse(signRequestFor(otherPczt(), withExpiry(dkgProvenPczt())).json) as { pczt_hex: string }
+    bus.post('Z', tamper(honest, (r) => { r.pczt_hex = other.pczt_hex }))
+    bus.post('helper', honest)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('a first request with nothing to sign does not stop the coordinator asking for the real one', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const honest = signRequestFor(withExpiry(dkgProvenPczt())).json
+    bus.post('Z', tamper(honest, (r) => { r.spends = []; r.sighash = 'cd'.repeat(32) }))
+    bus.post('helper', honest)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('a retry of the same proposal is answered with the newer transaction, not the one before it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const first = withExpiry(dkgProvenPczt())
+    const retry = withExpiry(dkgProvenPczt(), honestExpiry() + 1)
+    expect(bytesToHex(pcztSighash(first))).not.toBe(bytesToHex(pcztSighash(retry)))
+    // Nobody is named yet when both arrive, as when the named sender went away between them.
+    A.coordinator = null
+    B.coordinator = null
+    bus.post('helper', signRequestFor(first).json)
+    bus.post('helper', signRequestFor(retry).json)
+    await pump(A, bus)
+    await pump(B, bus)
+    A.coordinator = undefined
+    B.coordinator = undefined
+    await runCeremony(A, B, bus)
+    expect(A.claims, 'the device claimed the newer transaction').toEqual([bytesToHex(pcztSighash(retry))])
+    expect(B.sig?.ok).toBe(true)
+  })
+
   it('a second helper request while a ceremony is under way is not taken up', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()

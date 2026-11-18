@@ -115,6 +115,15 @@ export interface SigningDeps {
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+/** What `SigningMachine.vet` found, stage by stage: the first check that refused, or `ok`. */
+type Spend = { index: number; alpha: Uint8Array }
+type Vetted =
+  | { stage: 'sighash'; err: unknown }
+  | { stage: 'spends'; sighash: Uint8Array; err: unknown }
+  | { stage: 'read'; sighash: Uint8Array; spends: Spend[]; err: unknown }
+  | { stage: 'approval'; sighash: Uint8Array; spends: Spend[]; payment: PcztPayment; decision: GateDecision }
+  | { stage: 'ok'; sighash: Uint8Array; spends: Spend[]; payment: PcztPayment }
+
 /** The most raw requests a device holds before a ceremony starts. Bounds what a flood of them costs. */
 const MAX_HELD_REQUESTS = 16
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
@@ -204,12 +213,18 @@ export class SigningMachine {
   // Architecture B: the helper's raw sign-request this ceremony signs (set when it starts); the
   // aggregate signature is posted back to it RAW.
   private helperReq: SignRequest | null = null
-  // The raw requests seen before a ceremony starts, by sighash, first arrival kept. A raw request
-  // carries no sender, so a later one must not displace an earlier one: the `sreq` names which one
-  // the ceremony signs, and each device looks that one up here.
+  // The raw requests seen before a ceremony starts, keyed by the sighash THIS device computed from
+  // each one's own PCZT (a request whose PCZT is not the transaction it names is not held), in the
+  // order first seen. A raw request carries no sender, so none displaces another: the `sreq` names which
+  // one the ceremony signs, and each device looks that one up here. The coordinator asks for the
+  // latest one it would sign itself (`vet`), so a request posted beside the helper's, before or
+  // after it, is not the one asked for, and a retry of the same proposal is not answered with the
+  // transaction before it; only when none would be signed does it ask for the latest, so the
+  // devices still refuse it where the member can see why.
   private heldReqs = new Map<string, SignRequest>()
-  // The coordinator asks once per ceremony: a second raw request does not produce a second `sreq`.
-  private sreqSent = false
+  // The sighash of the request this device, as the ceremony's coordinator, last asked for: it asks
+  // once per transaction, so the same raw request seen twice does not produce a second `sreq`.
+  private sreqSentFor: string | null = null
   // Multi-spend: every real spend (index + alpha), driven SEQUENTIALLY, one ceremony each.
   private spends: { index: number; alpha: Uint8Array }[] = []
   private cur = 0 // 0-based position of the spend being signed right now
@@ -298,11 +313,65 @@ export class SigningMachine {
     this.sigDone = false
     this.helperReq = null
     this.heldReqs = new Map()
-    this.sreqSent = false
+    this.sreqSentFor = null
     this.spends = []
     this.cur = 0
     this.sigs = []
     this.startedSpends = new Set()
+  }
+
+  /** Every check of what this device would sign, made once, in the order a refusal is reported:
+   *  the sighash of its own PCZT (H1), its spends under this device's own key for the vault
+   *  (`deviceGroupKey`, never a value from the wire), the one reading of what it pays
+   *  (`readForSigning`, #610: outputs bound to their commitments, the fee bounded, network, no delay,
+   *  an expiry inside this device's window), and whether that is what the quorum approved (#281).
+   *
+   *  It fails closed: a device that cannot read what it signs cannot confirm it is the approved
+   *  payment, so it does not sign. And both halves are needed: without H1 a hostile coordinator swaps
+   *  the bytes under the signature, without the approval it swaps the payment under the approval.
+   *
+   *  Pure: it shows nothing and changes nothing. `onSreq` reports its answer; `tryHelperRequest`
+   *  holds only a request it passes. Two readers of one function, so the request a device holds and
+   *  the request it signs cannot be judged by two different rules.
+   *
+   *  `parseAlphas` can THROW since #364 (a transaction spending from both pools is refused, not
+   *  halved), and every step that can throw is caught here, so a refusal never escapes as an
+   *  unhandled rejection that would leave the member looking at nothing. */
+  private vet(pczt: Uint8Array): Vetted {
+    let sighash: Uint8Array
+    try {
+      sighash = pcztSighash(pczt)
+    } catch (err) {
+      return { stage: 'sighash', err }
+    }
+    let spends: { index: number; alpha: Uint8Array }[]
+    try {
+      spends = parseAlphas(pczt, deviceGroupKey(this.d.signingMaterial()))
+    } catch (err) {
+      return { stage: 'spends', sighash, err }
+    }
+    let payment: PcztPayment
+    try {
+      payment = JSON.parse(readForSigning(pczt)) as PcztPayment
+    } catch (err) {
+      return { stage: 'read', sighash, spends, err }
+    }
+    const decision = this.d.decideApproval(payment.outputs)
+    if (decision !== 'match') return { stage: 'approval', sighash, spends, payment, decision }
+    return { stage: 'ok', sighash, spends, payment }
+  }
+
+  /** Whether this device would sign `req`: its PCZT passes every check of `vet`, it has a spend to
+   *  sign, and it is the transaction the request names. */
+  private wouldSign(req: SignRequest): boolean {
+    let pczt: Uint8Array
+    try {
+      pczt = hexBytes(req.pcztHex)
+    } catch {
+      return false
+    }
+    const v = this.vet(pczt)
+    return v.stage === 'ok' && v.spends.length > 0 && bytesEqual(v.sighash, hexBytes(req.sighash))
   }
 
   /** Architecture B: detect a helper's raw sign-request BEFORE the typed dispatch. Returns true if
@@ -313,26 +382,48 @@ export class SigningMachine {
     // A request that arrives while a ceremony is under way is not taken up, and not kept: the next
     // ceremony reads the room afresh (`rearm`).
     if (this.started) return false
-    const key = helperReq.sighash.toLowerCase()
-    if (!this.heldReqs.has(key) && this.heldReqs.size < MAX_HELD_REQUESTS) this.heldReqs.set(key, helperReq)
+    // Keyed by what the PCZT commits to, never by what the message claims: a forged request that
+    // borrows the honest one's sighash over other bytes must not take its place.
+    let named: string
+    try {
+      named = hex(pcztSighash(hexBytes(helperReq.pcztHex)))
+    } catch {
+      this.d.onLog('~ a signing request whose transaction cannot be read was passed over')
+      return true
+    }
+    if (named !== helperReq.sighash.toLowerCase()) {
+      this.d.onLog('~ a signing request that names another transaction than it carries was passed over')
+      return true
+    }
+    if (!this.heldReqs.has(named)) {
+      this.heldReqs.set(named, helperReq)
+      // Bounded: past the cap the oldest one this device would NOT sign goes first, so a flood of
+      // junk cannot push out the request the quorum approved.
+      while (this.heldReqs.size > MAX_HELD_REQUESTS) {
+        const victim = [...this.heldReqs.keys()].find((k) => !this.wouldSign(this.heldReqs.get(k)!)) ??
+          (this.heldReqs.keys().next().value as string)
+        this.heldReqs.delete(victim)
+      }
+    }
     // Nobody is named yet (the completing signature has not reached this device): the request waits,
     // unconsumed, and the session re-drives the signer when a signature changes the tally.
     if (this.coordinatorNow() === null) return false
     // The coordinator kicks the ceremony over the helper's real PCZT. `sreq` carries the sighash +
     // PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one ceremony at a
     // time, so single- and multi-note transactions take the same path.
-    // The request asked for is the FIRST one held, not the last one to arrive.
-    const first = this.heldReqs.values().next().value as SignRequest | undefined
-    if (first && this.isCoordinator(this.d.myTag()) && !this.sigDone && !this.sreqSent && first.spends.length >= 1) {
-      this.sreqSent = true
+    const held = [...this.heldReqs.entries()]
+    const latest = held.filter(([, r]) => this.wouldSign(r)).at(-1) ?? held.at(-1)
+    if (latest && this.isCoordinator(this.d.myTag()) && !this.sigDone && this.sreqSentFor !== latest[0]) {
+      const [key, asked] = latest
+      this.sreqSentFor = key
       await this.d.send({
         type: 'sreq',
-        msg: b64(hexBytes(first.sighash)),
+        msg: b64(hexBytes(key)),
         // A sealed request means this device opened it; on a protocol-3 vault a seat with no box gets
         // nothing here and does not arm. Each device that opened it already holds the
         // PCZT: omit it here or it leaks the payment to the relay (#63). A plaintext (compat)
         // request still carries it inline for an older device that only reads the sreq.
-        ...(first.sealed ? {} : { pczt: b64(hexBytes(first.pcztHex)) }),
+        ...(asked.sealed ? {} : { pczt: b64(hexBytes(asked.pcztHex)) }),
       })
     }
     return true
@@ -423,93 +514,58 @@ export class SigningMachine {
       // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
       // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an
       // attacker output; binding the signed message to the local PCZT makes that impossible.
-      let localSighash: Uint8Array
-      try {
-        localSighash = pcztSighash(pczt)
-      } catch (e) {
-        this.d.onError(this.d.tt('net.err.sighashMismatch') + ' ' + String(e))
+      // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
+      // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
+      // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an
+      // attacker output; binding the signed message to the local PCZT makes that impossible.
+      //
+      // Every check of what this device would sign is made by `vet`, the one place that makes them
+      // (the request a device holds is chosen by the same function, `tryHelperRequest`). What
+      // follows only reports its answer, in the order the member sees it.
+      const v = this.vet(pczt)
+      if (v.stage === 'sighash') {
+        this.d.onError(this.d.tt('net.err.sighashMismatch') + ' ' + String(v.err))
         return true
       }
-      if (!bytesEqual(localSighash, unb64(parsed.msg))) {
+      if (!bytesEqual(v.sighash, unb64(parsed.msg))) {
         this.d.onError(this.d.tt('net.err.sighashMismatch'))
         return true
       }
       this.started = true
-      this.msg = localSighash // sign what our own PCZT commits to, never the wire value
-      // Every device reads ALL real spends (index + alpha) from the proven PCZT it holds - it signs
-      // only what it can independently see. One ceremony per spend, in order.
-      //
-      // This is wrapped because #364 gave it a reason to THROW that it did not have before. It used
-      // to answer the pool question itself and, on a transaction spending from both pools, quietly
-      // return only the Orchard half. Now it refuses. Unwrapped, that refusal would travel up
-      // through `pump()` (try/finally, no catch) and out of the relay subscription as an unhandled
-      // rejection: the member would see nothing at all, which trades a wrong signature for a silent
-      // stall. The engine's own sentence is appended because "which transaction, and why" is the
-      // whole value of the refusal.
-      //
-      // Every spend is checked against THIS device's own key for the vault (`deviceGroupKey`: the key
-      // of its saved package, which must match the record, never a value from the wire) before it
-      // takes part. A transaction with a spend that is not under that key is refused whole, in words
-      // that do not describe why; the engine's own sentence goes to the log only.
-      //
+      this.msg = v.sighash // sign what our own PCZT commits to, never the wire value
       // A reading belongs to one transaction. Cleared first, so a refusal of this one is never
       // shown over the reading of the payment before it.
       this.d.onWhat(null)
-      try {
-        this.spends = parseAlphas(pczt, deviceGroupKey(this.d.signingMaterial()))
-      } catch (e) {
-        const key = refusalKey(e)
+      if (v.stage === 'spends') {
+        const key = refusalKey(v.err)
         if (key === 'net.err.notBuiltForVault' || key === 'net.err.vaultRecordMismatch') {
           this.d.onError(this.d.tt(key))
-          this.d.onLog(`~ ${String(e)}`)
+          this.d.onLog(`~ ${String(v.err)}`)
         } else {
-          this.d.onError(this.d.tt('net.err.unreadableSpends') + ' ' + String(e))
+          this.d.onError(this.d.tt('net.err.unreadableSpends') + ' ' + String(v.err))
         }
         return true
       }
+      this.spends = v.spends
       this.sigs = []
       this.startedSpends = new Set()
-      // What does this transaction actually pay? Read it ONCE and use the reading for both jobs:
-      // the money gate's decision (#281) and the human preview.
-      //
-      // This used to be display-only, inside a catch that let the ceremony run when the PCZT could
-      // not be read. That is the wrong default on a money path: a device that cannot see what it
-      // signs cannot confirm it is the approved payment, and "show no preview, sign anyway" is
-      // precisely the state where only human vigilance stood between a swapped destination and a
-      // signature. It fails closed.
-      //
-      // `readPayment` is also where the reading became trustworthy (#610). It checks every output
-      // against the note commitment the sighash covers, the address label against the receiver it
-      // pays, opens each paying output for its memo, and bounds the fee by ZIP 317. Before it, the
-      // device read the outputs as the builder wrote them, beside the commitment and not bound to
-      // it, and nothing looked at the fee at all.
-      // `readForSigning` (#610's reading plus what the device confirms about the transaction itself:
-      // its network, that nothing delays it, and that it expires inside the window this device's own
-      // clock allows, so it cannot be held signed and broadcast much later) is the one reading.
-      let payment: PcztPayment
-      try {
-        payment = JSON.parse(readForSigning(pczt)) as PcztPayment
-      } catch (e) {
-        this.d.onError(this.d.tt(refusalKey(e)))
-        this.d.onLog(`~ ${String(e)}`)
+      if (v.stage === 'read') {
+        this.d.onError(this.d.tt(refusalKey(v.err)))
+        this.d.onLog(`~ ${String(v.err)}`)
         return true
       }
+      const payment = v.payment
       // Shown before the gate decides, so a refusal can show the payment it refused: the member is
       // told to compare it with the proposal, and has to be able to see it to do that.
       const preview = previewOf(payment)
       this.d.onWhat(preview)
       for (const o of preview.outputs) this.d.onLog(`~ ${fmtZec(o.zat)} ZEC -> ${o.addr ? shortId(o.addr) : 'no label'}`)
       this.d.onLog(`~ fee ${fmtZec(preview.feeZat)} ZEC`)
-      // The gate, before any share moves. H1 proved this device signs the sighash of the PCZT it
-      // holds; this proves that PCZT pays what the quorum approved. Both are needed: without the
-      // first a hostile coordinator swaps the bytes under the signature, without the second it
-      // swaps the payment under the approval.
       // Anything but `match` refuses. The two refusals are worded apart because they ask different
       // things of the member: a mismatch is evidence to tell the others about, an approval this device
       // could not load is a reason to reload first (#610 review).
-      const decision = this.d.decideApproval(payment.outputs)
-      if (decision !== 'match') {
-        this.d.onError(this.d.tt(decision === 'unknown' ? 'net.err.approvalUnknown' : 'net.err.notApproved'))
+      if (v.stage === 'approval') {
+        this.d.onError(this.d.tt(v.decision === 'unknown' ? 'net.err.approvalUnknown' : 'net.err.notApproved'))
         return true
       }
       // The owner's consent covers one transaction: the first one cleared under it.
