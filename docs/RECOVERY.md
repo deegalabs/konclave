@@ -80,6 +80,10 @@ Note: each member backs up **their own** share. Concentrating every member's exp
 restores full control but defeats the single-person-proof property, so do not do it for a real
 multi-party vault.
 
+A member who leaves the group, rather than losing a device, keeps their seat: a seat cannot be
+removed or replaced (#154). The group moves the money to a new vault instead:
+[WHEN_A_MEMBER_LEAVES.md](WHEN_A_MEMBER_LEAVES.md).
+
 ### B. Helper volume lost or a vault dir deleted (identity recovery)
 
 Precondition: an out-of-band backup of the vault's `registration.json` (see D).

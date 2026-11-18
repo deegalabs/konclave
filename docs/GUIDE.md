@@ -437,7 +437,8 @@ Cross-cutting guarantees that hold across every use case:
 ### UC-12 - Members registry
 - **Flow:** displays the real members (name + FROST comm pubkey), coordinator vs. signer role,
   and the quorum seal `t of n`.
-- **Honest limits:** membership is fixed at DKG; this screen is a viewer, not an editor.
+- **Honest limits:** membership is fixed at DKG; this screen is a viewer, not an editor. When a
+  member leaves, the group moves the money to a new vault: [WHEN_A_MEMBER_LEAVES.md](WHEN_A_MEMBER_LEAVES.md).
 
 ### UC-13 - Beneficiaries registry (address book)
 - **Flow:** list/register/edit/delete beneficiaries (name, address, default memo, public flag);
