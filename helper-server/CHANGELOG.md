@@ -109,6 +109,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Added
 
+- **The coordinator can use several light-client servers.** `KONCLAVE_LIGHTWALLETD` takes one server or a
+  comma-separated list (one value behaves as before: no probe, nothing else changes). With a list, a background
+  check asks each server every 60 seconds which chain and height it reports, never inside a request, and the
+  coordinator keeps the server it is on while that one answers and stays near the others, and moves only when it
+  stops answering or falls well behind and at least three others agree. A new vault's wallet starts from a height
+  taken from the middle of the answers, and only when three of them agree.
 - **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
   optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed

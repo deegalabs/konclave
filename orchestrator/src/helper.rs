@@ -23,8 +23,9 @@ pub struct HelperConfig {
     pub zcash_sign: PathBuf,
     /// `zcash-devtool` binary (view-only wallet init/sync, PCZT).
     pub devtool: PathBuf,
-    /// lightwalletd endpoint, e.g. "testnet.zec.rocks:443".
-    pub lightwalletd: String,
+    /// The lightwalletd servers (`KONCLAVE_LIGHTWALLETD`, one or a comma-separated list), parsed once.
+    /// An operation takes [`crate::lightclient::Servers::current`] once and uses it throughout.
+    pub servers: crate::lightclient::Servers,
     /// "main" or "test".
     pub network: String,
     /// `konclave-signer` binary (extracts the sighash the devices sign; injects their
@@ -134,7 +135,7 @@ pub fn send_config_for(
     SendConfig {
         devtool: cfg.devtool.clone(),
         wallet_dir: reg.wallet_dir.clone(),
-        lightwalletd: cfg.lightwalletd.clone(),
+        lightwalletd: cfg.servers.current(),
         account: reg.account.clone(),
         konclave_signer: cfg.konclave_signer.clone(),
         // Ceremony fields: unused on the Architecture-B path (browsers sign). Kept empty.
@@ -348,7 +349,7 @@ fn fresh_wallet(cfg: &HelperConfig, reg: &VaultRegistration) -> Result<(), ToolE
     bring_current(
         &cfg.devtool,
         &reg.wallet_dir,
-        &cfg.lightwalletd,
+        &cfg.servers.current(),
         &cfg.vaults_dir,
         &reg.vault_id,
         Freshness::IfStale,
@@ -2939,12 +2940,20 @@ fn build_view_wallet(
     name: &str,
     ufvk: &str,
 ) -> Result<String, ToolError> {
+    let mut args: Vec<&str> = vec![
+        "wallet", "-w", wallet_dir, "init-fvk", "--name", name, "--fvk", ufvk,
+    ];
+    // The one place a probe's height reaches a stored value: the birthday, from the MEDIAN of several
+    // agreeing answers (never the highest, which any one server can choose). With fewer, the engine
+    // asks the one server, as it always did.
+    let birthday = cfg.servers.birthday().map(|b| b.to_string());
+    if let Some(b) = &birthday {
+        args.extend_from_slice(&["--birthday", b.as_str()]);
+    }
     crate::lightclient::run(
         &cfg.devtool,
-        &[
-            "wallet", "-w", wallet_dir, "init-fvk", "--name", name, "--fvk", ufvk,
-        ],
-        cfg.lightwalletd.as_str(),
+        &args,
+        cfg.servers.current().as_str(),
         None,
         crate::lightclient::Call::Short,
     )?;
@@ -4350,7 +4359,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool,
-            lightwalletd: "zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("zec.rocks:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir,
@@ -4359,6 +4368,54 @@ mod tests {
             fee_switch: Default::default(),
             clock: || FIXED_NOW,
         }
+    }
+
+    /// The viewing key's wallet is built with an explicit birthday only when several servers agree on
+    /// the chain's height; otherwise the engine is left to its default (one server, as before).
+    #[cfg(unix)]
+    #[test]
+    fn the_wallet_birthday_is_explicit_only_when_three_servers_agree() {
+        use crate::lightclient::{Info, Observed, Servers};
+        let answer = |h: u64| {
+            Observed::Answered(Info {
+                version: "v".into(),
+                chain: "main".into(),
+                branch: "77190ad9".into(),
+                height: h,
+                subversion: String::new(),
+            })
+        };
+        let dir = tmp("birthday-arg");
+        std::fs::create_dir_all(&dir).unwrap();
+        let argv = dir.join("argv");
+        let fake = dir.join("devtool");
+        crate::test_exec::write_script(
+            &fake,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\n", argv.display()),
+        );
+        let run = |servers: Servers| {
+            let _ = std::fs::remove_file(&argv);
+            let mut cfg = balance_cfg(fake.clone(), dir.clone());
+            cfg.servers = servers;
+            let _ = build_view_wallet(&cfg, "/w", "n", "uview1x");
+            std::fs::read_to_string(&argv).unwrap()
+        };
+        // One server: no probe, no flag.
+        let one = Servers::parse("a:443", "main");
+        assert!(!run(one).contains("--birthday"));
+        // Three agree: the median minus a hundred.
+        let three = Servers::parse("a:443,b:443,c:443", "main");
+        three.record(vec![answer(5000), answer(5002), answer(5001)]);
+        let got = run(three);
+        assert!(got.contains("--birthday 4901"), "{got}");
+        // Only two answered: the engine's default.
+        let two = Servers::parse("a:443,b:443,c:443", "main");
+        two.record(vec![answer(5000), answer(5002), Observed::Failed]);
+        assert!(!run(two).contains("--birthday"));
+        // Not probed at all: the engine's default.
+        let none = Servers::parse("a:443,b:443,c:443", "main");
+        assert!(!run(none).contains("--birthday"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[cfg(unix)]
@@ -5311,7 +5368,7 @@ mod tests {
         let cfg = HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
-            lightwalletd: "testnet.zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("testnet.zec.rocks:443", "test"),
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
@@ -5327,7 +5384,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/bin/zcash-sign"),
             devtool: PathBuf::from("/bin/zcash-devtool"),
-            lightwalletd: "zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("zec.rocks:443", "main"),
             network: network.into(),
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
@@ -6529,7 +6586,7 @@ mod change_receiver_tests {
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
-            lightwalletd: "unused:443".into(),
+            servers: crate::lightclient::Servers::parse("unused:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
@@ -6602,7 +6659,7 @@ mod change_receiver_tests {
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
-            lightwalletd: "unused:443".into(),
+            servers: crate::lightclient::Servers::parse("unused:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),

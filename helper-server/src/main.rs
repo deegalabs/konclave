@@ -2118,7 +2118,10 @@ fn config_with(
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
         // `utest1…` vault addresses that would lose real funds. A testnet dev deploy sets these.
-        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+        servers: orchestrator::lightclient::Servers::parse(
+            &env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+            &env("KONCLAVE_NETWORK", "main"),
+        ),
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
@@ -2811,6 +2814,15 @@ fn main() {
     konclave_http::boot_forwarding_rule("konclave-helper");
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
+    // More than one light-client server: a background probe keeps the choice current. With one there
+    // is no thread and nothing changes (the probe never runs inside a request).
+    if orchestrator::lightclient::spawn_probe(&cfg.servers, std::path::PathBuf::from("curl")) {
+        eprintln!(
+            "konclave-helper: light servers {} (probed every {}s, never inside a request)",
+            cfg.servers.list().join(", "),
+            orchestrator::lightclient::PROBE_EVERY.as_secs()
+        );
+    }
     let state = Arc::new(HelperState::new());
     // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
     // persistent volume). Only public / view-only material is loaded - never a share.
@@ -4891,7 +4903,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
-            lightwalletd: "testnet.zec.rocks:443".into(),
+            servers: orchestrator::lightclient::Servers::parse("testnet.zec.rocks:443", "test"),
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             // A FRESH directory per call, so no test can see what another wrote - and, more to
@@ -8366,6 +8378,30 @@ mod tests {
         assert_eq!(config.send_max_polls, 300);
         assert!(note.is_some(), "a value that was not taken says so");
         assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// `KONCLAVE_LIGHTWALLETD` is one server or a list, read once; the default and one value are one
+    /// server and start no probe.
+    #[test]
+    fn the_environment_reaches_the_light_server_list() {
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_LIGHTWALLETD")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+            .unwrap()
+            .0
+            .servers
+        };
+        assert_eq!(with(None).list(), ["zec.rocks:443"]);
+        assert!(!with(None).is_list());
+        assert_eq!(with(Some("a:443")).current(), "a:443");
+        let list = with(Some("zec.rocks:443, eu.zec.rocks:443,zec.rocks:443"));
+        assert_eq!(list.list(), ["zec.rocks:443", "eu.zec.rocks:443"]);
+        assert!(list.is_list());
+        assert_eq!(list.current(), "zec.rocks:443");
     }
 
     /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly
