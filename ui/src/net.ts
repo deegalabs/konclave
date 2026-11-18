@@ -174,6 +174,16 @@ export class RelaySession {
           this.peers = r.peers
           this.onPeers?.(r.peers)
         }
+        // The relay numbers a room from 1 when it creates it, so a room that went away (a restarted
+        // relay, a room idle past its life) and came back answers a `next` below this device's
+        // cursor. Read it again from its start; what it holds now is new, not history.
+        if (r.next < this.since) {
+          this.since = 0
+          if (!this.firstPoll) {
+            if (!this.stopped) this.timer = setTimeout(tick, 0)
+            return
+          }
+        }
         const historical = this.firstPoll
         for (const m of r.messages) {
           if (m.seq > this.since) this.since = m.seq

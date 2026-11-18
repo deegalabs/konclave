@@ -82,4 +82,20 @@ describe('RelaySession history labelling', () => {
     // The first poll was empty, so the ceremony's opening message is live, not history.
     expect(got).toEqual([{ data: '{"type":"s1","commit":"FIRST"}', hist: false }])
   })
+
+  it('a room that started over (a restarted relay) is read again from its start, not skipped', async () => {
+    const log = [...history]
+    fakeRelay(log)
+    const got: { data: string; hist: boolean }[] = []
+    const s = new RelaySession('room', 'me', (m, hist) => { got.push({ data: m.data, hist }) }, undefined, 1)
+    s.start()
+    await flush()
+    // The relay restarted: the room is empty, then numbers from 1 again, below this device's cursor.
+    log.splice(0, log.length)
+    await new Promise((r) => setTimeout(r, 10))
+    log.push({ seq: 1, from: 'b', data: '{"type":"s1","commit":"AFTER-RESTART"}' })
+    await new Promise((r) => setTimeout(r, 20))
+    s.stop()
+    expect(got.filter((g) => !g.hist).map((g) => g.data)).toEqual(['{"type":"s1","commit":"AFTER-RESTART"}'])
+  })
 })
