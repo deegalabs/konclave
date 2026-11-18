@@ -292,7 +292,10 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
 }
 
 /// The most candidate answers one poll looks at. Each is verified by trial-injecting it, a
-/// subprocess, so the work of one poll is bounded here.
+/// subprocess, so the work of one poll is bounded here. Only a message that decodes and covers the
+/// request counts; such messages posted by another room writer still use the cap and delay the real
+/// answer, and the relay's room can drop old messages under a flood. Authenticating room writes is
+/// what removes that, not this number.
 pub const MAX_CANDIDATES_PER_POLL: usize = 16;
 
 /// What verifying one candidate answer found.

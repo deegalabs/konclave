@@ -102,43 +102,23 @@ pub use konclave_seal::spends::INJECT_EXIT_SIGNATURE_REJECTED;
 /// not run" would hold the cursor on every refused answer; so it is asked, not assumed, and any
 /// failure to answer (no such command, a different number, no answer within the deadline) is "no".
 pub fn speaks_refusal_status(konclave_signer: &Path) -> bool {
-    use std::io::Read;
-    use std::process::{Command, Stdio};
-    let Ok(mut child) = Command::new(konclave_signer)
-        .arg("inject-statuses")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) | Err(_) => return false,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
-        }
-    }
-    let mut out = String::new();
-    if child
-        .stdout
-        .take()
-        .map(|mut s| s.read_to_string(&mut out))
-        .is_none()
-    {
-        return false;
-    }
-    serde_json::from_str::<serde_json::Value>(out.trim())
+    let answer = crate::tools::run_within(
+        konclave_signer,
+        &["inject-statuses"],
+        None,
+        std::time::Duration::from_secs(5),
+    );
+    let speaks = answer
         .ok()
+        .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out).ok())
         .and_then(|v| v.get("signature_rejected").and_then(|n| n.as_i64()))
-        == Some(i64::from(INJECT_EXIT_SIGNATURE_REJECTED))
+        == Some(i64::from(INJECT_EXIT_SIGNATURE_REJECTED));
+    if !speaks {
+        eprintln!(
+            "signer: no refusal status reported; this send reads every failed check as a refusal"
+        );
+    }
+    speaks
 }
 
 /// What an attempted inject says about the signatures it was given: valid (and the signed PCZT is
