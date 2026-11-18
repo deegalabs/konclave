@@ -14,25 +14,26 @@ pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, T
     run(devtool, &["pczt", "-w", wallet_dir, "prove"], Some(pczt))
 }
 
-/// `zcash-devtool pczt -w <dir> send -s <server> --connection direct` - broadcasts and
-/// returns the txid.
+/// One broadcast attempt on one server: `zcash-devtool pczt -w <dir> send` with the server's
+/// arguments, stopped at `call`'s deadline. Returns the txid the tool reports.
 ///
-/// `pub(crate)` on purpose: nothing outside this crate can broadcast except through
-/// [`crate::send_record::send_proposal`] (which records the attempt first) or the operator's command
-/// line wrapper in [`crate::send`].
-pub(crate) fn send(
+/// Private to this crate on purpose, and called from one place, [`crate::lightclient::broadcast`]
+/// (which decides what is tried where, and for how long). Nothing outside this crate can broadcast
+/// except through [`crate::send_record::send_proposal`] (which records the attempt first) or the
+/// operator's command line wrapper in [`crate::send`].
+pub(crate) fn send_on(
     devtool: &Path,
     wallet_dir: &str,
     server: &str,
     signed_pczt: &[u8],
+    call: crate::lightclient::Call,
 ) -> Result<String, ToolError> {
-    // Stopped at its deadline: a server that never answers must not hold the worker and the vault.
     let out = crate::lightclient::run_text(
         devtool,
         &["pczt", "-w", wallet_dir, "send"],
         server,
         Some(signed_pczt),
-        crate::lightclient::Call::Broadcast,
+        call,
     )?;
     parse_txid(&out)
 }
@@ -147,7 +148,13 @@ mod tests {
         crate::test_exec::write_script(&hang, "#!/bin/sh\nexec sleep 30\n");
         crate::lightclient::set_within_for_test(Some(std::time::Duration::from_millis(300)));
         let started = std::time::Instant::now();
-        let r = send(&hang, "/w", "zec.rocks:443", b"signed");
+        let r = send_on(
+            &hang,
+            "/w",
+            "zec.rocks:443",
+            b"signed",
+            crate::lightclient::Call::Broadcast,
+        );
         crate::lightclient::set_within_for_test(None);
         std::fs::remove_dir_all(&dir).ok();
         assert!(r.is_err());

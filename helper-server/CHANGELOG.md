@@ -211,6 +211,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 - **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
   read made under a vault's address does not stay in the browser after the session ends.
+- **A send is no longer lost to one light-client server being down.** The broadcast goes to the server the send has
+  been using; if that one does not answer in time or cannot be reached, the same signed transaction goes to the next
+  configured server, within three minutes in all. A server that answers and refuses it is not asked again elsewhere.
+  When no server takes it, the answer says the transaction may have reached the network and not to send it again
+  before checking, and the attempt record stays, as it does for any broadcast error.
 
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay

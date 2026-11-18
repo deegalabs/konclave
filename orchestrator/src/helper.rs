@@ -157,6 +157,7 @@ pub fn send_config_for(
         network: cfg.network.clone(),
         zip2009_permitted: permission.0,
         zip2009_from: permission.1,
+        servers: Some(cfg.servers.clone()),
     }
 }
 
@@ -5595,6 +5596,16 @@ mod tests {
             payment_plan(MAIN_ORCHARD_UA, 50_000, None, NetworkType::Main),
             Ok(SpendPlan::Payment { .. })
         ));
+    }
+
+    /// A send takes the server once and starts on it, and carries the list so a broadcast can fail over.
+    #[test]
+    fn a_send_starts_on_the_server_it_took_and_carries_the_list() {
+        let mut cfg = send_cfg("main");
+        cfg.servers = crate::lightclient::Servers::parse("b:443,c:443", "main");
+        let sc = send_config_for(&cfg, &reg("abcd"), "/tmp/w".into());
+        assert_eq!(sc.lightwalletd, "b:443");
+        assert_eq!(sc.servers.as_ref().unwrap().list(), ["b:443", "c:443"]);
     }
 
     #[test]

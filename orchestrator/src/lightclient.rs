@@ -17,6 +17,16 @@ use crate::tools::ToolError;
 /// signs again on the strength of a timeout.
 pub const BROADCAST_WITHIN: Duration = Duration::from_secs(120);
 
+/// How long a broadcast may take across every server it is tried on. A broadcast holds the vault's
+/// lock and a worker for as long as it runs, so the budget is total, never per server.
+pub const BROADCAST_TOTAL: Duration = Duration::from_secs(180);
+
+/// What `zcash-devtool` prints when the server ANSWERED and refused the transaction
+/// (`Error::SendFailed`'s display, `src/error.rs` at the commit `engine/versions.lock` pins:
+/// `"Send failed: ({code}) {reason}"`). A refusal is not retried on another server. Pinned by a test
+/// that builds the line the way the engine does, so a change of wording breaks a test, not a send.
+pub const REJECTION_MARKER: &str = "Send failed: (";
+
 /// How long a short call to a server may take: registering a viewing key (`init-fvk`), reading the
 /// chain's tip (`get-info`).
 pub const CALL_WITHIN: Duration = Duration::from_secs(120);
@@ -28,6 +38,8 @@ pub enum Call {
     Short,
     /// A wallet sync, with the deadline the wallet module gives it (its `SYNC_WITHIN`).
     Sync(Duration),
+    /// A call with a deadline of its own: what is left of a budget (the broadcast across servers).
+    Within(Duration),
 }
 
 #[cfg(test)]
@@ -50,7 +62,7 @@ fn within(call: Call) -> Duration {
     match call {
         Call::Broadcast => BROADCAST_WITHIN,
         Call::Short => CALL_WITHIN,
-        Call::Sync(d) => d,
+        Call::Sync(d) | Call::Within(d) => d,
     }
 }
 
@@ -391,10 +403,130 @@ impl Servers {
         st.obs = obs;
     }
 
+    /// The servers a broadcast may be tried on, in order: `start` (the one the operation has been
+    /// using) first, then the others in list order, leaving out any the last probe found failed, on
+    /// another chain or branch, or (with at least [`MIN_AGREE`] in band) out of band. A server not
+    /// probed yet is kept: a probe that has not run is not a verdict.
+    pub fn broadcast_order(&self, start: &str) -> Vec<String> {
+        let st = self.lock();
+        let a = assess(&st.obs, &self.network);
+        let strict = a.in_band.len() >= MIN_AGREE;
+        let mut out = vec![start.to_string()];
+        for (i, host) in self.list.iter().enumerate() {
+            if host == start {
+                continue;
+            }
+            let keep = match &st.obs[i] {
+                Observed::Unknown => true,
+                Observed::Failed => false,
+                Observed::Answered(_) => {
+                    if strict {
+                        a.in_band.contains(&i)
+                    } else {
+                        a.eligible.contains(&i)
+                    }
+                }
+            };
+            if keep {
+                out.push(host.clone());
+            }
+        }
+        out
+    }
+
     /// The wallet birthday a new wallet should be given, or `None` for the engine's default.
     pub fn birthday(&self) -> Option<u64> {
         birthday(&self.lock().obs, &self.network)
     }
+}
+
+/// Whether a failed attempt may be made again on another server: the call did not finish (a
+/// deadline, a broken pipe) or the engine failed without the server having refused. Not when the
+/// server answered and refused ([`REJECTION_MARKER`]), and not when the engine could not even start.
+fn retryable(e: &ToolError) -> bool {
+    match e {
+        ToolError::Io(_) => true,
+        ToolError::NonZero { stderr, .. } => !stderr.contains(REJECTION_MARKER),
+        // The tool ran and printed a failure, or what it printed could not be read: not a connection
+        // problem, and the same on every server.
+        ToolError::Parse { .. } | ToolError::Spawn { .. } => false,
+    }
+}
+
+/// Broadcast `signed` (the same bytes every time) starting on `start`, and on a timeout or a
+/// connection failure on the next server of [`Servers::broadcast_order`]; a refusal by a server stops
+/// it. THE one place a transaction is sent: both send paths call it, and `send_with` still sees one
+/// call and one result. Rebroadcasting the identical transaction is not signing again: same bytes,
+/// same txid.
+///
+/// The whole thing stops at [`BROADCAST_TOTAL`]. When no server accepted it and any attempt did not
+/// finish, the error says the transaction may have reached the network: an attempt that timed out may
+/// have been received, and the attempt record the caller keeps is what a later settle reads.
+pub fn broadcast(
+    devtool: &Path,
+    wallet_dir: &str,
+    servers: &Servers,
+    start: &str,
+    signed: &[u8],
+) -> Result<String, ToolError> {
+    broadcast_within(BROADCAST_TOTAL, devtool, wallet_dir, servers, start, signed)
+}
+
+fn broadcast_within(
+    budget: Duration,
+    devtool: &Path,
+    wallet_dir: &str,
+    servers: &Servers,
+    start: &str,
+    signed: &[u8],
+) -> Result<String, ToolError> {
+    let started = std::time::Instant::now();
+    let order = servers.broadcast_order(start);
+    let mut unfinished = false;
+    let mut last: Option<ToolError> = None;
+    for (n, server) in order.iter().enumerate() {
+        let left = budget.saturating_sub(started.elapsed());
+        if n > 0 && left.is_zero() {
+            eprintln!("konclave-helper: broadcast budget used up before {server}");
+            break;
+        }
+        let attempt = crate::pczt::send_on(
+            devtool,
+            wallet_dir,
+            server,
+            signed,
+            Call::Within(left.min(BROADCAST_WITHIN)),
+        );
+        match attempt {
+            Ok(txid) => return Ok(txid),
+            Err(e) => {
+                if !retryable(&e) {
+                    // A refusal after an attempt that did not finish may still be the answer of a
+                    // server that already has it (a duplicate).
+                    last = Some(e);
+                    break;
+                }
+                unfinished = true;
+                match order.get(n + 1) {
+                    Some(next) => eprintln!(
+                        "konclave-helper: broadcast to {server} did not finish; trying {next} with the same transaction"
+                    ),
+                    None => eprintln!("konclave-helper: broadcast to {server} did not finish"),
+                }
+                last = Some(e);
+            }
+        }
+    }
+    let e = last.unwrap_or_else(|| ToolError::parse("broadcast", "no server to send to"));
+    if unfinished {
+        return Err(ToolError::parse(
+            "broadcast",
+            format!(
+                "the transaction may have reached the network (a server did not answer in time or                  was unreachable); do not send it again before checking: {e}"
+            ),
+        ));
+    }
+    Err(e)
 }
 
 /// The empty gRPC request message: flag 0, length 0.
@@ -1011,5 +1143,251 @@ mod tests {
         assert_eq!(r, Observed::Failed);
         assert!(started.elapsed() < Duration::from_secs(5));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- broadcast failover ---------------------------------------------------------------------
+
+    const TXID: &str = "11111111111111111111111111111111111111111111111111111111111111aa";
+
+    /// A stand-in devtool for `pczt send`: logs which server it was asked for, keeps the bytes it was
+    /// fed, and behaves per server (`$6` is the host after `-s`).
+    #[cfg(unix)]
+    fn stand_in(name: &str, per_server: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("konclave-bc-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("log");
+        let dev = dir.join("devtool");
+        crate::test_exec::write_script(
+            &dev,
+            &format!(
+                "#!/bin/sh\necho \"$6\" >> {log}\ncat > {dir}/in.\"$6\"\ncase \"$6\" in\n{per_server}\nesac\n",
+                log = log.display(),
+                dir = dir.display(),
+            ),
+        );
+        (dev, dir)
+    }
+
+    #[cfg(unix)]
+    fn tried(dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("log"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[cfg(unix)]
+    fn three() -> Servers {
+        Servers::parse("a:443,b:443,c:443", "main")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_broadcast_that_times_out_is_sent_on_the_next_server_with_the_same_bytes() {
+        let (dev, dir) = stand_in(
+            "timeout",
+            &format!("  a:443) exec sleep 30 ;;\n  b:443) echo {TXID} ;;\n  *) exit 9 ;;"),
+        );
+        set_within_for_test(Some(Duration::from_millis(300)));
+        let r = broadcast(&dev, "/w", &three(), "a:443", b"SIGNED-BYTES");
+        set_within_for_test(None);
+        assert_eq!(r.unwrap(), TXID);
+        assert_eq!(tried(&dir), ["a:443", "b:443"]);
+        // The server that answered was fed exactly what the first one was.
+        assert_eq!(
+            std::fs::read(dir.join("in.b:443")).unwrap(),
+            b"SIGNED-BYTES"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("in.a:443")).unwrap(),
+            b"SIGNED-BYTES"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_connection_failure_is_sent_on_the_next_server() {
+        let (dev, dir) = stand_in(
+            "conn",
+            &format!(
+                "  a:443) echo 'Error: transport error: connection refused' >&2; exit 1 ;;\n  *) echo {TXID} ;;"
+            ),
+        );
+        let r = broadcast(&dev, "/w", &three(), "a:443", b"x");
+        assert_eq!(r.unwrap(), TXID);
+        assert_eq!(tried(&dir), ["a:443", "b:443"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rejection_is_not_retried_on_another_server() {
+        let (dev, dir) = stand_in(
+            "reject",
+            &format!(
+                "  a:443) echo 'Error: Send failed: (-26) bad-txns-inputs-missingorspent' >&2; exit 1 ;;\n  *) echo {TXID} ;;"
+            ),
+        );
+        let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
+        assert_eq!(tried(&dir), ["a:443"], "a refusal went to a second server");
+        let text = e.to_string();
+        assert!(text.contains("bad-txns-inputs-missingorspent"), "{text}");
+        assert!(
+            !text.contains("may have reached"),
+            "a plain refusal is not 'may have gone out': {text}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The marker is the engine's own wording, built here the way `zcash-devtool` builds it
+    /// (`Error::SendFailed`'s display at the pinned commit), so a change of wording on either side is
+    /// a red test and not a retried refusal.
+    #[test]
+    fn the_rejection_marker_matches_the_engines_wording() {
+        let (code, reason) = (-26, "bad-txns-inputs-missingorspent");
+        let line = format!("Error: Send failed: ({code}) {reason}");
+        assert!(line.contains(REJECTION_MARKER));
+        assert_eq!(REJECTION_MARKER, "Send failed: (");
+        let refusal = ToolError::NonZero {
+            program: "d".into(),
+            code: Some(1),
+            stderr: line,
+        };
+        assert!(!retryable(&refusal));
+        let down = ToolError::NonZero {
+            program: "d".into(),
+            code: Some(1),
+            stderr: "Error: transport error".into(),
+        };
+        assert!(retryable(&down));
+        assert!(retryable(&ToolError::Io(std::io::Error::from(
+            std::io::ErrorKind::TimedOut
+        ))));
+        assert!(!retryable(&ToolError::parse("broadcast", "no txid")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn when_every_server_fails_the_error_says_it_may_have_gone_out() {
+        let (dev, dir) = stand_in("allfail", "  *) exec sleep 30 ;;");
+        set_within_for_test(Some(Duration::from_millis(200)));
+        let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
+        set_within_for_test(None);
+        assert_eq!(tried(&dir), ["a:443", "b:443", "c:443"]);
+        assert!(
+            e.to_string().contains("may have reached the network"),
+            "{e}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refusal_after_an_unfinished_attempt_still_says_it_may_have_gone_out() {
+        // a hangs (it may have received it); b answers that it is a duplicate.
+        let (dev, dir) = stand_in(
+            "dup",
+            "  a:443) exec sleep 30 ;;\n  b:443) echo 'Error: Send failed: (-27) txn-already-in-mempool' >&2; exit 1 ;;\n  *) exit 9 ;;",
+        );
+        set_within_for_test(Some(Duration::from_millis(200)));
+        let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
+        set_within_for_test(None);
+        assert_eq!(tried(&dir), ["a:443", "b:443"]);
+        let text = e.to_string();
+        assert!(text.contains("may have reached the network"), "{text}");
+        assert!(text.contains("txn-already-in-mempool"), "{text}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_budget_is_total_not_per_server() {
+        let (dev, dir) = stand_in("budget", "  *) exec sleep 30 ;;");
+        let list = Servers::parse("a:443,b:443,c:443,d:443,e:443", "main");
+        set_within_for_test(Some(Duration::from_millis(300)));
+        let started = std::time::Instant::now();
+        let e = broadcast_within(Duration::from_millis(400), &dev, "/w", &list, "a:443", b"x")
+            .unwrap_err();
+        set_within_for_test(None);
+        // 5 servers x 300 ms would be 1.5 s; the budget of 400 ms allows the first and one more.
+        assert!(tried(&dir).len() <= 2, "{:?}", tried(&dir));
+        assert!(started.elapsed() < Duration::from_millis(1400));
+        assert!(e.to_string().contains("may have reached the network"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_server_is_tried_once_and_the_error_is_the_tools() {
+        let (dev, dir) = stand_in(
+            "single",
+            "  *) echo 'Error: Send failed: (-1) nope' >&2; exit 1 ;;",
+        );
+        let one = Servers::parse("a:443", "main");
+        let e = broadcast(&dev, "/w", &one, "a:443", b"x").unwrap_err();
+        assert_eq!(tried(&dir), ["a:443"]);
+        assert!(e.to_string().contains("nope"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_the_probe_found_failed_or_on_another_chain_is_not_tried() {
+        let sv = three();
+        sv.record(vec![
+            main_at(1000),
+            Observed::Failed,
+            info("test", NU7, 1000),
+        ]);
+        assert_eq!(sv.broadcast_order("a:443"), ["a:443"]);
+        // Not probed yet: kept.
+        assert_eq!(
+            three().broadcast_order("b:443"),
+            ["b:443", "a:443", "c:443"]
+        );
+        // The operation's own server goes first even when it is not first in the list.
+        let ok = three();
+        ok.record(vec![main_at(1000), main_at(1001), main_at(1002)]);
+        assert_eq!(ok.broadcast_order("c:443"), ["c:443", "a:443", "b:443"]);
+    }
+
+    /// Both send paths put bytes on the network through `lightclient::broadcast`, and nothing else
+    /// calls the single-attempt function: a second implementation of the failover would be the
+    /// legacy path keeping the old rule.
+    #[test]
+    fn nothing_but_the_broadcast_function_makes_a_send_attempt() {
+        let needle = ["pczt::send", "_on("].concat();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut offenders = Vec::new();
+        for crate_src in ["orchestrator/src", "helper-server/src", "src-tauri/src"] {
+            let mut stack = vec![root.join(crate_src)];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.extension().is_some_and(|x| x == "rs")
+                        && !p.ends_with("orchestrator/src/lightclient.rs")
+                    {
+                        let src = std::fs::read_to_string(&p).unwrap();
+                        let prod = src.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+                        if prod.contains(&needle) {
+                            offenders.push(p.display().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "{offenders:?}");
+        let send = std::fs::read_to_string(root.join("orchestrator/src/send.rs")).unwrap();
+        let prod = send.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+        assert_eq!(
+            prod.matches("broadcast_bytes(sc,").count(),
+            2,
+            "both send paths use the one function"
+        );
     }
 }

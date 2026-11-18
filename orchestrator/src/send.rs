@@ -95,6 +95,10 @@ pub struct SendConfig {
     /// The height from which that permission holds. `serde(skip)` for the same reason.
     #[serde(skip)]
     pub zip2009_from: Option<u32>,
+    /// The servers a broadcast may fail over across. `serde(skip)`: only the hosted coordinator
+    /// sets it (`helper::send_config_for`); a config read from a file names one server.
+    #[serde(skip)]
+    pub servers: Option<crate::lightclient::Servers>,
 }
 
 impl SendConfig {
@@ -577,12 +581,7 @@ pub fn orchestrate_send(
         None
     } else {
         let tx3 = std::fs::read(&tx3_path).map_err(ToolError::Io)?;
-        Some(pczt::send(
-            &sc.devtool,
-            &sc.wallet_dir,
-            &sc.lightwalletd,
-            &tx3,
-        )?)
+        Some(broadcast_bytes(sc, &tx3)?)
     };
 
     Ok(SendOutcome {
@@ -695,7 +694,24 @@ impl SignedSend {
 /// Broadcast a signed transaction and return the txid the tool reports. `pub(crate)`: callers outside
 /// this crate cannot broadcast except through a path that records the attempt first.
 pub(crate) fn broadcast_signed(sc: &SendConfig, signed: &SignedSend) -> Result<String, ToolError> {
-    pczt::send(&sc.devtool, &sc.wallet_dir, &sc.lightwalletd, &signed.tx3)
+    broadcast_bytes(sc, &signed.tx3)
+}
+
+/// The one call both send paths make to put signed bytes on the network: the config's servers when
+/// it has a list (the hosted coordinator), otherwise its one server. It starts on the server the
+/// operation has been using, `sc.lightwalletd`.
+fn broadcast_bytes(sc: &SendConfig, signed: &[u8]) -> Result<String, ToolError> {
+    let servers = match &sc.servers {
+        Some(s) => s.clone(),
+        None => crate::lightclient::Servers::parse(&sc.lightwalletd, &sc.network),
+    };
+    crate::lightclient::broadcast(
+        &sc.devtool,
+        &sc.wallet_dir,
+        &servers,
+        &sc.lightwalletd,
+        signed,
+    )
 }
 
 /// Architecture B - build, prove and collect the quorum's signature for a browser-DKG vault, and stop
