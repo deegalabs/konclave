@@ -414,6 +414,7 @@ made with an AI assistant are welcome on the same terms:
 
 ## Documentation
 
+- **[docs/FIRST_DAY.md](docs/FIRST_DAY.md): your first day with a vault**, for a group that has just created one: backups, putting ZEC in, signing together, and what to do if something stops working
 - **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** - use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
 - [DEPLOY.md](DEPLOY.md): hosting and CI · [docs/archive/zechub-3.0-submission.md](docs/archive/zechub-3.0-submission.md): the ZecHub Hackathon 3.0 submission page, archived in its last state
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan
