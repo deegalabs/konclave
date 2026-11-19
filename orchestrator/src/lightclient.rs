@@ -216,7 +216,14 @@ fn list_entry_reachable(entry: &str) -> Result<(), String> {
         Some("an onion name")
     } else if host == "localhost" || host.ends_with(".localhost") {
         Some("localhost")
-    } else if host.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+    } else if host.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        || host
+            .rsplit('.')
+            .next()
+            .is_some_and(|last| last.bytes().all(|b| b.is_ascii_digit()) || last.starts_with("0x"))
+    {
+        // Every IPv4 spelling the resolver accepts (dotted, integer, octal, hex) ends in a number or
+        // a 0x label, and no public top-level domain does.
         Some("an IP address")
     } else {
         None
@@ -350,8 +357,10 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
 }
 
 /// From `pool` (in list order), the server a switch goes to: the first not behind `scanned` (the
-/// highest height the wallets may have scanned to), else the highest of them, so a switch never lands
-/// on a server the wallets are ahead of while one that is not was there. `None` for an empty pool.
+/// highest height the wallets may have scanned to) by more than [`MAX_BROADCAST_LAG`], else the first
+/// of the pool. The slack keeps honest servers a block behind eligible, so a server that always
+/// answers a little high does not win every switch; the fallback is list order, never "the highest",
+/// for the same reason. `None` for an empty pool.
 fn pick(pool: &[usize], a: &Assessment, scanned: u64) -> Option<usize> {
     let h = |i: usize| {
         a.heights
@@ -361,8 +370,8 @@ fn pick(pool: &[usize], a: &Assessment, scanned: u64) -> Option<usize> {
     };
     pool.iter()
         .copied()
-        .find(|&i| h(i) >= scanned)
-        .or_else(|| pool.iter().copied().rev().max_by_key(|&i| h(i)))
+        .find(|&i| h(i).saturating_add(MAX_BROADCAST_LAG) >= scanned)
+        .or_else(|| pool.first().copied())
 }
 
 /// [`choose`], knowing how far the wallets may have scanned (`scanned`, see [`pick`]).
@@ -468,9 +477,9 @@ struct State {
     current: usize,
     obs: Vec<Observed>,
     last_note: Option<String>,
-    /// The highest height the server in use reported while it was usable: how far the wallets may
-    /// have scanned. Only the server in use, and only within the rule ([`Assessment::usable`]), so a
-    /// server far ahead of the others never raises it.
+    /// The highest height a server in use reported while in band with at least [`MIN_AGREE`] agreeing
+    /// answers: how far the wallets may have scanned. Never raised by a server out of band, nor when
+    /// too few answered to have a band, so no single server can set it.
     scanned: u64,
 }
 
@@ -564,7 +573,7 @@ impl Servers {
         }
         let mut st = self.lock();
         let a = assess(&obs, &self.network);
-        if a.usable().contains(&st.current) {
+        if a.eligible.len() >= MIN_AGREE && a.in_band.contains(&st.current) {
             if let Observed::Answered(info) = &obs[st.current] {
                 st.scanned = st.scanned.max(info.height);
             }
@@ -1941,6 +1950,10 @@ mod tests {
             "a.localhost:443",
             "127.0.0.1:9067",
             "10.0.0.1:9067",
+            "2130706433:443",
+            "0x7f.1:443",
+            "0x7f000001:443",
+            "a.0x1:443",
         ] {
             let e = Servers::try_parse(&format!("zec.rocks:443,{bad}"), "main").unwrap_err();
             assert!(e.contains(bad) && e.contains("list"), "{bad}: {e}");
@@ -1976,7 +1989,7 @@ mod tests {
             main_at(1012),
         ]);
         assert_eq!(sv.current(), "c:443");
-        // Every candidate behind: the highest is taken (least behind), never the first in the list.
+        // Every candidate behind by more than the slack: list order, not the highest.
         let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
         sv.record(vec![
             main_at(1020),
@@ -1990,7 +2003,44 @@ mod tests {
             main_at(1016),
             main_at(1012),
         ]);
-        assert_eq!(sv.current(), "c:443");
+        assert_eq!(sv.current(), "b:443");
+        // One block behind is within the slack: the first in list order still qualifies, so a
+        // server answering a little high does not win the switch.
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        sv.record(vec![
+            main_at(1010),
+            main_at(1009),
+            main_at(1011),
+            main_at(1010),
+        ]);
+        sv.record(vec![
+            Observed::Failed,
+            main_at(1009),
+            main_at(1030),
+            main_at(1010),
+        ]);
+        assert_eq!(sv.current(), "b:443");
+        // With too few answers to have a band, the server in use cannot raise the mark.
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        sv.record(vec![
+            main_at(1000),
+            main_at(1001),
+            main_at(1002),
+            Observed::Failed,
+        ]);
+        sv.record(vec![
+            main_at(5000),
+            Observed::Failed,
+            Observed::Failed,
+            Observed::Failed,
+        ]);
+        sv.record(vec![
+            Observed::Failed,
+            main_at(995),
+            main_at(1001),
+            main_at(1002),
+        ]);
+        assert_eq!(sv.current(), "c:443", "a mark of 5000 would fall back to b");
         // A server far ahead of the others (out of band) never raises what counts as scanned.
         let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
         sv.record(vec![
@@ -2007,15 +2057,15 @@ mod tests {
         ]);
         // a is now out of band with three agreeing: it moves to b (first in band, not behind 1000).
         assert_eq!(sv.current(), "b:443");
-        // b fails: c (1002) is not behind what was scanned (1000), so it is taken; had a's 9000 raised
-        // the mark, every candidate would look behind and the highest (d) would win.
+        // b fails: c (990) is behind what was scanned (1000) by more than the slack, d (1003) is not,
+        // so d is taken; had a's 9000 raised the mark, both would look behind and c (first) would win.
         sv.record(vec![
             main_at(9000),
             Observed::Failed,
-            main_at(1002),
+            main_at(990),
             main_at(1003),
         ]);
-        assert_eq!(sv.current(), "c:443");
+        assert_eq!(sv.current(), "d:443");
     }
 
     #[test]
