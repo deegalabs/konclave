@@ -5310,6 +5310,53 @@ mod tests {
         );
     }
 
+    /// #288/#508, the plain case the tests above build on: once a seat has registered a write key,
+    /// a proposal with NO signature is refused, in both handlers that create one, and nothing is
+    /// put on the desk. Without this, a gate that waved unsigned writes through on a registered vault
+    /// would still pass every test here, since each of them signs.
+    #[test]
+    fn an_unsigned_proposal_or_payroll_on_a_registered_vault_is_refused() {
+        for (route, body) in [
+            (
+                "/api/vault/proposals",
+                format!(
+                    r#"{{"vault":"unsignedp","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+                ),
+            ),
+            (
+                "/api/vault/payroll",
+                format!(
+                    r#"{{"vault":"unsignedp","proposer":"alice","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+                ),
+            ),
+        ] {
+            let st = HelperState::new();
+            seed(&st, "unsignedp");
+            let c = cfg();
+            let dir = &c.vaults_dir;
+
+            // Sanity, so the refusal below is the gate's and not the body's: while no device has
+            // registered a write key the same request is accepted (ADR-0011 D5).
+            let open = handle(&st, &c, &Method::Post, route, body.as_bytes());
+            assert_eq!(open.status, 200, "{route}, open vault: {}", open.body);
+            let before = list_proposals(dir, "unsignedp", now_unix()).len();
+
+            let _sk = alice_registers_seat_one(dir, "unsignedp");
+            let r = handle(&st, &c, &Method::Post, route, body.as_bytes());
+            assert_eq!(r.status, 401, "{route}: {}", r.body);
+            assert!(
+                r.body.contains("this vault requires a signed proposal"),
+                "{route}: {}",
+                r.body
+            );
+            assert_eq!(
+                list_proposals(dir, "unsignedp", now_unix()).len(),
+                before,
+                "{route}: a refused proposal put nothing on the desk"
+            );
+        }
+    }
+
     /// And in Payroll, which goes through its own handler.
     #[test]
     fn a_signed_payroll_cannot_name_another_member_as_proposer() {
@@ -8364,6 +8411,56 @@ mod tests {
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert_ne!(r.status, 400, "{}", r.body);
         assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
+    }
+
+    /// #288/#508: once a seat has registered a write key, a send with NO signature is refused by the
+    /// write gate, before the engine runs and without touching the proposal. A vault id alone must
+    /// not fire the broadcast of an approved payment.
+    #[cfg(unix)]
+    #[test]
+    fn an_unsigned_send_on_a_vault_with_a_write_key_is_refused_before_the_engine() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        // Every seat has a usable device key and seat 1's carries Alice's write key, so the request
+        // would go out sealed: the write gate is the only thing between a vault id and the engine.
+        // With one device registered, the unsealed-send refusal would stop it anyway and this test
+        // would not show the gate is there.
+        let sk = ed25519_dalek::SigningKey::from_bytes(&konclave_seal::write_key_seed_from_share(
+            b"alice's key package",
+        ));
+        let write_pub: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        for seat in 1..=3u16 {
+            let dk = konclave_seal::DeviceKey::generate();
+            let dev: String = dk
+                .public_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            let write = (seat == 1).then_some((1u16, write_pub.as_str()));
+            orchestrator::helper::upsert_device(&c.vaults_dir, "relayv", &dev, write).unwrap();
+        }
+
+        let r = send_as(&st, &c, None);
+        assert_eq!(r.status, 401, "{}", r.body);
+        assert!(
+            r.body.contains("this vault requires a signed send"),
+            "{}",
+            r.body
+        );
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(ran.is_empty(), "the engine was not touched: {ran}");
+        let p = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).expect("the proposal");
+        assert_eq!(p.state, "ready", "the proposal is left as it was");
+        assert_eq!(p.txid, None);
     }
 
     /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
