@@ -10,7 +10,7 @@
 
 import { CROCKFORD } from './format'
 import { CREATION_PROTOCOL } from './creation-protocol'
-import { readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
+import { forgetRefusedServiceUrl, readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
 
 // One key at a time, never the env object (#605, src/env-reads.test.ts).
 const BASE: string = import.meta.env.VITE_API_BASE ?? ''
@@ -50,6 +50,7 @@ export function getCustomRelay(): string {
  *  address goes through the one rule first (#1067): a refused one stores nothing, not even the mode,
  *  and the refusal is returned. `null` means stored. */
 export function setRelay(mode: RelayMode, url?: string): ServiceUrlRefusal | null {
+  forgetRefusedServiceUrl('relay')
   if (url !== undefined) {
     const r = storeServiceUrl('relay', url)
     if (!r.ok) return r.reason

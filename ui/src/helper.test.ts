@@ -118,6 +118,18 @@ describe('coordination mode (runtime choice)', () => {
     for (const [u] of spy.mock.calls) expect(String(u)).not.toContain('secret')
   })
 
+  it('picking a mode removes a stored address the rule refuses (#1067)', () => {
+    localStorage.setItem('konclave.coord.url', 'https://user:secret@x.example')
+    setCoordMode('ours')
+    expect(localStorage.getItem('konclave.coord.url')).toBeNull()
+  })
+
+  it('picking a mode keeps a stored address the rule takes (#1067)', () => {
+    localStorage.setItem('konclave.coord.url', 'https://x.example')
+    setCoordMode('ours')
+    expect(localStorage.getItem('konclave.coord.url')).toBe('https://x.example')
+  })
+
   it('a configured custom helper still degrades to null on a network failure (no throw)', async () => {
     setCoordMode('custom', 'https://unreachable.invalid')
     const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))

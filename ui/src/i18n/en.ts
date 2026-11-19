@@ -435,7 +435,7 @@ export const en: Record<string, string> = {
   'serviceUrl.empty': 'Enter the server address.',
   'serviceUrl.tooLong': 'This address is too long for a server address.',
   'serviceUrl.character': 'This address contains a space, a line break or an invisible character. Type it again without them.',
-  'serviceUrl.credentials': 'Remove the name and password from the address (the part before @). They would be stored on this device and sent with every request.',
+  'serviceUrl.credentials': 'Remove the name and password from the address (the part before @). They would be stored on this device in plain text, and the browser refuses an address that carries them.',
   'serviceUrl.query': 'Remove the part from ? onwards. A server address has no query.',
   'serviceUrl.fragment': 'Remove the part from # onwards. A server address has no fragment.',
   'serviceUrl.scheme': 'The address must start with https://.',

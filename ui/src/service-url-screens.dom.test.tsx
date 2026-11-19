@@ -33,7 +33,7 @@ vi.mock('./storage', async (orig) => ({
 const { default: Vaults } = await import('./screens/Vaults')
 const { default: Settings } = await import('./screens/Settings')
 const mount = (el: React.ReactElement) => render(<MemoryRouter><I18nProvider><ToastProvider>{el}</ToastProvider></I18nProvider></MemoryRouter>)
-const PASSWORD = 'https://user:secret@coordinator.example'
+const REFUSED_ADDRESS = 'https://user:secret@coordinator.example'
 // The page has other live regions (the toasts), so a message is found by its text, then its role.
 const said = (text: string) => { const el = screen.getByText(text); expect(el.getAttribute('role')).toBe('alert'); return el }
 const anyRefusal = () => Object.keys(dict).filter((k) => k.startsWith('serviceUrl.')).some((k) => screen.queryByText(dict[k] ?? k))
@@ -51,7 +51,7 @@ describe('the screens refuse an address through the one rule (#1067)', () => {
 
   it('Vaults: a refused address says why, and neither Enter nor Continue creates a vault or stores it', async () => {
     const field = await openOwnServer()
-    fireEvent.change(field, { target: { value: PASSWORD } })
+    fireEvent.change(field, { target: { value: REFUSED_ADDRESS } })
     said(en('serviceUrl.credentials'))
     const cont = screen.getByRole('button', { name: en('vaults.chooseContinue') }) as HTMLButtonElement
     expect(cont.disabled).toBe(true)
@@ -82,13 +82,13 @@ describe('the screens refuse an address through the one rule (#1067)', () => {
 
   it('Settings: an address stored before the rule, now refused, is set aside without being shown back', async () => {
     localStorage.setItem('konclave.coord.mode', 'custom')
-    localStorage.setItem('konclave.coord.url', PASSWORD)
+    localStorage.setItem('konclave.coord.url', REFUSED_ADDRESS)
     mount(<Settings />)
     const field = await screen.findByPlaceholderText(en('settings.coordUrlPlaceholder')) as HTMLInputElement
     expect(field.value).toBe('')
     said(en('serviceUrl.storedRefused', { reason: en('serviceUrl.credentials') }))
     expect(document.body.textContent).not.toContain('secret')
-    expect(localStorage.getItem('konclave.coord.url')).toBe(PASSWORD) // kept until the member replaces it
+    expect(localStorage.getItem('konclave.coord.url')).toBe(REFUSED_ADDRESS) // kept until the member replaces it
   })
 })
 

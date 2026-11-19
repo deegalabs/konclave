@@ -68,4 +68,10 @@ describe('relay selection', () => {
     await relayPoll('room', 0, 'me')
     for (const [u] of spy.mock.calls) expect(String(u)).not.toContain('secret')
   })
+
+  it('picking a relay mode removes a stored address the rule refuses (#1067)', () => {
+    localStorage.setItem('konclave.relay.url', 'https://user:secret@x.example')
+    setRelay('ours')
+    expect(localStorage.getItem('konclave.relay.url')).toBeNull()
+  })
 })

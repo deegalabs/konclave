@@ -435,7 +435,7 @@ export const ptBR: Record<string, string> = {
   'serviceUrl.empty': 'Informe o endereço do servidor.',
   'serviceUrl.tooLong': 'Este endereço é longo demais para um endereço de servidor.',
   'serviceUrl.character': 'Este endereço tem um espaço, uma quebra de linha ou um caractere invisível. Digite-o de novo sem eles.',
-  'serviceUrl.credentials': 'Remova o nome e a senha do endereço (a parte antes do @). Eles ficariam guardados neste dispositivo e iriam em cada requisição.',
+  'serviceUrl.credentials': 'Remova o nome e a senha do endereço (a parte antes do @). Eles ficariam guardados neste dispositivo em texto puro, e o navegador recusa um endereço que os carrega.',
   'serviceUrl.query': 'Remova a parte a partir do ?. Um endereço de servidor não tem consulta.',
   'serviceUrl.fragment': 'Remova a parte a partir do #. Um endereço de servidor não tem fragmento.',
   'serviceUrl.scheme': 'O endereço deve começar com https://.',

@@ -1,7 +1,7 @@
 import { asEnvelope, openEnvelope, type Opener } from './envelope'
 import { recordRead, classifyRead, type ReadFailure } from './read-failure'
 import { ensureWasm } from './wasm-ready'
-import { readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
+import { forgetRefusedServiceUrl, readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
 
 /** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
  *  `SEALED_UFVK_KIND` in `helper-server`. */
@@ -76,6 +76,7 @@ export function getCustomHelper(): string {
  *  the address goes through the one rule first (#1067): a refused one stores nothing, not even the
  *  mode, and the refusal is returned for the screen to say. `null` means stored. */
 export function setCoordMode(mode: CoordMode, url?: string): ServiceUrlRefusal | null {
+  forgetRefusedServiceUrl('coordinator')
   if (url !== undefined) {
     const r = storeServiceUrl('coordinator', url)
     if (!r.ok) return r.reason

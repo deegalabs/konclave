@@ -7,8 +7,8 @@
 // append `/api/...` to it, the coordinator serves its API at the root, and it accepts a relay only as
 // an origin (`parse_relay_config`, orchestrator/src/relay_client.rs), so a path would be a mistake or a
 // way to aim requests somewhere else. A password in the address would be kept in the browser's storage
-// and sent in every request URL (CLAUDE.md section 6.3); a query or a fragment would be carried into
-// every request too.
+// in plain text (CLAUDE.md section 6.3), and the browser refuses a request to a URL that carries one; a
+// query would be carried into every request, and a fragment would swallow the path.
 //
 // The WHATWG parser is used for the host and the port, but it forgives what a member should be told
 // about: it drops tabs and newlines inside the string and control characters at its ends, reads `\` as
@@ -33,9 +33,10 @@ export type ServiceUrlRefusal =
 
 export type ServiceUrl = { ok: true; base: string } | { ok: false; reason: ServiceUrlRefusal }
 
-// Controls (C0, DEL, C1), any whitespace, zero-width characters and every bidirectional control.
-// eslint-disable-next-line no-control-regex -- matching control characters is what this line is for
-const BAD_CHARACTER = /[\u0000-\u001F\u007F-\u009F\s\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/u
+// Refused anywhere in the address: controls (Cc), format characters (Cf: zero-width, bidirectional,
+// soft hyphen, tags), any whitespace or separator (Z, \s), and the fillers and variation selectors IDNA
+// drops (U+034F, U+115F, U+1160, U+3164, U+FE00-U+FE0F, U+FFA0). Every code point here is an escape.
+const BAD_CHARACTER = /[\p{Cc}\p{Cf}\p{Z}\s\u034F\u115F\u1160\u3164\uFE00-\uFE0F\uFFA0]/u
 // http is for these two authorities exactly, as typed: not `localhost.`, `127.1` or `[::1]`.
 const LOOPBACK = /^(localhost|127\.0\.0\.1)(:\d{1,5})?$/i
 
@@ -101,12 +102,19 @@ export function readServiceUrl(kind: ServiceKind): ServiceUrl | null {
   return raw === null ? null : parseServiceUrl(raw)
 }
 
+/** Remove the stored address for `kind` when the rule refuses it (it may carry a password). */
+export function forgetRefusedServiceUrl(kind: ServiceKind): void {
+  if (readServiceUrl(kind)?.ok === false) {
+    try { localStorage.removeItem(STORAGE_KEY[kind]) } catch { /* nothing stored to remove */ }
+  }
+}
+
 /** Store `input` for `kind` if the rule takes it, as the normalised base; otherwise store nothing.
  *  Returns the rule's answer either way, so the caller can say why. */
 export function storeServiceUrl(kind: ServiceKind, input: string): ServiceUrl {
   const r = parseServiceUrl(input)
   if (r.ok) {
-    try { localStorage.setItem(STORAGE_KEY[kind], r.base) } catch { /* applies this session only */ }
+    try { localStorage.setItem(STORAGE_KEY[kind], r.base) } catch { /* storage unavailable: the address is not kept and does not apply */ }
   }
   return r
 }

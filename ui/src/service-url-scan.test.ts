@@ -8,8 +8,8 @@ import { codeAt, codeOf } from './source-scan'
 // comment that names the old check nor a commented-out call can pass or fail this.
 //
 // What is matched, precisely:
-// - the old screens' regex, by its escaped text `https:\/\/\S` (any regex literal or string that
-//   carries it), anywhere;
+// - any regex literal carrying `https:\/\/` or `https?:\/\/` (a URL scheme check), anywhere: the
+//   old screens' regex was one, and the rule itself uses a generic scheme regex, so none is needed;
 // - the two storage keys, `konclave.coord.url` and `konclave.relay.url`, as text, anywhere but
 //   service-url.ts: storing or reading them elsewhere would skip the rule;
 // - and, in the other direction, that both screens call `parseServiceUrl` and that both setters and
@@ -33,7 +33,7 @@ describe('one rule for a service address (#1067)', () => {
     for (const f of files(src)) {
       walked++
       const code = codeAt(f)
-      if (code.includes('https:\\/\\/\\S')) offenders.push(`${rel(f)}: the old address regex`)
+      if (/https\??:\\\/\\\//.test(code)) offenders.push(`${rel(f)}: a URL scheme regex outside the rule`)
       if (rel(f) !== 'service-url.ts' && /konclave\.(coord|relay)\.url/.test(code)) offenders.push(`${rel(f)}: a stored address key`)
     }
     expect(offenders).toEqual([])
@@ -51,6 +51,8 @@ describe('one rule for a service address (#1067)', () => {
       return code.slice(at, code.indexOf('\n}', at))
     }
     expect(fn('helper.ts', 'setCoordMode')).toMatch(/storeServiceUrl\('coordinator'/)
+    expect(fn('helper.ts', 'setCoordMode')).toMatch(/forgetRefusedServiceUrl\('coordinator'\)/)
+    expect(fn('net.ts', 'setRelay')).toMatch(/forgetRefusedServiceUrl\('relay'\)/)
     expect(fn('net.ts', 'setRelay')).toMatch(/storeServiceUrl\('relay'/)
     expect(fn('helper.ts', 'getCustomHelper')).toMatch(/readServiceUrl\('coordinator'\)/)
     expect(fn('net.ts', 'getCustomRelay')).toMatch(/readServiceUrl\('relay'\)/)
