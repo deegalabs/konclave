@@ -9,4 +9,6 @@
   says why and nothing is stored. An address saved before this release that the rule refuses is no
   longer used: the device has no coordinator of its own until you enter one again (Settings says
   so), and a refused relay address falls back to the built-in relay. The saved value itself is kept
-  until you replace it (#1067).
+  until you replace it. The question asked before finishing a vault's creation with another server
+  shows the server the vault was started with by its host only, without a name or password the
+  address may have been saved with (#1067).

@@ -73,6 +73,20 @@ export function parseServiceUrl(input: string): ServiceUrl {
   return { ok: true, base: url.origin }
 }
 
+/** An address to SHOW a member, never to use: the base when the rule takes it, otherwise only the
+ *  scheme, host and port the parser finds (never a name, password, path, query or fragment), or null
+ *  when there is no host to show. For an address recorded before this rule, such as the coordinator
+ *  a vault record kept (the resume prompt), which may carry a password. */
+export function serviceUrlForDisplay(raw: string): string | null {
+  const r = parseServiceUrl(raw)
+  if (r.ok) return r.base
+  try {
+    const u = new URL(raw.trim())
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.host) return `${u.protocol}//${u.host}`
+  } catch { /* not an address */ }
+  return null
+}
+
 // Where a member's own address is kept, per device. The keys live here and nowhere else in the app
 // (service-url-scan.test.ts), so nothing can store an address this rule did not take, or read one
 // back without going through it again.

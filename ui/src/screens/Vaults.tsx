@@ -9,7 +9,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
-import { parseServiceUrl } from '../service-url'
+import { parseServiceUrl, serviceUrlForDisplay } from '../service-url'
 import { isDesktop } from '../platform'
 import { HostNotice, HOST_NOTICE_ID } from '../HostNotice'
 import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
@@ -577,7 +577,7 @@ export default function Vaults() {
                         <p>{t('vaults.resumeConfirm', { server: helperBase() })}</p>
                         {!sameCoord(rec) && (
                           <>
-                            <p>{t('vaults.resumeOtherServer', { was: rec.coordinator ?? '', now: helperBase() })}</p>
+                            <p>{t('vaults.resumeOtherServer', { was: serviceUrlForDisplay(rec.coordinator ?? '') ?? t('vaults.resumeServerUnshown'), now: helperBase() })}</p>
                             <label className="cv-codecheck-row">
                               <input type="checkbox" checked={resumeAck} onChange={(e) => setResumeAck(e.target.checked)} />
                               {t('vaults.resumeOtherYes', { now: helperBase() })}

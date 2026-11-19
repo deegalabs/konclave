@@ -23,6 +23,13 @@ vi.mock('./api', async (orig) => ({
   getSelectedVault: () => 'v',
 }))
 
+// The device's own vault records, empty unless a test puts one there (the resume prompt below).
+const device = vi.hoisted(() => ({ records: [] as unknown[] }))
+vi.mock('./storage', async (orig) => ({
+  ...(await orig<typeof import('./storage')>()),
+  readVaults: async () => device.records,
+}))
+
 const { default: Vaults } = await import('./screens/Vaults')
 const { default: Settings } = await import('./screens/Settings')
 const mount = (el: React.ReactElement) => render(<MemoryRouter><I18nProvider><ToastProvider>{el}</ToastProvider></I18nProvider></MemoryRouter>)
@@ -39,7 +46,7 @@ async function openOwnServer() {
 }
 
 describe('the screens refuse an address through the one rule (#1067)', () => {
-  beforeEach(() => { shell.desktop = true; localStorage.clear(); localStorage.setItem('konclave.locale', 'en') })
+  beforeEach(() => { shell.desktop = true; device.records = []; localStorage.clear(); localStorage.setItem('konclave.locale', 'en') })
   afterEach(() => cleanup())
 
   it('Vaults: a refused address says why, and neither Enter nor Continue creates a vault or stores it', async () => {
@@ -82,5 +89,30 @@ describe('the screens refuse an address through the one rule (#1067)', () => {
     said(en('serviceUrl.storedRefused', { reason: en('serviceUrl.credentials') }))
     expect(document.body.textContent).not.toContain('secret')
     expect(localStorage.getItem('konclave.coord.url')).toBe(PASSWORD) // kept until the member replaces it
+  })
+})
+
+// Review of #1067: the "other server" resume prompt printed the coordinator a vault record kept, which
+// a record written before this rule may carry with a password. It is shown host only.
+describe('the resume prompt never shows a recorded coordinator\'s credentials (#1067)', () => {
+  beforeEach(() => {
+    shell.desktop = true
+    localStorage.clear()
+    localStorage.setItem('konclave.locale', 'en')
+    localStorage.setItem('konclave.coord.mode', 'custom')
+    localStorage.setItem('konclave.coord.url', 'https://new.example')
+    device.records = [{
+      id: 'a'.repeat(64), name: 'Treasury', roster: ['ana', 'bia'], groupKey: 'b'.repeat(64),
+      threshold: 2, total: 2, cp: 3, pending: true, allSaved: true, secured: true, createdAt: 0,
+      coordinator: 'https://user:secret@old.example/coord?token=secret',
+    }]
+  })
+  afterEach(() => cleanup())
+
+  it('names the old server by its host, and the secret never reaches the page', async () => {
+    mount(<Vaults />)
+    fireEvent.click(await screen.findByRole('button', { name: en('vaults.resumeButton') }))
+    expect(screen.getByText(en('vaults.resumeOtherServer', { was: 'https://old.example', now: 'https://new.example' }))).toBeTruthy()
+    expect(document.body.innerHTML).not.toContain('secret')
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseServiceUrl, SERVICE_URL_MAX, type ServiceUrlRefusal } from './service-url'
+import { parseServiceUrl, serviceUrlForDisplay, SERVICE_URL_MAX, type ServiceUrlRefusal } from './service-url'
 
 // #1067: one rule for an address a member types for a coordinator or a relay. The table carries the
 // issue's acceptance criteria and the places where the WHATWG parser forgives what a member should be
@@ -74,4 +74,22 @@ describe('parseServiceUrl (#1067)', () => {
       expect(r.ok && !r.base.endsWith('/')).toBe(true)
     }
   })
+})
+
+// An address recorded before the rule (a vault record's coordinator) is shown, never used: only what
+// identifies the server, never a name, password, path, query or fragment.
+describe('serviceUrlForDisplay (#1067 review)', () => {
+  it.each([
+    ['an address the rule takes, as its base', 'https://Old.example/', 'https://old.example'],
+    ['credentials, dropped', 'https://user:secret@old.example', 'https://old.example'],
+    ['credentials and a port', 'http://user:secret@old.example:4762/p?token=1#f', 'http://old.example:4762'],
+    ['a path, query and fragment, dropped', 'https://old.example/coord?token=secret#secret', 'https://old.example'],
+  ])('shows %s', (_, raw, shown) => {
+    expect(serviceUrlForDisplay(raw)).toBe(shown)
+  })
+
+  it.each([['nothing', ''], ['not an address', 'secret words'], ['another scheme', 'ftp://user:secret@old.example']])(
+    'shows nothing for %s', (_, raw) => {
+      expect(serviceUrlForDisplay(raw)).toBeNull()
+    })
 })

@@ -234,6 +234,7 @@ export const ptBR: Record<string, string> = {
   'vaults.resumeConfirm': 'Isto registra o cofre em {server}.',
   'vaults.resumeOtherServer': 'Este cofre foi criado quando este aparelho usava {was}, e agora usa {now}. Outro servidor dá outro endereço ao mesmo cofre, e os outros não o encontrariam lá.',
   'vaults.resumeOtherYes': 'Entendi: registrar em {now}',
+  'vaults.resumeServerUnshown': 'outro servidor',
   'vaults.resumeGo': 'Registrar',
   'vaults.resumeBusy': 'Registrando...',
   'vaults.resumeDone': 'Registrado. O endereço de depósito está pronto.',

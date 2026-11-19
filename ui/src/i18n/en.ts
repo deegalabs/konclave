@@ -234,6 +234,7 @@ export const en: Record<string, string> = {
   'vaults.resumeConfirm': 'This registers the vault with {server}.',
   'vaults.resumeOtherServer': 'This vault was created while this device used {was}, and it now uses {now}. Another server gives the same vault another address, and the others would not find it there.',
   'vaults.resumeOtherYes': 'I understand: register with {now}',
+  'vaults.resumeServerUnshown': 'another server',
   'vaults.resumeGo': 'Register',
   'vaults.resumeBusy': 'Registering...',
   'vaults.resumeDone': 'Registered. The deposit address is ready.',
