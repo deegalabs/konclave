@@ -81,7 +81,7 @@ proven on mainnet across the Orchard → Ironwood upgrade and after NU7.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **24 verifiable mainnet transactions**, each signed by a FROST quorum
+This is not a mock. **25 verifiable mainnet transactions**, each signed by a FROST quorum
 (2-of-2, 2-of-3 and 3-of-4). **Six of them came from vaults split by a trusted dealer**, where the
 whole key existed on one machine at creation: those are the early ones, the flagship below
 included. The rest came from vaults created by Distributed Key Generation, where the key was never
@@ -274,7 +274,7 @@ not promise what we do not deliver.
 
 **Proven vs pending, the honest ladder:**
 
-- ✅ **On mainnet, 24 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
+- ✅ **On mainnet, 25 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
   [/proof](https://konclave-demo.vercel.app/#/proof) page): a **2-of-3 quorum payment** (proposed and
   approved in the app, FROST-signed, shares **sealed** at rest); a **private
   payroll**, one shielded Orchard transaction with **three outputs, each carrying its own encrypted
