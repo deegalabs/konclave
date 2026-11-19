@@ -92,7 +92,8 @@ pub fn run_text(
 // Rules that are easy to lose, so they are written here and nowhere else:
 //  - The probe's height NEVER enters a money decision (a fee, a hold, the settling or expiry of a
 //    send). Those read the wallet's own tip. The one exception is the wallet birthday at creation,
-//    which is the median of several answers and only when enough of them agree ([`birthday`]).
+//    which is taken from several answers (the lowest, bounded by their median) and only when enough
+//    of them agree ([`birthday`]).
 //  - The reference for "behind" is the MEDIAN of the answers, never the highest: the highest is a
 //    value any one server of the list can choose.
 //  - The choice is sticky: a server that answers and stays within the band is kept, and nothing is
@@ -378,9 +379,10 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
 /// The birthday a new wallet is given, only when at least [`MIN_AGREE`] eligible answers agree (`None`
 /// means today's behaviour: the engine asks one server): the LOWEST eligible height, but never more
 /// than [`BIRTHDAY_FLOOR`] below the median, minus [`BIRTHDAY_BACK`]. A birthday too late would hide
-/// notes, one too early only costs scanning; so a server reporting too high (even several hosts of one
-/// operator agreeing) cannot move it past the lowest honest answer, and one reporting too low costs at
-/// most the floor.
+/// notes, one too early only costs scanning; so a minority reporting too high cannot move it past the
+/// lowest honest answer, and one reporting too low costs at most the floor. A MAJORITY reporting too
+/// high (several hosts of one operator count as several) still moves the median, and the birthday with
+/// it, so list servers run by different operators.
 pub fn birthday(obs: &[Observed], network: &str) -> Option<u64> {
     let a = assess(obs, network);
     if a.in_band.len() < MIN_AGREE {
@@ -394,7 +396,7 @@ pub fn birthday(obs: &[Observed], network: &str) -> Option<u64> {
     )
 }
 
-/// How far below the median the lowest answer may pull a birthday (about 21 hours at 75 s blocks).
+/// How far below the median the lowest answer may pull a birthday (about 7 hours at 25 s blocks).
 pub const BIRTHDAY_FLOOR: u64 = 1000;
 
 /// One server as the health route reports it. No vault data: hosts are public.
@@ -612,7 +614,8 @@ fn retry(e: &ToolError) -> Option<bool> {
 pub(crate) const SENDING: &str = "Sending transaction...";
 
 /// Broadcast `signed` (the same bytes every time) starting on `start`, and, only when an attempt was
-/// stopped at OUR deadline (or the engine could not start), on the next server of
+/// stopped at OUR deadline, or the engine could not start or exited before it said [`SENDING`], on the
+/// next server of
 /// [`Servers::broadcast_order`]; any other failure stops it and is the tool's error. THE one place a transaction is sent: both send paths call it, and `send_with` still sees one
 /// call and one result. Rebroadcasting the identical transaction is not signing again: same bytes,
 /// same txid.
