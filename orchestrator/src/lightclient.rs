@@ -201,6 +201,34 @@ pub fn validate_entry(entry: &str) -> Result<(), String> {
     }
 }
 
+/// The rule of a LIST (two or more servers), on top of [`validate_entry`]: every entry is a public DNS
+/// name the background probe can read over https. An onion name, `localhost` and an IP literal are
+/// refused: the probe reaches servers over https only (an IP has no certificate to match, and an onion
+/// name or `localhost` the engine reads over plain HTTP), so such an entry would always read as failed
+/// and silently never be a fallback. One configured server is not probed and keeps today's rule. (A
+/// later transport over Tor would revisit this.)
+fn list_entry_reachable(entry: &str) -> Result<(), String> {
+    let host = entry
+        .rsplit_once(':')
+        .map_or(entry, |(h, _)| h)
+        .to_ascii_lowercase();
+    let why = if host.ends_with(".onion") {
+        Some("an onion name")
+    } else if host == "localhost" || host.ends_with(".localhost") {
+        Some("localhost")
+    } else if host.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        Some("an IP address")
+    } else {
+        None
+    };
+    match why {
+        Some(w) => Err(format!(
+            "light-client server {entry:?} is {w}, which a server list cannot use: the list is checked over https by name (use it as the only server instead)"
+        )),
+        None => Ok(()),
+    }
+}
+
 struct Assessment {
     /// Answered, on the configured chain, on the branch most answers report.
     eligible: Vec<usize>,
@@ -318,6 +346,33 @@ fn describe(list: &[String], obs: &[Observed], idx: &[usize]) -> String {
 /// - One that failed (no answer, another chain, another branch) is left for the first eligible server
 ///   of the list (in band, when at least [`MIN_AGREE`] answered); with none, it is kept.
 pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) -> Choice {
+    choose_from(list, current, obs, network, 0)
+}
+
+/// From `pool` (in list order), the server a switch goes to: the first not behind `scanned` (the
+/// highest height the wallets may have scanned to), else the highest of them, so a switch never lands
+/// on a server the wallets are ahead of while one that is not was there. `None` for an empty pool.
+fn pick(pool: &[usize], a: &Assessment, scanned: u64) -> Option<usize> {
+    let h = |i: usize| {
+        a.heights
+            .iter()
+            .find(|(j, _)| *j == i)
+            .map_or(0, |(_, h)| *h)
+    };
+    pool.iter()
+        .copied()
+        .find(|&i| h(i) >= scanned)
+        .or_else(|| pool.iter().copied().rev().max_by_key(|&i| h(i)))
+}
+
+/// [`choose`], knowing how far the wallets may have scanned (`scanned`, see [`pick`]).
+pub fn choose_from(
+    list: &[String],
+    current: usize,
+    obs: &[Observed],
+    network: &str,
+    scanned: u64,
+) -> Choice {
     let keep = |note: Option<String>| Choice {
         index: current,
         note,
@@ -336,7 +391,7 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
     if a.eligible.contains(&current) {
         // Eligible but out of band.
         if a.in_band.len() >= MIN_AGREE {
-            let to = a.in_band[0];
+            let to = pick(&a.in_band, &a, scanned).unwrap_or(a.in_band[0]);
             return Choice {
                 index: to,
                 note: Some(format!(
@@ -356,8 +411,8 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
         )));
     }
     // The current server failed.
-    match a.usable().first() {
-        Some(&to) => Choice {
+    match pick(a.usable(), &a, scanned) {
+        Some(to) => Choice {
             index: to,
             note: Some(format!(
                 "switched {} -> {}: {} did not answer as the {} chain; heights {}",
@@ -413,6 +468,10 @@ struct State {
     current: usize,
     obs: Vec<Observed>,
     last_note: Option<String>,
+    /// The highest height the server in use reported while it was usable: how far the wallets may
+    /// have scanned. Only the server in use, and only within the rule ([`Assessment::usable`]), so a
+    /// server far ahead of the others never raises it.
+    scanned: u64,
 }
 
 /// The configured servers, the last probe of each and the one in use. Cheap to clone: clones share
@@ -444,6 +503,9 @@ impl Servers {
         }
         for entry in &list {
             validate_entry(entry)?;
+            if list.len() > 1 {
+                list_entry_reachable(entry)?;
+            }
         }
         Ok(Servers::parse(raw, network))
     }
@@ -462,6 +524,7 @@ impl Servers {
             network: Arc::from(network),
             state: Arc::new(Mutex::new(State {
                 current: 0,
+                scanned: 0,
                 obs: vec![Observed::Unknown; n],
                 last_note: None,
             })),
@@ -500,7 +563,13 @@ impl Servers {
             return;
         }
         let mut st = self.lock();
-        let c = choose(&self.list, st.current, &obs, &self.network);
+        let a = assess(&obs, &self.network);
+        if a.usable().contains(&st.current) {
+            if let Observed::Answered(info) = &obs[st.current] {
+                st.scanned = st.scanned.max(info.height);
+            }
+        }
+        let c = choose_from(&self.list, st.current, &obs, &self.network, st.scanned);
         if c.index != st.current {
             st.current = c.index;
         }
@@ -1860,6 +1929,93 @@ mod tests {
         );
         assert!(Servers::try_parse("", "main").is_err());
         assert!(Servers::try_parse(" , ", "main").is_err());
+    }
+
+    #[test]
+    fn a_list_names_servers_the_probe_can_reach_over_https() {
+        // A list is probed over https, so an entry the probe can never read is refused in a list.
+        for bad in [
+            "abc.onion:443",
+            "x.ONION:9067",
+            "localhost:9067",
+            "a.localhost:443",
+            "127.0.0.1:9067",
+            "10.0.0.1:9067",
+        ] {
+            let e = Servers::try_parse(&format!("zec.rocks:443,{bad}"), "main").unwrap_err();
+            assert!(e.contains(bad) && e.contains("list"), "{bad}: {e}");
+        }
+        // One server is not probed, so it keeps today's rule.
+        for one in ["localhost:9067", "127.0.0.1:9067", "abc.onion:443"] {
+            assert!(Servers::try_parse(one, "main").is_ok(), "{one}");
+        }
+        // The approved list passes.
+        assert!(Servers::try_parse(
+            "zec.rocks:443,eu.zec.rocks:443,na.zec.rocks:443,zcash.mysideoftheweb.com:9067",
+            "main"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_switch_does_not_go_to_a_server_behind_what_the_wallets_scanned() {
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        // a in use at 1010: the wallets may have scanned to 1010.
+        sv.record(vec![
+            main_at(1010),
+            main_at(1000),
+            main_at(1012),
+            main_at(1011),
+        ]);
+        assert_eq!(sv.current(), "a:443");
+        // a fails; b is first in band but behind 1010: c (not behind) is taken instead.
+        sv.record(vec![
+            Observed::Failed,
+            main_at(1001),
+            main_at(1013),
+            main_at(1012),
+        ]);
+        assert_eq!(sv.current(), "c:443");
+        // Every candidate behind: the highest is taken (least behind), never the first in the list.
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        sv.record(vec![
+            main_at(1020),
+            main_at(1010),
+            main_at(1015),
+            main_at(1012),
+        ]);
+        sv.record(vec![
+            Observed::Failed,
+            main_at(1010),
+            main_at(1016),
+            main_at(1012),
+        ]);
+        assert_eq!(sv.current(), "c:443");
+        // A server far ahead of the others (out of band) never raises what counts as scanned.
+        let sv = Servers::parse("a:443,b:443,c:443,d:443", "main");
+        sv.record(vec![
+            main_at(1000),
+            main_at(1001),
+            main_at(1002),
+            main_at(9000),
+        ]);
+        sv.record(vec![
+            main_at(9000),
+            main_at(1001),
+            main_at(1002),
+            main_at(1003),
+        ]);
+        // a is now out of band with three agreeing: it moves to b (first in band, not behind 1000).
+        assert_eq!(sv.current(), "b:443");
+        // b fails: c (1002) is not behind what was scanned (1000), so it is taken; had a's 9000 raised
+        // the mark, every candidate would look behind and the highest (d) would win.
+        sv.record(vec![
+            main_at(9000),
+            Observed::Failed,
+            main_at(1002),
+            main_at(1003),
+        ]);
+        assert_eq!(sv.current(), "c:443");
     }
 
     #[test]

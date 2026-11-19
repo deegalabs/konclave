@@ -122,7 +122,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   coordinator keeps the server it is on while that one answers and stays near the others, and moves only when it
   stops answering or falls well behind and at least three others agree. A new vault's wallet starts from the lowest
   height the servers report (never far below the middle of the answers), and only when three of them agree.
-  An entry that is not `host:port` (a scheme, a path, a space) stops the coordinator at boot and is named in the error.
+  An entry that is not `host:port` (a scheme, a path, a space) stops the coordinator at boot and is named in the error,
+  and so does, in a list, an onion name, `localhost` or an IP address (the list is checked over https by name; one
+  server alone may still be any of those). When it moves, it prefers a server not behind the one it was using.
 - **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
   optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
