@@ -573,7 +573,7 @@ impl Servers {
         }
         let mut st = self.lock();
         let a = assess(&obs, &self.network);
-        if a.eligible.len() >= MIN_AGREE && a.in_band.contains(&st.current) {
+        if a.in_band.len() >= MIN_AGREE && a.in_band.contains(&st.current) {
             if let Observed::Answered(info) = &obs[st.current] {
                 st.scanned = st.scanned.max(info.height);
             }
