@@ -29,8 +29,7 @@ describe('the committed wasm-pkg is not behind the Rust that produced it', () =>
     expect(
       missing,
       `these exports exist in konclave-wasm/src/lib.rs and NOT in the committed package. ` +
-        `Regenerate it: (cd konclave-wasm && wasm-pack build --target web --out-dir /tmp/pkg) ` +
-        `then copy /tmp/pkg/* over ui/src/wasm-pkg/. Missing:`,
+        `Regenerate it with \`node scripts/build-wasm.mjs\`. Missing:`,
     ).toEqual([])
   })
 })
