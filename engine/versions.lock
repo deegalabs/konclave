@@ -119,7 +119,7 @@ patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e
 # rev PLUS a patch, rebuilt with `cargo build --release --locked`.
 [source.zcash-devtool-stable]
 repo         = "https://github.com/zcash/zcash-devtool"
-rev          = "0b3436bb"                                          # main as of 2026-10-17 (merge of PR 258)
+rev          = "0b3436bb8d235c67cd36b800cb45a7b1b489c415"          # main as of 2026-10-17 (merge of PR 258)
 patch        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.patch"
 patch_sha256 = "7fa2670a2d2418ea7aaa8f7b3413dedc1d627d0d407aaddfa9891c4ae6f19d0c"
 lockfile        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.Cargo.lock"
@@ -127,7 +127,8 @@ lockfile_sha256 = "250569dfaab9520804b0b76b251635c54d860d0ea7949eb4f97f76ff8c5df
 status       = "built 2026-10-26 from the recorded inputs; on staging since 2026-10-30 15:00 BRT (deployment 80e5a9ed) and on production since 2026-10-30 19:28 BRT (deployment f6553ee8, engine B); unchanged by the coordinator hotfix of 2026-10-31"
 built_sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
 built_bytes  = 103881728
-# Built from an export of 0b3436bb plus the patch and the lockfile above, `cargo build --release
+# Built from an export of 0b3436bb (the full id in `rev`; a rebuild checks out that id and confirms
+# `git rev-parse HEAD` equals it, never a prefix) plus the patch and the lockfile above, `cargo build --release
 # --locked --bin zcash-devtool`, rustc 1.99.0, own target directory, 2026-10-26. A second build on the
 # same host came out byte-identical (observed once; across hosts it is not claimed, since build paths
 # end up in the binary). The same engine set of that day,
