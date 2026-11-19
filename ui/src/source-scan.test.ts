@@ -148,6 +148,7 @@ describe('stripComments', () => {
       'epoch-reply.test.ts': 'Rust source (the coordinator\'s reasons)',
       'golden-vectors.test.ts': 'Rust source and the signers\' test vectors',
       'desktop-bundle-check.test.ts': 'the desktop release workflow and tauri.conf.json',
+      'wasm-pkg-check.test.ts': 'the WASM binary, its JS glue and the reviewed imports list',
     }
     const dir = new URL('./', import.meta.url)
     const unlisted: string[] = []

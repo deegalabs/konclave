@@ -8,3 +8,6 @@
 /.nvmrc                            @danielgorgonha
 /.github/workflows/                @danielgorgonha
 /.github/CODEOWNERS                @danielgorgonha
+/scripts/check-wasm-pkg.mjs        @danielgorgonha
+/scripts/wasm-imports.allowlist.json @danielgorgonha
+/ui/src/wasm-pkg/                  @danielgorgonha
