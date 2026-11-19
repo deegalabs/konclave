@@ -202,6 +202,14 @@ jobs:
       - name: Build for the browser (wasm32 + wasm-bindgen)
         working-directory: konclave-wasm
         run: wasm-pack build --target web --out-dir /tmp/pkg
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # What the signer module can reach, on the package just built from source: the same script the
+      # vitest runs on the committed package. A dependency change that hands the module a network,
+      # storage or reflective function fails here, before anyone regenerates `ui/src/wasm-pkg`.
+      - name: The built module can reach only the reviewed imports
+        run: node scripts/check-wasm-pkg.mjs /tmp/pkg
 
   relay-image:
     name: Relay image (the deploy recipe still builds)
