@@ -375,16 +375,27 @@ pub fn choose(list: &[String], current: usize, obs: &[Observed], network: &str) 
     }
 }
 
-/// The birthday a new wallet is given: the median height minus [`BIRTHDAY_BACK`], and only when at
-/// least [`MIN_AGREE`] eligible answers agree. `None` means today's behaviour (the engine asks one
-/// server).
+/// The birthday a new wallet is given, only when at least [`MIN_AGREE`] eligible answers agree (`None`
+/// means today's behaviour: the engine asks one server): the LOWEST eligible height, but never more
+/// than [`BIRTHDAY_FLOOR`] below the median, minus [`BIRTHDAY_BACK`]. A birthday too late would hide
+/// notes, one too early only costs scanning; so a server reporting too high (even several hosts of one
+/// operator agreeing) cannot move it past the lowest honest answer, and one reporting too low costs at
+/// most the floor.
 pub fn birthday(obs: &[Observed], network: &str) -> Option<u64> {
     let a = assess(obs, network);
     if a.in_band.len() < MIN_AGREE {
         return None;
     }
-    a.median.map(|m| m.saturating_sub(BIRTHDAY_BACK))
+    let m = a.median?;
+    let low = a.heights.iter().map(|(_, h)| *h).min()?;
+    Some(
+        low.max(m.saturating_sub(BIRTHDAY_FLOOR))
+            .saturating_sub(BIRTHDAY_BACK),
+    )
 }
+
+/// How far below the median the lowest answer may pull a birthday (about 21 hours at 75 s blocks).
+pub const BIRTHDAY_FLOOR: u64 = 1000;
 
 /// One server as the health route reports it. No vault data: hosts are public.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -516,6 +527,8 @@ impl Servers {
             let keep = match &st.obs[i] {
                 Observed::Unknown => true,
                 Observed::Failed => false,
+                // `usable()` is implied by the 3-block band today; it stays so the order can never be
+                // wider than the one rule if either band changes.
                 Observed::Answered(_) => a.usable().contains(&i) && a.within(i, MAX_BROADCAST_LAG),
             };
             if keep {
@@ -549,7 +562,12 @@ impl Servers {
                 Observed::Answered(info) => ServerStatus {
                     host: host.clone(),
                     ok: Some(a.usable().contains(&i)),
-                    chain: Some(info.chain.clone()),
+                    // Only the two names a chain can have: whatever else a server sends is "other",
+                    // so the open route never repeats a string a server chose.
+                    chain: Some(match info.chain.as_str() {
+                        "main" | "test" => info.chain.clone(),
+                        _ => "other".to_string(),
+                    }),
                     // Blocks behind the median of the answers; negative is ahead of it.
                     height_lag: a.median.map(|m| {
                         i64::try_from(i128::from(m) - i128::from(info.height))
@@ -568,18 +586,30 @@ impl Servers {
 
 /// What a failed attempt allows. `Some(true)`: our own deadline stopped it, so the server may have
 /// received the transaction, and it is tried on the next server. `Some(false)`: the engine could not be
-/// started, so nothing was sent anywhere. `None`: anything else, and above all ANY non-zero exit of the
-/// engine, with its text or without: the engine ran and said no, or failed locally, and a different
-/// server will not change that. Those surface as the tool's own error. (What a server refuses is not
+/// started, or exited before it got to sending, so nothing was sent anywhere. `None`: anything else,
+/// and above all a non-zero exit AFTER the engine said it was sending: the server answered or the link
+/// failed mid-send, and a different server will not change what the network has already heard. Those surface as the tool's own error. (What a server refuses is not
 /// read from the engine's wording: it varies by server software, and a rule that depends on it would
 /// retry what the network has already answered.)
 fn retry(e: &ToolError) -> Option<bool> {
     match e {
         ToolError::Io(io) if io.kind() == std::io::ErrorKind::TimedOut => Some(true),
         ToolError::Spawn { .. } => Some(false),
+        // The engine stopped before it got to sending: it connects to the server first and prints
+        // [`SENDING`] only once connected and holding the transaction, so a non-zero exit without that
+        // line (connection refused, DNS, TLS) sent nothing anywhere, and the next server may work.
+        ToolError::NonZero { stdout, .. } if !stdout.contains(SENDING) => Some(false),
         _ => None,
     }
 }
+
+/// The line `zcash-devtool pczt send` prints right before it sends, after it has connected to the
+/// server and extracted the transaction (read at zcash/zcash-devtool
+/// 0b3436bb8d235c67cd36b800cb45a7b1b489c415, src/commands/pczt/send.rs: `println!("Sending
+/// transaction...")`, after `connection.connect` and the extraction). Re-read it on every devtool
+/// bump: if the wording changes, a failed send on a reachable server is retried on the next one (the
+/// same bytes, so never a second transaction), and a fast connection failure still fails over.
+pub(crate) const SENDING: &str = "Sending transaction...";
 
 /// Broadcast `signed` (the same bytes every time) starting on `start`, and, only when an attempt was
 /// stopped at OUR deadline (or the engine could not start), on the next server of
@@ -1180,14 +1210,14 @@ mod tests {
     }
 
     #[test]
-    fn the_birthday_is_the_median_minus_a_hundred_and_needs_three_in_agreement() {
+    fn the_birthday_is_the_lowest_answer_bounded_by_the_median_and_needs_three_in_agreement() {
         let obs = [
             main_at(1000),
             main_at(1004),
             main_at(1002),
             Observed::Failed,
         ];
-        assert_eq!(birthday(&obs, "main"), Some(1002 - BIRTHDAY_BACK));
+        assert_eq!(birthday(&obs, "main"), Some(1000 - BIRTHDAY_BACK));
         // Two answers are not enough.
         let obs = [
             main_at(1000),
@@ -1206,12 +1236,21 @@ mod tests {
             main_at(1002),
             main_at(9_000_000),
         ];
-        assert_eq!(birthday(&obs, "main"), Some(1001 - BIRTHDAY_BACK));
+        assert_eq!(birthday(&obs, "main"), Some(1000 - BIRTHDAY_BACK));
         // Nothing probed: none.
         assert_eq!(birthday(&vec![Observed::Unknown; 3], "main"), None);
         // Never underflows.
         let obs = [main_at(5), main_at(6), main_at(7)];
         assert_eq!(birthday(&obs, "main"), Some(0));
+        // Three hosts agreeing high do not move it past a lower honest answer.
+        let obs = [main_at(1015), main_at(1016), main_at(1017), main_at(1000)];
+        assert_eq!(birthday(&obs, "main"), Some(1000 - BIRTHDAY_BACK));
+        // A server far below costs at most the floor.
+        let obs = [main_at(5000), main_at(5001), main_at(5002), main_at(1)];
+        assert_eq!(
+            birthday(&obs, "main"),
+            Some(5000 - BIRTHDAY_FLOOR - BIRTHDAY_BACK)
+        );
     }
 
     #[test]
@@ -1230,7 +1269,7 @@ mod tests {
         // A round of the wrong length is ignored.
         sv.record(vec![Observed::Failed]);
         assert_eq!(sv.current(), "b:443");
-        assert_eq!(sv.birthday(), Some(1004 - BIRTHDAY_BACK));
+        assert_eq!(sv.birthday(), Some(1003 - BIRTHDAY_BACK));
     }
 
     #[test]
@@ -1356,6 +1395,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn no_non_zero_exit_is_sent_on_whatever_it_says() {
+        // Every failure AFTER the engine said it was sending is final, whatever it says.
         for (name, stderr) in [
             (
                 "marker",
@@ -1365,15 +1405,13 @@ mod tests {
                 "status",
                 "Error: status: InvalidArgument, message: \"transaction rejected\"",
             ),
-            (
-                "local",
-                "Error: Failed to extract and store transaction from PCZT",
-            ),
-            ("transport", "Error: transport error: connection refused"),
+            ("transport", "Error: transport error: connection reset"),
         ] {
             let (dev, dir) = stand_in(
                 name,
-                &format!("  a:443) echo '{stderr}' >&2; exit 1 ;;\n  *) echo {TXID} ;;"),
+                &format!(
+                    "  a:443) echo '{SENDING}'; echo '{stderr}' >&2; exit 1 ;;\n  *) echo {TXID} ;;"
+                ),
             );
             let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
             assert_eq!(tried(&dir), ["a:443"], "{name}: went to a second server");
@@ -1387,6 +1425,43 @@ mod tests {
         }
     }
 
+    /// A failure BEFORE the engine got to sending (it could not reach the server, or failed locally
+    /// before sending) sent nothing: the same bytes go to the next server, and nothing says the
+    /// transaction may be out.
+    #[cfg(unix)]
+    #[test]
+    fn a_server_that_cannot_be_reached_is_passed_over_for_the_next() {
+        for (name, stderr) in [
+            ("refused", "Error: transport error: Connection refused"),
+            (
+                "dns",
+                "Error: transport error: dns error: failed to lookup address",
+            ),
+            (
+                "local",
+                "Error: Failed to extract and store transaction from PCZT",
+            ),
+        ] {
+            let (dev, dir) = stand_in(
+                name,
+                &format!("  a:443) echo '{stderr}' >&2; exit 1 ;;\n  *) echo '{SENDING}'; echo {TXID} ;;"),
+            );
+            let got = broadcast(&dev, "/w", &three(), "a:443", b"x");
+            assert_eq!(got.unwrap(), TXID, "{name}");
+            assert_eq!(tried(&dir), ["a:443", "b:443"], "{name}");
+            std::fs::remove_dir_all(&dir).ok();
+        }
+        // Every server unreachable: the last error, and no claim that it may have gone out.
+        let (dev, dir) = stand_in(
+            "none",
+            "  *) echo 'Error: transport error: Connection refused' >&2; exit 1 ;;",
+        );
+        let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
+        assert_eq!(tried(&dir).len(), 3);
+        assert!(!e.to_string().contains("may have reached"), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn only_our_deadline_or_a_start_failure_allows_another_server() {
         let timed_out = ToolError::Io(std::io::Error::from(std::io::ErrorKind::TimedOut));
@@ -1398,14 +1473,24 @@ mod tests {
         assert_eq!(retry(&spawn), Some(false));
         let other_io = ToolError::Io(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
         assert_eq!(retry(&other_io), None);
+        // After the engine said it was sending: final, whatever the text.
         for stderr in ["Send failed: (-1) x", "transport error", ""] {
             let nz = ToolError::NonZero {
                 program: "d".into(),
                 code: Some(1),
                 stderr: stderr.into(),
+                stdout: format!("{SENDING}\n"),
             };
             assert_eq!(retry(&nz), None, "{stderr:?}");
         }
+        // Before it (connection refused, DNS, TLS): nothing was sent, the next server is tried.
+        let refused = ToolError::NonZero {
+            program: "d".into(),
+            code: Some(1),
+            stderr: "Error: transport error: Connection refused".into(),
+            stdout: String::new(),
+        };
+        assert_eq!(retry(&refused), Some(false));
         assert_eq!(retry(&ToolError::parse("broadcast", "no txid")), None);
     }
 
@@ -1430,7 +1515,7 @@ mod tests {
         // a hangs (it may have received it); b answers that it is a duplicate.
         let (dev, dir) = stand_in(
             "dup",
-            "  a:443) exec sleep 30 ;;\n  b:443) echo 'Error: Send failed: (-27) txn-already-in-mempool' >&2; exit 1 ;;\n  *) exit 9 ;;",
+            "  a:443) exec sleep 30 ;;\n  b:443) echo 'Sending transaction...'; echo 'Error: Send failed: (-27) txn-already-in-mempool' >&2; exit 1 ;;\n  *) exit 9 ;;",
         );
         set_within_for_test(Some(Duration::from_millis(200)));
         let e = broadcast(&dev, "/w", &three(), "a:443", b"x").unwrap_err();
@@ -1561,6 +1646,15 @@ mod tests {
         assert_eq!(st[3].height_lag, Some(900));
         assert_eq!(st[4].ok, Some(false));
         assert_eq!(st[4].chain, None);
+        // A chain name the server chose is never repeated on the open route.
+        let odd = Servers::parse("a:443,b:443", "main");
+        odd.record(vec![
+            info(&"x".repeat(5000), "c2d6d0b4", 1000),
+            main_at(1000),
+        ]);
+        let st2 = odd.status();
+        assert_eq!(st2[0].chain.as_deref(), Some("other"));
+        assert_eq!(st2[0].ok, Some(false));
         let json = serde_json::to_value(&st[0]).unwrap();
         assert_eq!(
             json,
@@ -1603,11 +1697,11 @@ mod tests {
             main_at(1000),
         ];
         assert_eq!(choose(&list, 0, &obs, "main").index, 2);
-        // For every server the three agree: usable in the health route <=> in the broadcast order
-        // (the order also needs the tighter broadcast band, so b qualifies here).
+        // The broadcast order never holds a server the health route calls not ok (the order is the
+        // rule narrowed by the broadcast band, so the converse need not hold in general).
         for (i, host) in ["a:443", "b:443", "c:443"].iter().enumerate() {
             let in_order = sv.broadcast_order("zzz").iter().any(|h| h == host);
-            assert_eq!(st[i].ok == Some(true), in_order, "{host}");
+            assert!(!in_order || st[i].ok == Some(true), "{host}");
         }
     }
 

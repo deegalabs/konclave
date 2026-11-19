@@ -4404,11 +4404,11 @@ mod tests {
         // One server: no probe, no flag.
         let one = Servers::parse("a:443", "main");
         assert!(!run(one).contains("--birthday"));
-        // Three agree: the median minus a hundred.
+        // Three agree: the lowest answer minus a hundred.
         let three = Servers::parse("a:443,b:443,c:443", "main");
         three.record(vec![answer(5000), answer(5002), answer(5001)]);
         let got = run(three);
-        assert!(got.contains("--birthday 4901"), "{got}");
+        assert!(got.contains("--birthday 4900"), "{got}");
         // Only two answered: the engine's default.
         let two = Servers::parse("a:443,b:443,c:443", "main");
         two.record(vec![answer(5000), answer(5002), Observed::Failed]);

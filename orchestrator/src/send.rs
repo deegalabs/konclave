@@ -701,10 +701,7 @@ pub(crate) fn broadcast_signed(sc: &SendConfig, signed: &SignedSend) -> Result<S
 /// it has a list (the hosted coordinator), otherwise its one server. It starts on the server the
 /// operation has been using, `sc.lightwalletd`.
 fn broadcast_bytes(sc: &SendConfig, signed: &[u8]) -> Result<String, ToolError> {
-    let servers = match &sc.servers {
-        Some(s) => s.clone(),
-        None => crate::lightclient::Servers::single(&sc.lightwalletd, &sc.network),
-    };
+    let servers = broadcast_servers(sc);
     crate::lightclient::broadcast(
         &sc.devtool,
         &sc.wallet_dir,
@@ -712,6 +709,15 @@ fn broadcast_bytes(sc: &SendConfig, signed: &[u8]) -> Result<String, ToolError> 
         &sc.lightwalletd,
         signed,
     )
+}
+
+/// The servers a broadcast may use. Without a list (the local bridge, the CLI, a config read from a
+/// file) the one string is ONE server, never split: sync and DKG use it whole, so the broadcast does too.
+fn broadcast_servers(sc: &SendConfig) -> crate::lightclient::Servers {
+    match &sc.servers {
+        Some(s) => s.clone(),
+        None => crate::lightclient::Servers::single(&sc.lightwalletd, &sc.network),
+    }
 }
 
 /// Architecture B - build, prove and collect the quorum's signature for a browser-DKG vault, and stop
@@ -2850,5 +2856,23 @@ mod funding_tests {
         // Names one pool only: an Orchard-only or Ironwood-only failure is not a crossing.
         assert!(!is_mixed_pool("orchard parse: MissingSpendAuthSig"));
         assert!(!is_mixed_pool(""));
+    }
+
+    /// The local path keeps its one server string whole: a comma in it does not make a list, so the
+    /// broadcast goes to the same server the sync and the ceremony use.
+    #[test]
+    fn without_a_list_the_broadcast_keeps_the_one_server_string_whole() {
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "a.example:443,b.example:443",
+            "account": "acc", "konclave_signer": "/x", "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": "/tmp",
+        }))
+        .unwrap();
+        assert!(sc.servers.is_none());
+        assert_eq!(
+            broadcast_servers(&sc).list(),
+            &["a.example:443,b.example:443".to_string()]
+        );
     }
 }

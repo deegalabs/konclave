@@ -26,11 +26,13 @@ pub enum ToolError {
         program: String,
         source: std::io::Error,
     },
-    /// The process exited non-zero; carries its stderr for diagnosis.
+    /// The process exited non-zero; carries its stderr for diagnosis, and what it had written to
+    /// stdout (how a caller tells how far the program got: the broadcast reads it).
     NonZero {
         program: String,
         code: Option<i32>,
         stderr: String,
+        stdout: String,
     },
     /// The output could not be parsed into the expected structure.
     Parse { what: String, detail: String },
@@ -57,6 +59,7 @@ impl std::fmt::Display for ToolError {
                 program,
                 code,
                 stderr,
+                ..
             } => write!(
                 f,
                 "{program} exited with {}: {}",
@@ -107,6 +110,7 @@ pub fn run(program: &Path, args: &[&str], stdin_data: Option<&[u8]>) -> Result<V
             program: program_name,
             code: output.status.code(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         });
     }
     Ok(output.stdout)
@@ -132,7 +136,8 @@ pub fn run_within(
 /// [`run_within`] that also refuses to read more than `max_stdout` bytes of stdout: a program that
 /// writes more is stopped as soon as the cap is passed, and the call fails with a `Parse` error, so
 /// what a remote party can make this process hold in memory is the cap and not the deadline times
-/// the link speed. Stderr is capped the same way. The ONE place the cap lives.
+/// the link speed. Stderr keeps its last 1 MiB and the rest is read and discarded (never left unread).
+/// The ONE place the cap lives.
 pub fn run_within_capped(
     program: &Path,
     args: &[&str],
@@ -175,8 +180,10 @@ pub fn run_within_capped(
             let _ = stdin.write_all(&data);
         });
     }
-    // Reads at most `cap + 1` bytes: one over the cap is how "too much" is told from "exactly the cap",
-    // and the reader stops there and drops the pipe, so a writer that keeps going is cut off.
+    // With an `over` flag (stdout): keeps at most `cap + 1` bytes (one over the cap is how "too much"
+    // is told from "exactly the cap"), then stops, and the loop below kills the writer. Without one
+    // (stderr): reads everything and keeps the last `cap` bytes, so memory stays bounded and the writer
+    // is never left on an unread pipe, where a broken pipe would turn its success into a failure.
     fn drain<R: Read + Send + 'static>(
         pipe: Option<R>,
         cap: usize,
@@ -185,8 +192,29 @@ pub fn run_within_capped(
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = Vec::new();
-            if let Some(p) = pipe {
-                let _ = p.take((cap as u64).saturating_add(1)).read_to_end(&mut buf);
+            if let Some(mut p) = pipe {
+                if over.is_some() {
+                    let _ = p.take((cap as u64).saturating_add(1)).read_to_end(&mut buf);
+                } else {
+                    // Keep the LAST `cap` bytes: the line that says what went wrong is at the end.
+                    let mut chunk = vec![0u8; 64 * 1024];
+                    loop {
+                        match p.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                buf.extend_from_slice(&chunk[..n]);
+                                if buf.len() > cap.saturating_mul(2) {
+                                    buf.drain(..buf.len() - cap);
+                                }
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                            Err(_) => break,
+                        }
+                    }
+                    if buf.len() > cap {
+                        buf.drain(..buf.len() - cap);
+                    }
+                }
             }
             if let (Some(flag), true) = (over, buf.len() > cap) {
                 flag.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -237,6 +265,7 @@ pub fn run_within_capped(
             program: program_name,
             code: status.code(),
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
         });
     }
     Ok(stdout)
@@ -285,6 +314,7 @@ pub fn run_text_all(
             program: program_name,
             code: output.status.code(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         });
     }
     let mut s = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -493,6 +523,37 @@ mod tests {
         crate::test_exec::write_script(&exact, "#!/bin/sh\nexec head -c 1000 /dev/zero\n");
         let r = run_within_capped(&exact, &[], None, std::time::Duration::from_secs(20), 1000);
         assert_eq!(r.unwrap().len(), 1000);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A program that writes a lot to stderr and then succeeds still succeeds: past what is kept, the
+    /// rest of stderr is read and thrown away, never left unread, so the writer is not cut off with a
+    /// broken pipe (which turns a success into a failure, or a panic in an `eprintln!`).
+    #[cfg(unix)]
+    #[test]
+    fn a_long_stderr_is_drained_and_does_not_break_the_writer() {
+        let dir = std::env::temp_dir().join(format!("konclave-stderr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let noisy = dir.join("noisy");
+        crate::test_exec::write_script(
+            &noisy,
+            "#!/bin/sh\nhead -c 3000000 /dev/zero >&2 || exit 7\nprintf ok\n",
+        );
+        let r = run_within(&noisy, &[], None, std::time::Duration::from_secs(20));
+        assert_eq!(r.unwrap(), b"ok");
+        // And when it fails, the last line of a long stderr is what the error carries.
+        let failing = dir.join("failing");
+        crate::test_exec::write_script(
+            &failing,
+            "#!/bin/sh\nhead -c 3000000 /dev/zero >&2\necho 'Error: the last line' >&2\nexit 3\n",
+        );
+        match run_within(&failing, &[], None, std::time::Duration::from_secs(20)) {
+            Err(ToolError::NonZero { stderr, .. }) => {
+                assert!(stderr.len() <= 1 << 20, "{}", stderr.len());
+                assert!(stderr.ends_with("Error: the last line\n"));
+            }
+            other => panic!("{:?}", other.map(|v| v.len())),
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }
