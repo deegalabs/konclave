@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 // The rule lives in the script, which the CI `wasm` job also runs on the package it builds from
 // source. This file runs it on the COMMITTED package, and plants one defect per rule in a copy to
 // show each check can fail.
+// @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { checkWasmPkg, memoryFlags } from '../../scripts/check-wasm-pkg.mjs'
 
 const PKG = fileURLToPath(new URL('./wasm-pkg', import.meta.url))
@@ -216,9 +217,14 @@ describe('the signer WASM package can reach only what was reviewed', () => {
 /** The module with its one memory made shared: flags 0x03 and a maximum equal to the minimum, the
  *  memory section's size grown by the bytes added. A valid module, so the rule itself is what refuses. */
 function sharedMemoryVariant(bytes: Uint8Array): Uint8Array {
+  const byte = (i: number): number => {
+    const b = bytes[i]
+    if (b === undefined) throw new Error(`read past the end of the module at ${i}`)
+    return b
+  }
   const leb = (at: number): [number, number] => {
     let r = 0, s = 0, b: number
-    do { b = bytes[at++]; r |= (b & 0x7f) << s; s += 7 } while (b & 0x80)
+    do { b = byte(at++); r |= (b & 0x7f) << s; s += 7 } while (b & 0x80)
     return [r >>> 0, at]
   }
   const enc = (n: number): number[] => {
@@ -229,11 +235,11 @@ function sharedMemoryVariant(bytes: Uint8Array): Uint8Array {
   let at = 8
   while (at < bytes.length) {
     const idAt = at
-    const id = bytes[at++]
+    const id = byte(at++)
     const [size, body] = leb(at)
     if (id === 5) {
       const [count, flagsAt] = leb(body)
-      if (count !== 1 || bytes[flagsAt] & 0x01) throw new Error('expected one memory with no maximum')
+      if (count !== 1 || byte(flagsAt) & 0x01) throw new Error('expected one memory with no maximum')
       const [min, afterMin] = leb(flagsAt + 1)
       const content = [...enc(count), 0x03, ...enc(min), ...enc(min), ...bytes.slice(afterMin, body + size)]
       return new Uint8Array([...bytes.slice(0, idAt), 5, ...enc(content.length), ...content, ...bytes.slice(body + size)])
