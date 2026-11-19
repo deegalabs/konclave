@@ -248,7 +248,7 @@ export function checkWasmPkg(dir, opts = {}) {
   for (const d of DENIED) if (new RegExp(`\\b${d}\\b`).test(exported)) problems.push(`an exported wrapper names ${d}`)
   for (const r of DENIED_SHAPES) if (r.test(exported)) problems.push(`an exported wrapper matches ${r}`)
   for (const name of Object.keys(runtime)) {
-    if (/^[A-Za-z_$][\w$]*$/.test(name) && new RegExp(`(^|[^\\w$.])${name.replace(/\$/g, '\\$')}\\s*=(?!=)`).test(exported)) {
+    if (/^[A-Za-z_$][\w$]*$/.test(name) && new RegExp(`(^|[^\\w$.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=(?!=)`).test(exported)) {
       problems.push(`an exported wrapper assigns to the runtime's ${name}`)
     }
   }
