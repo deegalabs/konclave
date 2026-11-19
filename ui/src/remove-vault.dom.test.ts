@@ -152,12 +152,13 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
 type Fate = 'device' | 'cleared' | 'kept'
 const STORAGE_WRITES: Record<string, Record<string, Fate>> = {
   'api.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */, k: 'cleared' /* the payee book */ },
-  'helper.ts': { MODE_KEY: 'device', URL_KEY: 'device' },
+  'helper.ts': { MODE_KEY: 'device' },
   'i18n/index.tsx': { LOCALE_KEY: 'device' },
-  'net.ts': { RELAY_MODE_KEY: 'device', RELAY_URL_KEY: 'device' },
+  'net.ts': { RELAY_MODE_KEY: 'device' },
   'prf-store.ts': { 'KEY(vaultId)': 'cleared' },
   'price.ts': { KEY_ENABLED: 'device', KEY_CACHE: 'device' },
   'recent-payees.ts': { 'recentPayeesKey(id)': 'cleared' },
+  'service-url.ts': { 'STORAGE_KEY[kind]': 'device' /* the member's own coordinator and relay address (#1067) */ },
   'seen-store.ts': { 'seenKey(id)': 'cleared' /* what "What changed" last showed for this vault */ },
   'screens/NewPayroll.tsx': { draftAt: 'cleared' /* the payroll draft */ },
   'signed-record.ts': { k: 'kept' /* what this device signed: hashes and expiries, refuses a second tx */ },

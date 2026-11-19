@@ -27,6 +27,7 @@ import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { ReceiversRepair } from './ReceiversRepair'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
+import { parseServiceUrl, readServiceUrl } from '../service-url'
 import { isDesktop } from '../platform'
 
 /**
@@ -44,8 +45,13 @@ export default function Settings() {
   // recomputes app-wide. The helper stays blind in every mode.
   const [coord, setCoord] = useState<CoordMode>(getCoordMode())
   const [helperUrl, setHelperUrl] = useState(getCustomHelper())
-  const applyCoord = (mode: CoordMode, url?: string) => { setCoordMode(mode, url); location.reload() }
-  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+  // One rule for the address (#1067): the field says why it is refused, and a refused one is not
+  // stored and does not reload. A stored address the rule refuses is not used and not shown back
+  // (it may carry a password); the member is told it was set aside.
+  const applyCoord = (mode: CoordMode, url?: string) => { if (setCoordMode(mode, url) === null) location.reload() }
+  const helperCheck = parseServiceUrl(helperUrl)
+  const stored = readServiceUrl('coordinator')
+  const storedRefusal = stored && !stored.ok ? stored.reason : null
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   // Private (the vault holds S) or open; undefined until the record was read, never asserted.
@@ -306,8 +312,14 @@ export default function Settings() {
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
                 <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={t('settings.coordUrlPlaceholder')} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
-                <button type="button" className="btn ok" disabled={!validHelperUrl(helperUrl)} onClick={() => applyCoord('custom', helperUrl)}>{t('settings.coordSave')}</button>
+                <button type="button" className="btn ok" disabled={!helperCheck.ok} onClick={() => applyCoord('custom', helperUrl)}>{t('settings.coordSave')}</button>
               </div>
+            )}
+            {coord === 'custom' && helperUrl.trim() !== '' && !helperCheck.ok && (
+              <div className="unlock-err" role="alert">{t(`serviceUrl.${helperCheck.reason}`)}</div>
+            )}
+            {coord === 'custom' && helperUrl.trim() === '' && storedRefusal && (
+              <div className="unlock-err" role="alert">{t('serviceUrl.storedRefused', { reason: t(`serviceUrl.${storedRefusal}`) })}</div>
             )}
           </section>
         </>

@@ -70,9 +70,13 @@ describe('coordination mode (runtime choice)', () => {
     expect(helperConfigured()).toBe(true)
   })
 
-  it('custom mode with a blank URL is not configured', () => {
-    setCoordMode('custom', '   ')
-    expect(getCoordMode()).toBe('custom')
+  // #1067: a blank address is refused like any other invalid one, so nothing is stored and the mode
+  // stays where it was (here the default). It used to store 'custom' with an empty address; no screen
+  // can send a blank one (the button is disabled), so only this test saw the difference.
+  it('custom mode with a blank URL is refused and stores nothing', () => {
+    expect(setCoordMode('custom', '   ')).toBe('empty')
+    expect(localStorage.getItem('konclave.coord.mode')).toBeNull()
+    expect(localStorage.getItem('konclave.coord.url')).toBeNull()
     expect(getCustomHelper()).toBe('')
     expect(helperBase()).toBe('')
     expect(helperConfigured()).toBe(false)
@@ -84,6 +88,46 @@ describe('coordination mode (runtime choice)', () => {
     expect(getCoordMode()).toBe('local')
     expect(helperBase()).toBe('')
     expect(helperConfigured()).toBe(false)
+  })
+
+  it.each([
+    ['credentials', 'https://user:pass@x.example'],
+    ['query', 'https://x.example/?token=1'],
+    ['fragment', 'https://x.example#f'],
+    ['insecure', 'http://x.example'],
+  ])('refuses an address with %s and stores nothing, not even the mode (#1067)', (reason, url) => {
+    expect(setCoordMode('custom', url)).toBe(reason)
+    expect(localStorage.getItem('konclave.coord.mode')).toBeNull()
+    expect(localStorage.getItem('konclave.coord.url')).toBeNull()
+    expect(getCoordMode()).toBe('local')
+  })
+
+  it('a valid address is stored normalised, and the setter says nothing went wrong (#1067)', () => {
+    expect(setCoordMode('custom', 'HTTPS://X.Example/')).toBeNull()
+    expect(localStorage.getItem('konclave.coord.url')).toBe('https://x.example')
+  })
+
+  // An address stored before #1067 (or written by hand) is read through the same rule: a refused one
+  // never reaches a request URL, however it got there.
+  it('a stored address the rule refuses is never put in a request (#1067)', async () => {
+    localStorage.setItem('konclave.coord.mode', 'custom')
+    localStorage.setItem('konclave.coord.url', 'https://user:secret@x.example')
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    expect(helperBase()).not.toContain('secret')
+    await helperHealth()
+    for (const [u] of spy.mock.calls) expect(String(u)).not.toContain('secret')
+  })
+
+  it('picking a mode removes a stored address the rule refuses (#1067)', () => {
+    localStorage.setItem('konclave.coord.url', 'https://user:secret@x.example')
+    setCoordMode('ours')
+    expect(localStorage.getItem('konclave.coord.url')).toBeNull()
+  })
+
+  it('picking a mode keeps a stored address the rule takes (#1067)', () => {
+    localStorage.setItem('konclave.coord.url', 'https://x.example')
+    setCoordMode('ours')
+    expect(localStorage.getItem('konclave.coord.url')).toBe('https://x.example')
   })
 
   it('a configured custom helper still degrades to null on a network failure (no throw)', async () => {

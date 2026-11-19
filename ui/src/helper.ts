@@ -1,6 +1,7 @@
 import { asEnvelope, openEnvelope, type Opener } from './envelope'
 import { recordRead, classifyRead, type ReadFailure } from './read-failure'
 import { ensureWasm } from './wasm-ready'
+import { forgetRefusedServiceUrl, readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
 
 /** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
  *  `SEALED_UFVK_KIND` in `helper-server`. */
@@ -36,7 +37,6 @@ export const HELPER_BASE: string = import.meta.env.VITE_HELPER_BASE ?? ''
 // modes only changes which blind coordinator (or none) the browser talks to.
 export type CoordMode = 'ours' | 'custom' | 'local'
 const MODE_KEY = 'konclave.coord.mode'
-const URL_KEY = 'konclave.coord.url'
 
 function ls(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -62,17 +62,29 @@ export function getCoordMode(): CoordMode {
   return HELPER_BASE ? 'ours' : 'local'
 }
 
-/** The user-provided self-hosted helper URL (for 'custom' mode), trailing slash trimmed. */
+/** The member's own coordinator (for 'custom' mode), read through the one rule (#1067), or ''. A
+ *  stored address the rule refuses counts as none, so `helperBase` gives '' ("no coordinator") and
+ *  nothing is sent to it; the value stays stored until the member saves another or picks a mode, and
+ *  Settings says why it is not used. Never the hosted coordinator instead: that would send the
+ *  vault's requests to a server the member did not choose. */
 export function getCustomHelper(): string {
-  return (ls(URL_KEY) ?? '').trim().replace(/\/+$/, '')
+  const r = readServiceUrl('coordinator')
+  return r?.ok ? r.base : ''
 }
 
-/** Persist the coordination choice. Callers reload so `netMode` recomputes app-wide. */
-export function setCoordMode(mode: CoordMode, url?: string): void {
+/** Persist the coordination choice. Callers reload so `netMode` recomputes app-wide. With a `url`,
+ *  the address goes through the one rule first (#1067): a refused one stores nothing, not even the
+ *  mode, and the refusal is returned for the screen to say. `null` means stored. */
+export function setCoordMode(mode: CoordMode, url?: string): ServiceUrlRefusal | null {
+  forgetRefusedServiceUrl('coordinator')
+  if (url !== undefined) {
+    const r = storeServiceUrl('coordinator', url)
+    if (!r.ok) return r.reason
+  }
   try {
     localStorage.setItem(MODE_KEY, mode)
-    if (url !== undefined) localStorage.setItem(URL_KEY, url.trim().replace(/\/+$/, ''))
   } catch { /* storage unavailable - the choice won't persist, but applies this session */ }
+  return null
 }
 
 /** The EFFECTIVE helper base for the current mode, or '' when local / unset. */

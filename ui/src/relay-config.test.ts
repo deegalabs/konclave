@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getRelayMode, getCustomRelay, setRelay, relayBase, RELAY_BASE } from './net'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getRelayMode, getCustomRelay, setRelay, relayBase, relayPoll, RELAY_BASE } from './net'
 
 // Relay selection (#213): the user's runtime choice of WHICH blind relay to use. The default is the
 // built-in RELAY_BASE, so behavior is unchanged until a relay is actively picked; 'custom' points at
@@ -17,6 +17,7 @@ beforeEach(() => {
   }
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   delete (globalThis as unknown as { localStorage?: Storage }).localStorage
 })
 
@@ -44,5 +45,33 @@ describe('relay selection', () => {
     setRelay('ours')
     expect(getRelayMode()).toBe('ours')
     expect(relayBase()).toBe(RELAY_BASE)
+  })
+
+  it.each([
+    ['credentials', 'https://user:pass@relay.example.org'],
+    ['query', 'https://relay.example.org/?a=1'],
+    ['fragment', 'https://relay.example.org#f'],
+    ['character', 'https://relay.exa\tmple.org'],
+  ])('refuses an address with %s and stores nothing, not even the mode (#1067)', (reason, url) => {
+    expect(setRelay('custom', url)).toBe(reason)
+    expect(localStorage.getItem('konclave.relay.mode')).toBeNull()
+    expect(localStorage.getItem('konclave.relay.url')).toBeNull()
+    expect(getRelayMode()).toBe('ours')
+  })
+
+  // The relay base also leaves the device: the send hands it to the coordinator (`relay_base`).
+  it('a stored relay address the rule refuses is never put in a request (#1067)', async () => {
+    localStorage.setItem('konclave.relay.mode', 'custom')
+    localStorage.setItem('konclave.relay.url', 'https://user:secret@relay.example.org')
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    expect(relayBase()).not.toContain('secret')
+    await relayPoll('room', 0, 'me')
+    for (const [u] of spy.mock.calls) expect(String(u)).not.toContain('secret')
+  })
+
+  it('picking a relay mode removes a stored address the rule refuses (#1067)', () => {
+    localStorage.setItem('konclave.relay.url', 'https://user:secret@x.example')
+    setRelay('ours')
+    expect(localStorage.getItem('konclave.relay.url')).toBeNull()
   })
 })

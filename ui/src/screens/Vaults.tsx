@@ -9,6 +9,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { joinParam } from '../net'
 import { IS_NET, getVaults, health, setSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, localCoordAvailable, HELPER_BASE } from '../helper'
+import { parseServiceUrl, serviceUrlForDisplay } from '../service-url'
 import { isDesktop } from '../platform'
 import { HostNotice, HOST_NOTICE_ID } from '../HostNotice'
 import { readVaults, parseVaultExport, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
@@ -291,7 +292,13 @@ export default function Vaults() {
   // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
   // fixed, so go straight (helper -> browser DKG dialog, else the local /create ceremony).
   const startCreate = () => (isDesktop ? setChoosing(true) : netMode ? setCreating(true) : nav('/create'))
-  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+  // One rule for the address (#1067). The vault is created only once the setter took it: a refused
+  // Enter or click stores nothing and stays on the field, which says why.
+  const chooseCheck = parseServiceUrl(chooseUrl)
+  function chooseCustom() {
+    if (setCoordMode('custom', chooseUrl) !== null) return
+    setChoosing(false); setCustomStep(false); setCreating(true)
+  }
 
   function enter(row: Row) {
     const { v, src } = row
@@ -570,7 +577,7 @@ export default function Vaults() {
                         <p>{t('vaults.resumeConfirm', { server: helperBase() })}</p>
                         {!sameCoord(rec) && (
                           <>
-                            <p>{t('vaults.resumeOtherServer', { was: rec.coordinator ?? '', now: helperBase() })}</p>
+                            <p>{t('vaults.resumeOtherServer', { was: serviceUrlForDisplay(rec.coordinator ?? '') ?? t('vaults.resumeServerUnshown'), now: helperBase() })}</p>
                             <label className="cv-codecheck-row">
                               <input type="checkbox" checked={resumeAck} onChange={(e) => setResumeAck(e.target.checked)} />
                               {t('vaults.resumeOtherYes', { now: helperBase() })}
@@ -804,11 +811,13 @@ export default function Vaults() {
             <>
               <input className="unlock-input mono" inputMode="url" placeholder={t('vaults.chooseUrlPlaceholder')}
                 value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && validHelperUrl(chooseUrl)) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
+                onKeyDown={(e) => { if (e.key === 'Enter') chooseCustom() }} />
+              {chooseUrl.trim() !== '' && !chooseCheck.ok && (
+                <p className="unlock-err" role="alert">{t(`serviceUrl.${chooseCheck.reason}`)}</p>
+              )}
               <div className="unlock-btns">
                 <button className="rd-enter" onClick={() => setCustomStep(false)}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={!validHelperUrl(chooseUrl)}
-                  onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{t('vaults.chooseContinue')}</button>
+                <button className="rd-enter primary" disabled={!chooseCheck.ok} onClick={chooseCustom}>{t('vaults.chooseContinue')}</button>
               </div>
             </>
           )}

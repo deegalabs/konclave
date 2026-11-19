@@ -10,6 +10,7 @@
 
 import { CROCKFORD } from './format'
 import { CREATION_PROTOCOL } from './creation-protocol'
+import { forgetRefusedServiceUrl, readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
 
 // One key at a time, never the env object (#605, src/env-reads.test.ts).
 const BASE: string = import.meta.env.VITE_API_BASE ?? ''
@@ -26,7 +27,6 @@ export const RELAY_BASE: string = import.meta.env.VITE_RELAY_BASE ?? BASE
 // at a self-hosted relay. A curated multi-relay directory (pick the nearest) is the future network.
 export type RelayMode = 'ours' | 'custom'
 const RELAY_MODE_KEY = 'konclave.relay.mode'
-const RELAY_URL_KEY = 'konclave.relay.url'
 
 function relayLs(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -37,17 +37,28 @@ export function getRelayMode(): RelayMode {
   return relayLs(RELAY_MODE_KEY) === 'custom' ? 'custom' : 'ours'
 }
 
-/** The user-provided self-hosted relay URL (for 'custom' mode), trailing slash trimmed. */
+/** The member's own relay (for 'custom' mode), read through the one rule (#1067), or ''. A stored
+ *  address the rule refuses counts as none, so `relayBase` falls back to the built-in relay, as it
+ *  does for an empty one: the coordinator publishes only to the relays it is configured with, so the
+ *  built-in one is where a send can meet the other devices anyway. */
 export function getCustomRelay(): string {
-  return (relayLs(RELAY_URL_KEY) ?? '').trim().replace(/\/+$/, '')
+  const r = readServiceUrl('relay')
+  return r?.ok ? r.base : ''
 }
 
-/** Persist the relay choice. Callers reload if any cached state depends on it. */
-export function setRelay(mode: RelayMode, url?: string): void {
+/** Persist the relay choice. Callers reload if any cached state depends on it. With a `url`, the
+ *  address goes through the one rule first (#1067): a refused one stores nothing, not even the mode,
+ *  and the refusal is returned. `null` means stored. */
+export function setRelay(mode: RelayMode, url?: string): ServiceUrlRefusal | null {
+  forgetRefusedServiceUrl('relay')
+  if (url !== undefined) {
+    const r = storeServiceUrl('relay', url)
+    if (!r.ok) return r.reason
+  }
   try {
     localStorage.setItem(RELAY_MODE_KEY, mode)
-    if (url !== undefined) localStorage.setItem(RELAY_URL_KEY, url.trim().replace(/\/+$/, ''))
   } catch { /* storage unavailable - the choice applies this session only */ }
+  return null
 }
 
 /** The EFFECTIVE relay base for the current choice; falls back to the built-in RELAY_BASE. */
