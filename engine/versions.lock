@@ -263,11 +263,17 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 # worktree at that commit (`--locked`) and deployed to production by the maintainer on 2026-11-18 before the
 # branch was pushed (Railway deployment a9cea87b; `/api/health` reports e5e581ee, built 2026-11-18T14:33:47Z,
 # client.creation 4), after a volume backup (12:21 BRT, 1.32 GB). helper-server and konclave-signer are NEW,
-# both from that commit; zcash-devtool and zcash-sign are unchanged. The fee switch stays
-# KONCLAVE_FEE_MARGINAL_MAX=5000 (boot: every vault pays 5,000 per action). Confirmed by a mainnet payment
+# both from that commit; zcash-devtool and zcash-sign are unchanged. The fee switch was
+# KONCLAVE_FEE_MARGINAL_MAX=5000 at this deploy (boot: every vault pays 5,000 per action). Confirmed by a mainnet payment
 # (txid 2ea1e042df141772ab21e2002d6c3f1bd756fe8dbcdfee2958ef3d62a6193170, block 3,586,765). The sha256 above are
 # those of the files in the deploy folder (`sha256sum -c` before the `railway up`); they were NOT hashed inside
 # the running container. The relay was not redeployed and reports source_digest 68c687b62bc3d547.
+# On 2026-11-19 at 19:04:55 UTC the maintainer redeployed the same image with
+# KONCLAVE_FEE_MARGINAL_MAX=per-vault (Railway deployment b57c7af9; no binary changed; `/api/health` still
+# e5e581ee; boot: switch OFF, per-vault), after a send at the lower fee on staging (txid
+# e29f6291a8ae912e9d597ada21d0d3145d7fc4c94a3c667753c8df4f9bd8b5b8, block 3,590,417). The first production
+# payment at the ZIP 2009 fee followed (txid 7ac245adabb92482300e0322488dd864230e143297380e8bbb387bdfd5b5c7a9,
+# block 3,590,637). The four files were hashed inside the running container on 2026-11-19 and equal the sha256 above.
 # PREVIOUS DEPLOY RECORD (v0.21.0, commit 56db642f, 2026-11-14), kept as comments: helper-server sha256
 # 048988629f74c5f3ecd95cf63fb38a85e14f84cb12357f89ef4514c174904241, 4013896 bytes; konclave-signer sha256
 # 8ae3905156bdfda6e93ca8653e4d4943d7322f453da463556d58950f67faf78b, 8254664 bytes; zcash-devtool and
