@@ -489,3 +489,41 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 #   zcash-devtool   8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153
 # See the HONEST CAVEAT under [source.zcash-devtool]: that zcash-devtool is upstream rev 539ae81d
 # PLUS a local manifest re-pin and an off-by-default `pool-migration` feature gate.
+
+# --- BEGIN wasm (written by scripts/build-wasm.mjs; edit only wasm_pack by hand) ---
+# The browser module the app ships (ui/src/wasm-pkg). wasm_pack is the pinned tool; the rest is
+# what a build of this source produced. CI rebuilds and compares on every push.
+[wasm]
+wasm_pack     = "0.13.1"
+source_digest = "c7cfacb063f7e5513a2eaea55deeb69bbc43a988517a483edf765fff01e10dc4"
+
+[[wasm_file]]
+name   = "README.md"
+sha256 = "e6b703dd10c19937764dcec265d631e3bfdedaf52f8d0ae994e33e27afb5a575"
+bytes  = 2826
+
+[[wasm_file]]
+name   = "konclave_wasm.d.ts"
+sha256 = "48b85355ad3e6f5a9f9185f099d5a0ebfed621e4d14d59f14cae7dc0e36efcf9"
+bytes  = 30410
+
+[[wasm_file]]
+name   = "konclave_wasm.js"
+sha256 = "8c8ecd2382bf6afd938d77400b49a935f349dd540ed058f5ed23338d09d97bcb"
+bytes  = 75163
+
+[[wasm_file]]
+name   = "konclave_wasm_bg.wasm"
+sha256 = "c41f272db63ba86af14d3426751a7929b369edbd7b60cd1e6c61a2b924b28a59"
+bytes  = 1480929
+
+[[wasm_file]]
+name   = "konclave_wasm_bg.wasm.d.ts"
+sha256 = "e97101185ceef0507d06b1549ecf7017413bac8b95e10c29c80a9e375c1a2c46"
+bytes  = 10470
+
+[[wasm_file]]
+name   = "package.json"
+sha256 = "0781fb2c976f7f99374717dfde27805d16d0614cc27ff71fcbbb752cb81dc691"
+bytes  = 455
+# --- END wasm ---
