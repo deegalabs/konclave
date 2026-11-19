@@ -227,9 +227,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   When no server takes it, the answer says the transaction may have reached the network and not to send it again
   before checking, and the attempt record stays, as it does for any broadcast error.
 - **A send no longer fails because one light-client server stops answering.** The broadcast goes to the server the send
-  has been using; if that attempt does not answer within its time limit, the same signed transaction goes to the next
-  configured server that is within 3 blocks of the median, within three minutes in all. Any other failure of the
-  broadcast is reported as it is and not tried elsewhere. When no server takes it after a time-out, the answer says the
+  has been using; if that server cannot be reached, or the attempt does not answer within its time limit, the same
+  signed transaction goes to the next configured server that is within 3 blocks of the median, within three minutes in
+  all. A failure after the transaction was handed to a server is reported as it is and not tried elsewhere. When no server takes it after a time-out, the answer says the
   transaction may have reached the network and not to send it again before checking, and the attempt record stays, as
   it does for any broadcast error.
 
