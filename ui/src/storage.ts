@@ -48,6 +48,24 @@ const PBKDF2_ITERS = 600_000
 export const PBKDF2_ITERS_FOR_TESTS = PBKDF2_ITERS
 
 /**
+ * The most rounds a sealed record or a backup may name. About eight times today's count: room for a
+ * later raise (a record above today's count keeps opening). `scripts/open-export.mjs` holds the
+ * same two numbers and a test compares the two rules.
+ */
+const PBKDF2_ITERS_MAX = 5_000_000
+
+/** The count a record or backup was sealed with, from its stored field: absent means the legacy
+ *  count; otherwise a whole number from the legacy count to the ceiling, or refused. The one rule
+ *  every derivation reads, through `deriveKey`. */
+export function kdfItersOf(field: unknown): number {
+  if (field === undefined || field === null) return PBKDF2_ITERS_LEGACY
+  if (typeof field !== 'number' || !Number.isInteger(field) || field < PBKDF2_ITERS_LEGACY || field > PBKDF2_ITERS_MAX) {
+    throw storageError('corrupt', 'The saved data names a key-derivation count this app does not accept')
+  }
+  return field
+}
+
+/**
  * Vault governance policy, set at creation and propagated to every device (public metadata).
  * `quorum` = sensitive metadata changes (signer names, beneficiaries) are group decisions;
  * `open` = any member edits directly. This is a PRODUCT rule the app helps a group honor, NOT a
@@ -325,7 +343,8 @@ function reqDone<T>(req: IDBRequest<T>): Promise<T> {
  * cannot silently inherit the wrong one: reads must pass what the record stores, writes must pass
  * what we currently seal with, and those are allowed to differ (#435).
  */
-async function deriveKey(passphrase: string, salt: Uint8Array, iters: number): Promise<CryptoKey> {
+async function deriveKey(passphrase: string, salt: Uint8Array, kdfIters: unknown): Promise<CryptoKey> {
+  const iters = kdfItersOf(kdfIters)
   const base = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(passphrase),
@@ -573,7 +592,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
 
   // What this record was sealed with. Absent on records written before the parameter travelled
   // with the ciphertext (#435), and those are all at the legacy count by definition.
-  const key = await deriveKey(passphrase, record.salt, record.kdfIters ?? PBKDF2_ITERS_LEGACY)
+  const key = await deriveKey(passphrase, record.salt, record.kdfIters)
   let plainBuf: ArrayBuffer
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.iv) }, key, bufOf(record.cipher))
@@ -595,7 +614,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   if (record.ufvk !== undefined) await retireClearUfvk(record, key, ufvk)
   // Not over a sealed field that did not open: the new seal could not carry it, and the old one might.
   const fieldLost = (!!record.ufvkCipher && !ufvk) || (!!record.secretCipher && !accessSecret)
-  if ((record.kdfIters ?? PBKDF2_ITERS_LEGACY) < PBKDF2_ITERS && !fieldLost) {
+  if (kdfItersOf(record.kdfIters) < PBKDF2_ITERS && !fieldLost) {
     await upgradeSeal(record, passphrase, { share: new Uint8Array(plainBuf), accessSecret, ufvk })
   }
 
@@ -910,7 +929,7 @@ function vaultIdOf(id: unknown, groupKey: unknown): string {
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
 async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedImport> {
   if (!b.salt || !b.iv || !b.cipher) throw storageError('corrupt', 'The export is incomplete or corrupt')
-  const key = await deriveKey(passphrase, unhex(b.salt), b.kdfIters ?? PBKDF2_ITERS_LEGACY)
+  const key = await deriveKey(passphrase, unhex(b.salt), b.kdfIters)
   let plainBuf: ArrayBuffer
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(b.iv)) }, key, bufOf(unhex(b.cipher)))
@@ -973,7 +992,7 @@ function isShareBundle(bytes: Uint8Array): boolean {
 async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedImport> {
   const v = b.vault
   if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw storageError('corrupt', 'The export is incomplete or corrupt')
-  const key = await deriveKey(passphrase, unhex(v.salt), v.kdfIters ?? PBKDF2_ITERS_LEGACY)
+  const key = await deriveKey(passphrase, unhex(v.salt), v.kdfIters)
   let shareBuf: ArrayBuffer
   try {
     shareBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.iv)) }, key, bufOf(unhex(v.cipher)))
