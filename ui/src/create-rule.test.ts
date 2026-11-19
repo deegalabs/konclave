@@ -12,11 +12,18 @@ const pt = (p: string) => p
 describe('creating a vault: the no-margin warning only recommends a rule the screen can create', () => {
   it('at the device cap, it recommends one signature fewer, not one device more', () => {
     expect(noMarginWarning(5, pt)).toBe(
-      'Se um aparelho for perdido, os fundos ficam presos, sem como recuperar. Recomendamos 4 de 5.',
+      'Se um aparelho for perdido e o backup dele também, os fundos ficam presos, sem como recuperar. Recomendamos 4 de 5.',
     )
     expect(noMarginWarning(5, en)).toBe(
-      'If one device is lost, the funds are locked, with no way to recover. We recommend 4 of 5.',
+      'If one device is lost and its backup too, the funds are locked, with no way to recover. We recommend 4 of 5.',
     )
+  })
+
+  // #1049: a member's backup restores their seat on a new device (docs/RECOVERY.md, procedure A), so
+  // losing a device alone does not lock the funds. The warning names what does: the device AND its backup.
+  it('names losing the device and its backup, not the device alone, as what locks the funds', () => {
+    expect(noMarginWarning(3, en)).toMatch(/^If one device is lost and its backup too, /)
+    expect(noMarginWarning(3, pt)).toMatch(/^Se um aparelho for perdido e o backup dele também, /)
   })
 
   it('below the cap, it still recommends one device more', () => {
