@@ -45,9 +45,9 @@ export const ROADMAP_NOW: Stage[] = [
     title: { 'pt-BR': 'Acompanhar a atualização da rede (NU7)', en: 'Keep up with the network upgrade (NU7)' },
     body: {
       'pt-BR':
-        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). Desde o bloco 3.590.000 (19 de novembro de 2026), um cofre pode pagar a taxa menor da ZIP 2009: o coordenador a usa quando o aparelho de cada assento informou que a aceita, e o primeiro pagamento em produção com ela está registrado (#847).',
+        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). A ZIP 2009 diz que as carteiras devem passar à taxa menor a partir do bloco 3.590.000 (19 de novembro de 2026), e desde esse dia o coordenador a usa num cofre quando o aparelho de cada assento informou que a aceita; o primeiro pagamento em produção com ela está registrado (#847).',
       en:
-        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). Since block 3,590,000 (19 November 2026) a vault can pay the lower ZIP 2009 fee: the coordinator uses it once every seat’s device has reported that it accepts it, and the first production payment at that fee is on the record (#847).',
+        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). ZIP 2009 says wallets should switch to its lower fee from block 3,590,000 (19 November 2026), and since that day the coordinator uses it for a vault once every seat’s device has reported that it accepts it; the first production payment at that fee is on the record (#847).',
     },
     refs: [issue(638), pull(701), issue(847)],
   },
@@ -57,15 +57,15 @@ export const ROADMAP_NOW: Stage[] = [
 export const ROADMAP_STEPS: Stage[] = [
   {
     id: 'own-defects',
-    // The #605 sentences say "live" from v0.22.0, the first release that publishes web-manifest.json.
+    // The #605 sentences hold from the main merge of v0.22.0, before and after its draft is published.
     n: 0,
     status: 'now',
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e o próprio app ainda não confere se o que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 está no ar: cada versão publica o SHA-256 de cada arquivo do app web, e scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app modificado entregue a quem roda o script, naquele momento; não impede um servidor comprometido, e o app instalado ainda não recusa uma atualização que não seja uma versão publicada. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
+        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e o próprio app ainda não confere se o que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 chega com a versão 0.22.0: a partir dela, cada versão publica o SHA-256 de cada arquivo do app web, e scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app modificado entregue a quem roda o script, naquele momento; não impede um servidor comprometido, e o app instalado ainda não recusa uma atualização que não seja uma versão publicada. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
       en:
-        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and the app itself does not yet check that what our server sends is a published release (#605). The first part of #605 is live: each release publishes the SHA-256 of every file of the web app, and scripts/verify-web.mjs compares what the live site serves with it. It can notice a modified app served to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not yet refuse an update that is not a release. This step and step 1 can move at the same time.',
+        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and the app itself does not yet check that what our server sends is a published release (#605). The first part of #605 comes with v0.22.0: from that release on, each release publishes the SHA-256 of every file of the web app, and scripts/verify-web.mjs compares what the live site serves with that list. It can notice a modified app served to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not yet refuse an update that is not a release. This step and step 1 can move at the same time.',
     },
     refs: [issue(575), issue(577), issue(567), issue(605)],
   },
@@ -154,9 +154,9 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Trocar membros e o quórum', en: 'Change members and the quorum' },
     body: {
       'pt-BR':
-        'Trocar quem está no cofre, ou o quórum. O caminho desta etapa é guiado: criar um cofre novo com as pessoas certas e passar os fundos para ele numa transação aprovada pelo quórum. Mudar o próprio cofre, sem mover os fundos, fica para depois, porque a biblioteca da Foundation ainda não oferece mudar o quórum de uma chave existente.',
+        'Trocar quem está no cofre, ou o quórum. O caminho desta etapa é guiado: criar um cofre novo com as pessoas certas e passar os fundos para ele numa transação aprovada pelo quórum. Mudar o próprio cofre, sem mover os fundos, fica para depois: a biblioteca da Foundation não oferece mudar o quórum de uma chave existente, e avisa que tirar um membro desse jeito deixa o cofre só tão seguro quanto cada grupo anterior de membros.',
       en:
-        'Change who is in a vault, or its quorum. This step guides the way that works today: create a new vault with the right people and move the funds to it in a transaction the quorum approves. Changing the vault itself, without moving funds, comes later, because the Foundation’s library does not yet offer changing the quorum of an existing key.',
+        'Change who is in a vault, or its quorum. This step guides the way that works today: create a new vault with the right people and move the funds to it in a transaction the quorum approves. Changing the vault itself, without moving funds, comes later: the Foundation’s library does not offer changing the quorum of an existing key, and it warns that removing a member that way leaves the vault only as safe as every earlier group of its members.',
     },
     refs: [issue(154), issue(251)],
   },
