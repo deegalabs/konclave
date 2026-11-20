@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The coordinator builds a vault's payments from fewer of its notes.** Same change as the root
+  changelog's Security entry of 0.22.0; details follow in a later entry. The hosted coordinator has
+  run this since 2026-11-18 (e5e581ee).
+
 - **New vaults have a ceiling in all, and creation pauses when the volume is nearly full.** The coordinator accepts at most 60
   new vaults an hour from every address together, and pauses new vaults while the volume has less
   than 5 GiB free; a refused creation is answered to try again later, and existing vaults, payments,
