@@ -3,8 +3,8 @@
 // of truth, never a fork of the proven money path). Stage 0 of ADR-0006 Rung B: pure helpers only,
 // no behavior change; the stateful SigningMachine follows in a later stage.
 
-import { extractRandomizers, groupKeyOfPackage } from './wasm-pkg/konclave_wasm.js'
-import { bytesEqual, unb64 } from './net'
+import { extractRandomizers, groupKeyOfPackage, type CreationSession } from './wasm-pkg/konclave_wasm.js'
+import { b64, bytesEqual, unb64 } from './net'
 import type { VaultLoaded } from './storage'
 
 /** One real spend to authorize: its on-chain action index + the 32-byte Orchard randomizer (alpha). */
@@ -49,6 +49,13 @@ export interface RestoredShare {
   seat: number
   n: number
   t: number
+}
+
+/** The share bytes saved at creation and read by decodeBundle on unlock. */
+export function encodeBundle(dkg: Pick<CreationSession, 'keyPackage' | 'pubkeys'>, seat: number, n: number, t: number): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify({
+    kp: b64(dkg.keyPackage()), pubkeys: b64(dkg.pubkeys()), seat, n, t,
+  }))
 }
 
 /**
