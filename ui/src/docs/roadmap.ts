@@ -12,7 +12,7 @@ export const REPO = 'deegalabs/konclave'
 
 /** When a person last re-read the step texts below against the issues. Shown on the page. Set by hand:
  *  the script dates GitHub's states separately (REFS_AS_OF), and never this. */
-export const ROADMAP_AS_OF = { iso: '2026-11-16', 'pt-BR': '16 de novembro de 2026', en: '16 November 2026' }
+export const ROADMAP_AS_OF = { iso: '2026-11-20', 'pt-BR': '20 de novembro de 2026', en: '20 November 2026' }
 
 export type RefKind = 'issue' | 'pull'
 export type Ref = { kind: RefKind; n: number }
@@ -45,9 +45,9 @@ export const ROADMAP_NOW: Stage[] = [
     title: { 'pt-BR': 'Acompanhar a atualização da rede (NU7)', en: 'Keep up with the network upgrade (NU7)' },
     body: {
       'pt-BR':
-        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). A próxima data da rede é a taxa menor da ZIP 2009, a partir do bloco 3.590.000: os aparelhos já a aceitam, e o coordenador ainda paga a taxa antiga (#847).',
+        'A NU7 ativou na mainnet em 6 de novembro de 2026 (UTC). O app e o coordenador já a conheciam antes da ativação, e um envio feito em produção depois dela está registrado ([/proof](#/proof)). A ZIP 2009 diz que as carteiras devem passar à taxa menor a partir do bloco 3.590.000, minerado em 19 de novembro, e desde esse dia o coordenador a usa num cofre quando o aparelho de cada assento informou que a aceita; o primeiro pagamento em produção com ela está registrado (#847).',
       en:
-        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). The network’s next date is the lower ZIP 2009 fee from block 3,590,000: devices already accept it, and the coordinator still pays the old fee (#847).',
+        'NU7 activated on mainnet on 6 November 2026 (UTC). The app and the coordinator carried it before activation, and a send made in production after it is on the record ([/proof](#/proof)). ZIP 2009 says wallets should switch to its lower fee from block 3,590,000, mined on 19 November, and since that day the coordinator uses it for a vault once every seat’s device has reported that it accepts it; the first production payment at that fee is on the record (#847).',
     },
     refs: [issue(638), pull(701), issue(847)],
   },
@@ -57,27 +57,15 @@ export const ROADMAP_NOW: Stage[] = [
 export const ROADMAP_STEPS: Stage[] = [
   {
     id: 'own-defects',
-    // The #605 sentences hold before and after the first release that publishes web-manifest.json: this page only
-    // reaches members in a release, and that release is the one that first publishes the list. Once it is out, the
-    // second sentence may say more:
-    //   pt-BR: A primeira parte da #605 está no ar: cada versão publica o SHA-256 de cada arquivo do app web, e
-    //          scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app
-    //          modificado entregue a quem roda o script, naquele momento; não impede um servidor comprometido, e o app
-    //          instalado ainda não recusa uma atualização que não seja uma versão publicada.
-    //   en:    The first part of #605 is live: each release publishes the SHA-256 of every file of the web app, and
-    //          scripts/verify-web.mjs compares what the live site serves with it. It can notice a modified app served
-    //          to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not
-    //          yet refuse an update that is not a release.
-    // The swap goes through the text audit, re-reads every step (not only step 0) and moves ROADMAP_AS_OF to
-    // that day, and fixes the #605 line of ui/changelog.d/changed/roadmap-texts-reviewed.md if it is not released yet.
+    // The #605 sentences hold from the main merge of v0.22.0, before and after its draft is published.
     n: 0,
     status: 'now',
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e o próprio app ainda não confere se o que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 foi integrada: uma lista com o SHA-256 de cada arquivo de cada versão do app web, e um script que qualquer pessoa pode rodar para comparar o site no ar com ela, a partir da primeira versão que publicar a lista. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
+        'Antes de qualquer coisa nova, na ordem em que pretendemos tratá-los: aprovações contadas pelo nome e não pelo membro, de modo que uma registrada antes de o cofre exigir assinaturas pode continuar contando: achado em revisão, estreitado pela versão de 04/10/2026 e não fechado (#575); num cofre criado antes de 8/11/2026, um assento ainda livre que outro membro consegue ocupar para votar como o colega (#577); a aprovação, que ainda não fica presa ao que a proposta diz (#567); e o próprio app ainda não confere se o que o nosso servidor entrega é uma versão publicada (#605). A primeira parte da #605 chega com a versão 0.22.0: a partir dela, cada versão publica o SHA-256 de cada arquivo do app web, e scripts/verify-web.mjs compara o que o site no ar entrega com essa lista. Isso pode notar um app modificado entregue a quem roda o script, naquele momento; não impede um servidor comprometido, e o app instalado ainda não recusa uma atualização que não seja uma versão publicada. Esta etapa e a etapa 1 podem andar ao mesmo tempo.',
       en:
-        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and the app itself does not yet check that what our server sends is a published release (#605). The first part of #605 is merged: a list of the SHA-256 of every file of each web release, and a script anyone can run to compare the live site with it, from the first release that publishes the list. This step and step 1 can move at the same time.',
+        'Before anything new, in the order we intend to take them: approvals counted by name rather than by member, so one recorded before a vault required signatures can keep counting: found in review, narrowed by the 2026-10-04 release and not closed (#575); on a vault created before 8 November 2026, an unclaimed seat another member can take and then vote as its owner (#577); approvals, which are not yet tied to what the proposal says (#567); and the app itself does not yet check that what our server sends is a published release (#605). The first part of #605 comes with release 0.22.0: from that release on, each release publishes the SHA-256 of every file of the web app, and scripts/verify-web.mjs compares what the live site serves with that list. It can notice a modified app served to whoever runs it, at that moment; it does not stop a compromised host, and the installed app does not yet refuse an update that is not a release. This step and step 1 can move at the same time.',
     },
     refs: [issue(575), issue(577), issue(567), issue(605)],
   },
@@ -166,9 +154,9 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Trocar membros e o quórum', en: 'Change members and the quorum' },
     body: {
       'pt-BR':
-        'Trocar quem está no cofre, ou o quórum. O caminho desta etapa é guiado: criar um cofre novo com as pessoas certas e passar os fundos para ele numa transação aprovada pelo quórum. Mudar o próprio cofre, sem mover os fundos, fica para depois, porque a biblioteca da Foundation ainda não oferece mudar o quórum de uma chave existente.',
+        'Trocar quem está no cofre, ou o quórum. O caminho desta etapa é guiado: criar um cofre novo com as pessoas certas e passar os fundos para ele numa transação aprovada pelo quórum. Mudar o próprio cofre, sem mover os fundos, fica para depois: a biblioteca da Foundation não oferece mudar o quórum de uma chave existente, e avisa que tirar um membro desse jeito deixa o cofre só tão seguro quanto cada grupo anterior de membros.',
       en:
-        'Change who is in a vault, or its quorum. This step guides the way that works today: create a new vault with the right people and move the funds to it in a transaction the quorum approves. Changing the vault itself, without moving funds, comes later, because the Foundation’s library does not yet offer changing the quorum of an existing key.',
+        'Change who is in a vault, or its quorum. This step guides the way that works today: create a new vault with the right people and move the funds to it in a transaction the quorum approves. Changing the vault itself, without moving funds, comes later: the Foundation’s library does not offer changing the quorum of an existing key, and it warns that removing a member that way leaves the vault only as safe as every earlier group of its members.',
     },
     refs: [issue(154), issue(251)],
   },
