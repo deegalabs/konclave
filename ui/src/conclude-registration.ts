@@ -2,7 +2,7 @@
 //
 // The end of a live creation (`finishVault` in NetVault) and the vault card of a vault whose
 // registration did not finish (Vaults) both call `concludeRegistration`, and nothing else calls
-// `registerVault`. Two paths to one rule is how this repo keeps paying twice.
+// `registerVaultResult`. Two paths to one rule is how this repo keeps paying twice.
 //
 // It reads the PERSISTED record (name, group key, quorum, roster, protocol), never the in-session
 // copy: that one has no quorum on it, and without the quorum the vault's read key is not registered.

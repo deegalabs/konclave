@@ -20,6 +20,6 @@
   risk of a payment going out twice; it does not close it. The device still cannot see the chain: it
   asks, and your check in a block explorer is the protection. And until approvals are bound to what
   a payment pays (#567), the coordinator still supplies the proposal and the lines the device
-  compares. It applies only on a device running 0.21.0 or later: reload the web app and install the
-  0.21.0 desktop app. This is the later entry the 0.21.0 Security entry announced. We found this in
+  compares. It applies only on a device running 0.21.0 or later: reload the web app, and on the desktop
+  install this release or 0.21.0. This is the later entry the 0.21.0 Security entry announced. We found this in
   our own review while designing #567. We have no report that it was used.
