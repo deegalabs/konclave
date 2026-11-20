@@ -125,7 +125,7 @@ Facts (verified 2026-06-30):
   and lightwalletd aware of the upgrade).
 - **Update (2026-08):** mainnet has since activated **NU6.3 "Ironwood"** (2026-07-28, block
   3,428,143), which adds the **Ironwood shielded pool** (V6 transactions). Ironwood is **live and
-  safe**, and the consensus target is **NU6.3** until **NU7** at block 3,543,405 (see below). Build against it; the RedPallas/FROST
+  safe**. **NU7** activated at block 3,543,405 (see below), so the consensus target is now **NU7**. Build against it; the RedPallas/FROST
   spend-authorization scheme is unchanged, so the signing core carries over. The NU6.2 text above
   is the historical context for the June 2026 Orchard episode.
 - **Update (2026-08-26), verified against primary sources.** Each item below was checked at
@@ -173,8 +173,7 @@ Facts (verified 2026-06-30):
     **237**, **2003** and **2008**, and says it does **not** deploy 233 or 234; 231 and 2002 are not
     on its list either - **ZIP 312 is not on it**, and does not need to be (Category: Wallet). The
     linked `zcash_protocol` 0.11.0 carries the same height and branch id, and `engine/versions.lock`
-    already sets `network_target = "NU7"`. **The consensus target is NU6.3 until block 3,543,405 and
-    NU7 from it.** **The date to watch, added 2026-09-05:** both consultations closed
+    already sets `network_target = "NU7"`. **Block 3,543,405 has passed: the consensus target is NU7.** **The date to watch, added 2026-09-05:** both consultations closed
     **2026-09-14 19:00 UTC**, and one of the questions was what to do with NU7 features not ready by
     a **readiness deadline of 30 September**. ZIP 259 is what came of it (its Rationale cites both
     polls): of the two candidates below, one landed and one did not.

@@ -243,7 +243,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
   device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
   (the payment does not go out at that fee), never funds: the device's own fee check stays the
-  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
+  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000. Signing the
+  report by the seat is #1076, not started.
 - **A paused creation reads as "busy" in the app.** When new vaults are paused, the app says the
   coordinator is busy and to try again in a moment; the hourly ceiling is a fixed one-hour window that
   starts at the first attempt to create a new vault after the previous window ended, admitted or not;

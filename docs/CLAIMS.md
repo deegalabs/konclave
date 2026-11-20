@@ -83,7 +83,7 @@ existed on one machine at creation. The README said it that way until 2026-09-29
 **What the attribution of eleven rows rests on.** The rows for `ef80a181…`, `3fa08dce…`, `47e4e5dd…`,
 `7d6b3dec…`, `075ecfe9…`, `1c53fe50…`, `ac696b9f…`, `8d198b01…`, `b232f20c…`, `3d60747c…` and `7ac245ad…` do not name the key origin in `docs/PROOF.md`. They are attributed to
 DKG because each was made through the web app and a hosted coordinator (production's, or staging's for `3d60747c…`), and the only screen that
-registers a vault with the coordinator is the one that creates it by DKG (`registerVault` has one
+registers a vault with the coordinator is the one that creates it by DKG (`registerVaultResult` has one
 caller, `concludeRegistration` in `ui/src/conclude-registration.ts`, which runs only for a vault the
 device created by DKG: `NetVault.tsx`, or `Vaults.tsx` finishing that same registration). That is a statement about the product, not about the chain.
 
