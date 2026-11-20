@@ -40,6 +40,300 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.22.0] 2026-11-20
+
+### Security
+
+- **Opening a backup checks it more strictly.** A backup file, or a vault saved on the device, that
+  asks for settings outside what Konclave writes is now refused as damaged before anything else is
+  done with it. Backups written by any release keep opening. The details follow in a later entry.
+- **After an earlier transaction's deadline, a device signed the same payment again with no warning
+  (from 0.13.0 until 0.21.0).** Since 0.13.0 your device keeps a record of the transactions it
+  signed, and warns you before it signs a second, different transaction for the same proposal. That
+  warning stopped once, by the device's own clock and with a margin, the earlier transaction could no
+  longer be mined: from then on a new transaction for the proposal got the ordinary Sign prompt, the
+  one a first signature gets. But the device cannot see the chain, so it could not know whether the
+  earlier transaction had been mined before its deadline. A hostile or compromised coordinator could
+  send the first transaction, tell the members the send had failed, wait for the deadline and build
+  the payment again. If enough members to sign pressed Sign once more, and the vault held enough for
+  both, the payment went out twice. The record was also kept per proposal, so the same payment shown
+  as a new proposal got the ordinary prompt too. The 0.13.0 entry said the device "refuses to sign a
+  second transaction for the same approval without the explicit confirmation of the member who
+  signs"; that held only while the earlier one could still be mined, and only under the same
+  proposal. Since 0.21.0 the device asks in that case too: it says it cannot tell whether the
+  earlier transaction went out, shows that transaction's id only when it can confirm it signed it,
+  so you can look it up in a block explorer, and signs only after you confirm. It also recognises a
+  payment with exactly the same recipients, amounts and memos that it signed under another proposal
+  in the last seven days, and asks whether this is a separate payment. Proposals are signed only
+  from their signing panel; the standalone `/net` page no longer signs payments. This narrows the
+  risk of a payment going out twice; it does not close it. The device still cannot see the chain: it
+  asks, and your check in a block explorer is the protection. And until approvals are bound to what
+  a payment pays (#567), the coordinator still supplies the proposal and the lines the device
+  compares. It applies only on a device running 0.21.0 or later: reload the web app, and on the desktop
+  install this release or 0.21.0. This is the later entry the 0.21.0 Security entry announced. We found this in
+  our own review while designing #567. We have no report that it was used.
+
+### Changed
+
+- **An invite link now always points to www.konclave.xyz, and the create, join, import and unlock
+  screens show the address the app is running on.** Before, an invite made on any other address (a
+  preview, an old alias, or an unmodified copy of the app) pointed to that address, so the person who
+  opened it landed on that copy and sealed their seat there. The screens now say "You are on
+  <address>. Konclave only lives at www.konclave.xyz.", and on any other address (localhost aside)
+  say in words and in the warning colour that it is not the official one. The desktop app shows
+  nothing, because it has no web address. A new question in the FAQ explains how to tell the real
+  app. The app still runs on any address, so nothing stops a copy from being served, and a modified
+  copy can remove the warning: the browser's address bar is the check that counts, and for the
+  desktop app, where you downloaded it from. This only stops Konclave from handing out links to a
+  copy. To test invites on a preview or staging, paste the code instead of opening the link.
+- **The invite code and its QR stay hidden until you ask.** While creating a vault, the invite code
+  and its QR were on screen for the whole wait, to anyone who could see the screen or a recording of
+  it. They are now left out of the page until you press "show the invite code" or "show the invite
+  QR", and the copy, share and link buttons work without showing either. The room PIN is unchanged:
+  it is still masked, and it is never in the link, the QR or what you share (#625).
+- **A member keeps one face, whatever their name.** The small picture beside a member was drawn from
+  their name, so renaming changed it and two members with the same name looked alike. It is now drawn
+  from the vault and the member's seat, the same wherever it is shown, so every face changes once
+  with this release. It is a visual aid, not a proof of who is behind a seat. Where a name cannot be
+  placed on one seat, or a screen does not read the member list, a neutral face is shown. On the
+  web, the Members screen no longer shows an "id" line, which there only repeated the name (#315).
+- **The proof page lists the first production payment at the lower network fee ZIP 2009 allows**
+  (1,000 zatoshis per action instead of 5,000, block 3,590,637), with what the chain shows and what
+  rests on the operator.
+- **On a vault without signed actions, a device must unlock the vault before it proposes,
+  and unlocking registers its key (#591).** A device that proposed there without unlocking used to be
+  accepted, under the first member's name. Now the proposing screen asks for the passphrase first, right there, because the seat
+  is known only from the unlocked share; the unlock registers the device's key, and from the first
+  device that does, the vault begins to refuse writes from anyone without a seat. A device opened
+  only with a passkey reads the vault but must type the passphrase to propose.
+- **The roadmap says the GitHub state of each issue and pull request it cites.** In the help's
+  roadmap, every number a step points at now says, in words, what GitHub showed: an issue open,
+  closed or not planned, a pull request open, draft, merged or closed unmerged, and the day it was
+  read. The states are a copy of what GitHub showed on that day, committed with the app, so reading
+  the page still makes no request to GitHub. An issue closed or a pull request merged there does not
+  mean the change is live; the page says so.
+- **The roadmap's texts are re-read against their issues, and its top line says so.** The line at the
+  top of the help's roadmap now says when the step texts were last reviewed. Step 0 says the first
+  part of #605 comes with v0.22.0 (each release publishes the SHA-256 of every file of the web app);
+  the network block says the lower fee is in use since block 3,590,000 (#847); step 1 gives the phone proving times per session and what the same test already measures;
+  getting a lost seat back is said to need more members than the quorum; the test environment is
+  said to run on mainnet with minimal amounts. The relay is said to pass messages between the members'
+  devices and the coordinator, and the library list says what we plan to offer rather than what we
+  have offered. `SECURITY.md` now limits #577 to vaults created before
+  8 November 2026, as the roadmap does.
+
+### Fixed
+
+- **A refused copy of the creation word or a backup is said.** Copying the creation word, the backup file at
+  the end of creating a vault on /net and the backup offered when resuming a vault said nothing when
+  the browser refused the copy, so a member could leave believing the backup was on the clipboard.
+  Each now says so, and points to the download where there is one. Every copy in the app now goes
+  through one function, so they cannot drift apart again (#978).
+- **The Dashboard no longer says "Cannot pay right now: 0 of 2 seats present" when nothing is wrong (#693).**
+  The card counted seats in the signing room, which this device joins only while a payment is open
+  in the signing panel, so with no payment open it read 0 even with every member present, and after
+  a panel had been opened and closed it kept the last count, which could read "2 of 2" with nobody
+  there. The card no longer counts anyone: it says whether the coordinator answers and whether
+  there is free money, and states what a payment needs ("a payment needs 2 of 3 members to sign").
+  Who is online is still not known outside a payment (#291).
+- **A file the browser does not save is said.** The backup offered at the end of creating a vault
+  was marked as taken even when the browser refused the download, and that download, the backup
+  offered when resuming a vault and the Ledger's CSV and XLSX exports said nothing when it was
+  refused. Each now says so (the backups point to Copy beside them), and the backup counts as taken
+  only when the file was saved (#983).
+- **An amount under the bar was still in the page, and a screen reader read it aloud.** The bar
+  hid a figure from the eye only: the value stayed in the page as text, so a screen reader read it
+  out (and offered "Reveal" after it), and selecting and copying the area around it, or anything
+  that reads the page's text, returned it. While amounts are hidden, a hidden figure is no longer
+  in the page at all: a placeholder of about its width stands in, a screen reader hears "amount hidden"
+  and then the control, and the value arrives only when it is revealed. The Dashboard had three more ways in, closed with it: the balance
+  composition's accessible label, the monthly spend chart (each bar's title and the table behind it)
+  and the dollar estimate of what was paid. While hidden, the label carries no figures, the chart is
+  replaced by a sentence, and the estimate sits under the bar; the "free" and "confirming" lines under
+  the balance too. The control also keeps one name ("Reveal amounts") with its state in
+  `aria-pressed`, and says "amount hidden" before it. Still not covered: the fee, the total and the
+  remainder on a proposal's page, and the balance sentences that block a payment or a payroll on the
+  forms, which show in the clear on screen today.
+- **Screen readers name the app's navigation in the member's language.** The main navigation was
+  labelled with the brand name, which says nothing about the region. It is now "Main" or
+  "Principal", and the screen reader adds that it is a navigation (#318).
+- **The "More" sheet and the vault switcher work from the keyboard.** They told screen readers they
+  were menus but had none of a menu's keys, and the switcher could not be closed with Escape. They
+  now behave as a button that shows a group of links: Escape closes either one and puts focus back
+  on its button, moving focus away closes it, and choosing the page or vault already open closes it
+  too (#317).
+- **The /net page no longer copies in silence.** Its "Copy address" button for the vault's address
+  and the signing-session code copied without waiting for the browser and said nothing either way,
+  so a refused copy left the old clipboard in place unnoticed. The address button now says "Copied"
+  only when the browser confirmed it, and says so when it did not; the session code has the app's
+  copy button, which shows a check only when the copy worked (#313).
+- **Delete on the /net page asks first.** On the saved-vault row, Delete removed the vault from this
+  device without asking. If that member had no backup, it destroyed the only copy of their part of the
+  key on this device. It now opens a confirmation that says the part is lost on this device unless a
+  backup exists, offers to export it first, and asks for the vault's name before it deletes (a vault
+  with no name asks for the first eight characters of its id). If the removal fails it says so and
+  stays open. The Vaults screen and Settings now use this same confirmation, so the three can no
+  longer differ: Settings' button now reads "Delete permanently", its name field no longer shows the
+  name inside the box, and Vaults no longer shows it either.
+- **The warning under a rule where every device signs no longer says one lost device locks the
+  funds.** On the create screen, a rule like 2 of 2 warned "If one device is lost, the funds are
+  locked", while a member's encrypted backup restores their seat on a new device. It now says what
+  does lock them: losing a device and its backup too. The recommendation of one device more than
+  signatures stays (#1049).
+- **A screen reader read the offline status twice, and the vault switcher opened empty with no
+  explanation when the saved vaults could not be read (#320).** The offline pill sat inside a live
+  region and also carried its own status role, so it was announced twice; it now has one. The
+  switcher listed vaults with a reader that answers an empty list when this browser has no storage or
+  the database will not open, so it could not tell "none saved" from "could not read". It now reads
+  with the one the Vaults list uses, and says "Could not read the vaults on this device" when that
+  read fails; the line sits inside the switcher, read in order with it.
+- **A coordinator address you type is checked by one rule, and one with a password is refused.** On the
+  desktop, the address of your own coordinator was checked only for starting with `https://` and
+  containing a dot, by a copy of the same check in two screens, and the functions that store it (and
+  the relay's, which no screen offers yet) checked nothing. So an address with a name and password
+  (`https://user:pass@host`), a query or a fragment was accepted and kept in the browser's storage in
+  plain text. The browser refuses a request to an address with a name and password, so every request
+  to it failed without saying why; a query was carried into every request. Now both screens, both
+  stores and both reads use one rule: https only (http only for `localhost` and `127.0.0.1`), the
+  server itself with no path, no name or password, query, fragment, spaces, invisible or control
+  characters, and at most 256 characters. A refused address says why and nothing is stored. An
+  address saved before this release that the rule refuses is no longer used: the device has no
+  coordinator of its own until you enter one again (Settings says so), and a refused relay address
+  falls back to the built-in relay. The saved value is removed when you save another address or pick
+  a coordination mode. The question asked before finishing a vault's creation with another server
+  shows the server the vault was started with by its host only, without a name or password the
+  address may have been saved with (#1067).
+- **The passphrase boxes of vault creation now have a visible name, and the rest of the screen reads
+  better.** In the create dialog the two passphrase boxes were named only by a hint that vanished as soon
+  as you typed; each now has a label that stays. The strength words (weak to strong) and bars were too
+  faint to read on several backgrounds, the amber "fair" in particular; they now use the app's own text
+  colours (the amber becomes a darker orange in the light theme). The edge of the create dialog's boxes, and of the
+  app's standard text boxes (Settings among them), is now visible, and so is the edge of the payment boxes (recipient, amount) and of each payroll line (recipient, value, memo), which were still nearly invisible; the amount box now shows a clear ring when you are typing in it. A locked box (read-only) now has a dashed edge and dimmer text, so you can tell it is locked. While you change your passphrase in Settings the three boxes lock and "Cancel" is
+  unavailable until the check ends, because the change goes through either way and used to report on a dialog you had
+  closed (if you leave Settings while it runs, you now get a notice of how it ended). The warning that a backup came out incomplete now sits before the download and copy buttons.
+  Not covered: the other password boxes (unlock, import, and the standalone /net protect form) still have no
+  visible label.
+- **After "Protect the vault" the passphrase boxes stayed editable and then showed up empty.** While the
+  device was sealing your part they could still be typed in, and once it was saved they were blank, which
+  read as a passphrase that had been erased. They are now locked while it saves, and replaced by a line
+  saying the passphrase is set. What was saved was never affected: the passphrase that protects your part
+  is the one you had typed when you pressed the button, and the backup file only opens with that same one.
+  Before this fix the generator button also stayed clickable during the save, and could show a passphrase
+  other than the one that had been sealed (#928).
+- **A browser password manager could overwrite one vault's passphrase with another's (#929).** Every
+  vault's passphrase field looked the same to the manager, so protecting a second vault, or changing a
+  passphrase, made it offer to update the entry saved for the first, and accepting lost that saved
+  copy. Where you choose a passphrase (protecting a vault, changing it) and in the export dialog, the
+  field now carries a hidden username made of the vault's name and a 4-character tag, so each vault
+  has its own entry, and says whether the passphrase is new or the current one. What your manager now
+  learns: the vault's name (the one given when it was created, the same on every member's device) and
+  that tag. The tag is a short value computed from the vault's id, not the id, a part of it or its
+  fingerprint, and it is the same on every device and for every member of the vault. An entry saved before this has no
+  username and can be deleted from the manager. The fields where you type the passphrase to open a
+  vault follow in a later release.
+- **"Worth a second look" appears sooner on the web.** Opening a proposal that can still be voted on
+  or signed read the vault's whole proposal list twice: once for the proposal and again for the
+  note. The note now compares against the list the proposal came from, so it reads the list once
+  fewer (#970).
+- **A member who was not seat 1 could be refused a proposal with a message that blamed the wrong thing,
+  or have it recorded under the first member's name (#591).** When a device's record had no name for
+  its member, the payment and payroll screens proposed under the name of the vault's first member.
+  The proposal was still signed for the device's real seat, so a vault with signed actions refused
+  every seat but the first with "this was sent under a name that is not this device's seat" and sent
+  the member looking for a fault in a list that was right. A vault without signed actions accepted
+  the proposal and recorded it, and its first approval, under the first member. The screens now take
+  the name from the seat this device holds, as the coordinator serves it, and the same seat signs the
+  proposal. When the device cannot say (the vault is locked, the member list could not be read, or
+  the coordinator has no name for the seat) Propose stays closed and the screen says which, and it
+  never falls back to another member's name or to a placeholder. If this device's own list of members
+  names its seat differently from the coordinator's, the screen shows the same warning the members
+  page does, without blocking. Voting and renaming still read the device's saved name, and are the
+  next change.
+- **The passphrase that protects your part of the vault is typed twice.** A typo in that one field
+  locked a member out of their own part. Creating or joining a vault now asks for it again and does
+  not save until the two match (#927).
+- **A screen reader did not say which saved address was highlighted in the recipient list.** Arrowing
+  through the list moved the highlight on screen only, so Enter could pick an address the member had
+  not heard. The list now tells assistive technology which option is highlighted. The coordination
+  choice when creating a vault and the offline notice now follow the chosen language through the
+  same dictionaries as the rest of the app; a few other screens still carry their own bilingual text (#228).
+- **"Reserved" and "Free" now count the network fee of open proposals (#1017).** The dashboard and
+  the payment screens held back only the amount of each open proposal, so an open payroll of 0.0001
+  ZEC reserved 0.0001 while about 0.00025 would leave the vault, and Free read higher than what could
+  be paid. A proposal now reserves its amount plus an estimate of its fee, so on a vault with an open
+  proposal Free is lower than before and a second proposal that only fit without that fee is refused.
+  It is an estimate: the fee actually paid depends on the notes the wallet picks and can be higher.
+  Where the proposals could not be read, or the fee could not be estimated, Reserved and Free show
+  "-" instead of a figure that leaves the fee out. Only this app reserves: the coordinator does not
+  reserve across proposals (see Known limits: the reservation is an estimate).
+- **The /net page no longer shows a vault's whole id.** The restored-vault, vault-created and
+  signing-session screens printed the vault's full id, which is what the coordinator looks a vault
+  up by, so it showed on a call or a shared screen. They now show the short fingerprint members
+  compare, and the list of saved vaults shows the id's first and last characters (#659).
+- **One tab signs for a seat at a time.** With the same vault open for signing in two tabs or windows
+  of one browser, both took the same seat in the signing room: one tab's part of the signature was
+  refused, the other tab showed an error, and the payment could stall until it was signed again. The
+  browser now lets one tab sign for the seat; the other says the vault is open for signing elsewhere
+  and takes over when that tab closes, or closes its signing panel (#285).
+- **"Worth a second look" names someone who left a payroll by the name the previous payroll gave
+  them, and lists what matters first (#950).** In 0.21.0 a person dropped from a payroll could be
+  named by a label from an older payroll, and the note listed its lines in the order the comparison
+  produced them, so an amount above usual could end up counted in "and N more". An amount above
+  usual and a person dropped from the payroll now come first, then an address with no earlier
+  payment, and a changed amount last, so in a round of raises an address never paid before is still
+  shown.
+- **The bar that hides an amount can be seen in the dark theme, and the keyboard no longer stops on it
+  once it is gone.** In the dark theme the bar was nearly the colour of the page (about 1.1:1), so the
+  control that reveals a figure was close to invisible; it now has an edge that reaches at least 3:1
+  on every surface (#903). After "Reveal", every bar stayed in the Tab order and focus landed on
+  something nobody could see. A revealed bar now leaves the Tab order and what a screen reader finds,
+  focus moves to the amount its bar uncovered, and the page's Hide button hides the amounts again, as
+  it already did for the mouse (#904).
+
+### Known limits
+
+- **Since block 3,590,000 (mined on 19 November 2026), a vault pays the lower network fee only when
+  three things hold (#847).** The operator of the vault's server has allowed the lower fee (by
+  default it is not allowed, and every vault then pays 5,000 zatoshis per action; the hosted server
+  has allowed it since 19 November 2026); every seat of the vault has reported that its device accepts the
+  lower fee, which a device does when it unlocks on 0.21.0 or later; and the server's own view of the
+  chain has reached that block. Otherwise the vault pays 5,000 per action, which stays valid and can
+  be told apart on chain from wallets that pay 1,000. So a vault whose seats have not all reported
+  stays at 5,000 per action. The device that unlocked a seat last speaks for it: a seat that has
+  never unlocked on 0.21.0 or later, or that unlocks again on an app older than 0.21.0, puts the
+  whole vault back on 5,000. To move a vault to the lower fee, each member unlocks it once on 0.21.0
+  or later, on the device they sign with.
+- **A device on an app older than 0.21.0 does not have the checks on signing a payment again.** It
+  signs a payment again after the earlier transaction's deadline with no warning, and its `/net`
+  page still signs. A payment needs enough devices to sign, so a vault is protected by the devices
+  that were updated, not by the release.
+- **A repeated payment is recognised only within limits.** Under another proposal, your device
+  recognises a payment only when the recipients, amounts and memos are exactly the same, only for
+  seven days, and only against signatures it made on 0.21.0 or later. A payment changed in any
+  detail, or repeated after seven days, gets the ordinary Sign prompt. Two honest payments with
+  identical lines inside seven days get the question as well: answer that it is a separate payment.
+- **A proposal's reservation holds its amount plus a fee estimate, and only this app applies it.**
+  The fee actually paid depends on the notes the wallet picks and can be higher than the estimate,
+  so two open proposals can still add up to more than the vault can pay. The coordinator does not
+  reserve across proposals: two members proposing at the same moment, or a client that does not
+  apply the reservation, can each create a proposal the vault cannot fund once both are sent. When
+  open proposals add up to more than the vault can spend, the dashboard says so.
+- **A coordinator address saved before this release can read back differently, and old vault records
+  keep the address they stored (#1067).** An address saved in a spelling other than its normal form
+  (mixed case, `:443`, a non-ASCII name, a numeric IPv4 form) now reads back normalised, so a vault
+  whose creation was started against the old spelling shows the "this vault was created while this
+  device used another server" question when you finish it, although it is the same server. Answer it
+  only if you recognise the server. And a vault record written before this release keeps whatever
+  coordinator address it stored, a password included if the address had one: it is no longer shown
+  with the password, but it is not removed from the record. An address saved before this release
+  with a name and password stays in this device's storage until you save another address or pick a
+  coordination mode; it is no longer used or shown.
+- **The one-tab rule holds within one browser profile and one address of the app.** It uses the
+  browser's own lock, which tabs on another address of the app or in another profile do not share
+  (they also keep their own copy of the vault, so they act as separate devices). A browser without
+  that lock falls back to the rule inside each tab alone, as before, and a tab still running an
+  earlier version of the app does not take the lock until it reloads.
+
 ## [0.21.0] 2026-11-14
 
 ### Security

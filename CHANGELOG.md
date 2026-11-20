@@ -56,6 +56,91 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.22.0] 2026-11-20
+
+> **Services deployed when this was cut (2026-11-20):** coordinator `e5e581ee`, relay `68c687b62bc3d547`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The coordinator builds a vault's payments from fewer of its notes.** A payment the vault's funds
+  can pay is now built within the size the vault's devices can sign in cases where it was refused as
+  too large. When the usual split of the change into several notes would make a transaction too
+  large, its change is paid to one note instead. The hosted coordinator has run this since
+  2026-11-18; details follow in a later entry.
+
+### Added
+
+- **Anyone can check that the web app is a published release.** From this release on, each release
+  publishes `web-manifest.json`: the SHA-256 of every file of the web app it builds, with a build
+  attestation, and its fingerprint in the release notes. `node scripts/verify-web.mjs` fetches every
+  one of those files from www.konclave.xyz and compares it, file by file, with the manifest of the
+  version the site claims; it also checks the security headers, and calls a site serving another
+  commit "NOT A RELEASE". How to run it and what it does not prove: `docs/VERIFY-WEB.md`. It
+  detects a modified app for whoever runs it, at that moment; it does not stop a compromised host,
+  does not prove what another member received, and the installed app does not yet refuse an update
+  that is not a release (#605).
+
+### Changed
+
+- **CI now checks the committed lockfile against the dependency supply-chain settings** (#820). A
+  separate job runs pnpm 12, pinned by the integrity of its tarballs and only to verify, because it
+  re-applies the minimum release age and the trust policy to every locked entry, which pnpm 10's
+  `--frozen-lockfile` install does not. It first refuses settings weaker than the ones documented:
+  the settings pnpm resolves must be on an allowlist (a shorter age, an exclude that is not one
+  exact version, another registry or any other key is refused), `.npmrc` may set nothing but
+  `engine-strict`, and no pnpmfile runs. Then it proves the check is live: with the trust
+  excludes removed it must refuse `semver@6.3.1`, and with an absurd minimum age it must refuse on
+  age. A registry it cannot reach is reported as "could not verify", never as a pass, and the jobs
+  that install fail when the check did not pass. Its first run found a third locked package the
+  trust policy refuses, which the 0.21.0 entry, counting two, had missed: `undici-types@6.21.0`
+  (type definitions that `@types/node` requires, published without the provenance its earlier
+  releases carried), now excluded by exact version with its reason in `pnpm-workspace.yaml`.
+- **Correction to 0.21.0: the coordinator checks the fee of its own transaction before the devices
+  are asked to sign it, not before anyone is asked to approve it.** The 0.21.0 entry on the
+  builder's fee permission said the second; the check runs when the payment is built for signing,
+  after the members have approved it. What it checks is unchanged.
+- **The local MCP server runs on a patched MCP SDK.** `mcp-server` now requires
+  `@modelcontextprotocol/sdk` 1.32.2, and the packages it pulls in (hono, `@hono/node-server`,
+  express's body-parser, proxy-addr and qs, ip-address, fast-uri) move to their patched releases.
+  The advisories concern HTTP server transports and the frameworks behind them, OAuth clients,
+  proxy and IP-range checks, URI parsing and hono's HTML helpers. This server speaks only stdio to
+  the assistant that starts it: the HTTP stack never loads, and fast-uri is loaded only by the SDK's
+  schema validator, over the server's own tool schemas. Nothing here reaches the coordinator, the
+  relay, the signer or the web app: the web build is byte-identical before and after (same commit id
+  embedded).
+- **A security report by email can be encrypted.** `SECURITY.md` now gives the PGP key for
+  security@deegalabs.com (published at `www.deegalabs.com/.well-known/pgp-key.txt`, fingerprint
+  `E266 E6A9 3F09 1314 EDFC AD07 B51B FE1A C8C2 B361`, expires 2028-11-13). The 0.21.0 entry said
+  no key was published for that address; one is now. The GitHub advisory form stays a private
+  channel too.
+
+### Fixed
+
+- **The local MCP server sends the amount the assistant meant, and says why one is refused.** A
+  number written with an exponent (such as `1e-7`) or one that is not finite was sent to the app as
+  `"1e-7"` or `"Infinity"`; the tool now refuses it and asks for a decimal string. When the app
+  refuses an amount or a payroll line, the assistant now gets the reason and the line number, not
+  only "invalid amount". The rule for what counts as an amount stays in the app (#973).
+
+### Known limits
+
+- **The lockfile check does not cover every install.** The desktop release workflow and the Vercel
+  preview build install without it in front of them, and no control shows that `blockExoticSubdeps`
+  is re-applied to entries already in the lockfile (the lockfile holds no git or tarball entry for
+  it to refuse). This narrows the 0.21.0 limit "CI does not enforce the dependency supply-chain
+  settings".
+- **A vault that holds any of its funds in the older Orchard pool does not fully benefit from the
+  change to how payments choose notes** (Security, above). Moving those funds to the current pool,
+  with one or more payments to a new vault, is the remedy until a later release covers it.
+- **A device's record of what it signed stays on that device.** A member who signs for the same seat
+  on another device (a backup restored there included), in another browser or a private window, or
+  after clearing the browser's storage is not warned there that the seat already signed that payment,
+  and signing again could pay it twice. A device that reads the chain itself would narrow this (#516,
+  not scheduled).
+
 ## [0.21.0] 2026-11-14
 
 > **Services deployed when this was cut (2026-11-14):** coordinator `027c4a6c`, relay `68c687b62bc3d547`.
