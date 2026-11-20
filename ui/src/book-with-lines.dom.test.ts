@@ -33,6 +33,40 @@ describe('the book with its payroll lines', () => {
     expect(book!.linesById.r3![0]).toMatchObject({ label: 'P3', address: U('g'), value_zat: 10 })
   })
 
+  it('on the local bridge reads the lines of the newest settled payrolls, up to the cap, and no others', async () => {
+    vi.stubEnv('VITE_HELPER_BASE', '')
+    vi.resetModules()
+    // 14 settled payrolls, listed oldest first so the order of the reads is the reader's own, plus a
+    // single payment, which has no lines to read, and a newer payroll still awaiting votes, which is
+    // not money that left the vault.
+    const ledger = [
+      ...Array.from({ length: 14 }, (_, i) => ({ id: `p${i}`, kind: 'payroll', state: 'sent', created_at: 1759000000 + i, value_zat: 10 })),
+      { id: 'one', kind: 'payment', state: 'sent', created_at: 1759000100, value_zat: 5, to_address: U('z') },
+      { id: 'open', kind: 'payroll', state: 'awaiting', created_at: 1759000200, value_zat: 10 },
+    ]
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url)
+      if (u.startsWith('/api/ledger')) return new Response(JSON.stringify({ ledger }), { status: 200 })
+      const m = /^\/api\/proposals\/([^/?]+)$/.exec(u)
+      if (!m) return new Response('{}', { status: 404 })
+      asked.push(m[1]!)
+      const p = ledger.find((x) => x.id === m[1])!
+      return new Response(JSON.stringify({ proposal: p, lines: [{ label: `L-${p.id}`, address: U('q'), value_zat: 10, value_zec: '0.0000001', memo: '', is_public: false }] }), { status: 200 })
+    }))
+    const { getBookWithLines, BRIDGE_PAYROLLS_READ, IS_NET } = await import('./api')
+    expect(IS_NET).toBe(false)
+    expect(BRIDGE_PAYROLLS_READ).toBe(12)
+    const book = await getBookWithLines()
+    expect(book!.history).toHaveLength(16)
+    const newest = Array.from({ length: 12 }, (_, i) => `p${13 - i}`)
+    expect(asked).toEqual(newest)
+    expect(Object.keys(book!.linesById).sort()).toEqual([...newest].sort())
+    expect(book!.linesById.p0).toBeUndefined()
+    expect(book!.linesById.p1).toBeUndefined()
+    expect(book!.linesById.p13![0]).toMatchObject({ label: 'L-p13' })
+  })
+
   it('on the web, a book that does not answer is null, not an empty book', async () => {
     vi.stubEnv('VITE_HELPER_BASE', 'https://coordinator.example')
     vi.resetModules()

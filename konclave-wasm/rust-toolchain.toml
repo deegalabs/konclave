@@ -1,0 +1,8 @@
+# The compiler that builds the browser module. Pinned so a build of this source gives the same bytes
+# on any machine (`scripts/build-wasm.mjs`, which CI runs and compares with `ui/src/wasm-pkg`). It
+# applies only when cargo runs in this directory; the rest of the workspace keeps its own toolchain.
+# Changing it changes the module: regenerate with `node scripts/build-wasm.mjs`.
+[toolchain]
+channel = "1.99.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

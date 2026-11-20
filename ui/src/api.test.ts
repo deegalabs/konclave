@@ -84,6 +84,20 @@ describe('NET adapter (helper proposal -> PWA proposal)', () => {
     expect(p.memo).toBeUndefined() // null -> undefined
     expect(p.approvals_count).toBe(1)
     expect(p.txid).toBeUndefined()
+    expect(p.destinations).toBe(1) // a payment pays one output (#1017)
+  })
+
+  it('carries a payroll\'s line count as its destinations, and leaves it unknown without lines (#1017)', () => {
+    const base: NetProposal = {
+      id: 'r1', vault_id: 'v1', kind: 'payroll', to: '', amount_zat: 3000, memo: null, proposer: 'A',
+      state: 'pending', approvals: [], refusals: [], threshold: 2, total: 3,
+      created_at_unix: 1, expiry_unix: 0, txid: null,
+    }
+    const line = (to: string) => ({ to, amount_zat: 1000 })
+    expect(mapNetProposal({ ...base, lines: [line('u1a'), line('u1b'), line('u1c')] }).destinations).toBe(3)
+    // No lines read: unknown, not 1 and not 0.
+    expect(mapNetProposal(base).destinations).toBeUndefined()
+    expect(mapNetProposal({ ...base, lines: [] }).destinations).toBeUndefined()
   })
 
   it('flags a transparent destination as public and carries a txid', () => {

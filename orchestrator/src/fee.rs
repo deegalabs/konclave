@@ -104,7 +104,7 @@ pub fn vault_fee_permission(
     (true, Some(from))
 }
 
-/// The coordinator checks its OWN build before it asks anyone to approve it: the fee the PCZT pays
+/// The coordinator checks its OWN build before it asks the devices to sign it: the fee the PCZT pays
 /// must be EXACTLY what the builder's rule gives for this vault at the build's target (the
 /// coordinator's own tip plus one): 5,000 per action, or 1,000 once the ZIP 2009 fee is in force. A
 /// signer that ignored its permission and paid the other one is refused here. The rule is `konclave_seal::epochs::zip2009_in_force`, the predicate the signer decides its

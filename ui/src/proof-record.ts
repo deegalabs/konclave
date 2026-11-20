@@ -248,6 +248,15 @@ export const PROOF_TXS: readonly ProofTx[] = [
       'pt-BR': 'Uma folha privada de duas linhas no código do coordenador lançado como v0.17.0, em staging: duas linhas de folha, ambas para o mesmo endereço, em uma transação v6, de um cofre de staging que o operador descreve como 2-de-2, montada pelo coordenador de staging no commit 17bef799, taxa de 0,00015 ZEC. Staging é uma implantação separada que roda na mainnet, então esta é uma transação real da mainnet, mas não foi o coordenador de produção que a fez. A cadeia não mostra que ela paga duas linhas, o formato 2-de-2, nem qual coordenador a montou. Isso se apoia no commit que o coordenador de staging informa e no operador, não no bloco.',
     },
   },
+  {
+    txid: '7ac245adabb92482300e0322488dd864230e143297380e8bbb387bdfd5b5c7a9',
+    block: 3590637,
+    origin: 'dkg',
+    label: {
+      en: 'First production payment at the lower ZIP 2009 fee: 1,000 zatoshis per logical action instead of 5,000, read from the chain as a v6 transaction with two Ironwood actions and nothing transparent, paying 0.00002 ZEC, mined 637 blocks after block 3,590,000, the height from which ZIP 2009 says wallets should switch. A shielded payment from a vault its operator describes as 2-of-2, approved and signed on two devices in the production web app v0.21.0 and built by the production coordinator at commit e5e581ee, about 45 minutes after the operator set that coordinator to use each vault\'s own fee permission instead of 5,000 for every vault. The chain shows the fee and the two actions and cannot show the 2-of-2 shape, the two devices, which coordinator built it, nor when its fee setting changed. That rests on the commit the coordinator reports, the version the web app shows and the operator, not on the block.',
+      'pt-BR': 'Primeiro pagamento em produção com a taxa menor do ZIP 2009: 1.000 zatoshis por ação lógica em vez de 5.000, lido da cadeia como uma transação v6 com duas ações Ironwood e nada transparente, que paga 0,00002 ZEC, minerada 637 blocos depois do bloco 3.590.000, a altura a partir da qual o ZIP 2009 diz que as carteiras devem trocar. Um pagamento blindado de um cofre que o operador descreve como 2-de-2, aprovado e assinado em dois aparelhos no app web de produção v0.21.0 e montado pelo coordenador de produção no commit e5e581ee, cerca de 45 minutos depois de o operador configurar esse coordenador para usar a permissão de taxa de cada cofre em vez de 5.000 para todos. A cadeia mostra a taxa e as duas ações e não mostra o formato 2-de-2, os dois aparelhos, qual coordenador a montou, nem quando a configuração de taxa mudou. Isso se apoia no commit que o coordenador informa, na versão que o app web mostra e no operador, não no bloco.',
+    },
+  },
 ]
 
 /** How many of the listed transactions came from each kind of vault. Counted, never typed. */

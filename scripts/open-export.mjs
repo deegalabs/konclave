@@ -91,6 +91,17 @@ export function envelopeOf(bundle) {
   return { v1, env }
 }
 
+/** The PBKDF2 count of an export, by the app's rule (`kdfItersOf` in ui/src/storage.ts; a test holds
+ *  the two to the same answers): absent means 210000, the count before the field existed (#435);
+ *  otherwise a whole number from 210000 to 5000000. */
+export function kdfIterationsOf(field) {
+  if (field === undefined || field === null) return 210_000
+  if (typeof field !== 'number' || !Number.isInteger(field) || field < 210_000 || field > 5_000_000) {
+    throw new Refusal(`The export names a key-derivation count of ${JSON.stringify(field)}, outside 210000 to 5000000. The file is corrupt or was not written by Konclave.`)
+  }
+  return field
+}
+
 const KEY_HEX = /^[0-9a-f]{64}$/i
 const hex = (u) => [...u].map((b) => b.toString(16).padStart(2, '0')).join('')
 
@@ -109,9 +120,9 @@ export async function openExport(bundle, passphrase) {
     {
       name: 'PBKDF2',
       salt: unhex(env.salt, 'salt'),
-      // The count comes FROM THE FILE. An export written before that field existed has none, and
-      // 210000 is what it was sealed with (#435). Assuming today's number would fail on old backups.
-      iterations: env.kdfIters ?? 210_000,
+      // The count comes FROM THE FILE, checked: an export written before that field existed has none,
+      // and 210000 is what it was sealed with (#435).
+      iterations: kdfIterationsOf(env.kdfIters),
       hash: 'SHA-256',
     },
     base,
@@ -264,7 +275,7 @@ export function reportLines(bundle, env, v1, payload, showSecrets = false) {
     ? '(not trusted in this format: kept outside the encryption, so it may have been edited; Konclave ignores it)'
     : (payload.address ?? '(none)')
   lines.push(`
-  Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${env.kdfIters ?? 210_000}
+  Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${kdfIterationsOf(env.kdfIters)}
 
   Vault      ${payload.name ?? '(unnamed)'}
   You        ${payload.myName ?? '(unrecorded)'}

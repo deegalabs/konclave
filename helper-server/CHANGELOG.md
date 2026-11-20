@@ -42,10 +42,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The coordinator builds a vault's payments from fewer of its notes.** Same change as the root
+  changelog's Security entry of 0.22.0; details follow in a later entry. The hosted coordinator has
+  run this since 2026-11-18 (e5e581ee).
+
 - **New vaults have a ceiling in all, and creation pauses when the volume is nearly full.** The coordinator accepts at most 60
   new vaults an hour from every address together, and pauses new vaults while the volume has less
   than 5 GiB free; a refused creation is answered to try again later, and existing vaults, payments,
   reads and devices joining a vault are not affected. The boot log says whether the floor is on.
+  Before this change the coordinator limited new vaults for each address (5 an hour) and had no
+  limit in total, so many addresses together could keep creating vaults until its volume was full.
+  That put the service at risk for every vault; no funds and no vault's books were exposed by it.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -109,13 +117,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   availability, never a guarantee. The builder's permission reads it (a vault is permitted the lower
   fee only when every seat reported it and the operator's switch is `per-vault`); with the switch at
   its default, what a payment pays does not change.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 
 - **A payroll can carry a name (#296).** `POST /api/vault/payroll` accepts an optional `title`:
   trimmed, an empty one is no title, and one longer than 120 characters or holding a control or
   bidirectional character is answered 400 with nothing stored. It is stored on the proposal as its
   own field, never as the memo, and returned on the reads. A payroll without one, a single payment,
   and every proposal stored before this version carry no `title` key, so an older reader sees the
-  same record. It is a label: no signature covers it yet (#567). Not yet on the hosted coordinator.
+  same record. It is a label: no signature covers it yet (#567). The hosted coordinator has run
+  this since 2026-11-09 16:51 UTC (60e1525f, a local build with the service code of 670a1683).
 
 ### Changed
 
@@ -139,6 +149,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   5,000 per action; **exactly `per-vault`**, each vault's own permission decides; **any other value**
   (empty, `1000`, text), the coordinator refuses to start and says why. It logs one line at boot saying
   which case is in force. See `deploy/helper/README.md`.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **A payment is built the same way as a payroll line.** The coordinator builds a single payment
   with the builder that builds a payroll (`konclave-signer build-payroll`), as a payroll of one
   line, so the two share one set of rules. Nothing changes in what a payment pays: the same
@@ -147,7 +158,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   another process on the same machine could read them. Build the coordinator and
   `konclave-signer` from the same release commit, as `deploy/helper/README.md` asks: the signer's fee
   rule and flags changed with the fee permission (#847), and a coordinator set to `per-vault` passes
-  flags an older signer does not know. Not yet on the hosted coordinator.
+  flags an older signer does not know.
+  The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
 - **A new vault must be created with the current app (creation protocol 4).** A registration that
   declares an older creation protocol is refused with `update_required`, which the app shows as
   "update the app"; `/api/health` reports `client.creation` 4. Vaults already registered keep
@@ -227,16 +239,16 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
-- **The lower fee ZIP 2009 allows is not in use yet (#847).** The coordinator pays 5,000 per action
-  unless the operator sets `KONCLAVE_FEE_MARGINAL_MAX=per-vault`, and that value is set only after the
-  maintainer has made a send at the lower fee on staging, after block 3,590,000. Even then a vault
-  pays it only when every seat has reported that its device accepts it. A seat's report is
+- **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
+  operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block
+  3,590,417). Even so, a vault pays it only when every seat has reported that its device accepts it. A seat's report is
   self-declared and is not authenticated against the members: whoever may register a seat's keys
   (anyone holding the vault id, on a vault with no read key) can change that seat's report. And two devices of one seat share one registration, so the newest
   one speaks for the seat. The coordinator can therefore build at 1,000 for a vault where a signing
   device still refuses 1,000, and that device then refuses the ceremony. The effect is availability
   (the payment does not go out at that fee), never funds: the device's own fee check stays the
-  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000.
+  defence, and setting `KONCLAVE_FEE_MARGINAL_MAX=5000` puts every vault back on 5,000. Signing the
+  report by the seat is #1076, not started.
 - **A paused creation reads as "busy" in the app.** When new vaults are paused, the app says the
   coordinator is busy and to try again in a moment; the hourly ceiling is a fixed one-hour window that
   starts at the first attempt to create a new vault after the previous window ended, admitted or not;

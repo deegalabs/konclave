@@ -10,14 +10,15 @@
 
 import { CROCKFORD } from './format'
 import { CREATION_PROTOCOL } from './creation-protocol'
+import { forgetRefusedServiceUrl, readServiceUrl, storeServiceUrl, type ServiceUrlRefusal } from './service-url'
 
-const ENV = import.meta.env as Record<string, string | undefined>
-const BASE: string = ENV.VITE_API_BASE ?? ''
+// One key at a time, never the env object (#605, src/env-reads.test.ts).
+const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 // A hosted relay overrides the base; empty = the local bridge (same origin). Exported so the
 // Architecture-B send can tell the (server-side) helper WHICH relay the browsers are on - the
 // helper must publish its sign-request into the same room, so this must be a URL it can reach
 // (a hosted relay, not the local bridge).
-export const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
+export const RELAY_BASE: string = import.meta.env.VITE_RELAY_BASE ?? BASE
 
 // ---- relay selection (#213) ----
 // The relay is the rendezvous: every device in a vault (and the helper) must reach the SAME relay
@@ -26,7 +27,6 @@ export const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
 // at a self-hosted relay. A curated multi-relay directory (pick the nearest) is the future network.
 export type RelayMode = 'ours' | 'custom'
 const RELAY_MODE_KEY = 'konclave.relay.mode'
-const RELAY_URL_KEY = 'konclave.relay.url'
 
 function relayLs(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -37,17 +37,28 @@ export function getRelayMode(): RelayMode {
   return relayLs(RELAY_MODE_KEY) === 'custom' ? 'custom' : 'ours'
 }
 
-/** The user-provided self-hosted relay URL (for 'custom' mode), trailing slash trimmed. */
+/** The member's own relay (for 'custom' mode), read through the one rule (#1067), or ''. A stored
+ *  address the rule refuses counts as none, so `relayBase` falls back to the built-in relay, as it
+ *  does for an empty one: the coordinator publishes only to the relays it is configured with, so the
+ *  built-in one is where a send can meet the other devices anyway. */
 export function getCustomRelay(): string {
-  return (relayLs(RELAY_URL_KEY) ?? '').trim().replace(/\/+$/, '')
+  const r = readServiceUrl('relay')
+  return r?.ok ? r.base : ''
 }
 
-/** Persist the relay choice. Callers reload if any cached state depends on it. */
-export function setRelay(mode: RelayMode, url?: string): void {
+/** Persist the relay choice. Callers reload if any cached state depends on it. With a `url`, the
+ *  address goes through the one rule first (#1067): a refused one stores nothing, not even the mode,
+ *  and the refusal is returned. `null` means stored. */
+export function setRelay(mode: RelayMode, url?: string): ServiceUrlRefusal | null {
+  forgetRefusedServiceUrl('relay')
+  if (url !== undefined) {
+    const r = storeServiceUrl('relay', url)
+    if (!r.ok) return r.reason
+  }
   try {
     localStorage.setItem(RELAY_MODE_KEY, mode)
-    if (url !== undefined) localStorage.setItem(RELAY_URL_KEY, url.trim().replace(/\/+$/, ''))
   } catch { /* storage unavailable - the choice applies this session only */ }
+  return null
 }
 
 /** The EFFECTIVE relay base for the current choice; falls back to the built-in RELAY_BASE. */
@@ -265,13 +276,13 @@ export function joinParam(hash: string): string | null {
   return m ? safeDecode(m[1]!) : null
 }
 
-/** Where an invite link points: this web app, or the public one when this is the desktop shell
- *  (whose own origin means nothing on another device). */
-const PUBLIC_APP = 'https://www.konclave.xyz/'
+/** Where an invite link points: always the real app, whatever host this copy runs on. A copy on a
+ *  lookalike or preview host would otherwise send the joiner to itself, and a joiner who opens it
+ *  there seals the seat's share in that host's storage. One rule, no exception for localhost: a
+ *  developer testing two tabs pastes the code, which the join field accepts as it does a link. */
+export const PUBLIC_APP = 'https://www.konclave.xyz/'
 function inviteBase(): string {
-  return /^https?:$/.test(location.protocol) && !/tauri/.test(location.hostname)
-    ? `${location.origin}${location.pathname}`
-    : PUBLIC_APP
+  return PUBLIC_APP
 }
 
 /** Group an invite for reading: 4-4-4-… */

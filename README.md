@@ -81,7 +81,7 @@ proven on mainnet across the Orchard → Ironwood upgrade and after NU7.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **24 verifiable mainnet transactions**, each signed by a FROST quorum
+This is not a mock. **25 verifiable mainnet transactions**, each signed by a FROST quorum
 (2-of-2, 2-of-3 and 3-of-4). **Six of them came from vaults split by a trusted dealer**, where the
 whole key existed on one machine at creation: those are the early ones, the flagship below
 included. The rest came from vaults created by Distributed Key Generation, where the key was never
@@ -274,7 +274,7 @@ not promise what we do not deliver.
 
 **Proven vs pending, the honest ladder:**
 
-- ✅ **On mainnet, 24 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
+- ✅ **On mainnet, 25 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
   [/proof](https://konclave-demo.vercel.app/#/proof) page): a **2-of-3 quorum payment** (proposed and
   approved in the app, FROST-signed, shares **sealed** at rest); a **private
   payroll**, one shielded Orchard transaction with **three outputs, each carrying its own encrypted
@@ -414,6 +414,7 @@ made with an AI assistant are welcome on the same terms:
 
 ## Documentation
 
+- **[docs/FIRST_DAY.md](docs/FIRST_DAY.md): your first day with a vault**, for a group that has just created one: backups, putting ZEC in, signing together, and what to do if something stops working
 - **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** - use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
 - [DEPLOY.md](DEPLOY.md): hosting and CI · [docs/archive/zechub-3.0-submission.md](docs/archive/zechub-3.0-submission.md): the ZecHub Hackathon 3.0 submission page, archived in its last state
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan

@@ -5,6 +5,12 @@ on:
     branches: [main, staging]
   pull_request:
 
+# Read-only by default (CodeQL actions/missing-workflow-permissions): a job that needs more says so
+# in its own block, as `changelog` and `pr-rules` do. The caches and upload-artifact steps use the
+# runner's own token, not this one.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}
@@ -175,6 +181,7 @@ jobs:
           cargo check --manifest-path konclave-seal/Cargo.toml --features pczt
           cargo check --manifest-path konclave-seal/Cargo.toml --features share-sig
           cargo check --manifest-path konclave-seal/Cargo.toml --features receivers
+          cargo check --manifest-path konclave-seal/Cargo.toml --features zip2005
 
   wasm:
     name: WASM (konclave-wasm → browser build)
@@ -187,14 +194,28 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: konclave-wasm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # The compiler the module is built with is pinned in konclave-wasm/rust-toolchain.toml, apart
+      # from the stable toolchain above (which only installs wasm-pack).
+      - name: Install the pinned compiler for the module
+        working-directory: konclave-wasm
+        run: rustup toolchain install
       - name: Install wasm-pack
         # Deterministic install from source (pinned version) instead of piping a remote script to a
-        # shell (no curl | sh). The Rust toolchain is already set up above. --force pins our exact
-        # version over the runner's pre-installed wasm-pack.
-        run: cargo install wasm-pack --version 0.13.1 --locked --force
-      - name: Build for the browser (wasm32 + wasm-bindgen)
-        working-directory: konclave-wasm
-        run: wasm-pack build --target web --out-dir /tmp/pkg
+        # shell (no curl | sh). --force pins our exact version over the runner's pre-installed
+        # wasm-pack. The version is the record's (engine/versions.lock), the one build-wasm.mjs checks.
+        run: cargo install wasm-pack --version "$(node scripts/build-wasm.mjs --wasm-pack-version)" --locked --force
+      # #1065: the module the app ships is the one this source builds. The same recipe that regenerates
+      # `ui/src/wasm-pkg` builds it here and compares every file, and the record in the lock.
+      - name: The committed module is what this source builds
+        run: node scripts/build-wasm.mjs --check --out /tmp/pkg
+      # What the signer module can reach, on the package just built from source: the same script the
+      # vitest runs on the committed package. A dependency change that hands the module a network,
+      # storage or reflective function fails here, before anyone regenerates `ui/src/wasm-pkg`.
+      - name: The built module can reach only the reviewed imports
+        run: node scripts/check-wasm-pkg.mjs /tmp/pkg
 
   relay-image:
     name: Relay image (the deploy recipe still builds)
@@ -249,10 +270,80 @@ jobs:
           echo "repo:  $on_disk"
           test "$in_image" = "$on_disk"
 
+  # The lockfile against pnpm-workspace.yaml's supply-chain settings (#820). Those settings act when
+  # pnpm resolves, and every install below is --frozen-lockfile, which does not; pnpm 12 re-applies the
+  # age and trust rules to every locked entry, so the script runs it ONLY to verify, in a temporary
+  # copy, with fresh store and cache (a cached answer is not a check). It also proves the rules are
+  # live with two controls that must be refused. "Could not verify" (a registry outage) is red too, and
+  # says so. The jobs that install wait for it and fail when it did not pass: this job is not itself a
+  # required check, and a job skipped because its `needs` failed counts as passed for a required one.
+  lockfile-policy:
+    name: Lockfile policy (supply-chain settings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/check-lockfile-policy.mjs
+
+  # The roadmap's titles and GitHub states are a committed snapshot (scripts/roadmap-sync.mjs), so
+  # reading the docs calls nobody. A PR that touches the roadmap must carry a snapshot that matches
+  # GitHub and is at most 7 days old; other PRs are not held to it, so a stale snapshot never turns an
+  # unrelated PR red. The weekly roadmap-fresh workflow watches the rest of the time.
+  roadmap:
+    name: Roadmap snapshot matches GitHub
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Does this PR touch the roadmap?
+        id: touched
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # The merge base, not base.sha: see the changelog job.
+          if git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD" \
+             | grep -qE '^(ui/src/docs/roadmap(-refs)?\.ts|scripts/roadmap-sync\.mjs|\.github/workflows/roadmap-fresh\.yml)$'; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The roadmap is untouched - not checked here."
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.touched.outputs.touched == 'true'
+        with:
+          node-version-file: .nvmrc
+      - name: The snapshot matches GitHub and is at most 7 days old
+        if: steps.touched.outputs.touched == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/roadmap-sync.mjs --check --max-age-days 7
+
   ui:
     name: UI (Vite/React frontend)
+    needs: lockfile-policy
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: The lockfile passed its policy check
+        if: needs.lockfile-policy.result != 'success'
+        run: |
+          echo "::error::Lockfile policy did not pass (${{ needs.lockfile-policy.result }}): nothing is installed from this lockfile."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -265,17 +356,34 @@ jobs:
       - name: Unit tests (vitest)
         run: pnpm -C ui run test
       - name: Type-check + build (tsc -b && vite build)
+        # A variable nothing reads (#605): if any file inlined the env object again, its name would
+        # be in the bundle and the check below fails on this PR. Without it CI sets no VITE_*, and an
+        # inlined object would carry only Vite's own keys, which the check cannot tell apart.
+        env:
+          VITE_KONCLAVE_CI_CANARY: canary
         run: pnpm -C ui run build
       # The inverse of the check in desktop-release.yml: the web build must ship the workbox worker
       # that precaches the app (opening offline, the update banner), never the desktop's
       # self-destroying one. Rule and tests: scripts/check-sw.mjs.
       - name: Check the service worker is the web one
         run: node scripts/check-sw-cli.mjs web ui/dist/sw.js
+      # No env key name in the built JavaScript (#605): a key name means an env object was inlined,
+      # with every variable the host adds, and the release's rebuild could no longer match what the
+      # host serves. The rule and its tests: scripts/check-desktop-bundle.mjs.
+      - name: Check the bundle inlined no env object
+        run: node scripts/check-desktop-bundle-cli.mjs --web ui/dist
 
   e2e:
     name: UI e2e (Playwright)
+    needs: lockfile-policy
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: The lockfile passed its policy check
+        if: needs.lockfile-policy.result != 'success'
+        run: |
+          echo "::error::Lockfile policy did not pass (${{ needs.lockfile-policy.result }}): nothing is installed from this lockfile."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -296,8 +404,15 @@ jobs:
 
   node-packages:
     name: Node packages (mcp-server · sdk)
+    needs: lockfile-policy
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: The lockfile passed its policy check
+        if: needs.lockfile-policy.result != 'success'
+        run: |
+          echo "::error::Lockfile policy did not pass (${{ needs.lockfile-policy.result }}): nothing is installed from this lockfile."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useToast } from '../toast'
+import { copyText } from '../clipboard'
 import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
-import { Dialog, PassphraseField, Secret } from '../components'
+import { Dialog, PassphraseField, Secret, VaultPassForm } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { newPassphraseProblem } from '../passphrase'
@@ -20,11 +21,13 @@ import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
+import { RemoveVaultDialog, type RemoveResult } from '../remove-vault-dialog'
 import { trustRows, type Cell } from '../trust-facts'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { ReceiversRepair } from './ReceiversRepair'
 import { getCoordMode, setCoordMode, getCustomHelper, localCoordAvailable, HELPER_BASE, type CoordMode } from '../helper'
+import { parseServiceUrl, readServiceUrl } from '../service-url'
 import { isDesktop } from '../platform'
 
 /**
@@ -42,17 +45,19 @@ export default function Settings() {
   // recomputes app-wide. The helper stays blind in every mode.
   const [coord, setCoord] = useState<CoordMode>(getCoordMode())
   const [helperUrl, setHelperUrl] = useState(getCustomHelper())
-  const applyCoord = (mode: CoordMode, url?: string) => { setCoordMode(mode, url); location.reload() }
-  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+  // One rule for the address (#1067): the field says why it is refused, and a refused one is not
+  // stored and does not reload. A stored address the rule refuses is not used and not shown back
+  // (it may carry a password); the member is told it was set aside.
+  const applyCoord = (mode: CoordMode, url?: string) => { if (setCoordMode(mode, url) === null) location.reload() }
+  const helperCheck = parseServiceUrl(helperUrl)
+  const stored = readServiceUrl('coordinator')
+  const storedRefusal = stored && !stored.ok ? stored.reason : null
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   // Private (the vault holds S) or open; undefined until the record was read, never asserted.
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
   const [live, setLive] = useState<boolean | null>(null)
   const [confirming, setConfirming] = useState(false)
-  const [confirmName, setConfirmName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
@@ -111,6 +116,8 @@ export default function Settings() {
   // #468: the passkey shortcut, enrolled from here. `S` only - signing still asks for the
   // passphrase, which is the separation the whole thing exists for.
   const vaultId = getSelectedVault()
+  // The record's RAW name, not the card's display fallback (vault-username.ts).
+  const passVault = localRec ? { name: localRec.name, id: localRec.id } : null
   const [hasPasskey, setHasPasskey] = useState(false)
   const [pkBusy, setPkBusy] = useState(false)
   const [pkErr, setPkErr] = useState<string | null>(null)
@@ -164,26 +171,45 @@ export default function Settings() {
   const [rotBusy, setRotBusy] = useState(false)
   const [rotErr, setRotErr] = useState<string | null>(null)
   const [rotDone, setRotDone] = useState(false)
+  // Which field the error is about (aria-invalid belongs on that one only), and whether this screen
+  // is still mounted when the rotation ends: it finishes either way, and the member must hear how.
+  const [rotAt, setRotAt] = useState<'old' | 'new' | 'new2' | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+
+  // A failed rotation re-enables the form: put focus back on the button that was pressed, which
+  // was disabled and lost it (the error line is role="alert"). Same as the /net protect form (#928).
+  const rotBtnRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { if (rotErr && !rotBusy) rotBtnRef.current?.focus() }, [rotErr, rotBusy])
 
   function resetRotate() {
+    // One guard for Cancel, Esc and the backdrop: the rotation finishes either way, and would then
+    // report on a dialog the member believes they cancelled. "Export first" is disabled while busy
+    // as well, because it opens the export AFTER this returns.
+    if (rotBusy) return
     setRotOpen(false); setRotOld(''); setRotNew(''); setRotNew2(''); setRotErr(null); setRotDone(false)
   }
 
   async function doRotate() {
     if (!vaultId) return
-    if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); return }
+    if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); setRotAt('new2'); return }
     setRotBusy(true); setRotErr(null)
     try {
       await changePassphrase(vaultId, rotOld, rotNew)
+      if (!mounted.current) { toast.ok(t('rotate.done')); return }
       setRotDone(true)
       setRotOld(''); setRotNew(''); setRotNew2('')
     } catch (e) {
       // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
       // record was NOT touched - which is what the message promises.
-      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
+      const msg = e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame')
         : e instanceof StorageError && e.code === 'sealed-field-unreadable' ? t('storage.err.sealedFieldUnreadable')
         : e instanceof StorageError && e.code === 'weak-passphrase' ? t('storage.err.weakPassphrase')
-        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false)))
+        : t(isWrongPassphrase(e) ? 'rotate.errWrong' : openFailKey(false))
+      if (!mounted.current) { toast.err(msg); return }
+      setRotErr(msg)
+      setRotAt(e instanceof StorageError && (e.code === 'same-passphrase' || e.code === 'weak-passphrase') ? 'new'
+        : isWrongPassphrase(e) ? 'old' : null)
     } finally {
       setRotBusy(false)
     }
@@ -228,11 +254,9 @@ export default function Settings() {
     const out = await runExport()
     setXpBusy(false)
     if (out) {
-      try {
-        await navigator.clipboard.writeText(out.json)
-        if (!out.complete) return
-        closeExport(); toast.ok(t('toast.backupCopied'))
-      } catch { setXpErr(t('export.errClipboard')) }
+      if (!(await copyText(out.json))) { setXpErr(t('export.errClipboard')); return }
+      if (!out.complete) return
+      closeExport(); toast.ok(t('toast.backupCopied'))
     }
   }
 
@@ -241,25 +265,15 @@ export default function Settings() {
   const n = vault?.total ?? 3
   const network = (vault as unknown as { network?: string } | null)?.network
 
-  async function removeFromDevice() {
-    if (!vault || confirmName.trim() !== vault.name) return
-    setBusy(true)
-    setErr(null)
-    // Two worlds, one control (#426). On the web the vault lives in THIS browser, so removing it
-    // is a local delete - the record carries the sealed share, so dropping it gives up this
-    // device's ability to sign. On the local bridge the orchestrator owns the record and deletes
-    // it. Either way the member typed the vault's name to get here.
-    if (IS_NET) {
-      const gone = await removeVaultFromDevice(vault.id)
-      setBusy(false)
-      if (!gone) { setErr(t('settings.removeFail')); return }
-      nav('/vaults')
-      return
-    }
-    const res = await deleteVault(undefined, confirmName.trim())
-    setBusy(false)
-    if (res.ok) { clearVaultTraces(vault.id); nav('/vaults'); return }
-    setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
+  // Two worlds, one control (#426). On the web the vault lives in THIS browser, so removing it is a
+  // local delete - the record carries the sealed share, so dropping it gives up this device's ability
+  // to sign. On the local bridge the orchestrator owns the record and deletes it, and checks the name.
+  async function removeFromDevice(typed: string): Promise<RemoveResult> {
+    if (!vault) return 'fail'
+    if (IS_NET) return (await removeVaultFromDevice(vault.id)) ? 'ok' : 'fail'
+    const res = await deleteVault(undefined, typed.trim())
+    if (res.ok) { clearVaultTraces(vault.id); return 'ok' }
+    return res.wrong ? 'wrong' : 'fail'
   }
 
   return (
@@ -298,8 +312,14 @@ export default function Settings() {
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
                 <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={t('settings.coordUrlPlaceholder')} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
-                <button type="button" className="btn ok" disabled={!validHelperUrl(helperUrl)} onClick={() => applyCoord('custom', helperUrl)}>{t('settings.coordSave')}</button>
+                <button type="button" className="btn ok" disabled={!helperCheck.ok} onClick={() => applyCoord('custom', helperUrl)}>{t('settings.coordSave')}</button>
               </div>
+            )}
+            {coord === 'custom' && helperUrl.trim() !== '' && !helperCheck.ok && (
+              <div className="unlock-err" role="alert">{t(`serviceUrl.${helperCheck.reason}`)}</div>
+            )}
+            {coord === 'custom' && helperUrl.trim() === '' && storedRefusal && (
+              <div className="unlock-err" role="alert">{t('serviceUrl.storedRefused', { reason: t(`serviceUrl.${storedRefusal}`) })}</div>
             )}
           </section>
         </>
@@ -527,60 +547,22 @@ export default function Settings() {
           /* Nothing of this vault is on this device - it is read through the helper. There is no
              share to give up, so the honest thing is to say so rather than offer a dead button. */
           <p className="set-danger-note">{t('settings.removeNoLocal')}</p>
-        ) : !confirming ? (
+        ) : (
           <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}
           </button>
-        ) : (
-          <div className="set-confirm">
-            {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
-            {/* What goes and what stays, the same sentence the Vaults list shows (#813). */}
-            <p className="set-danger-note">{tr('dashboard.deleteConfirmBody')}</p>
-            <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
-            {/* The cheaper fix first: the export block sits two sections above on this screen (#309). */}
-            {/* A button, not a hash link: the app routes by hash, so "#s-keys" would be a route. It
-                disarms the gate first, as Cancel does (the typed name goes too), then opens the export two
-                sections above. */}
-            {hasLocal && (
-              <p className="hint mt-xs">
-                <button type="button" className="link-btn" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) }}>
-                  {t('set.removeExportFirst')}
-                </button>
-              </p>
-            )}
-            <label className="field">
-              {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
-                  to force an act of recall printed the answer inside the box - a transcription
-                  exercise, not a confirmation. `aria-describedby` ties the funds warning to the
-                  field, because `autoFocus` lands past it and it is never read otherwise. */}
-              <span>{t('set.confirmLabel').replace('{name}', vault?.name ?? '')}</span>
-              <input
-                className="input mono"
-                value={confirmName}
-                onChange={(e) => setConfirmName(e.target.value)}
-                aria-describedby="rm-warn"
-                autoFocus
-              />
-            </label>
-            {err && <p className="set-err" role="alert">{err}</p>}
-            <div className="set-confirm-actions">
-              <button
-                type="button"
-                className="btn danger"
-                disabled={busy || confirmName.trim() !== vault?.name}
-                onClick={removeFromDevice}
-              >
-                {busy ? t('settings.removing') : t('settings.confirmRemove')}
-              </button>
-              <button type="button" className="btn ghost" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null) }}>
-                {t('common.cancel')}
-              </button>
-            </div>
-          </div>
         )}
       </section>
       </div>
       </>}
+
+      {confirming && vault && (
+        <RemoveVaultDialog id={vault.id} name={vault.name}
+          remove={removeFromDevice}
+          onExport={hasLocal ? () => { setConfirming(false); setXpErr(null); setXpOpen(true); document.getElementById('s-keys')?.scrollIntoView({ block: 'start' }) } : undefined}
+          onClose={() => setConfirming(false)}
+          onRemoved={() => nav('/vaults')} />
+      )}
 
       {/* Both disclosures are DIALOGS now. As inline cards they pushed the page ~260px, so the
           member lost their place; the dismiss lived in the row ABOVE the form, off-screen on a
@@ -613,33 +595,37 @@ export default function Settings() {
                   and error prevention past the commit point prevents nothing. */}
               <div className="dlg-warn">
                 <b>{t('rotate.note')}</b>{' '}
-                <button type="button" className="lnk" onClick={() => { resetRotate(); setXpOpen(true) }}>
+                <button type="button" className="lnk" disabled={rotBusy} onClick={() => { resetRotate(); setXpOpen(true) }}>
                   {t('rotate.exportFirst')}
                 </button>
               </div>
-              {rotErr && <div className="unlock-err" role="alert">{rotErr}</div>}
-              <label className="field">
-                <span>{t('rotate.currentLabel')}</span>
-                <PassphraseField value={rotOld} onChange={(v) => { setRotOld(v); setRotErr(null) }}
-                  placeholder={t('rotate.currentPlaceholder')} autoFocus
-                  autoComplete="current-password" choosing={false} invalid={!!rotErr} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.newLabel')}</span>
-                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} />
-              </label>
-              <label className="field">
-                <span>{t('rotate.new2Label')}</span>
-                <PassphraseField value={rotNew2} onChange={(v) => { setRotNew2(v); setRotErr(null) }}
-                  choosing={false} />
-              </label>
+              {rotErr && <div className="unlock-err" id="rot-err" role="alert">{rotErr}</div>}
+              <VaultPassForm vault={passVault}>
+              {/* readOnly while it verifies: what is sealed is what was typed at the press (#928). */}
+              <div className="field">
+                <PassphraseField label={t('rotate.currentLabel')} value={rotOld}
+                  onChange={(v) => { setRotOld(v); setRotErr(null) }}
+                  placeholder={t('rotate.currentPlaceholder')} autoFocus readOnly={rotBusy}
+                  autoComplete="current-password" choosing={false} invalid={!!rotErr && rotAt === 'old'} />
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.newLabel')} value={rotNew} readOnly={rotBusy} invalid={!!rotErr && rotAt === 'new'}
+                  autoComplete="new-password" onChange={(v) => { setRotNew(v); setRotErr(null) }} />
+              </div>
+              <div className="field">
+                <PassphraseField label={t('rotate.new2Label')} value={rotNew2} readOnly={rotBusy}
+                  autoComplete="new-password"
+                  onChange={(v) => { setRotNew2(v); setRotErr(null) }} choosing={false}
+                  invalid={!!rotErr && rotAt === 'new2'} />
+              </div>
               <div className="unlock-btns">
-                <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
+                <button type="button" className="rd-enter" disabled={rotBusy} onClick={resetRotate}>{t('common.cancel')}</button>
+                <button type="button" className="rd-enter primary" ref={rotBtnRef} aria-describedby={rotErr ? 'rot-err' : undefined} disabled={rotBusy || !rotOld || !rotNew || !rotNew2 || !!newPassphraseProblem(rotNew)}
                   onClick={() => void doRotate()}>
                   {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
                 </button>
               </div>
+              </VaultPassForm>
             </>
           )}
         </Dialog>
@@ -660,19 +646,21 @@ export default function Settings() {
             </Link>
           </p>
           {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
-          <label className="field">
-            <span>{t('export.currentLabel')}</span>
-            <PassphraseField value={xpPass} onChange={(v) => { setXpPass(v); setXpErr(null) }}
+          <VaultPassForm vault={passVault}>
+          <div className="field">
+            <PassphraseField label={t('export.currentLabel')} value={xpPass}
+              onChange={(v) => { setXpPass(v); setXpErr(null) }}
               autoFocus autoComplete="current-password" choosing={false} invalid={!!xpErr} />
-          </label>
+          </div>
           <div className="unlock-btns">
-            <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
+            <button type="button" className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
               {t('export.copy')}
             </button>
-            <button className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
+            <button type="button" className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
               {xpBusy ? t('export.busy') : t('export.download')}
             </button>
           </div>
+          </VaultPassForm>
         </Dialog>
       )}
 

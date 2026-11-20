@@ -74,7 +74,8 @@ describe('every screen that shows or gates a fee reads the one estimate', () => 
     it(f, () => {
       const src = codeOf(f)
       expect(src).toContain('useFeeEstimate()')
-      expect(src).toMatch(/feeEstimator\(/)
+      // The proposal page adds value and fee through `costZat` (#1017), handing it the estimator.
+      expect(src).toMatch(f === './screens/Proposal.tsx' ? /costZat\([^)]*feeEstimator\)/ : /feeEstimator\(/)
     })
   }
 })

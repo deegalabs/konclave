@@ -722,8 +722,8 @@ pub fn net_prepare_send(
     device_pubs: &[String],
     max_polls: u32,
     poll_delay: Duration,
-    // The chain tip for the build hold and the branch check, asked only when the table has a later
-    // upgrade to be near. The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
+    // The chain tip for the build hold, the branch check and the fee guard, read once per send (see
+    // `EpochGate::chain_tip`). The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
     // one reader of the wallet, #637); the operator's command line, which has no vault directory,
     // reads the wallet as it stands.
     tip: &dyn Fn() -> Result<u64, ToolError>,
@@ -748,8 +748,7 @@ pub fn net_prepare_send_with<T: Transport>(
     poll_delay: Duration,
     tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
-    // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
-    // upgrade to be near, which it has since the NU7 row).
+    // The live gate: mainnet's table, and the caller's tip (read once per send).
     let gate = live_gate(tip);
     net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
 }
@@ -808,6 +807,9 @@ fn prepare_capped<T: Transport>(
     if let Some(text) = crate::epoch::hold_before_build(gate.table, tip) {
         return Err(crate::epoch::refusal(text));
     }
+    // The fee guard's tip, read here, before the build, like the hold's (#969): on a one-row table
+    // the hold did not read the chain, and the guard refuses a tip of 0.
+    let fee_tip = gate.chain_tip(tip)?;
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_within_cap(sc, plan, max_actions)?;
@@ -816,7 +818,7 @@ fn prepare_capped<T: Transport>(
     // it. The next block is the target the wallet builds for.
     crate::fee::guard_built_fee(
         &tx1,
-        tip,
+        fee_tip,
         sc.is_mainnet(),
         sc.zip2009_permitted,
         sc.zip2009_from,
@@ -1198,7 +1200,6 @@ mod tests {
         max_actions: Option<usize>,
         payroll: bool,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, bool) {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1207,10 +1208,7 @@ mod tests {
         std::fs::write(&vector, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         // `pczt -w <dir> create ...` and `pczt -w <dir> prove`. The proven bytes are a PCZT (what is
@@ -1370,7 +1368,6 @@ mod tests {
         max_polls: u32,
         fail_on: usize,
     ) -> (Result<SignedSend, ToolError>, usize) {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-silent-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1379,10 +1376,7 @@ mod tests {
         std::fs::write(&vector, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let proven = dir.join("proven.pczt");
@@ -1495,7 +1489,20 @@ mod tests {
         tip: u64,
         clock_height: u64,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
-        use std::os::unix::fs::PermissionsExt;
+        let table = &crate::epoch::test_table::WITH_NEXT;
+        prepare_gated_on(tag, proven_bytes, plan, table, tip, clock_height)
+    }
+
+    /// [`prepare_gated_at`] over a given epoch table.
+    #[cfg(unix)]
+    fn prepare_gated_on(
+        tag: &str,
+        proven_bytes: &[u8],
+        plan: SpendPlan,
+        table: &'static konclave_seal::epochs::Table,
+        tip: u64,
+        clock_height: u64,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
         let dir = std::env::temp_dir().join(format!("konclave-gated-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1506,10 +1513,7 @@ mod tests {
         let ran = dir.join("ran.log");
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         // `prove` is the devtool's; `build-payroll` (a payment or a payroll) is the signer's. Every one of them leaves a line in the log, so a refusal can be shown to have run
@@ -1552,7 +1556,6 @@ mod tests {
             "helper",
         );
         let read_tip = move || -> Result<u64, ToolError> { Ok(tip) };
-        let table = &crate::epoch::test_table::WITH_NEXT;
         let clock = crate::epoch::test_table::clock_at(table, clock_height);
         let read_clock = move || clock;
         let gate = EpochGate {
@@ -1626,6 +1629,37 @@ mod tests {
             let e = r
                 .err()
                 .unwrap_or_else(|| panic!("{name}: tip 0 must be refused"));
+            assert!(
+                e.to_string().contains("chain tip is unknown"),
+                "{name}: {e}"
+            );
+            assert!(seen.is_empty(), "{name}: nothing reached the room");
+            assert!(!log.contains("prove"), "{name}: nothing was proven: {log}");
+        }
+    }
+
+    /// #969: on a table with one row, `EpochGate::tip()` skips the chain read (nothing to be near), but
+    /// the fee guard still needs the real tip. A known tip builds; a closure that answers 0 is still
+    /// refused by the guard, so the one-row table does not open a way around it.
+    #[cfg(unix)]
+    #[test]
+    fn a_one_row_table_still_gives_the_fee_guard_the_real_tip() {
+        let table = &crate::epoch::test_table::ONE_ROW;
+        for (name, plan) in [
+            ("payment", a_payment as fn() -> SpendPlan),
+            ("payroll", a_payroll),
+        ] {
+            let tip = 3_500_000;
+            let (r, _, log) =
+                prepare_gated_on(&format!("onerow-{name}"), PROVEN, plan(), table, tip, tip);
+            r.unwrap_or_else(|e| panic!("{name}: a known tip on a one-row table builds: {e}"));
+            assert!(log.contains("prove"), "{name}: built and proven: {log}");
+
+            let (r, seen, log) =
+                prepare_gated_on(&format!("onerow0-{name}"), PROVEN, plan(), table, 0, 0);
+            let e = r
+                .err()
+                .unwrap_or_else(|| panic!("{name}: tip 0 must still be refused"));
             assert!(
                 e.to_string().contains("chain tip is unknown"),
                 "{name}: {e}"
@@ -1931,7 +1965,6 @@ mod tests {
         tag: &str,
         check: impl FnOnce(&SendConfig, &SpendPlan) -> Result<Funding, ToolError>,
     ) -> Result<Funding, ToolError> {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("konclave-funding-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1940,10 +1973,7 @@ mod tests {
         std::fs::write(&unproven, VECTOR).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            let mut perm = std::fs::metadata(&path).unwrap().permissions();
-            perm.set_mode(0o755);
-            std::fs::set_permissions(&path, perm).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let devtool = script("devtool", "exit 0".to_string());
@@ -1998,14 +2028,12 @@ mod tests {
         network: Option<&str>,
         tweak: impl FnOnce(&mut SendConfig),
     ) -> BuildSeen {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-b3a-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let script = |name: &str, body: String| {
             let path = dir.join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
             path
         };
         let argv = dir.join("argv.log");
@@ -2024,17 +2052,6 @@ mod tests {
                 spec_seen.display()
             ),
         );
-        // A freshly written script can be busy for a moment (ETXTBSY); wait it out.
-        for p in [&devtool, &signer] {
-            for _ in 0..200 {
-                match std::process::Command::new(p).output() {
-                    Err(e) if e.raw_os_error() == Some(26) => {
-                        std::thread::sleep(Duration::from_millis(10))
-                    }
-                    _ => break,
-                }
-            }
-        }
         let _ = std::fs::remove_file(&argv);
         let _ = std::fs::remove_file(&devtool_ran);
         let mut cfg = serde_json::json!({
@@ -2145,7 +2162,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_funding_check_always_builds_at_the_legacy_fee() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-f3-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2153,26 +2169,16 @@ mod tests {
         std::fs::write(&unproven, VECTOR).unwrap();
         let log = dir.join("argv.log");
         let path = dir.join("signer");
-        std::fs::write(
+        crate::test_exec::write_script(
             &path,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\nif [ \"$1\" = build-payroll ]; then cp {} \"$out\"; exit 0; fi\necho 'SIGHASH {}'; echo 'RANDOMIZER 0 {}'\n",
                 log.display(),
                 unproven.display(),
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32)
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        for _ in 0..200 {
-            match std::process::Command::new(&path).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(Duration::from_millis(10))
-                }
-                _ => break,
-            }
-        }
+        );
         let _ = std::fs::remove_file(&log);
         let mut sc: SendConfig = serde_json::from_value(serde_json::json!({
             "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
@@ -2416,24 +2422,19 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_broadcast_hands_the_tool_the_signed_bytes_and_returns_its_txid() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("konclave-broadcast-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let captured = dir.join("stdin.bin");
         let devtool = dir.join("devtool");
-        std::fs::write(
+        crate::test_exec::write_script(
             &devtool,
-            format!(
+            &format!(
                 "#!/bin/sh\ncat > {}\necho 'Sending transaction...'\necho {}\n",
                 captured.display(),
                 "cd".repeat(32)
             ),
-        )
-        .unwrap();
-        let mut perm = std::fs::metadata(&devtool).unwrap().permissions();
-        perm.set_mode(0o755);
-        std::fs::set_permissions(&devtool, perm).unwrap();
+        );
         let sc: SendConfig = serde_json::from_value(serde_json::json!({
             "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
             "account": "acc", "konclave_signer": "/x", "frostd": "/x", "frost_client": "/x",
@@ -2522,23 +2523,6 @@ mod tests {
         (small, small_a, big, big_a)
     }
 
-    #[cfg(unix)]
-    fn write_stand_in(path: &std::path::Path, body: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::write(path, body).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // A freshly written script can be busy for a moment (ETXTBSY); wait it out, as
-        // `build_seen_with` does.
-        for _ in 0..200 {
-            match std::process::Command::new(path).output() {
-                Err(e) if e.raw_os_error() == Some(26) => {
-                    std::thread::sleep(std::time::Duration::from_millis(10))
-                }
-                _ => break,
-            }
-        }
-    }
-
     /// A stand-in signer writing `split` for the default build and `single` for `--single-change`
     /// (`None`: that build fails), logging every call; and a configuration that uses it.
     #[cfg(unix)]
@@ -2557,8 +2541,7 @@ mod tests {
             None => "exit 1".to_string(),
         };
         let signer = dir.join("signer");
-        // Written and made executable the way this line's other stand-ins are.
-        write_stand_in(
+        crate::test_exec::write_script(
             &signer,
             &format!(
                 "#!/bin/sh\necho \"$*\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) case \"$*\" in *--single-change*) {single_arm};; *) cp {} \"$out\";; esac;; *) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; esac\n",
