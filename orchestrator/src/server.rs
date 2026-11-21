@@ -2186,12 +2186,18 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     let addr = format!("127.0.0.1:{port}");
     let server =
         tiny_http::Server::http(&addr).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let session_token = new_session_token();
     eprintln!(
         "konclave serve → http://{addr}  (web: {}, db: {})",
         cfg.web_dir.display(),
         cfg.db_path
     );
+    serve_on(&server, &cfg);
+    Ok(())
+}
+
+/// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.
+fn serve_on(server: &tiny_http::Server, cfg: &Config) {
+    let session_token = new_session_token();
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
@@ -2221,7 +2227,7 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
             refused
         } else {
             handle_secured(
-                &cfg,
+                cfg,
                 &session_token,
                 &method,
                 &url,
@@ -2247,7 +2253,6 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         }
         let _ = req.respond(response);
     }
-    Ok(())
 }
 
 /// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
@@ -2379,6 +2384,34 @@ mod tests {
         );
         assert_eq!(cache(&ok).as_deref(), Some("no-store"));
         assert_eq!(cache(&refused).as_deref(), Some("no-store"));
+    }
+
+    /// The size refusal is answered in `serve` before any handler runs, so it is checked through
+    /// the real loop: an API request announcing more than 2 MiB gets `413` and `no-store`.
+    #[test]
+    fn the_size_refusal_is_not_kept_by_the_browser_cache() {
+        use std::io::{Read, Write};
+        let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
+        let addr = server.server_addr().to_ip().expect("ip address");
+        std::thread::spawn(move || serve_on(&server, &cfg_with(tmp_db(), None)));
+        let mut conn = std::net::TcpStream::connect(addr).expect("connect");
+        conn.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .expect("timeout");
+        write!(
+            conn,
+            "POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+            3 * 1024 * 1024
+        )
+        .expect("write");
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            conn.read_exact(&mut byte).expect("read the answer head");
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&head).to_ascii_lowercase();
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
     }
 
     struct FakeWallet {
