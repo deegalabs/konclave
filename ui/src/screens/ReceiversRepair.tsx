@@ -26,7 +26,7 @@ export function ReceiversRepair({ rec, onDone }: { rec: VaultPublic; onDone: () 
     } finally {
       setBusy(false)
     }
-    setMsg(t(r.state === 'verified' ? 'set.repairDone' : r.state === 'refused' ? 'set.repairRefused' : r.state === 'unavailable' ? 'set.repairWaiting' : r.state === 'unreadable' ? 'set.repairUnreadable' : 'set.repairWrong'))
+    setMsg(t(r.state === 'verified' ? 'set.repairDone' : r.state === 'refused' ? 'set.repairRefused' : r.state === 'unavailable' ? 'set.repairWaiting' : r.state === 'unreadable' ? 'set.repairUnreadable' : r.state === 'wrongSeat' ? 'vaults.openWrongSeat' : 'set.repairWrong'))
     onDone()
   }
 

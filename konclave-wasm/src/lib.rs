@@ -1337,23 +1337,20 @@ pub mod creation {
             return Err("a certificate belongs to a vault of protocol 3".into());
         }
         let package = frost::keys::KeyPackage::deserialize(key_package).map_err(e)?;
-        if *package.identifier() != id(seat)? || *package.min_signers() != t {
-            return Err("this share is not this seat's".into());
-        }
         let pkp = pkp_of(pubkeys, t, n)?;
         if !share_sig::quorum_is_possible(t, n) {
             return Err("invalid quorum".into());
         }
-        // The package is the one this share belongs to, or its certificate says nothing.
-        let own_share: [u8; 32] = package
-            .verifying_share()
-            .serialize()
-            .map_err(e)?
-            .try_into()
-            .map_err(|_| "a verifying share is 32 bytes")?;
-        if pkp.shares.get(seat as usize - 1) != Some(&own_share) {
-            return Err("this package does not hold this share".into());
-        }
+        // The one rule for "this share is this seat's of this vault" (seat, group key, quorum, the
+        // package's public share for the seat, the signing share deriving it), or the certificate
+        // says nothing about the seat.
+        super::recovery::check_share_bundle(key_package, pubkeys, seat, &pkp.group_key, t)
+            .map_err(|c| {
+                format!(
+                    "this share is not this seat's of this package ({})",
+                    c.code()
+                )
+            })?;
         let comms_pub = seal::device_key_from_share(key_package).public_bytes();
         let seed = seal::write_key_seed_from_share(key_package);
         let write_pub = ed25519_dalek::SigningKey::from_bytes(&seed)
@@ -1976,6 +1973,44 @@ pub mod creation {
                 );
             }
 
+            /// A bundle born from a real DKG passes the one share check for every seat, and a
+            /// certificate is refused over a signing share that does not derive its public share:
+            /// `own_certificate` reads the same rule as the import and the unlock (#965).
+            #[test]
+            fn a_real_dkg_share_passes_the_share_check_and_a_tampered_one_gets_no_certificate() {
+                let ds = finished(3, 2);
+                for (i, d) in ds.iter().enumerate() {
+                    let (kp, pk) = (d.c.key_package(), d.c.pubkeys());
+                    assert_eq!(
+                        super::super::recovery::check_share_bundle(
+                            &kp,
+                            &pk,
+                            i as u16 + 1,
+                            &d.c.group_vk(),
+                            2
+                        ),
+                        Ok(())
+                    );
+                }
+                let (kp, pk) = (ds[0].c.key_package(), ds[0].c.pubkeys());
+                let good = frost::keys::KeyPackage::deserialize(&kp).unwrap();
+                let other = frost::keys::KeyPackage::deserialize(&ds[1].c.key_package()).unwrap();
+                let tampered = frost::keys::KeyPackage::new(
+                    *good.identifier(),
+                    *other.signing_share(),
+                    *good.verifying_share(),
+                    *good.verifying_key(),
+                    *good.min_signers(),
+                )
+                .serialize()
+                .unwrap();
+                assert!(own_certificate(&kp, &pk, 1, 2, 3, CP, &READ).is_ok());
+                assert!(
+                    own_certificate(&tampered, &pk, 1, 2, 3, CP, &READ).is_err(),
+                    "a signing share that does not derive the public share"
+                );
+            }
+
             #[test]
             fn a_certificate_is_only_this_share_on_this_package_at_this_quorum() {
                 let mut ds = finished(3, 2);
@@ -2589,14 +2624,91 @@ pub mod recovery {
         // Validate at the boundary (§6.8): repair_share_part3 does NOT check its result, so a
         // wrong or malicious helper set would yield a silently-wrong share. The repaired share
         // must match the group's known public share for that member, or we refuse it.
-        let expected = pubkeys
-            .verifying_shares()
-            .get(&lost)
-            .ok_or_else(|| "recovery: unknown member for this vault".to_string())?;
-        if kp.verifying_share() != expected {
-            return Err("recovery: repaired share does not match the group's public share".into());
+        match matches_group_share(&kp, pubkeys) {
+            None => return Err("recovery: unknown member for this vault".to_string()),
+            Some(false) => {
+                return Err(
+                    "recovery: repaired share does not match the group's public share".into(),
+                )
+            }
+            Some(true) => {}
         }
         Ok(kp)
+    }
+
+    /// Whether a key package's public share is the one the group's public package records for
+    /// its seat; `None` when the group has no such seat. The ONE comparison behind a repaired
+    /// share and a saved one (`check_share_bundle`).
+    fn matches_group_share(
+        kp: &KeyPackage,
+        pubkeys: &frost::keys::PublicKeyPackage,
+    ) -> Option<bool> {
+        pubkeys
+            .verifying_shares()
+            .get(kp.identifier())
+            .map(|expected| kp.verifying_share() == expected)
+    }
+
+    /// Why a saved share was refused. A code per failure so a screen can map it; none of them
+    /// carries key material.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ShareCheck {
+        /// Not a key package, a public package, or a 32-byte group key.
+        Malformed,
+        /// The package is another seat's, or the group has no such seat.
+        NotThisSeat,
+        /// The package or the group's public package belongs to another vault.
+        NotThisVault,
+        /// The package was made for another quorum.
+        NotThisQuorum,
+        /// The signing share does not derive the public share the package states.
+        ShareDoesNotDerive,
+    }
+
+    impl ShareCheck {
+        pub fn code(self) -> &'static str {
+            match self {
+                ShareCheck::Malformed => "malformed",
+                ShareCheck::NotThisSeat => "not-this-seat",
+                ShareCheck::NotThisVault => "not-this-vault",
+                ShareCheck::NotThisQuorum => "not-this-quorum",
+                ShareCheck::ShareDoesNotDerive => "share-does-not-derive",
+            }
+        }
+    }
+
+    /// Does this saved key package belong to this seat of this vault? Checked against the group's
+    /// public package at the two doors a share comes through, an import and an unlock (§6.8): the
+    /// seat's identifier, the vault's group key in both packages, the quorum, the public share the
+    /// group records for the seat, and that the signing share derives it. The one home of the rule.
+    pub fn check_share_bundle(
+        key_package: &[u8],
+        pubkeys: &[u8],
+        seat: u16,
+        group_key: &[u8],
+        t: u16,
+    ) -> Result<(), ShareCheck> {
+        let kp = KeyPackage::deserialize(key_package).map_err(|_| ShareCheck::Malformed)?;
+        let pk = frost::keys::PublicKeyPackage::deserialize(pubkeys)
+            .map_err(|_| ShareCheck::Malformed)?;
+        let seat = Identifier::try_from(seat).map_err(|_| ShareCheck::Malformed)?;
+        if *kp.identifier() != seat {
+            return Err(ShareCheck::NotThisSeat);
+        }
+        let key_of = |vk: &frost::VerifyingKey| vk.serialize().map_err(|_| ShareCheck::Malformed);
+        if key_of(kp.verifying_key())? != group_key || key_of(pk.verifying_key())? != group_key {
+            return Err(ShareCheck::NotThisVault);
+        }
+        if *kp.min_signers() != t {
+            return Err(ShareCheck::NotThisQuorum);
+        }
+        if matches_group_share(&kp, &pk) != Some(true) {
+            return Err(ShareCheck::NotThisSeat);
+        }
+        if frost::keys::VerifyingShare::from(*kp.signing_share()) != *kp.verifying_share() {
+            return Err(ShareCheck::ShareDoesNotDerive);
+        }
+        Ok(())
     }
 
     // ---- wire helpers (bytes over the blind relay) ----
@@ -2754,6 +2866,169 @@ pub mod recovery {
                 repaired.verifying_share(),
                 pubkeys.verifying_shares().get(&lost).unwrap(),
                 "the wire-repaired share must match the group's public share"
+            );
+        }
+
+        // ---- a saved share against the group's public package (check_share_bundle) ----
+
+        struct Vault {
+            kps: std::collections::BTreeMap<Identifier, KeyPackage>,
+            pubkeys: frost::keys::PublicKeyPackage,
+            group_key: Vec<u8>,
+        }
+
+        fn vault(n: u16, t: u16) -> Vault {
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                n,
+                t,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let group_key = pubkeys.verifying_key().serialize().unwrap();
+            Vault {
+                kps,
+                pubkeys,
+                group_key,
+            }
+        }
+
+        fn check(
+            kp: &KeyPackage,
+            v: &Vault,
+            seat: u16,
+            group_key: &[u8],
+            t: u16,
+        ) -> Result<(), ShareCheck> {
+            check_share_bundle(
+                &kp.serialize().unwrap(),
+                &v.pubkeys.serialize().unwrap(),
+                seat,
+                group_key,
+                t,
+            )
+        }
+
+        fn seat(n: u16) -> Identifier {
+            Identifier::try_from(n).unwrap()
+        }
+
+        #[test]
+        fn an_honest_share_passes_for_every_seat() {
+            let v = vault(3, 2);
+            for s in 1..=3u16 {
+                assert_eq!(check(&v.kps[&seat(s)], &v, s, &v.group_key, 2), Ok(()));
+            }
+        }
+
+        #[test]
+        fn another_seats_package_is_refused() {
+            let v = vault(3, 2);
+            // Seat 2's package presented as seat 1's: its identifier is not the seat's.
+            assert_eq!(
+                check(&v.kps[&seat(2)], &v, 1, &v.group_key, 2),
+                Err(ShareCheck::NotThisSeat)
+            );
+        }
+
+        #[test]
+        fn another_vaults_package_is_refused() {
+            let v = vault(3, 2);
+            let other = vault(3, 2);
+            // Same seat number, same quorum, a different vault's package.
+            assert_eq!(
+                check(&other.kps[&seat(1)], &v, 1, &v.group_key, 2),
+                Err(ShareCheck::NotThisVault)
+            );
+            // And a public package from another vault beside this vault's package.
+            let mixed = Vault {
+                kps: v.kps.clone(),
+                pubkeys: other.pubkeys.clone(),
+                group_key: v.group_key.clone(),
+            };
+            assert_eq!(
+                check(&v.kps[&seat(1)], &mixed, 1, &v.group_key, 2),
+                Err(ShareCheck::NotThisVault)
+            );
+        }
+
+        #[test]
+        fn a_tampered_signing_share_is_refused() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            // Another seat's signing share under seat 1's public data: keeps every public field.
+            let other_secret = *v.kps[&seat(2)].signing_share();
+            let tampered = KeyPackage::new(
+                *good.identifier(),
+                other_secret,
+                *good.verifying_share(),
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(
+                check(&tampered, &v, 1, &v.group_key, 2),
+                Err(ShareCheck::ShareDoesNotDerive)
+            );
+        }
+
+        #[test]
+        fn a_public_share_that_is_not_the_groups_is_refused() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            // A consistent pair (signing share and the public share it derives) that is not what
+            // the group records for seat 1.
+            let s2 = *v.kps[&seat(2)].signing_share();
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                s2,
+                frost::keys::VerifyingShare::from(s2),
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(
+                check(&forged, &v, 1, &v.group_key, 2),
+                Err(ShareCheck::NotThisSeat)
+            );
+        }
+
+        #[test]
+        fn a_package_for_another_quorum_or_key_is_refused() {
+            let v = vault(3, 2);
+            let kp = &v.kps[&seat(1)];
+            assert_eq!(
+                check(kp, &v, 1, &v.group_key, 3),
+                Err(ShareCheck::NotThisQuorum)
+            );
+            assert_eq!(
+                check(kp, &v, 1, &vault(3, 2).group_key, 2),
+                Err(ShareCheck::NotThisVault)
+            );
+            assert_eq!(
+                check(kp, &v, 9, &v.group_key, 2),
+                Err(ShareCheck::NotThisSeat)
+            );
+        }
+
+        #[test]
+        fn bytes_that_are_not_packages_are_refused() {
+            let v = vault(3, 2);
+            let pk = v.pubkeys.serialize().unwrap();
+            let kp = v.kps[&seat(1)].serialize().unwrap();
+            assert_eq!(
+                check_share_bundle(b"nope", &pk, 1, &v.group_key, 2),
+                Err(ShareCheck::Malformed)
+            );
+            assert_eq!(
+                check_share_bundle(&kp, b"nope", 1, &v.group_key, 2),
+                Err(ShareCheck::Malformed)
+            );
+            assert_eq!(
+                check_share_bundle(&kp, &pk, 0, &v.group_key, 2),
+                Err(ShareCheck::Malformed)
             );
         }
     }
@@ -6904,6 +7179,22 @@ mod js_recovery {
 
     fn je(e: impl core::fmt::Display) -> JsValue {
         JsValue::from_str(&e.to_string())
+    }
+
+    /// Does this saved key package belong to this seat of this vault, against the group's public
+    /// package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
+    /// `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+    /// every import and every unlock; the rule is `recovery::check_share_bundle`.
+    #[wasm_bindgen(js_name = checkShareBundle)]
+    pub fn check_share_bundle(
+        key_package: &[u8],
+        pubkeys: &[u8],
+        seat: u16,
+        group_key: &[u8],
+        t: u16,
+    ) -> Result<(), JsValue> {
+        recovery::check_share_bundle(key_package, pubkeys, seat, group_key, t)
+            .map_err(|c| JsValue::from_str(c.code()))
     }
 
     /// A helper's recovery session. Register the helper set (including self), compute the

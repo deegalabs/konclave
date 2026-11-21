@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { isWrongPassphrase, openFailKey, unlockWith, type UnlockDeps } from './unlock'
+import { isWrongPassphrase, openFailKey, unlockFailKey, unlockWith, type UnlockDeps } from './unlock'
 import { codeOf } from './source-scan'
 import { storageError } from './storage-errors'
 
@@ -128,9 +128,32 @@ describe('the sentence for a vault that did not open', () => {
   })
   it('every screen asks this one decision', () => {
     for (const f of ['./LockOverlay.tsx', './screens/SigningPanel.tsx', './screens/Vaults.tsx', './PlainKeyNotice.tsx', './screens/Settings.tsx']) {
-      expect(codeOf(f), f).toContain('openFailKey(')
+      expect(codeOf(f), f).toMatch(/(openFailKey|unlockFailKey)\(/)
       expect(codeOf(f), f).not.toMatch(/t\('vaults\.unlockWrong'\)/)
     }
+  })
+})
+
+// #965: a failed unlock carries whether the saved share is another seat's. Passing `r.wrong` alone
+// drops that, and the member is told to retry a passphrase that may be right (ProposerNotice did).
+describe('the sentence for a failed unlock result', () => {
+  it('reads the whole result, so another seat\'s share is named as such', () => {
+    expect(unlockFailKey({ ok: false, wrong: false, notThisSeat: true })).toBe('vaults.openWrongSeat')
+    expect(unlockFailKey({ ok: false, wrong: true })).toBe('vaults.unlockWrong')
+    expect(unlockFailKey({ ok: false, wrong: false })).toBe('vaults.openFailed')
+    expect(unlockFailKey({ ok: false, wrong: false }, 'local')).toBe('vaults.unlockFail')
+  })
+  it('no screen that unlocks reads the result\'s flag on its own', async () => {
+    // Every source file that calls an unlock (tests aside), whatever its name: a new screen is covered too.
+    const { readdirSync, statSync } = await import('node:fs')
+    const { join, relative, sep } = await import('node:path')
+    const src = join(process.cwd(), 'src')
+    const files: string[] = []
+    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) { if (n !== 'wasm-pkg') walk(p) } else if (/\.tsx?$/.test(n) && !/\.test\.|\.d\.ts$/.test(n)) files.push(relative(src, p).split(sep).join('/')) } }
+    walk(src)
+    const callers = files.filter((f) => f !== 'unlock.ts' && /\b(?:unlockOnDevice|unlockWith|importAndUnlock)\(/.test(codeOf(f)))
+    expect(callers.length).toBeGreaterThan(3)
+    for (const f of callers) expect(codeOf(f), f).not.toMatch(/\.wrong\b/)
   })
 })
 

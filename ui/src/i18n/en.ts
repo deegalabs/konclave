@@ -255,6 +255,7 @@ export const en: Record<string, string> = {
   'vaults.plainKeyBtn': 'Encrypt it now',
   'vaults.plainKeyBusy': 'Encrypting…',
   'vaults.openFailed': 'This vault did not open on this device, and your passphrase may be right. Try again. If this continues, open a backup of it in another browser profile, and keep this copy until that works.',
+  'vaults.openWrongSeat': 'The copy saved on this device does not belong to this seat of the vault, so it was not opened. Restore this seat from its own backup.',
   'vaults.plainKeyWrong': 'That passphrase did not open this vault. Nothing changed.',
   'dashboard.evictionBanner': "This browser has not promised to keep your key share, so it can be deleted without warning.",
   'dashboard.evictionInstall': "Installing the app is what makes it promise.",
@@ -1530,6 +1531,7 @@ export const en: Record<string, string> = {
   'storage.err.sealedFieldUnreadable': 'Part of this vault on this device did not open, so the passphrase was not changed and nothing was lost. To choose a new one, make a backup, check that it says it is complete, and restore it in another browser profile, keeping this copy until that works. This copy and earlier backups still open with the current passphrase.',
   'storage.err.samePassphrase': 'The new passphrase is the same as the current one.',
   'storage.err.weakPassphrase': 'That passphrase is too short or too easy to guess. Nothing was changed.',
+  'storage.err.wrongSeat': 'This copy does not belong to this seat of the vault. Nothing was changed. Use the backup made for this seat.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'The desktop app exists (v{ver}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the web app is the way in: your key share stays sealed on your device, and our hosted coordinator, which the desktop app uses too, builds and sends the payments your quorum signs.',
   'lv.toggleTheme': 'Toggle theme',

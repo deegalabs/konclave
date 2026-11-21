@@ -18,6 +18,7 @@ export type StorageErrorCode =
   | 'same-passphrase'
   | 'sealed-field-unreadable'
   | 'weak-passphrase'
+  | 'wrong-seat'
 
 export class StorageError extends Error {
   readonly code: StorageErrorCode
@@ -47,6 +48,7 @@ const KEY: Record<StorageErrorCode, string> = {
   'same-passphrase': 'storage.err.samePassphrase',
   'sealed-field-unreadable': 'storage.err.sealedFieldUnreadable',
   'weak-passphrase': 'storage.err.weakPassphrase',
+  'wrong-seat': 'storage.err.wrongSeat',
 }
 
 export function storageErrorKey(e: unknown, fallbackKey: string): string {

@@ -16,6 +16,7 @@ import { readSealed, writeSealed, openEnvelopeGiven, heldAside, keepAside } from
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
 import { CREATION_PROTOCOL } from './creation-protocol'
+import { assertShareIsThisSeats } from './share-check'
 
 const DB_NAME = 'konclave'
 const STORE = 'vaults'
@@ -602,6 +603,10 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   } catch {
     throw storageError('wrong-passphrase-saved', 'Wrong passphrase, or the saved vault was tampered with')
   }
+  // The share just opened is the one every screen signs with, so it is checked here, the one place a
+  // sealed share is opened: it must be this seat's share of this vault (#965). Before anything else
+  // is read from the record or re-sealed, and before any caller can put it in a session.
+  await assertShareIsThisSeats(new Uint8Array(plainBuf), unhex(record.groupKey))
 
   // The #388 access secret, when this vault has one (same key, its own iv). The share already
   // authenticated the passphrase above, so a failure here is genuine corruption of that field.
@@ -954,6 +959,12 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
   if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw storageError('corrupt', 'The export is incomplete or corrupt')
   // A vault's id IS its group key, in a v2 as in a v1 (see `vaultIdOf`).
   const id = vaultIdOf(p.id, p.groupKey)
+  // The share must be this seat's share of this vault (#965), checked before anything is written.
+  const share = unhex(p.share)
+  // Not a device bundle at all is the same refusal as in a v1 (below); a bundle that is not this
+  // seat's is `assertShareIsThisSeats`'s.
+  if (!isShareBundle(share)) throw storageError('corrupt', 'The export is incomplete or corrupt')
+  await assertShareIsThisSeats(share, unhex(id))
   // The creation protocol is never read as an older one: read as older, a vault would skip the checks
   // its own protocol requires. A newer one than this app speaks means update the app; one present but
   // not a whole number from 1 is a damaged backup. Absent is a vault of the earlier flow.
@@ -968,7 +979,7 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
   return {
     id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
     groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),
-    share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
+    share, accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     peopleUnreadable: typeof p.peopleUnreadable === 'string' ? p.peopleUnreadable : undefined,
     beneficiaries: p.beneficiaries ?? undefined, // a list, or what an older tab exported (writeBeneficiaries reads it)
     ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
@@ -1023,6 +1034,8 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
   // refusal as every other edit instead of a decoder's own message.
   const idLower = vaultIdOf(v.id, v.groupKey)
   const groupKeyText = String(v.groupKey ?? '').trim()
+  // And it must be this seat's share of that vault, not just a bundle (#965).
+  await assertShareIsThisSeats(new Uint8Array(shareBuf), unhex(groupKeyText))
   let accessSecret: Uint8Array | undefined
   if (v.secretIv && v.secretCipher) {
     try {

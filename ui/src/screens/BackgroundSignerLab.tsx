@@ -10,7 +10,8 @@ import { Letterhead } from '../components'
 import { pcztSighash } from '../wasm-pkg/konclave_wasm.js'
 import { listVaults, type VaultPublic } from '../storage'
 import { getUnlockedShare } from '../session'
-import { unlockOnDevice } from '../unlock'
+import { unlockFailKey, unlockOnDevice } from '../unlock'
+import { useT } from '../i18n'
 import { parseAlphas } from '../signing'
 import { bytesToHex } from '../net-sign'
 import { dkgProvenPczt, dkgVaultKeyBytes } from '../demo-vector'
@@ -25,6 +26,7 @@ function testRequest(): string {
 }
 
 export default function BackgroundSignerLab() {
+  const t = useT()
   const [vaults, setVaults] = useState<VaultPublic[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [pass, setPass] = useState('')
@@ -63,7 +65,7 @@ export default function BackgroundSignerLab() {
       // 16/10: the signer now asks `unlockedHere` (the share in this session), so marking is no longer
       // what starts it. Kept on `unlockOnDevice` because it is the one unlock path, not as a workaround.
       const r = await unlockOnDevice(selected, 'net', pass)
-      if (!r.ok) { setMsg(r.wrong ? 'Could not unlock: wrong passphrase' : 'Could not unlock: this vault did not open'); return }
+      if (!r.ok) { setMsg(t(unlockFailKey(r))); return }
       setUnlocked({ id: selected })
       setPass('')
     } catch (e) {

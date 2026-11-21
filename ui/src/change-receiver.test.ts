@@ -14,6 +14,11 @@ import {
 } from './storage'
 import { codeAt } from './source-scan'
 
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 // The vault's change receiver, captured ONCE and never rewritten (#281, step 2).
 //
 // The money gate decides on recipient bytes, so it has to be able to tell the vault's own change
@@ -37,7 +42,7 @@ const data: VaultData = {
   groupKey: new Uint8Array(32).fill(7),
   address: 'u1externalreceiveaddress',
   roster: ['Alice', 'Bob'],
-  sealedShare: new Uint8Array(32).fill(1),
+  sealedShare: new TextEncoder().encode(JSON.stringify({ kp: 'x', pubkeys: 'y', seat: 1, n: 3, t: 2 })),
 }
 
 /** The honest receiver, as the helper answers it at creation. */

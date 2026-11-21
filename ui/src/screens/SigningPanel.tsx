@@ -18,7 +18,7 @@ import CopyButton from '../CopyButton'
 import { useToast } from '../toast'
 import { fmtZecExact, zatToZec } from '../format'
 import { useVaultSigner } from '../VaultSigner'
-import { openFailKey, unlockOnDevice } from '../unlock'
+import { unlockFailKey, unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
 import { alreadySent, applyPlan, panelStep, resolvedStep, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
 import { errorCode, getBalance, writeProof } from '../api'
@@ -747,7 +747,7 @@ export default function SigningPanel() {
       // loadVault -> setUnlockedShare -> markVaultUnlocked; #467 folded the first two together and
       // missed this one, which is how one rule ends up with three implementations.
       const r = await unlockOnDevice(vault.id, 'net', pass)
-      if (!r.ok) { setUnlockErr(t(openFailKey(r.wrong))); return }
+      if (!r.ok) { setUnlockErr(t(unlockFailKey(r))); return }
       setPass('')
       reseat() // the signer re-runs now that the share is in session
     } finally {
