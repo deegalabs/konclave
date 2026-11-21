@@ -304,6 +304,11 @@ fn handle_request(
                 // How many proxies in front of it this coordinator trusts (`DEPLOY.md`); `null`
                 // is the default rule. What a deploy reads to see the setting arrived.
                 "trusted_proxy_hops": konclave_http::forwarding_rule().trusted_hops(),
+                // The light-client servers and what the background probe last found, FROM THE CACHE
+                // ONLY: this route is open, and a probe here would let anyone with no credential
+                // start a request to every server (and make the liveness route wait on them). Hosts
+                // are public; nothing here is about a vault.
+                "light_servers": cfg.servers.status(),
             })
             .to_string(),
         ),
@@ -2118,7 +2123,10 @@ fn config_with(
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
         // `utest1…` vault addresses that would lose real funds. A testnet dev deploy sets these.
-        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+        servers: orchestrator::lightclient::Servers::try_parse(
+            &env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+            &env("KONCLAVE_NETWORK", "main"),
+        )?,
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
@@ -2811,6 +2819,17 @@ fn main() {
     konclave_http::boot_forwarding_rule("konclave-helper");
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
+    // More than one light-client server: a background probe keeps the choice current. With one there
+    // is no thread and nothing changes (the probe never runs inside a request).
+    for (i, host) in cfg.servers.list().iter().enumerate() {
+        eprintln!("konclave-helper: light server {}: {host}", i + 1);
+    }
+    if orchestrator::lightclient::spawn_probe(&cfg.servers, std::path::PathBuf::from("curl")) {
+        eprintln!(
+            "konclave-helper: light servers probed every {}s, never inside a request",
+            orchestrator::lightclient::PROBE_EVERY.as_secs()
+        );
+    }
     let state = Arc::new(HelperState::new());
     // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
     // persistent volume). Only public / view-only material is loaded - never a share.
@@ -4891,7 +4910,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
-            lightwalletd: "testnet.zec.rocks:443".into(),
+            servers: orchestrator::lightclient::Servers::parse("testnet.zec.rocks:443", "test"),
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             // A FRESH directory per call, so no test can see what another wrote - and, more to
@@ -5018,6 +5037,50 @@ mod tests {
             v["trusted_proxy_hops"].as_u64().map(|n| n as usize),
             konclave_http::forwarding_rule().trusted_hops()
         );
+    }
+
+    /// Health lists each light-client server from the cache, and reading it starts no probe: with
+    /// nothing probed every entry is `null`, whatever the servers are.
+    #[test]
+    fn health_lists_the_light_servers_from_the_cache_only() {
+        use orchestrator::lightclient::{Info, Observed, Servers};
+        let st = HelperState::new();
+        let mut c = cfg();
+        c.servers = Servers::parse("a.test:443,b.test:443,c.test:443", "main");
+        let read = |c: &HelperConfig| -> serde_json::Value {
+            let r = handle(&st, c, &Method::Get, "/api/health", b"");
+            assert_eq!(r.status, 200);
+            serde_json::from_str(&r.body).unwrap()
+        };
+        let v = read(&c);
+        let list = v["light_servers"]
+            .as_array()
+            .expect("light_servers is a list");
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0]["host"], "a.test:443");
+        assert!(list
+            .iter()
+            .all(|e| e["ok"].is_null() && e["height_lag"].is_null()));
+        // What a probe round recorded is what health says.
+        let answer = |h: u64| {
+            Observed::Answered(Info {
+                version: String::new(),
+                chain: "main".into(),
+                branch: "77190ad9".into(),
+                height: h,
+                subversion: String::new(),
+            })
+        };
+        c.servers
+            .record(vec![answer(100), answer(101), Observed::Failed]);
+        let v = read(&c);
+        assert_eq!(v["light_servers"][0]["ok"], true);
+        assert_eq!(v["light_servers"][0]["chain"], "main");
+        assert_eq!(v["light_servers"][2]["ok"], false);
+        // One server, never probed: one entry, ok null.
+        let one = read(&cfg());
+        assert_eq!(one["light_servers"].as_array().unwrap().len(), 1);
+        assert!(one["light_servers"][0]["ok"].is_null());
     }
 
     #[test]
@@ -8366,6 +8429,50 @@ mod tests {
         assert_eq!(config.send_max_polls, 300);
         assert!(note.is_some(), "a value that was not taken says so");
         assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// `KONCLAVE_LIGHTWALLETD` is one server or a list, read once; the default and one value are one
+    /// server and start no probe.
+    #[test]
+    fn the_environment_reaches_the_light_server_list() {
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_LIGHTWALLETD")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+            .unwrap()
+            .0
+            .servers
+        };
+        assert_eq!(with(None).list(), ["zec.rocks:443"]);
+        assert!(!with(None).is_list());
+        assert_eq!(with(Some("a:443")).current(), "a:443");
+        let list = with(Some("zec.rocks:443, eu.zec.rocks:443,zec.rocks:443"));
+        assert_eq!(list.list(), ["zec.rocks:443", "eu.zec.rocks:443"]);
+        assert!(list.is_list());
+        assert_eq!(list.current(), "zec.rocks:443");
+    }
+
+    /// A light-client server that is not `host:port` stops the coordinator at boot, naming the entry.
+    #[test]
+    fn a_malformed_light_server_refuses_to_boot() {
+        for bad in [
+            "https://zec.rocks:443",
+            "zec.rocks",
+            "a:443,b c:443",
+            "",
+            "zec.rocks:443/x",
+        ] {
+            let v = bad.to_string();
+            let r = config_with(&move |k| (k == "KONCLAVE_LIGHTWALLETD").then(|| v.clone()));
+            let e = r.err().unwrap_or_else(|| panic!("{bad:?} booted"));
+            assert!(
+                e.contains("light-client server") || e.contains("KONCLAVE_LIGHTWALLETD"),
+                "{e}"
+            );
+        }
     }
 
     /// The operator's fee switch, from the environment: absent and exactly 5000 are ON, exactly

@@ -109,6 +109,22 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Added
 
+- **`/api/health` lists the light-client servers (`light_servers`).** Each entry is `{host, ok, chain, height_lag}` (`chain` is `main`, `test` or `other`):
+  `ok` is true when the last background check found the server on the configured chain and, once three or more
+  answered, within 20 blocks of the median of the answers (when no answer is that close, as in an even split, every server on
+  the right chain counts as ok), false when it did not answer or fell outside that, and `null` before any check has run
+  (always, with a single configured server, which is not checked). `height_lag` is how many blocks it is behind that
+  median. The route serves the cache the background check fills and never starts a check itself; the hosts are public
+  and nothing in the entry concerns a vault. The boot log lists each server.
+- **The coordinator can use several light-client servers.** `KONCLAVE_LIGHTWALLETD` takes one server or a
+  comma-separated list (one value behaves as before: no probe, nothing else changes). With a list, a background
+  check asks each server every 60 seconds which chain and height it reports, never inside a request, and the
+  coordinator keeps the server it is on while that one answers and stays near the others, and moves only when it
+  stops answering or falls well behind and at least three others agree. A new vault's wallet starts from the lowest
+  height the servers report (never far below the middle of the answers), and only when three of them agree.
+  An entry that is not `host:port` (a scheme, a path, a space) stops the coordinator at boot and is named in the error,
+  and so does, in a list, an onion name, `localhost` or an IP address (the list is checked over https by name; one
+  server alone may still be any of those). When it moves, it prefers a server not behind the one it was using.
 - **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
   optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
@@ -205,6 +221,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 - **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
   read made under a vault's address does not stay in the browser after the session ends.
+- **A send no longer fails because one light-client server stops answering.** The broadcast goes to the server the send
+  has been using; if that server cannot be reached, or the attempt does not answer within its time limit, the same
+  signed transaction goes to the next configured server that is within 3 blocks of the median, within three minutes in
+  all. A failure after the transaction was handed to a server is reported as it is and not tried elsewhere. When no server takes it after a time-out, the answer says the
+  transaction may have reached the network and not to send it again before checking, and the attempt record stays, as
+  it does for any broadcast error.
 
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay

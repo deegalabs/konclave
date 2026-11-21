@@ -10,7 +10,9 @@
 FROM ubuntu:24.04
 
 # curl is required at runtime: the Architecture-B send (net_orchestrate_send) shells out to
-# curl as its relay transport (RelayClient/CurlTransport) to publish the sign-request.
+# curl as its relay transport (RelayClient/CurlTransport) to publish the sign-request, and the
+# light-client server probe (orchestrator::lightclient, used when KONCLAVE_LIGHTWALLETD is a list)
+# asks each server for GetLightdInfo with it.
 # gosu lets the entrypoint drop from root to the non-root user after fixing volume ownership.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl gosu \

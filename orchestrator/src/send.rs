@@ -95,6 +95,10 @@ pub struct SendConfig {
     /// The height from which that permission holds. `serde(skip)` for the same reason.
     #[serde(skip)]
     pub zip2009_from: Option<u32>,
+    /// The servers a broadcast may fail over across. `serde(skip)`: only the hosted coordinator
+    /// sets it (`helper::send_config_for`); a config read from a file names one server.
+    #[serde(skip)]
+    pub servers: Option<crate::lightclient::Servers>,
 }
 
 impl SendConfig {
@@ -577,12 +581,7 @@ pub fn orchestrate_send(
         None
     } else {
         let tx3 = std::fs::read(&tx3_path).map_err(ToolError::Io)?;
-        Some(pczt::send(
-            &sc.devtool,
-            &sc.wallet_dir,
-            &sc.lightwalletd,
-            &tx3,
-        )?)
+        Some(broadcast_bytes(sc, &tx3)?)
     };
 
     Ok(SendOutcome {
@@ -695,7 +694,30 @@ impl SignedSend {
 /// Broadcast a signed transaction and return the txid the tool reports. `pub(crate)`: callers outside
 /// this crate cannot broadcast except through a path that records the attempt first.
 pub(crate) fn broadcast_signed(sc: &SendConfig, signed: &SignedSend) -> Result<String, ToolError> {
-    pczt::send(&sc.devtool, &sc.wallet_dir, &sc.lightwalletd, &signed.tx3)
+    broadcast_bytes(sc, &signed.tx3)
+}
+
+/// The one call both send paths make to put signed bytes on the network: the config's servers when
+/// it has a list (the hosted coordinator), otherwise its one server. It starts on the server the
+/// operation has been using, `sc.lightwalletd`.
+fn broadcast_bytes(sc: &SendConfig, signed: &[u8]) -> Result<String, ToolError> {
+    let servers = broadcast_servers(sc);
+    crate::lightclient::broadcast(
+        &sc.devtool,
+        &sc.wallet_dir,
+        &servers,
+        &sc.lightwalletd,
+        signed,
+    )
+}
+
+/// The servers a broadcast may use. Without a list (the local bridge, the CLI, a config read from a
+/// file) the one string is ONE server, never split: sync and DKG use it whole, so the broadcast does too.
+fn broadcast_servers(sc: &SendConfig) -> crate::lightclient::Servers {
+    match &sc.servers {
+        Some(s) => s.clone(),
+        None => crate::lightclient::Servers::single(&sc.lightwalletd, &sc.network),
+    }
 }
 
 /// Architecture B - build, prove and collect the quorum's signature for a browser-DKG vault, and stop
@@ -2834,5 +2856,23 @@ mod funding_tests {
         // Names one pool only: an Orchard-only or Ironwood-only failure is not a crossing.
         assert!(!is_mixed_pool("orchard parse: MissingSpendAuthSig"));
         assert!(!is_mixed_pool(""));
+    }
+
+    /// The local path keeps its one server string whole: a comma in it does not make a list, so the
+    /// broadcast goes to the same server the sync and the ceremony use.
+    #[test]
+    fn without_a_list_the_broadcast_keeps_the_one_server_string_whole() {
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "a.example:443,b.example:443",
+            "account": "acc", "konclave_signer": "/x", "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": "/tmp",
+        }))
+        .unwrap();
+        assert!(sc.servers.is_none());
+        assert_eq!(
+            broadcast_servers(&sc).list(),
+            &["a.example:443,b.example:443".to_string()]
+        );
     }
 }
