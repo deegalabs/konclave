@@ -197,7 +197,7 @@ pub fn create_vault_dkg(
 
     // 8) view-only wallet.
     let wallet_dir = format!("{vdir}/wallet");
-    run(
+    crate::lightclient::run(
         &sc.devtool,
         &[
             "wallet",
@@ -208,12 +208,10 @@ pub fn create_vault_dkg(
             name,
             "--fvk",
             ufvk.as_str(),
-            "-s",
-            sc.lightwalletd.as_str(),
-            "--connection",
-            "direct",
         ],
+        sc.lightwalletd.as_str(),
         None,
+        crate::lightclient::Call::Short,
     )?;
 
     // 9) generate the vault passphrase, derive the sealing key from it, seal each config

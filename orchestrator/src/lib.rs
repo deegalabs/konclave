@@ -32,6 +32,7 @@ pub mod dkg;
 pub mod epoch;
 pub mod fee;
 pub mod helper;
+pub mod lightclient;
 pub mod pczt;
 pub mod send;
 pub mod send_record;

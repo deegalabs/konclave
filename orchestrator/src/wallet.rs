@@ -198,18 +198,15 @@ pub fn parse_transactions(json: &str) -> Result<Vec<WalletTx>, ToolError> {
 
 // ---- wrappers that actually run the tool ----
 
-/// Common server args for read commands.
-fn server_args(server: &str) -> [&str; 4] {
-    ["-s", server, "--connection", "direct"]
-}
-
 /// `zcash-devtool wallet -w <dir> get-info -s <server> --connection direct`
 pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainInfo, ToolError> {
-    let s = server_args(server);
-    let args = [
-        "wallet", "-w", wallet_dir, "get-info", s[0], s[1], s[2], s[3],
-    ];
-    parse_chain_info(&run_text(devtool, &args, None)?)
+    parse_chain_info(&crate::lightclient::run_text(
+        devtool,
+        &["wallet", "-w", wallet_dir, "get-info"],
+        server,
+        None,
+        crate::lightclient::Call::Short,
+    )?)
 }
 
 /// `zcash-devtool wallet -w <dir> upgrade` - bring an existing wallet database up to the schema
@@ -250,9 +247,13 @@ pub(crate) fn set_sync_within_for_test(within: Option<std::time::Duration>) {
 /// Does NOT migrate the wallet: the caller runs [`upgrade`] once, before it touches the wallet at
 /// all (`helper::bring_current`), so a synced read starts one devtool process, not two.
 pub(crate) fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
-    let s = server_args(server);
-    let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
-    crate::tools::run_within(devtool, &args, None, sync_within())?;
+    crate::lightclient::run(
+        devtool,
+        &["wallet", "-w", wallet_dir, "sync"],
+        server,
+        None,
+        crate::lightclient::Call::Sync(sync_within()),
+    )?;
     Ok(())
 }
 

@@ -12,7 +12,7 @@ use zcash_protocol::consensus::NetworkType;
 
 use crate::address::{validate_recipient_on, AddressError};
 use crate::send::{SendConfig, SpendPlan};
-use crate::tools::{run, run_text_all, ToolError};
+use crate::tools::{run_text_all, ToolError};
 use crate::write_auth::{members_counted, same_member};
 
 /// What a hosted blind helper needs to operate vaults. All of it is public tooling and view-only
@@ -2939,23 +2939,14 @@ fn build_view_wallet(
     name: &str,
     ufvk: &str,
 ) -> Result<String, ToolError> {
-    run(
+    crate::lightclient::run(
         &cfg.devtool,
         &[
-            "wallet",
-            "-w",
-            wallet_dir,
-            "init-fvk",
-            "--name",
-            name,
-            "--fvk",
-            ufvk,
-            "-s",
-            cfg.lightwalletd.as_str(),
-            "--connection",
-            "direct",
+            "wallet", "-w", wallet_dir, "init-fvk", "--name", name, "--fvk", ufvk,
         ],
+        cfg.lightwalletd.as_str(),
         None,
+        crate::lightclient::Call::Short,
     )?;
     let listed = run_text_all(
         &cfg.devtool,
