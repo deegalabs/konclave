@@ -82,6 +82,15 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Changed
 
+- **The relay image builds from a lock file, with `--locked`.** The relay is now its own cargo workspace with its
+  own `Cargo.lock`, the one CI tests, and the image copies it and refuses to resolve other versions; before, each
+  build took the newest compatible `tiny_http`, `serde` and `serde_json`, so two builds of one source could differ
+  and report the same digest. The digest now also covers the lock and the build script. This is pinning and a drift
+  check, not an attestation: the base images are still floating tags, the toolchain and the Dockerfile are outside the
+  digest, and the digest is a fast hash, not a signature. Build it with
+  `cargo build --manifest-path relay-server/Cargo.toml`. The digest changes with this entry although the relay's code
+  does not, so the first deploy recorded after it redeploys the relay too.
+
 - **The relay can be told how many proxies in front of it to trust** (`KONCLAVE_TRUSTED_PROXY_HOPS`,
   a whole number from 0 to 8; `DEPLOY.md`). Unset, which is how the hosted relay runs, nothing
   changes. A value it does not understand stops the relay at boot, and the boot log and `/health`

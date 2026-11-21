@@ -164,7 +164,7 @@ jobs:
           cargo clippy --manifest-path orchestrator/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path konclave-signer/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path konclave-wasm/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path relay-server/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path relay-server/Cargo.toml --locked --all-targets -- -D warnings
           cargo clippy --manifest-path helper-server/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path konclave-http/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path konclave-seal/Cargo.toml --all-targets --all-features -- -D warnings
@@ -173,7 +173,7 @@ jobs:
           cargo test --manifest-path orchestrator/Cargo.toml
           cargo test --manifest-path konclave-signer/Cargo.toml
           cargo test --manifest-path konclave-wasm/Cargo.toml
-          cargo test --manifest-path relay-server/Cargo.toml
+          cargo test --manifest-path relay-server/Cargo.toml --locked
           cargo test --manifest-path helper-server/Cargo.toml
           cargo test --manifest-path konclave-http/Cargo.toml
           cargo test --manifest-path konclave-seal/Cargo.toml --all-features
@@ -264,8 +264,8 @@ jobs:
         run: |
           set -euo pipefail
           in_image="$(docker run --rm konclave-relay:ci relay-server --digest)"
-          cargo build --release -p relay-server
-          on_disk="$(./target/release/relay-server --digest)"
+          cargo build --release --locked --manifest-path relay-server/Cargo.toml
+          on_disk="$(./relay-server/target/release/relay-server --digest)"
           echo "image: $in_image"
           echo "repo:  $on_disk"
           test "$in_image" = "$on_disk"
