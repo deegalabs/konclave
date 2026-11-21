@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const toast = vi.hoisted(() => ({ ok: vi.fn(), warn: vi.fn(), err: vi.fn(), info: vi.fn() }))
 vi.mock('./toast', () => ({ useToast: () => toast }))
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
@@ -37,16 +37,26 @@ describe('removing a person from the register', () => {
   }
 
   it('a removal that did not land says so, and claims no success', async () => {
-    deleteBeneficiary.mockResolvedValue(false)
+    deleteBeneficiary.mockResolvedValue({ ok: false, error: 'not removed' })
     await remove()
     await waitFor(() => expect(toast.err).toHaveBeenCalledWith(en('toast.personRemoveFailed').replace('{name}', 'Ana')))
     expect(toast.ok).not.toHaveBeenCalled()
   })
 
   it('a removal that landed says so', async () => {
-    deleteBeneficiary.mockResolvedValue(true)
+    deleteBeneficiary.mockResolvedValue({ ok: true })
     await remove()
     await waitFor(() => expect(toast.ok).toHaveBeenCalledWith(en('toast.personRemoved').replace('{name}', 'Ana')))
     expect(toast.err).not.toHaveBeenCalled()
+  })
+
+  it('on the local bridge with no selection, removing waits until the vault is known', async () => {
+    let answer: (v: unknown) => void = () => {}
+    getVault.mockReturnValue(new Promise((r) => { answer = r }))
+    render(<MemoryRouter><I18nProvider><People /></I18nProvider></MemoryRouter>)
+    const del = await screen.findByTitle(en('common.remove')) as HTMLButtonElement
+    expect(del.disabled).toBe(true)
+    await act(async () => { answer({ id: 'v', name: 'Caixa', threshold: 2, total: 3, members: 3, member_list: [], group_pubkey: 'v', orchard_address: 'u1x' }) })
+    await waitFor(() => expect((screen.getByTitle(en('common.remove')) as HTMLButtonElement).disabled).toBe(false))
   })
 })

@@ -15,9 +15,10 @@ import { costZat } from '../proposal-cost'
 import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
-  getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
+  getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance, vaultRefusalText,
   readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx, type Book,
 } from '../api'
+import { getSelectedVault, pinnedAnswer } from '../shown-vault'
 import { useVaultReadable } from '../vault-readable'
 import { readPlan } from '../approved-payment'
 import { proposalName } from '../proposal-name'
@@ -60,6 +61,11 @@ export default function Proposal() {
   const [unread, setUnread] = useState<ReadFailureInfo | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
+  // The vault this screen opened on, pinned once: the selection is shared by every tab of the browser.
+  const [pinned] = useState(() => getSelectedVault())
+  // The vault a vote is for: the pinned one, or (no selection: the local bridge) the one it answered for.
+  // A vote waits for it, so it is never cast for a vault that is not yet known.
+  const voteVault = pinned ?? who?.vaultId ?? null
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState<null | 'dry' | 'real'>(null)
   const [dryOk, setDryOk] = useState<string | null>(null)
@@ -76,7 +82,7 @@ export default function Proposal() {
     if (!readable) return
     let on = true
     void (async () => {
-      const v = await getVault()
+      const v = pinnedAnswer(pinned, await getVault())
       if (on && v) {
         setThreshold(v.threshold)
         setMembers(v.member_list.map((m) => m.name))
@@ -167,17 +173,17 @@ export default function Proposal() {
     if (!p) return
     const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
     // A device casts ONLY its own vote (`me`). Never let a proposer/device vote as another member.
-    const who = me && canVote.includes(me) ? me : ''
-    if (!who) { setError(t('proposal.errNoVoter')); return }
+    const voter = me && canVote.includes(me) ? me : ''
+    if (!voter) { setError(t('proposal.errNoVoter')); return }
     setError(null); setBusy(true)
-    const res = await voteProposal(p.id, who, approve)
+    const res = await voteProposal(voteVault, p.id, voter, approve)
     setBusy(false)
     if (res.ok) {
       setP(res.proposal)
       // The row updates in place, so the change is easy to miss; the toast says it was recorded.
       toast.ok(approve ? t('toast.approved') : t('toast.refused'))
     } else {
-      const msg = humanError(t, res.error, res.detail)
+      const msg = vaultRefusalText(t, res.error) ?? humanError(t, res.error, res.detail)
       setError(msg)   // stays on screen: this is the money path
       toast.err(msg)  // and is announced, in case the eye is elsewhere
     }
@@ -224,7 +230,7 @@ export default function Proposal() {
           <div><dt>{t('proposal.factProposer')}</dt><dd>{p.proposer}</dd></div>
           {p.txid && <div><dt>{t('proposal.factTxid')}</dt><dd className="mono addr-full"><span>{p.txid}</span></dd></div>}
         </dl>
-        {canRefuse && <div className="btns mt"><button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button></div>}
+        {canRefuse && <div className="btns mt"><button className="btn" onClick={() => vote(false)} disabled={busy || !voteVault}>{t('proposal.refuse')}</button></div>}
         {error && <div className="hint err mt" role="alert">{error}</div>}
       </main></>)
   }
@@ -411,8 +417,8 @@ export default function Proposal() {
                     described by it, so the two moments that move money are two sentences (#309). */}
                 <p className="hint mt" id="vote-means">{t('proposal.approveMeans')}</p>
                 <div className="btns mt-sm">
-                  <button className="btn ok" onClick={() => vote(true)} disabled={busy} aria-describedby="vote-means">{busy ? '…' : t('proposal.approve')}</button>
-                  <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
+                  <button className="btn ok" onClick={() => vote(true)} disabled={busy || !voteVault} aria-describedby="vote-means">{busy ? '…' : t('proposal.approve')}</button>
+                  <button className="btn" onClick={() => vote(false)} disabled={busy || !voteVault}>{t('proposal.refuse')}</button>
                 </div>
               </>
             ) : (

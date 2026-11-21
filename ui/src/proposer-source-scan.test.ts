@@ -55,4 +55,21 @@ describe('no screen chooses a proposer from the first member or myName (#591)', 
     }
     expect(codeOf('use-proposer.ts')).toMatch(/\bactingAs\(/)
   })
+
+  // T6: the write functions take the vault from the caller and never read the selection themselves.
+  it('createProposal and createPayroll never read the selection', () => {
+    const code = codeOf('api.ts')
+    for (const fn of ['createProposal', 'createPayroll']) {
+      const body = code.split(`export async function ${fn}`)[1]?.split('\nexport ')[0] ?? ''
+      expect(body, fn).toBeTruthy()
+      expect(body, fn).not.toMatch(/getSelectedVault\(/)
+      expect(body, fn).not.toMatch(/withVault\(/) // it re-reads the selection
+      expect(body, fn).toMatch(/shownVault\(/)
+    }
+  })
+  it('both screens hand the shown vault\'s id to the write', () => {
+    for (const f of ['screens/NewPayment.tsx', 'screens/NewPayroll.tsx']) {
+      expect(codeOf(f), f).toMatch(/create(Proposal|Payroll)\(\s*vaultRef/)
+    }
+  })
 })

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.setConfig({ testTimeout: 60_000 })
 import * as storage from './storage'
 import { saveVault, deleteVault } from './storage'
-import { setSelectedVault } from './api'
+import { setSelectedVault, getSelectedVault } from './api'
 import { pushRecentPayee, recentPayees } from './recent-payees'
 import { savePayrollDraft } from './payroll-draft'
 
@@ -22,21 +22,21 @@ afterEach(async () => { localStorage.clear(); await deleteVault(GK).catch(() => 
 describe('a protected record on the bridge', () => {
   it('writes nothing in the clear and offers nothing', async () => {
     await save(new Uint8Array(32).fill(0x5a)); setSelectedVault(GK)
-    await pushRecentPayee(A)
+    await pushRecentPayee(getSelectedVault(), A)
     expect(await savePayrollDraft(GK, { competencia: 'secret period' })).toBe('locked')
-    expect(await recentPayees()).toEqual([])
+    expect(await recentPayees(getSelectedVault())).toEqual([])
     expect(Object.keys(localStorage).filter((k) => k.includes('recentPayees') || k.includes('rascunho'))).toEqual([])
   })
   it('an open record on the bridge keeps its plain bytes', async () => {
     await save(); setSelectedVault(GK)
-    await pushRecentPayee(A)
+    await pushRecentPayee(getSelectedVault(), A)
     expect(localStorage.getItem(`konclave.recentPayees.${GK}`)).toBe(JSON.stringify([A]))
   })
   it('records that cannot be read count as protected, never as plain (the bridge does not decide then)', async () => {
     setSelectedVault(GK)
     const spy = vi.spyOn(storage, 'readVaults').mockRejectedValue(new Error('storage unavailable'))
     try {
-      await pushRecentPayee(A)
+      await pushRecentPayee(getSelectedVault(), A)
       expect(await savePayrollDraft(GK, { competencia: 'secret period' })).toBe('locked')
       expect(Object.keys(localStorage).filter((k) => k.includes('recentPayees') || k.includes('rascunho'))).toEqual([])
     } finally { spy.mockRestore() }

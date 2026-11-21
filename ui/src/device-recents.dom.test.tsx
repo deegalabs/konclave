@@ -9,7 +9,7 @@ vi.hoisted(() => { vi.stubEnv('VITE_HELPER_BASE', 'https://helper.test') })
 vi.setConfig({ testTimeout: 60_000 })
 
 import { saveVault, loadVault, deleteVault, type VaultData } from './storage'
-import { setSelectedVault } from './api'
+import { setSelectedVault, getSelectedVault } from './api'
 import { setUnlockedShare, clearUnlockedShare } from './session'
 import { recentPayees, pushRecentPayee } from './recent-payees'
 import { readPayrollDraft, savePayrollDraft, clearPayrollDraft } from './payroll-draft'
@@ -50,11 +50,11 @@ afterEach(() => cleanup())
 describe('recent addresses of a protected vault', () => {
   it('no address reaches any storage value; they read back after the unlock, sealed', async () => {
     await protectedVault(); await unlock()
-    await pushRecentPayee(A1); await pushRecentPayee(A2)
+    await pushRecentPayee(getSelectedVault(), A1); await pushRecentPayee(getSelectedVault(), A2)
     const all = everything()
     expect(all).not.toContain('aaaaaaaa'); expect(all).not.toContain('bbbbbbbb')
     expect(JSON.parse(await handOpen('recent', localStorage.getItem(rk)!))).toEqual([A2, A1])
-    expect(await recentPayees()).toEqual([A2, A1])
+    expect(await recentPayees(getSelectedVault())).toEqual([A2, A1])
   })
 
   it('existing plain recents are sealed on unlock, to the same bytes', async () => {
@@ -78,22 +78,22 @@ describe('recent addresses of a protected vault', () => {
     await protectedVault()
     const sealed = JSON.stringify({ v: 1, iv: btoa('x'.repeat(12)), ct: btoa('y'.repeat(40)) })
     localStorage.setItem(rk, sealed)
-    expect(await recentPayees()).toEqual([])
-    await pushRecentPayee(A1)
+    expect(await recentPayees(getSelectedVault())).toEqual([])
+    await pushRecentPayee(getSelectedVault(), A1)
     expect(localStorage.getItem(rk)).toBe(sealed)
   })
 
   it('an open vault keeps its bytes: a plain list of at most four, newest first', async () => {
     await saveVault(GK, base(), PASS); setSelectedVault(GK)
-    for (const a of ['u1' + '1'.repeat(76), 'u1' + '2'.repeat(76), 'u1' + '3'.repeat(76), 'u1' + '4'.repeat(76), 'u1' + '5'.repeat(76)]) await pushRecentPayee(a)
+    for (const a of ['u1' + '1'.repeat(76), 'u1' + '2'.repeat(76), 'u1' + '3'.repeat(76), 'u1' + '4'.repeat(76), 'u1' + '5'.repeat(76)]) await pushRecentPayee(getSelectedVault(), a)
     expect(localStorage.getItem(rk)).toBe(JSON.stringify(['u1' + '5'.repeat(76), 'u1' + '4'.repeat(76), 'u1' + '3'.repeat(76), 'u1' + '2'.repeat(76)]))
-    expect((await recentPayees())[0]).toBe('u1' + '5'.repeat(76))
+    expect((await recentPayees(getSelectedVault()))[0]).toBe('u1' + '5'.repeat(76))
   })
 
   it('a web vault with no record here is neither read nor written', async () => {
     setSelectedVault('d4'.repeat(32))
-    await pushRecentPayee(A1)
-    expect(await recentPayees()).toEqual([])
+    await pushRecentPayee(getSelectedVault(), A1)
+    expect(await recentPayees(getSelectedVault())).toEqual([])
     expect(Object.keys(localStorage).filter((k) => k.includes('recentPayees'))).toEqual([])
   })
 
@@ -102,7 +102,7 @@ describe('recent addresses of a protected vault', () => {
     localStorage.setItem('konclave.locale', 'en')
     localStorage.setItem(rk, JSON.stringify([A1]))
     const benefs = [{ id: 'b1', name: 'Ana Recent', address: A1, memo: '', is_public: false }, { id: 'b2', name: 'Bia Saved', address: A2, memo: '', is_public: false }]
-    render(<I18nProvider><RecipientCombobox benefs={benefs} address="" name={null} onChange={() => {}} /></I18nProvider>)
+    render(<I18nProvider><RecipientCombobox vaultId={getSelectedVault()} benefs={benefs} address="" name={null} onChange={() => {}} /></I18nProvider>)
     fireEvent.focus(screen.getByRole('combobox'))
     await waitFor(() => expect(screen.getByText(en['rec.recents']!)).toBeTruthy())
   })

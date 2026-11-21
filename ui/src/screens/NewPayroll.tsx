@@ -21,6 +21,7 @@ import { useProposer } from '../use-proposer'
 import { ProposerNotice } from '../ProposerNotice'
 import { clearPayrollDraft, draftKeptIn, readPayrollDraft, savePayrollDraft } from '../payroll-draft'
 import { RecipientCombobox } from '../RecipientCombobox'
+import { pinnedAnswer } from '../shown-vault'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
 import { useVaultBalance } from '../useVaultBalance'
@@ -285,7 +286,8 @@ export default function NewPayroll() {
     let on = true
     void (async () => {
       if (await health()) {
-        const [bs, led, v] = await Promise.all([getBeneficiaries(), getLedger(), getVault()])
+        const [bs, led, got] = await Promise.all([getBeneficiaries(draftVault), getLedger(), getVault()])
+        const v = pinnedAnswer(draftVault, got)
         if (!on) return
         void getProposals().then((ps) => { if (on) setOpenProps(ps) })
         if (bs) setBenefs(bs)
@@ -330,7 +332,7 @@ export default function NewPayroll() {
     void getProposals().then((ps) => { if (ps) setOpenProps(ps) })
   }, 12_000)
 
-  const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
+  const reloadBenefs = () => { void getBeneficiaries(draftVault).then((b) => { if (b) setBenefs(b) }) }
 
   async function importCsv() {
     setError(null)
@@ -417,6 +419,7 @@ export default function NewPayroll() {
     if (titleIssue === 'chars') { setError(t('payroll.errTitleChars')); return }
     setBusy(true)
     const res = await createPayroll(
+      vaultRef?.id ?? '',
       proposer ?? '', // what the screen showed; the name sent is the seat's, read at send time
       validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: amountTyped(r.value), memo: r.memo || undefined })),
       desc,
@@ -550,6 +553,7 @@ export default function NewPayroll() {
                   <div className="plr-to" onBlur={() => { if (r.check) updateRow(r.k, {}) }}>
                     <RecipientCombobox
                       compact
+                      vaultId={draftVault ?? vaultRef?.id ?? null}
                       invalid={!!issue}
                       describedBy={note ? `plr-issue-${i}` : undefined}
                       benefs={benefs}

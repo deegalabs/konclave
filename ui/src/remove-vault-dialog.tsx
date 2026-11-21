@@ -7,8 +7,10 @@
 import { useState } from 'react'
 import { Dialog } from './components'
 import { useT, useTr } from './i18n'
+import { refusalKey } from './shown-vault'
 
-export type RemoveResult = 'ok' | 'wrong' | 'fail'
+/** `gone` / `changed`: the screen no longer shows the selected vault (another tab), so nothing was done. */
+export type RemoveResult = 'ok' | 'wrong' | 'fail' | 'gone' | 'changed'
 
 /** What a member types, and sees in the title: the vault's name, or the short id the lists show. */
 export function removeLabel(id: string, name?: string): string {
@@ -44,7 +46,7 @@ export function RemoveVaultDialog({ id, name, remove, onExport, onClose, onRemov
     try {
       const res = await remove(typed)
       if (res === 'ok') { onRemoved(); return }
-      setErr(t(res === 'wrong' ? 'settings.nameMismatch' : 'settings.removeFail'))
+      setErr(t(res === 'wrong' ? 'settings.nameMismatch' : res === 'gone' || res === 'changed' ? refusalKey({ gone: res === 'gone' }, 'settings') : 'settings.removeFail'))
     } catch {
       // Stay open and say so: closing would look like it worked while the share is still here.
       setErr(t('settings.removeFail'))

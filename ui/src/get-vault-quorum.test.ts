@@ -9,7 +9,7 @@ const ID = 'cd'.repeat(32)
 const h = vi.hoisted(() => ({ records: [] as object[], served: { threshold: 3, total: 5 } as { threshold?: number; total?: number }, listThrows: false }))
 vi.mock('./helper', async (orig) => ({
   ...(await orig<typeof import('./helper')>()),
-  helperConfigured: () => true,
+  helperConfigured: () => true, NET_AT_LOAD: true,
   getVault: async () => ({ vault_id: ID, address: '', state: 'pinned', name: 'x', ...h.served }),
   listMembers: async () => null,
 }))

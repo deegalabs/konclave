@@ -72,19 +72,19 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
 
   it('the recent addresses belong to a vault: one vault never offers another vault\'s payees', async () => {
     setSelectedVault(A)
-    await pushRecentPayee('u1fora')
+    await pushRecentPayee(getSelectedVault(), 'u1fora')
     setSelectedVault(B)
-    expect(await recentPayees()).toEqual([])
-    await pushRecentPayee('u1forb')
-    expect(await recentPayees()).toEqual(['u1forb'])
+    expect(await recentPayees(getSelectedVault())).toEqual([])
+    await pushRecentPayee(getSelectedVault(), 'u1forb')
+    expect(await recentPayees(getSelectedVault())).toEqual(['u1forb'])
     setSelectedVault(A)
-    expect(await recentPayees()).toEqual(['u1fora'])
+    expect(await recentPayees(getSelectedVault())).toEqual(['u1fora'])
   })
 
   it('drops the unkeyed recent list of earlier versions, whose vault cannot be known', async () => {
     localStorage.setItem('konclave.recentPayees', JSON.stringify(['u1legacy']))
     setSelectedVault(A)
-    expect(await recentPayees()).toEqual([])
+    expect(await recentPayees(getSelectedVault())).toEqual([])
     expect(localStorage.getItem('konclave.recentPayees')).toBeNull()
   })
 
@@ -147,7 +147,7 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     // Not counting the draft: B holds S here, and a protected vault's draft is memory-only (a seeded plain one is deleted, whenever the migration runs).
     expect(keysWith(B).filter((k) => !k.includes('rascunho'))).toHaveLength(6)
     const settings = codeOf('screens/Settings.tsx')
-    expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(vault\.id\)/)
+    expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(id\)/)
     // No screen clears a part of a vault's leftovers on its own: that is how the two lists drifted.
     for (const part of ['clearPayrollDraft', 'clearRecentPayees']) expect(settings, part).not.toMatch(new RegExp(`\\b${part}\\(`))
   })
@@ -159,7 +159,7 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
 // test proves it goes; or it is kept on purpose, with the reason.
 type Fate = 'device' | 'cleared' | 'kept'
 const STORAGE_WRITES: Record<string, Record<string, Fate>> = {
-  'api.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */ },
+  'shown-vault.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */ },
   'helper.ts': { MODE_KEY: 'device' },
   'i18n/index.tsx': { LOCALE_KEY: 'device' },
   'net.ts': { RELAY_MODE_KEY: 'device' },
