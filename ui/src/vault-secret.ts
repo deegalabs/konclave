@@ -52,6 +52,20 @@ export async function deriveReadKey(secret: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(bits)
 }
 
+/** The key that seals what this browser keeps for a vault (vault-local.ts): AES-GCM 256 from
+ *  `HKDF-SHA256(S, info="konclave-local-v1")`, NON-extractable so no raw bytes reach JS. A separate
+ *  info from the read key and the seat proof: neither of those (one goes to the coordinator) opens it. */
+export async function deriveLocalKey(secret: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', bufOf(secret), 'HKDF', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('konclave-local-v1') },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
 /** A fresh ArrayBuffer view of `b` (crypto.subtle wants a plain BufferSource). */
 function bufOf(b: Uint8Array): ArrayBuffer {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer

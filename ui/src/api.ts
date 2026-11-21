@@ -32,7 +32,8 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished, beneficiariesKey } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished } from './storage'
+import { readLocal, updateLocal, REFUSE } from './vault-local'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -738,6 +739,9 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   if (e === 'invalid amount') return t('error.invalidAmount')
   if (e === 'proposal rejected') return t('error.proposalRejected')
   if (e === 'no vault') return t('error.noVault')
+  if (e === 'storage locked') return t('error.storageLocked')
+  if (e === 'storage unreadable') return t('error.storageUnreadable')
+  if (e === 'storage failed') return t('error.storageFailed')
   if (e === 'no destination') return t('error.noDestination')
   if (e === 'empty payroll' || has('payroll has no lines')) return t('error.emptyPayroll')
 
@@ -1007,23 +1011,26 @@ export type Beneficiary = { id: string; name: string; address: string; memo: str
 // lives ON THIS DEVICE (localStorage keyed by vault id) instead of the blind helper - which does not
 // implement /api/beneficiaries (the 404s in #136). This keeps the console clean, works offline, and
 // stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
-function benefKey(): string | null {
-  const id = getSelectedVault()
-  return id ? beneficiariesKey(id) : null
+// Through vault-local: sealed on a protected vault's device, in the clear on an open one.
+function benefVault(): string | null { return getSelectedVault() }
+
+/** The change an add makes: a list gets one more, nothing yet starts one, anything else is REFUSED
+ *  (never turned into a list, which would overwrite what it was). */
+export function appendPerson(cur: unknown, b: Beneficiary): unknown {
+  return cur === undefined ? [b] : Array.isArray(cur) ? [...cur, b] : REFUSE
 }
-function netBenefList(): Beneficiary[] {
-  const k = benefKey()
-  if (!k) return []
-  try { return JSON.parse(localStorage.getItem(k) ?? '[]') as Beneficiary[] } catch { return [] }
-}
-function netBenefSave(list: Beneficiary[]): void {
-  const k = benefKey()
-  if (!k) return
-  try { localStorage.setItem(k, JSON.stringify(list)) } catch { /* storage blocked/full */ }
+export function withoutPerson(cur: unknown, id: string): unknown {
+  return cur === undefined ? [] : Array.isArray(cur) ? (cur as Beneficiary[]).filter((b) => b.id !== id) : REFUSE
 }
 
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
-  if (NET) return netBenefList()
+  if (NET) {
+    const id = benefVault()
+    if (!id) return []
+    const r = await readLocal(id, 'benef')
+    // Locked or unreadable is "unavailable", never an empty list a caller could add to and overwrite.
+    return r.s === 'absent' ? [] : r.s === 'ok' && Array.isArray(r.value) ? (r.value as Beneficiary[]) : null
+  }
   const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
   return r?.beneficiaries ?? null
 }
@@ -1042,8 +1049,11 @@ export async function addBeneficiary(
       memo: memo?.trim() ?? '',
       is_public: classifyAddress(addr) === 'transparent',
     }
-    netBenefSave([...netBenefList(), b])
-    return { ok: true, beneficiary: b }
+    const vid = benefVault()
+    if (!vid) return { ok: false, error: 'no vault' }
+    const w = await updateLocal(vid, 'benef', (cur) => appendPerson(cur, b))
+    if (w === 'written') return { ok: true, beneficiary: b }
+    return { ok: false, error: w === 'locked' ? 'storage locked' : w === 'unreadable' ? 'storage unreadable' : 'storage failed' }
   }
   try {
     const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
@@ -1061,8 +1071,9 @@ export async function addBeneficiary(
 
 export async function deleteBeneficiary(id: string): Promise<boolean> {
   if (NET) {
-    netBenefSave(netBenefList().filter((b) => b.id !== id))
-    return true
+    const vid = benefVault()
+    if (!vid) return false
+    return (await updateLocal(vid, 'benef', (cur) => withoutPerson(cur, id))) === 'written'
   }
   try {
     const res = await fetch(`${BASE}/api/beneficiaries/${encodeURIComponent(id)}/delete`, { method: 'POST' })

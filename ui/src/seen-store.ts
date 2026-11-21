@@ -2,10 +2,11 @@
 // member last marked them as seen on this device. One module for the key, so the screen that writes
 // it and the removal that clears it (`clearVaultTraces`) cannot name it differently.
 import type { Snapshot } from './since-last'
+import { vaultKey } from './vault-local'
 
 export type Seen = { at: number; states: Snapshot }
 
-export const seenKey = (id: string) => `konclave.seen.${id}`
+export const seenKey = (id: string) => vaultKey('seen', id)
 
 export function readSeen(id: string): Seen | null {
   try {

@@ -7,7 +7,18 @@ import { ensureWasm } from './wasm-ready'
 import { checkedViewingKey } from './vault-receivers'
 import { backupFileName, exportVault, listVaults, loadVault } from './storage'
 
-export type VaultBackup = { json: string; name: string; complete: boolean }
+/** `peopleLeftOut`: the saved people could not be opened on this device, so the backup was made without them. */
+export type VaultBackup = { json: string; name: string; complete: boolean; peopleLeftOut?: boolean; keyMissing?: boolean }
+
+/** The notices an incomplete backup owes the member, as i18n keys: ONE reader for every screen. Each
+ *  named cause gets its own; a backup that is incomplete for a cause nobody named still gets the
+ *  generic one, so an incomplete file never goes without a warning. */
+export function incompleteNotices(b: Pick<VaultBackup, 'complete' | 'peopleLeftOut' | 'keyMissing'>): string[] {
+  const out: string[] = []
+  if (b.peopleLeftOut) out.push('export.peopleLeftOut')
+  if (b.keyMissing || (!b.complete && !b.peopleLeftOut)) out.push('vaults.resumeBackupIncomplete')
+  return out
+}
 
 /**
  * Build the backup of `vaultId` under `passphrase`, which also opens the record it is checked against. Throws when the export cannot be built: each
@@ -27,12 +38,16 @@ export async function buildVaultBackup(
   const keys = await checkedViewingKey(vaultId, await loadVault(vaultId, passphrase))
   // Protocol 3: what was checked is all that goes, or the record's own key would slip past the check.
   const checkedOnly = ((await listVaults()).find((v) => v.id === vaultId)?.cp ?? 0) >= 3
+  const report: { peopleLeftOut?: boolean } = {}
   const exp = checkedOnly
-    ? await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday, { storedKey: false })
-    : await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday)
+    ? await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday, { storedKey: false, report })
+    : await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday, { report })
   return {
     json: JSON.stringify(exp, null, 2),
     name: backupFileName(new Date()), // neutral: the name says nothing about the vault (#587)
-    complete: Boolean(keys?.ufvk && keys?.birthday !== undefined),
+    complete: Boolean(keys?.ufvk && keys?.birthday !== undefined) && !report.peopleLeftOut,
+    // The two causes apart, so a screen can say each: `complete` is false for either.
+    ...(keys?.ufvk && keys?.birthday !== undefined ? {} : { keyMissing: true }),
+    ...(report.peopleLeftOut ? { peopleLeftOut: true } : {}),
   }
 }

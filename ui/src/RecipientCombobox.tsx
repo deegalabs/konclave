@@ -50,6 +50,14 @@ export function RecipientCombobox({
   const [saveName, setSaveName] = useState('')
   const [savingRaw, setSavingRaw] = useState(false)
   const [saveRawErr, setSaveRawErr] = useState<string | null>(null)
+  // The recent addresses are an asynchronous read (sealed on a protected vault's device): loaded when the
+  // field opens, and again after a pick, never read during render.
+  const [recent, setRecent] = useState<string[]>([])
+  useEffect(() => {
+    let on = true
+    void recentPayees().then((r) => { if (on) setRecent(r) })
+    return () => { on = false }
+  }, [open])
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -65,12 +73,12 @@ export function RecipientCombobox({
     if (qIsAddr) return { pasted: q.trim(), recents: [] as Beneficiary[], saved: [] as Beneficiary[] }
     const ql = q.trim().toLowerCase()
     const match = (b: Beneficiary) => !ql || b.name.toLowerCase().includes(ql)
-    const rec = recentPayees()
+    const rec = recent
     const recents = rec.map((a) => benefs.find((b) => b.address === a)).filter((b): b is Beneficiary => !!b && match(b)).slice(0, 3)
     const recentIds = new Set(recents.map((b) => b.id))
     const saved = benefs.filter((b) => match(b) && !recentIds.has(b.id))
     return { pasted: null as string | null, recents, saved }
-  }, [q, qIsAddr, benefs])
+  }, [q, qIsAddr, benefs, recent])
 
   // Flat option list (for keyboard nav): each entry is a Beneficiary or the pasted address or add.
   const flat = useMemo(() => {
@@ -95,7 +103,7 @@ export function RecipientCombobox({
   useEffect(() => { if (autoFocus) inputRef.current?.focus() }, [autoFocus])
 
   function pick(r: Recipient) {
-    pushRecentPayee(r.address)
+    void pushRecentPayee(r.address)
     onChange(r)
     setQ(''); setOpen(false); setAdding(false)
     setSavePrompt(false); setSaveName(''); setSaveRawErr(null)

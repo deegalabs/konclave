@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// The bridge has the browser's IndexedDB: an empty vault list, not a broken one.
+import 'fake-indexeddb/auto'
 // A row's identity is its own, not its index: the survivor of a delete never shows the deleted row's text.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -40,8 +42,12 @@ const T = 't1' + 'd'.repeat(33)
 const SAVED = 'u1' + 's'.repeat(76)
 
 const mount = async () => {
+  // A seeded draft is restored asynchronously (through the vault's own storage): wait for its rows.
+  let seeded = 0
+  try { seeded = (JSON.parse(localStorage.getItem(DRAFT) ?? 'null')?.rows ?? []).length } catch { /* none */ }
   const r = render(<MemoryRouter><I18nProvider><NewPayroll /></I18nProvider></MemoryRouter>)
   await screen.findByRole('button', { name: dict['payroll.addRow'] })
+  if (seeded > 0) await waitFor(() => expect(r.container.querySelectorAll('.plr-line').length).toBe(seeded))
   return r
 }
 const lines = (c: HTMLElement) => Array.from(c.querySelectorAll<HTMLElement>('.plr-line'))
@@ -63,7 +69,8 @@ const shown = (c: HTMLElement) => lines(c).map((l) => {
   }
 })
 /** The `rows` state, read from the draft the screen autosaves from it. */
-const state = () => JSON.parse(localStorage.getItem(DRAFT)!).rows as { address: string; value: string; label: string }[]
+const stateSync = () => JSON.parse(localStorage.getItem(DRAFT)!).rows as { address: string; value: string; label: string }[]
+/** The autosave is an asynchronous write: a test waits for the value it expects to be the stored one. */
 const submit = async () => {
   const b = screen.getByRole<HTMLButtonElement>('button', { name: dict['payroll.submitBtn'] })
   await waitFor(() => expect(b.disabled).toBe(false))
@@ -85,7 +92,9 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     getVault.mockResolvedValue({ id: 'v', name: 'Caixa', threshold: 2, total: 3, members: 3, member_list: [{ name: 'Alice' }], group_pubkey: 'v', orchard_address: 'u1x' })
     readBalance.mockResolvedValue({ configured: true, spendable_zat: 500000000, total_zat: 500000000 })
   })
-  afterEach(() => { cleanup(); localStorage.clear() })
+  // A pick writes the recent addresses asynchronously: let that write land before the storage is cleared,
+  // or it lands in the next test and moves its options under the click.
+  afterEach(async () => { cleanup(); await new Promise((r) => setTimeout(r, 80)); localStorage.clear() })
 
   it('S1 two pasted rows, delete row 1: the survivor shows B', async () => {
     const { container: c } = await mount()
@@ -94,8 +103,8 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     const sent = await submit()
     expect(shown(c)).toHaveLength(1)
     expect(shown(c)[0]!.recipient).toBe(B)
-    expect(state()[0]!.address).toBe(B)
-    expect(state()[0]).not.toHaveProperty('k') // the identity is the screen's, not the draft's
+    await waitFor(() => expect(stateSync()[0]!.address).toBe(B))
+    expect(stateSync()[0]).not.toHaveProperty('k') // the identity is the screen's, not the draft's
     expect(sent).toHaveLength(1)
     expect(sent[0]!.address).toBe(B)
     expect(sent[0]!.value_zec).toBe('0.2')
@@ -125,7 +134,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     typeAddr(c, 0, T); setVal(c, 0, '0.1'); addRow(); typeAddr(c, 1, B); setVal(c, 1, '0.2')
     del(c, 0)
     expect(shown(c)[0]!.recipient).toBe(B)
-    expect(state()[0]!.address).toBe(B)
+    await waitFor(() => expect(stateSync()[0]!.address).toBe(B))
     expect(shown(c)[0]!.hint).toBe(dict['rec.shieldedOk'])
   })
 
@@ -144,7 +153,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     typeAddr(c, 0, A); setVal(c, 0, '0.1')
     del(c, 0)
     expect(shown(c)[0]!.recipient).toBe('')
-    expect(state()[0]!.address).toBe('')
+    await waitFor(() => expect(stateSync()[0]!.address).toBe(''))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: dict['payroll.submitBtn'] }).disabled).toBe(true)
   })
 
@@ -153,7 +162,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     typeAddr(c, 0, 'Sa'); addRow(); typeAddr(c, 1, B); setVal(c, 1, '0.2')
     del(c, 0)
     expect(shown(c)[0]!.recipient).toBe(B)
-    expect(state()[0]!.address).toBe(B)
+    await waitFor(() => expect(stateSync()[0]!.address).toBe(B))
   })
 
   it('S8 save this recipient: the name is stored with the address on screen', async () => {
@@ -219,7 +228,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     del(c, 0)
     expect(shown(c).map((s) => s.recipient)).toEqual([OLD2])
     expect(shown(c)[0]!.value).toBe('0.2')
-    expect(state()[0]!.address).toBe(OLD2)
+    await waitFor(() => expect(stateSync()[0]!.address).toBe(OLD2))
   })
 
   it('S13 lines added from the registry under a half-typed row: deleting that row leaves each payee its own name', async () => {
@@ -236,7 +245,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     expect(after).toHaveLength(2)
     expect(after[0]!.recipient).toContain('Saved Sam')
     expect(after[1]!.recipient).toContain('Other Olga')
-    expect(state().map((r) => r.address)).toEqual([SAVED, B])
+    await waitFor(() => expect(stateSync().map((r) => r.address)).toEqual([SAVED, B]))
   })
 
   it('S14 a stored identity is never trusted: a draft with duplicate or odd keys still gives each line its own', async () => {
@@ -280,9 +289,9 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     await waitFor(() => expect(addBeneficiary).toHaveBeenCalled())
     del(c, 0) // B's line moves up while the save is in flight
     resolveSave(null)
-    await waitFor(() => expect(state().find((r) => r.label === 'Bea')).toBeTruthy())
-    expect(state().map((r) => [r.address, r.value])).toEqual([[B, '0.2'], [C, '0.3']])
-    expect(state().find((r) => r.label === 'Bea')!.address).toBe(B)
+    await waitFor(() => expect(stateSync().find((r) => r.label === 'Bea')).toBeTruthy())
+    await waitFor(() => expect(stateSync().map((r) => [r.address, r.value])).toEqual([[B, '0.2'], [C, '0.3']]))
+    await waitFor(() => expect(stateSync().find((r) => r.label === 'Bea')!.address).toBe(B))
   })
 
   it('CONTROL C0 row 1 pasted, row 2 SAVED: the survivor renders the chip, the stale text is hidden', async () => {

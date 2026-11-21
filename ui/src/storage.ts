@@ -12,6 +12,7 @@
 import { clearPayrollDraft } from './payroll-draft'
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 import { newPassphraseProblem } from './passphrase'
+import { readSealed, writeSealed, openEnvelopeGiven, heldAside, keepAside } from './vault-local'
 import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
 import { CREATION_PROTOCOL } from './creation-protocol'
@@ -89,6 +90,8 @@ export interface VaultPublic {
    *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
    *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
   secured?: boolean
+  /** Set (false) only by an import whose backup carried saved people that could not be saved here. */
+  peopleSaved?: boolean
   /** #784: whether the record still carries the viewing key IN THE CLEAR, as imports wrote it before
    *  #599. Presence only, derived here so no screen touches the value; the value itself is never
    *  listed. True means the passphrase has not been typed on this device since; `loadVault` seals
@@ -700,6 +703,8 @@ interface V2Payload {
   share: string
   accessSecret: string | null
   beneficiaries: unknown[]
+  /** The set-aside copy of a book that would not open here, opaque (see `readBeneficiaries`). */
+  peopleUnreadable?: string
   /** The vault's UFVK, when this device could get it (#214/#434).
    *
    *  Without it an export restores the SEAT, not the vault: `t` members would hold real spend
@@ -731,25 +736,27 @@ interface V2Payload {
  * bundle is guaranteed usable on import), then serializes the ENCRYPTED record - never the plaintext
  * share. The result is safe to store anywhere: without the passphrase it is opaque ciphertext.
  */
-/** The localStorage key the payee address-book lives under (mirrors `benefKey` in api.ts). Read/write
- *  it directly here so a vault export/import carries the beneficiaries without a cycle through api.ts. */
-export function beneficiariesKey(id: string): string {
-  return `konclave.benef.${id}`
+/** The book for an export, with the vault's S in hand (the session may be empty). A book that does not
+ *  open does NOT block the backup of the seat: the export goes on without it, says so through `report`,
+ *  and carries the set-aside copy as opaque data (`peopleUnreadable`) for a later import to try. */
+async function readBeneficiaries(id: string, s: Uint8Array | undefined, report?: { peopleLeftOut?: boolean }): Promise<{ list: unknown[]; aside?: string }> {
+  const r = await readSealed(s ?? null, id, 'benef')
+  if (r.s === 'absent') return { list: [] }
+  if (r.s === 'ok' && Array.isArray(r.value)) return { list: r.value }
+  if (report) report.peopleLeftOut = true
+  return { list: [], aside: heldAside(id, 'benef') ?? undefined }
 }
-function readBeneficiaries(id: string): unknown[] {
+/** Save a backup's book. True when there is nothing to save or it was saved; false when it was NOT,
+ *  and the import says so. A book that arrives as a sealed envelope (a backup made by an older tab,
+ *  which exported what it found in storage) is opened with the backup's own S: it is the same vault. */
+async function writeBeneficiaries(id: string, book: unknown, s: Uint8Array | undefined): Promise<boolean> {
   try {
-    if (typeof localStorage === 'undefined') return []
-    return JSON.parse(localStorage.getItem(beneficiariesKey(id)) ?? '[]') as unknown[]
+    const list = Array.isArray(book) ? book : s ? await openEnvelopeGiven(s, id, 'benef', book) : undefined
+    if (!list) return false
+    if (list.length === 0) return true
+    return (await writeSealed(s ?? null, id, 'benef', list)) === 'written'
   } catch {
-    return []
-  }
-}
-function writeBeneficiaries(id: string, list: unknown[]): void {
-  try {
-    if (typeof localStorage === 'undefined' || !Array.isArray(list) || list.length === 0) return
-    localStorage.setItem(beneficiariesKey(id), JSON.stringify(list))
-  } catch {
-    /* storage blocked/full - the vault still imports, just without its payee list */
+    return false // storage blocked or full: the vault still imports, and the import says its people did not
   }
 }
 
@@ -777,7 +784,7 @@ export async function exportVault(
   passphrase: string,
   ufvk?: string,
   birthday?: number,
-  opts: { storedKey?: boolean } = {},
+  opts: { storedKey?: boolean; report?: { peopleLeftOut?: boolean } } = {},
 ): Promise<VaultExportV2> {
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to export the vault')
@@ -798,7 +805,7 @@ export async function exportVault(
     createdAt: loaded.createdAt,
     share: hex(loaded.sealedShare),
     accessSecret: loaded.accessSecret ? hex(loaded.accessSecret) : null,
-    beneficiaries: readBeneficiaries(id),
+    ...(await (async () => { const b = await readBeneficiaries(id, loaded.accessSecret, opts.report); return { beneficiaries: b.list, ...(b.aside ? { peopleUnreadable: b.aside } : {}) } })()),
     // Explicit wins (a fresh authenticated fetch), else whatever this device already recorded.
     ...(ufvk ?? (opts.storedKey === false ? undefined : loaded.ufvk) ? { ufvk: ufvk ?? (opts.storedKey === false ? undefined : loaded.ufvk) } : {}),
     // The scan floor travels with the viewing key, for the same reason it is served with it:
@@ -882,7 +889,9 @@ interface DecodedImport {
   createdAt: number
   share: Uint8Array
   accessSecret?: Uint8Array
-  beneficiaries?: unknown[]
+  beneficiaries?: unknown
+  /** The copy of a book that would not open on the exporting device (opaque; see `readBeneficiaries`). */
+  peopleUnreadable?: string
   /** The vault's UFVK, when the export carried one. Absent on a v1 export and on any v2 written
    *  before #214, so an importer must treat it as "not in this file", never as "none exists". */
   ufvk?: string
@@ -960,7 +969,8 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
     groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
-    beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
+    peopleUnreadable: typeof p.peopleUnreadable === 'string' ? p.peopleUnreadable : undefined,
+    beneficiaries: p.beneficiaries ?? undefined, // a list, or what an older tab exported (writeBeneficiaries reads it)
     ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
     changeReceiver: addressText(p.changeReceiver) || undefined,
     // A height, so it is validated as one: a string or a negative here would be a corrupt bundle,
@@ -1169,7 +1179,15 @@ export async function importVault(
     db.close()
   }
 
-  if (d.beneficiaries) writeBeneficiaries(d.id, d.beneficiaries)
+  let peopleSaved = d.beneficiaries == null ? true : await writeBeneficiaries(d.id, d.beneficiaries, d.accessSecret)
+  if (d.peopleUnreadable && !(Array.isArray(d.beneficiaries) && d.beneficiaries.length > 0)) {
+    // The exporting device could not open its book: try it here, under the backup's own S; failing that
+    // keep it aside on this device, so the copy is not lost with the file.
+    let env: unknown
+    try { env = JSON.parse(d.peopleUnreadable) } catch { env = undefined }
+    const opened = await writeBeneficiaries(d.id, env, d.accessSecret)
+    if (!opened) { keepAside(d.id, 'benef', d.peopleUnreadable); peopleSaved = false }
+  }
   // Same as `saveVault`: ask on the strongest gesture and let the Dashboard surface the answer
   // (#307). An import is exactly when someone is recovering from a lost device, so a browser that
   // will evict again is the last thing to leave unsaid.
@@ -1179,6 +1197,7 @@ export async function importVault(
     id: record.id, name: record.name, governance: record.governance, myName: record.myName,
     creatorName: record.creatorName, groupKey: record.groupKey, address: record.address,
     roster: record.roster, createdAt: record.createdAt, secured: !!record.secretCipher,
+    ...(peopleSaved ? {} : { peopleSaved: false }),
   }
 }
 
