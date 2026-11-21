@@ -8,12 +8,15 @@
 
 import type { VaultLoaded } from './storage'
 import { seatRefusalCode } from './seat-registration'
+import { vaultLocalUnlocked, vaultLocalLocked } from './vault-local'
 
 const unlocked = new Map<string, VaultLoaded>()
 
 /** Record the freshly-decrypted share for `id` (the group key hex) for this session. */
 export function setUnlockedShare(id: string, v: VaultLoaded): void {
   unlocked.set(id, v)
+  // The one place S enters from a share: what this device keeps sealed for the vault opens (vault-local.ts).
+  if (v.accessSecret) vaultLocalUnlocked(id, v.accessSecret)
 }
 
 /** The decrypted share for `id`, if it was unlocked this session; otherwise undefined. */
@@ -37,6 +40,7 @@ export function unlockedHere(id: string): boolean {
 /** Drop the in-memory share (on lock, remove, or switch away). */
 export function clearUnlockedShare(id: string): void {
   unlocked.delete(id)
+  if (!readSecretFor(id)) vaultLocalLocked(id)
 }
 
 // ---- the read secret, held on its own (#446 C) ----
@@ -54,6 +58,7 @@ const readSecrets = new Map<string, Uint8Array>()
 /** Record `S` for this session, obtained WITHOUT the share (a PRF unlock). */
 export function setReadSecret(id: string, s: Uint8Array): void {
   readSecrets.set(id, s)
+  vaultLocalUnlocked(id, s) // and the one place S enters without a share (a PRF unlock)
 }
 
 /**
@@ -71,6 +76,7 @@ export function readSecretFor(id: string): Uint8Array | undefined {
 /** Drop both, on lock or removal. */
 export function clearReadSecret(id: string): void {
   readSecrets.delete(id)
+  if (!readSecretFor(id)) vaultLocalLocked(id)
 }
 
 /** What the coordinator refused this device on, for this session (its code). Read from the one store

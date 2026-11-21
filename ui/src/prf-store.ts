@@ -11,8 +11,9 @@
 // authenticator can produce. Losing it costs a member one passphrase entry.
 
 import type { PrfWrap } from './prf-wrap'
+import { vaultKey } from './vault-local'
 
-export const prfKey = (vaultId: string) => `konclave.prf.${vaultId}`
+export const prfKey = (vaultId: string) => vaultKey('prf', vaultId)
 const KEY = prfKey
 
 /** The wrap this device stored for `vaultId`, or null. Never throws: storage can be unavailable. */

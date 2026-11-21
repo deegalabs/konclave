@@ -23,7 +23,7 @@ vi.mock('./storage', async (orig) => ({
   ...(await orig<typeof import('./storage')>()),
   listVaults: async () => [{ id: 'v', name: 'Treasury', governance: 'quorum', myName: 'Ana', groupKey: 'ab'.repeat(32), roster: ['Ana', 'Bia'], secured: true }],
 }))
-vi.mock('./build-backup', () => ({ buildVaultBackup: async () => ({ json: '{}', name: 'treasury.konclave.json', complete: backup.complete }) }))
+vi.mock('./build-backup', async (orig) => ({ ...(await orig<typeof import('./build-backup')>()), buildVaultBackup: async () => ({ json: '{}', name: 'treasury.konclave.json', complete: backup.complete }) }))
 vi.mock('./download', () => ({ downloadText }))
 const { default: Settings } = await import('./screens/Settings')
 

@@ -17,7 +17,7 @@ import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor } from '../session'
-import { buildVaultBackup } from '../build-backup'
+import { buildVaultBackup, incompleteNotices } from '../build-backup'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
@@ -226,7 +226,8 @@ export default function Settings() {
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
       const b = await buildVaultBackup(id, xpPass, vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
-      if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
+      const said = incompleteNotices(b).map((k) => t(k))
+      if (said.length) setXpErr(said.join(' '))
       return { json: b.json, name: b.name, complete: b.complete }
     } catch (e) {
       setXpErr(t(storageErrorKey(e, 'export.errGeneric')))

@@ -36,7 +36,7 @@ describe('buildVaultBackup', () => {
   afterAll(() => { vi.useRealTimers() })
   it('builds the export with the viewing key and the scan floor, under a neutral name with the time (#587)', async () => {
     const b = await buildVaultBackup('v1', 'pass', 'Team Fund!')
-    expect(h.exportVault).toHaveBeenCalledWith('v1', 'pass', 'uview1x', 3_000_000)
+    expect(h.exportVault).toHaveBeenCalledWith('v1', 'pass', 'uview1x', 3_000_000, { report: {} }) // the report is how the export says what it left out
     expect(b.name).toBe('konclave-backup-2026-10-16-1305.konclave.json') // nothing of the vault in the name (#587)
     expect(JSON.parse(b.json)).toEqual({ v: 2, blob: 'opaque' })
     expect(b.complete).toBe(true)
@@ -62,7 +62,7 @@ describe('buildVaultBackup', () => {
     h.exportVault.mockClear()
     const b = await buildVaultBackup('v3', 'pass', 'v')
     expect(h.loadVault).toHaveBeenCalledWith('v3', 'pass')
-    expect(h.exportVault).toHaveBeenCalledWith('v3', 'pass', undefined, undefined, { storedKey: false })
+    expect(h.exportVault).toHaveBeenCalledWith('v3', 'pass', undefined, undefined, { storedKey: false, report: {} })
     expect(b.complete).toBe(false)
     h.list.mockResolvedValue([])
   })

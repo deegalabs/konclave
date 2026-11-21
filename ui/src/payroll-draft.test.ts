@@ -23,10 +23,12 @@ describe('the payroll draft belongs to one vault', () => {
     expect(localStorage.getItem(LEGACY_DRAFT_KEY)).toBeNull()
   })
 
-  it('the screen reads and writes only the keyed draft', () => {
+  it('the screen reaches the draft only through payroll-draft, and touches no storage itself', () => {
     const src = codeOf('screens/NewPayroll.tsx')
     expect(src).not.toMatch(/konclave\.folha\.rascunho/)
-    expect(src).toMatch(/draftKey\(/)
+    expect(src).not.toMatch(/localStorage|sessionStorage/)
+    expect(src).toMatch(/readPayrollDraft\(/)
+    expect(src).toMatch(/savePayrollDraft\(/)
   })
 
   it('is cleared on lock and on every removal path', () => {
