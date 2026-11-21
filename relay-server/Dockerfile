@@ -25,7 +25,7 @@ WORKDIR /app
 COPY konclave-http ./konclave-http
 COPY relay-server/Cargo.toml ./relay-server/Cargo.toml
 # The relay's own lock (it is its own cargo workspace): the build uses exactly the versions CI tested,
-# and fails rather than resolving newer ones (audit F8). This pins the dependencies; it does not attest
+# and fails rather than resolving newer ones. This pins the dependencies; it does not attest
 # the image: the base images below are floating tags and the toolchain is outside the digest.
 COPY relay-server/Cargo.lock ./relay-server/Cargo.lock
 COPY relay-server/build.rs ./relay-server/build.rs

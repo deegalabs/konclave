@@ -63,7 +63,7 @@ fn main() {
     // still agree, which is what CI compares.
     //
     // Sorted, so the digest does not depend on the order the filesystem hands them back.
-    // The lock and this script are digested too (audit F8): the same sources built against other
+    // The lock and this script are digested too: the same sources built against other
     // dependency versions, or by another build script, are another relay.
     let mut parts: Vec<String> = vec![
         "Cargo.toml".into(),
