@@ -173,6 +173,7 @@ mod tests {
                 program: "konclave-signer".into(),
                 code,
                 stderr: String::new(),
+                stdout: String::new(),
             })
         };
         assert_eq!(inject_verdict(&Ok(()), true), Verdict::Valid);
