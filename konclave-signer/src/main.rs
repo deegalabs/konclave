@@ -90,6 +90,10 @@ enum Cmd {
         #[arg(long)]
         single_change: bool,
     },
+    /// Print the exit status `inject` uses for a refused signature, as
+    /// `{"signature_rejected": <n>}`. A build that predates the status has no such command, which is
+    /// how the coordinator knows not to read its exits that way.
+    InjectStatuses,
 }
 
 /// The confirmations a vault's build asks of its notes (#870), set here by name so a library update
@@ -260,10 +264,32 @@ fn inject_sigs(pczt: Pczt, sigs: &[(usize, [u8; 64])]) -> Result<Pczt> {
             Pool::Orchard => signer.apply_orchard_signature(*idx, signature),
             Pool::Ironwood => signer.apply_ironwood_signature(*idx, signature),
         };
-        res.map_err(|e| anyhow!("apply {:?} signature at index {}: {:?}", pool, idx, e))?;
+        res.map_err(|e| {
+            anyhow::Error::new(SignatureRejected(format!(
+                "apply {:?} signature at index {}: {:?}",
+                pool, idx, e
+            )))
+        })?;
     }
     Ok(signer.finish())
 }
+
+// The exit status of `inject` when a signature was checked and refused; every other failure (the
+// PCZT could not be read, the output could not be written) exits 1, so the caller can tell "this
+// answer is wrong" from "the check did not run" without reading the error text.
+use konclave_seal::spends::INJECT_EXIT_SIGNATURE_REJECTED as EXIT_SIGNATURE_REJECTED;
+
+/// A signature that was checked against the transaction and refused.
+#[derive(Debug)]
+struct SignatureRejected(String);
+
+impl std::fmt::Display for SignatureRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SignatureRejected {}
 
 fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()> {
     let pczt = read_pczt(path)?;
@@ -504,7 +530,17 @@ where
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Extract { pczt } => extract(&pczt),
-        Cmd::Inject { pczt, out, sig } => inject(&pczt, &out, sig),
+        Cmd::InjectStatuses => {
+            println!("{{\"signature_rejected\":{EXIT_SIGNATURE_REJECTED}}}");
+            Ok(())
+        }
+        Cmd::Inject { pczt, out, sig } => match inject(&pczt, &out, sig) {
+            Err(e) if e.downcast_ref::<SignatureRejected>().is_some() => {
+                eprintln!("Error: {e:#}");
+                std::process::exit(EXIT_SIGNATURE_REJECTED);
+            }
+            other => other,
+        },
         Cmd::BuildPayroll {
             wallet,
             account,
@@ -682,6 +718,19 @@ mod tests {
         // not silently written into a broken transaction.
         let err = inject_sigs(parse(IW_PROVEN), &[(0, [0u8; 64])]);
         assert!(err.is_err(), "a signature that does not verify must fail");
+    }
+
+    /// The caller tells "this answer is wrong" from "the check did not run" by the exit status, so a
+    /// refused signature or index must carry the marker that selects it, and a PCZT that cannot be
+    /// read must not.
+    #[test]
+    fn a_refused_signature_is_told_apart_from_a_check_that_did_not_run() {
+        for sigs in [vec![(0, [0u8; 64])], vec![(99, sig64(IW_SIG0))]] {
+            let err = inject_sigs(parse(IW_PROVEN), &sigs).unwrap_err();
+            assert!(err.downcast_ref::<SignatureRejected>().is_some(), "{err:#}");
+        }
+        let unread = inject("/nonexistent/konclave.pczt", "/nonexistent/out", vec![]).unwrap_err();
+        assert!(unread.downcast_ref::<SignatureRejected>().is_none());
     }
 
     // A wallet-controlled ZERO-VALUE spend that still awaits a signature. Derived from

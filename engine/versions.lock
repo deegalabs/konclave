@@ -510,7 +510,7 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 # what a build of this source produced. CI rebuilds and compares on every push.
 [wasm]
 wasm_pack     = "0.13.1"
-source_digest = "4450a3de276bca9d4b13f0836997ae70ac1b4065227f3fb63b2b95366f2e762f"
+source_digest = "4377b61f14cb9cd84abc1cdca1dd4a824ef747dfb06aa2cdaa09e6446175a550"
 
 [[wasm_file]]
 name   = "README.md"
@@ -529,7 +529,7 @@ bytes  = 75163
 
 [[wasm_file]]
 name   = "konclave_wasm_bg.wasm"
-sha256 = "c41f272db63ba86af14d3426751a7929b369edbd7b60cd1e6c61a2b924b28a59"
+sha256 = "86fc653261d330c9d762415b3de8406b99695c59f7b556c8d09778cc788a571e"
 bytes  = 1480929
 
 [[wasm_file]]
