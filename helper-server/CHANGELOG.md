@@ -203,6 +203,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
+  read made under a vault's address does not stay in the browser after the session ends.
+
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
   failure after everyone had voted. Creating one is now refused with a `422` `too many actions`,
@@ -238,6 +241,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   2026-10-24.
 
 ### Known limits
+
+- **A copy the browser stored before this change was deployed stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
 
 - **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
   operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block

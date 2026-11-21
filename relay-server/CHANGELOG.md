@@ -92,7 +92,15 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   largest payment it lets a vault propose from this number, so the two can no longer drift apart.
   The hosted relay has run this since 2026-11-06.
 
+### Fixed
+
+- **The relay's answers are not kept by the browser's cache.** Every answer now says so, so a room's messages do
+  not stay in the browser after the session ends.
+
 ### Known limits
+
+- **A copy the browser stored before this change was deployed stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
 
 - **The address the relay counts a request under is only as good as the forwarding header and the
   setting.** Unset, `KONCLAVE_TRUSTED_PROXY_HOPS` keeps the first hop of `X-Forwarded-For`, which is

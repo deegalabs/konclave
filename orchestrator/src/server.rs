@@ -2095,6 +2095,41 @@ pub fn handle_secured(
     origin: Option<&str>,
     csrf_token: Option<&str>,
 ) -> Response {
+    let mut resp = handle_secured_uncached(
+        cfg,
+        session_token,
+        method,
+        raw_path,
+        body,
+        host,
+        origin,
+        csrf_token,
+    );
+    no_store_for_api(raw_path, &mut resp);
+    resp
+}
+
+/// No API answer is kept by the browser's HTTP cache: the reads carry the vault in the URL, and a
+/// stored copy would outlive the session. The static page and its assets keep their caching. Every
+/// answer the bridge sends goes through here (`handle_secured`, and the size refusal in `serve`).
+fn no_store_for_api(raw_path: &str, resp: &mut Response) {
+    if raw_path.starts_with("/api/") {
+        resp.headers
+            .push(("Cache-Control".into(), "no-store".into()));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_secured_uncached(
+    cfg: &Config,
+    session_token: &str,
+    method: &str,
+    raw_path: &str,
+    body: &[u8],
+    host: Option<&str>,
+    origin: Option<&str>,
+    csrf_token: Option<&str>,
+) -> Response {
     if !host_is_local(host) {
         return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
     }
@@ -2151,12 +2186,18 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     let addr = format!("127.0.0.1:{port}");
     let server =
         tiny_http::Server::http(&addr).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let session_token = new_session_token();
     eprintln!(
         "konclave serve → http://{addr}  (web: {}, db: {})",
         cfg.web_dir.display(),
         cfg.db_path
     );
+    serve_on(&server, &cfg);
+    Ok(())
+}
+
+/// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.
+fn serve_on(server: &tiny_http::Server, cfg: &Config) {
+    let session_token = new_session_token();
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
@@ -2180,10 +2221,13 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
             let _ = req.as_reader().read_to_end(&mut body);
         }
         let resp = if too_large {
-            Response::json(413, &serde_json::json!({ "error": "payload too large" }))
+            let mut refused =
+                Response::json(413, &serde_json::json!({ "error": "payload too large" }));
+            no_store_for_api(&url, &mut refused);
+            refused
         } else {
             handle_secured(
-                &cfg,
+                cfg,
                 &session_token,
                 &method,
                 &url,
@@ -2209,7 +2253,6 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         }
         let _ = req.respond(response);
     }
-    Ok(())
 }
 
 /// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
@@ -2307,6 +2350,69 @@ mod tests {
         );
     }
     use super::*;
+
+    /// No API answer of the local bridge may be kept by the browser's HTTP cache, a refusal
+    /// included; the page itself is not affected.
+    #[test]
+    fn no_api_answer_may_be_kept_by_the_browser_cache() {
+        let cfg = cfg_with(tmp_db(), None);
+        let cache = |r: &Response| {
+            r.headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("Cache-Control"))
+                .map(|(_, v)| v.clone())
+        };
+        let ok = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("127.0.0.1:8787"),
+            None,
+            None,
+        );
+        let refused = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("evil.example"),
+            None,
+            None,
+        );
+        assert_eq!(cache(&ok).as_deref(), Some("no-store"));
+        assert_eq!(cache(&refused).as_deref(), Some("no-store"));
+    }
+
+    /// The size refusal is answered in `serve` before any handler runs, so it is checked through
+    /// the real loop: an API request announcing more than 2 MiB gets `413` and `no-store`.
+    #[test]
+    fn the_size_refusal_is_not_kept_by_the_browser_cache() {
+        use std::io::{Read, Write};
+        let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
+        let addr = server.server_addr().to_ip().expect("ip address");
+        std::thread::spawn(move || serve_on(&server, &cfg_with(tmp_db(), None)));
+        let mut conn = std::net::TcpStream::connect(addr).expect("connect");
+        conn.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .expect("timeout");
+        write!(
+            conn,
+            "POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+            3 * 1024 * 1024
+        )
+        .expect("write");
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            conn.read_exact(&mut byte).expect("read the answer head");
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&head).to_ascii_lowercase();
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
 
     struct FakeWallet {
         result: Result<Balance, String>,
