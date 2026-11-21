@@ -9,9 +9,10 @@ import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
   getBeneficiaries, addBeneficiary, deleteBeneficiary, classifyAddress, shortAddr, humanError,
-  getVault, type Beneficiary,
+  getVault, vaultRefusalText, type Beneficiary,
 } from '../api'
 import { listVaults, type Governance } from '../storage'
+import { getSelectedVault, pinnedAnswer } from '../shown-vault'
 
 /**
  * What kind of address this is, said plainly on BOTH kinds - the way a shielded wallet labels it.
@@ -57,9 +58,14 @@ export default function People() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Beneficiary | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
+  // The vault this screen opened on, pinned once: the selection is shared by every tab of the browser.
+  const [pinned] = useState(() => getSelectedVault())
+  // Without a selection (the local bridge picks its own) the vault is the one the bridge answered for.
+  const [answered, setAnswered] = useState<string | null>(null)
+  const shown = pinned ?? answered
 
   async function reload() {
-    const b = await getBeneficiaries()
+    const b = await getBeneficiaries(pinned)
     if (b) setList(b)
     const failed = b === null
     // A retry that fails again counts, so the message is said again and takes focus (ReadState).
@@ -78,8 +84,9 @@ export default function People() {
     // Governance policy (public vault metadata, on-device). Undefined reads as 'open'.
     void (async () => {
       try {
-        const v = await getVault()
+        const v = pinnedAnswer(pinned, await getVault())
         if (!v) return
+        setAnswered(v.id)
         const saved = await listVaults()
         setGov(saved.find((s) => s.id === v.id)?.governance ?? 'open')
       } catch { /* local-bridge mode - no on-device record */ }
@@ -102,17 +109,17 @@ export default function People() {
     setBusy(true)
     // Edit = add the updated entry, then drop the old one (no update endpoint).
     const who = name.trim()
-    const res = await addBeneficiary(who, address.trim(), memo.trim() || undefined)
+    const res = await addBeneficiary(shown, who, address.trim(), memo.trim() || undefined)
     // An edit is the new entry, then the old one dropped; if the drop fails, the list now holds the
     // person twice, and "saved" would be a lie. Say what is on the list instead.
-    const oldGone = res.ok && editingId ? await deleteBeneficiary(editingId) : true
+    const oldGone = res.ok && editingId ? (await deleteBeneficiary(shown, editingId)).ok : true
     setBusy(false)
     if (res.ok) {
       setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null)
       if (oldGone) toast.ok(t('toast.personSaved', { name: who }))
       else toast.warn(t('toast.personSavedOldStays', { name: who }))
       void reload()
-    } else setError(humanError(t, res.error, res.detail))
+    } else setError(vaultRefusalText(t, res.error) ?? humanError(t, res.error, res.detail))
   }
 
   async function doRemove() {
@@ -120,8 +127,9 @@ export default function People() {
     setConfirmDel(null)
     if (!b) return
     // A removal that did not land is said as loudly as one that did: the person is still on the list.
-    if (await deleteBeneficiary(b.id)) { toast.ok(t('toast.personRemoved', { name: b.name })); void reload() }
-    else toast.err(t('toast.personRemoveFailed', { name: b.name }))
+    const res = await deleteBeneficiary(shown, b.id)
+    if (res.ok) { toast.ok(t('toast.personRemoved', { name: b.name })); void reload() }
+    else toast.err(vaultRefusalText(t, res.error) ?? t('toast.personRemoveFailed', { name: b.name }))
   }
 
   return (
@@ -152,7 +160,7 @@ export default function People() {
                   </div>
                 </div>
                 <button className="row-edit" title={t('people.edit')} onClick={() => startEdit(b)}>✎</button>
-                <button className="row-del" title={t('common.remove')} onClick={() => setConfirmDel(b)}>×</button>
+                <button className="row-del" title={t('common.remove')} disabled={!shown} onClick={() => setConfirmDel(b)}>×</button>
               </div>
             ))}
           </div>
@@ -187,7 +195,7 @@ export default function People() {
             {kind === 'sapling' && <div className="hint warn">{t('people.warnSapling')}</div>}
             {error && <div className="hint err mt" role="alert">{error}</div>}
             <div className="mt-sm folha-actions">
-              <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? t('people.saving') : (editingId ? t('people.saveChanges') : t('people.savePerson'))}</button>
+              <button className="btn ok sm-btn" onClick={add} disabled={busy || !shown}>{busy ? t('people.saving') : (editingId ? t('people.saveChanges') : t('people.savePerson'))}</button>
               {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>{t('common.cancel')}</button>}
             </div>
           </div>

@@ -12,6 +12,7 @@ import {
   createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, addressRefusal, humanError,
   type Beneficiary, type Proposal,
 } from '../api'
+import { getSelectedVault, pinnedAnswer } from '../shown-vault'
 import { useProposer } from '../use-proposer'
 import { ProposerNotice } from '../ProposerNotice'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -48,6 +49,8 @@ export default function NewPayment() {
   // always spend the sum.
   const pools = bal ? poolsOf(bal) : undefined
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
+  // The vault this screen opened on, pinned once: the selection is shared by every tab of the browser.
+  const [shownId] = useState(() => getSelectedVault())
   // Neutral placeholder while the real vault name loads - never a fake name flashed to a real
   // user (the real name replaces this as soon as getVault resolves).
   const [vaultName, setVaultName] = useState('…')
@@ -66,7 +69,8 @@ export default function NewPayment() {
       if (!on) return
       setLive(ok)
       if (!ok) return
-      const [v, bs] = await Promise.all([getVault(), getBeneficiaries()])
+      const [got, bs] = await Promise.all([getVault(), getBeneficiaries(shownId)])
+      const v = pinnedAnswer(shownId, got)
       if (!on) return
       if (v) {
         setThreshold(v.threshold)
@@ -99,7 +103,7 @@ export default function NewPayment() {
   }, 12_000)
 
   // Refresh the payee list after one is added inline from the recipient field.
-  const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
+  const reloadBenefs = () => { void getBeneficiaries(shownId).then((b) => { if (b) setBenefs(b) }) }
 
   // Live ZEC->USD estimate on the amount (opt-in + disclosed, mirrors the Dashboard). Off until the
   // user turns it on; the source is named; at most one call per TTL. Never sends the amount.
@@ -193,7 +197,7 @@ export default function NewPayment() {
     setError(null)
     if (!to.trim()) { setError(t('payment.errNoAddress')); return }
     setBusy(true)
-    const res = await createProposal({
+    const res = await createProposal(vaultRef?.id ?? '', {
       proposer: proposer ?? '', // what the screen showed; the name sent is the seat's, read at send time
       to_address: to.trim(),
       value_zec: amountTyped(value),
@@ -242,6 +246,7 @@ export default function NewPayment() {
           {/* One "To" field: search saved payees, paste an address, add a new one inline. */}
           <label className="field mt0"><span>{t('payment.to')}</span>
             <RecipientCombobox
+              vaultId={shownId ?? vaultRef?.id ?? null}
               benefs={benefs}
               address={to}
               name={toName}

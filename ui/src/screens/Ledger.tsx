@@ -4,6 +4,7 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, SentenceWithSecret, SECRET_MARK, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
+import { getSelectedVault } from '../shown-vault'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
 import { readPayrollLines } from '../payroll-lines'
 import { proposalName } from '../proposal-name'
@@ -37,6 +38,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
+  // The vault this screen opened on, pinned once: the registry it reads is this vault's.
+  const [pinned] = useState(() => getSelectedVault())
   const { revealed } = useReveal()
   // A book that could not be read is said as such, never left on the skeleton (#320). `attempt`
   // counts the retries asked for and re-runs the read; `failed` counts the ones that failed again.
@@ -112,7 +115,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     if (!showPivot) { pivotTried.current = new Set(); return }
     // The registry once per opening, not on every re-read of the book.
     let on = true
-    void getBeneficiaries().then((b) => { if (on && b) setBenefs(b) })
+    void getBeneficiaries(pinned).then((b) => { if (on && b) setBenefs(b) })
     return () => { on = false }
   }, [showPivot])
   useEffect(() => {
@@ -221,7 +224,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       const balance = parts && reserved !== null
         ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
         : undefined
-      const registry = benefs.length ? benefs : (await getBeneficiaries()) ?? []
+      const registry = benefs.length ? benefs : (await getBeneficiaries(pinned)) ?? []
       return { ...head, items, balance, registry }
   }
 

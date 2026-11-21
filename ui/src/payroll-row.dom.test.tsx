@@ -76,7 +76,7 @@ const submit = async () => {
   await waitFor(() => expect(b.disabled).toBe(false))
   fireEvent.click(b)
   await waitFor(() => expect(createPayroll).toHaveBeenCalled())
-  return createPayroll.mock.calls[0]![1] as { address: string; value_zec: string; label?: string }[]
+  return createPayroll.mock.calls[0]![2] as { address: string; value_zec: string; label?: string }[]
 }
 
 describe('payroll: deleting a row keeps each row its own text', () => {
@@ -166,7 +166,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
   })
 
   it('S8 save this recipient: the name is stored with the address on screen', async () => {
-    addBeneficiary.mockImplementation(async (name: string, address: string) => ({ ok: true, beneficiary: { id: 'n', name, address, memo: '' } }))
+    addBeneficiary.mockImplementation(async (_shown: unknown, name: string, address: string) => ({ ok: true, beneficiary: { id: 'n', name, address, memo: '' } }))
     const { container: c } = await mount()
     typeAddr(c, 0, A); setVal(c, 0, '0.1'); addRow(); typeAddr(c, 1, B); setVal(c, 1, '0.2')
     del(c, 0)
@@ -175,8 +175,8 @@ describe('payroll: deleting a row keeps each row its own text', () => {
     fireEvent.change(c.querySelector('.rcb-savebox input')!, { target: { value: 'Ana (owner of A)' } })
     fireEvent.click(c.querySelector('.rcb-savebox .btn.ok')!)
     await waitFor(() => expect(addBeneficiary).toHaveBeenCalled())
-    expect(addBeneficiary.mock.calls[0]![0]).toBe('Ana (owner of A)')
-    expect(addBeneficiary.mock.calls[0]![1]).toBe(B)
+    expect(addBeneficiary.mock.calls[0]![1]).toBe('Ana (owner of A)')
+    expect(addBeneficiary.mock.calls[0]![2]).toBe(B)
     await screen.findByText('Ana (owner of A)')
   })
 
@@ -278,7 +278,7 @@ describe('payroll: deleting a row keeps each row its own text', () => {
 
   it('S16 a recipient saved while a line above is deleted lands on its own line, not the one that took its place', async () => {
     let resolveSave: (v: unknown) => void = () => {}
-    addBeneficiary.mockImplementation((name: string, address: string) => new Promise((res) => {
+    addBeneficiary.mockImplementation((_shown: unknown, name: string, address: string) => new Promise((res) => {
       resolveSave = () => res({ ok: true, beneficiary: { id: 'n', name, address, memo: '' } })
     }))
     const { container: c } = await mount()

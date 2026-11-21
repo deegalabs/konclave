@@ -23,7 +23,7 @@ describe('what a pasted address is called', () => {
 
   it('a pasted zs1 reads as an older shielded address, never as transparent', () => {
     localStorage.setItem('konclave.locale', 'en')
-    render(<I18nProvider><RecipientCombobox benefs={[]} address="" name={null} onChange={() => {}} /></I18nProvider>)
+    render(<I18nProvider><RecipientCombobox vaultId={null} benefs={[]} address="" name={null} onChange={() => {}} /></I18nProvider>)
     const input = screen.getByRole('combobox')
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: ZS } })

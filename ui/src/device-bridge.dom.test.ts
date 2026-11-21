@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 // The local bridge (no hosted helper): the browser keeps its recent addresses and payroll draft as it
 // always did, byte for byte, with no vault record here to consult.
-import { setSelectedVault } from './api'
+import { setSelectedVault, getSelectedVault } from './api'
 import { recentPayees, pushRecentPayee } from './recent-payees'
 import { readPayrollDraft, savePayrollDraft, clearPayrollDraft } from './payroll-draft'
 
@@ -15,9 +15,9 @@ afterEach(() => localStorage.clear())
 describe('on the local bridge', () => {
   it('recent addresses are a plain list, as before', async () => {
     setSelectedVault(ID)
-    await pushRecentPayee(A)
+    await pushRecentPayee(getSelectedVault(), A)
     expect(localStorage.getItem(`konclave.recentPayees.${ID}`)).toBe(JSON.stringify([A]))
-    expect(await recentPayees()).toEqual([A])
+    expect(await recentPayees(getSelectedVault())).toEqual([A])
   })
   it('the draft is plain JSON in its own key, as before, and clears', async () => {
     setSelectedVault(ID)

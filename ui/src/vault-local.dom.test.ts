@@ -183,8 +183,8 @@ describe('one list of per-vault keys', () => {
     walk(src)
     const touching = files.filter((f) => /\b(?:localStorage|sessionStorage)\b/.test(codeOf(f))).sort()
     expect(touching).toEqual([
-      'api.ts', 'helper.ts', 'i18n/index.tsx', 'net.ts', 'prf-store.ts', 'price.ts',
-      'remove-vault.ts', 'screens/Dashboard.tsx', 'seen-store.ts', 'service-url.ts', 'signed-record.ts',
+      'helper.ts', 'i18n/index.tsx', 'net.ts', 'prf-store.ts', 'price.ts',
+      'remove-vault.ts', 'screens/Dashboard.tsx', 'seen-store.ts', 'service-url.ts', 'shown-vault.ts', 'signed-record.ts',
       'sweep-removed.ts', 'theme.ts', 'vault-local.ts', 'vault-status.ts',
     ])
     // The book is not reached around the door.

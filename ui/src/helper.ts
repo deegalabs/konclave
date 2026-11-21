@@ -100,6 +100,10 @@ export function helperConfigured(): boolean {
   return helperBase() !== ''
 }
 
+/** The coordination mode, read ONCE when the app loads. The guard on a write (`shown-vault.ts`) and
+ *  the paths of `api.ts` follow this one reading, so they cannot disagree about which mode they are in. */
+export const NET_AT_LOAD: boolean = helperConfigured()
+
 // ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
 /** The #388 read token header for a request whose `?vault=<id>` names a vault this device has

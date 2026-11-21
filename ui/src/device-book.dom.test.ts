@@ -8,7 +8,7 @@ vi.hoisted(() => { vi.stubEnv('VITE_HELPER_BASE', 'https://helper.test') })
 vi.setConfig({ testTimeout: 60_000 })
 
 import { saveVault, loadVault, exportVault, importVault, deleteVault, type VaultData } from './storage'
-import { addBeneficiary, getBeneficiaries, deleteBeneficiary, setSelectedVault, humanError, appendPerson, withoutPerson } from './api'
+import { addBeneficiary, getBeneficiaries, deleteBeneficiary, setSelectedVault, humanError, appendPerson, withoutPerson, getSelectedVault } from './api'
 import { REFUSE } from './vault-local'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
@@ -68,15 +68,15 @@ describe('the payee book of a protected vault', () => {
   it('(1) leaves no name, address or memo in any storage value after a write', async () => {
     await protectedVault()
     await unlock()
-    for (const p of BOOK) expect((await addBeneficiary(p.name, p.address, p.memo)).ok).toBe(true)
+    for (const p of BOOK) expect((await addBeneficiary(getSelectedVault(), p.name, p.address, p.memo)).ok).toBe(true)
     noClearText()
     expect(JSON.parse(await handOpen(S, GK, 'benef', localStorage.getItem(bookKey())!))).toHaveLength(2)
-    const list = await getBeneficiaries()
+    const list = await getBeneficiaries(getSelectedVault())
     expect(list?.map((b) => b.name)).toEqual(['Marisol Quintana', 'Teodoro Vance'])
     // and a removal too
-    expect(await deleteBeneficiary(list![0]!.id)).toBe(true)
+    expect(await deleteBeneficiary(getSelectedVault(), list![0]!.id)).toEqual({ ok: true })
     noClearText()
-    expect((await getBeneficiaries())?.map((b) => b.name)).toEqual(['Teodoro Vance'])
+    expect((await getBeneficiaries(getSelectedVault()))?.map((b) => b.name)).toEqual(['Teodoro Vance'])
   })
 
   it('(1, import) a backup\'s book lands sealed, with NO session, and is readable after the unlock (2)', async () => {
@@ -91,7 +91,7 @@ describe('the payee book of a protected vault', () => {
     expect(JSON.parse(await handOpen(S, GK, 'benef', localStorage.getItem(bookKey())!))).toEqual(BOOK)
     setSelectedVault(GK)
     await unlock()
-    expect(await getBeneficiaries()).toEqual(BOOK)
+    expect(await getBeneficiaries(getSelectedVault())).toEqual(BOOK)
   })
 
   it('(3) exports from a locked device (only the passphrase) and carries the book', async () => {
@@ -119,10 +119,10 @@ describe('the payee book of a protected vault', () => {
     await protectedVault()
     localStorage.setItem(bookKey(), JSON.stringify(BOOK)) // still in the clear: not migrated yet
     await unlock()
-    const r = await addBeneficiary('Nuria', 'u1' + 'e'.repeat(76), '') // no await between the unlock and this
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', 'u1' + 'e'.repeat(76), '') // no await between the unlock and this
     expect(r.ok).toBe(true)
     await settle()
-    expect((await getBeneficiaries())?.map((b) => b.name)).toEqual(['Marisol Quintana', 'Teodoro Vance', 'Nuria'])
+    expect((await getBeneficiaries(getSelectedVault()))?.map((b) => b.name)).toEqual(['Marisol Quintana', 'Teodoro Vance', 'Nuria'])
     noClearText()
   })
 
@@ -136,40 +136,40 @@ describe('the payee book of a protected vault', () => {
       return real.call(this, k, v)
     })
     await unlock()
-    const r = await addBeneficiary('Nuria', 'u1' + 'e'.repeat(76), '')
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', 'u1' + 'e'.repeat(76), '')
     spy.mockRestore()
     expect(failed).toBe(true)
     expect(r.ok).toBe(true)
-    expect((await getBeneficiaries())?.map((b) => b.name)).toEqual(['Marisol Quintana', 'Teodoro Vance', 'Nuria'])
+    expect((await getBeneficiaries(getSelectedVault()))?.map((b) => b.name)).toEqual(['Marisol Quintana', 'Teodoro Vance', 'Nuria'])
   })
 
   it('(9) locked: nothing is read, nothing is written, and the list is unavailable (null), not empty', async () => {
     await protectedVault()
     const sealed = await handSeal(S, GK, 'benef', JSON.stringify(BOOK))
     localStorage.setItem(bookKey(), sealed)
-    expect(await getBeneficiaries()).toBeNull()
-    const r = await addBeneficiary('Nuria', 'u1' + 'e'.repeat(76), '')
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull()
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', 'u1' + 'e'.repeat(76), '')
     expect(r.ok).toBe(false)
-    expect(await deleteBeneficiary('p1')).toBe(false)
+    expect((await deleteBeneficiary(getSelectedVault(), 'p1')).ok).toBe(false)
     expect(localStorage.getItem(bookKey())).toBe(sealed)
   })
 
   it('(9) a web vault with no record on this device is neither read nor written', async () => {
     setSelectedVault('d4'.repeat(32))
-    expect(await getBeneficiaries()).toBeNull()
-    expect((await addBeneficiary('Nuria', 'u1' + 'e'.repeat(76), '')).ok).toBe(false)
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull()
+    expect((await addBeneficiary(getSelectedVault(), 'Nuria', 'u1' + 'e'.repeat(76), '')).ok).toBe(false)
     expect(localStorage.getItem(bookKey('d4'.repeat(32)))).toBeNull()
   })
 
   it('(10) an open vault keeps today\'s bytes', async () => {
     await saveVault(GK, base(), PASS) // no S: open
     setSelectedVault(GK)
-    const r = await addBeneficiary('Nuria', 'u1' + 'e'.repeat(76), ' hi ')
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', 'u1' + 'e'.repeat(76), ' hi ')
     expect(r.ok).toBe(true)
     const b = r.ok ? r.beneficiary : null
     expect(localStorage.getItem(bookKey())).toBe(JSON.stringify([b]))
-    expect(await getBeneficiaries()).toEqual([b])
-    await deleteBeneficiary(b!.id)
+    expect(await getBeneficiaries(getSelectedVault())).toEqual([b])
+    await deleteBeneficiary(getSelectedVault(), b!.id)
     expect(localStorage.getItem(bookKey())).toBe('[]')
   })
 
@@ -209,9 +209,9 @@ describe('a book that cannot be read is never taken for an empty one', () => {
     await protectedVault()
     await unlock()
     localStorage.setItem(bookKey(), JSON.stringify(await tamper(JSON.stringify(BOOK))))
-    expect(await getBeneficiaries()).toBeNull()
-    expect(await getBeneficiaries()).toBeNull() // the second read used to answer []
-    const r = await addBeneficiary('Nuria', NU, '')
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull()
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull() // the second read used to answer []
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')
     expect(r.ok).toBe(false)
     for (let i = 0; i < 2; i++) { // every export, not only the first
       const report: { peopleLeftOut?: boolean } = {}
@@ -227,10 +227,10 @@ describe('a book that cannot be read is never taken for an empty one', () => {
     await unlock()
     const v2 = JSON.stringify({ ...JSON.parse(await handSeal(S, GK, 'benef', JSON.stringify(BOOK))), v: 2 })
     localStorage.setItem(bookKey(), v2)
-    expect(await getBeneficiaries()).toBeNull()
-    expect((await addBeneficiary('Nuria', NU, '')).ok).toBe(false)
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull()
+    expect((await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')).ok).toBe(false)
     expect([localStorage.getItem(bookKey()), localStorage.getItem(`konclave.unreadable.benef.${GK}`)]).toContain(v2)
-    expect(await getBeneficiaries()).toBeNull()
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull()
   })
 
   it('(2) the add and the remove refuse a value that is not a list instead of turning it into one', () => {
@@ -243,7 +243,7 @@ describe('a book that cannot be read is never taken for an empty one', () => {
   it('(3) changing the coordination mode at runtime does not make a locked protected vault write in the clear', async () => {
     await protectedVault()
     localStorage.setItem('konclave.coord.mode', 'custom') // no url: the helper reads as "none" from here on
-    const r = await addBeneficiary('Nuria', NU, '')
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')
     expect(r.ok).toBe(false)
     expect(localStorage.getItem(bookKey())).toBeNull()
     localStorage.removeItem('konclave.coord.mode')
@@ -254,15 +254,15 @@ describe('what the member is told', () => {
   it('(4) each failure has its own code, and humanError says it in both languages, never the raw code', async () => {
     setSelectedVault('')
     localStorage.removeItem('konclave.selectedVault')
-    expect(await addBeneficiary('Nuria', NU, '')).toMatchObject({ error: 'no vault' })
+    expect(await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')).toMatchObject({ error: 'vault changed' }) // the screen showed no vault: nothing is written
     await protectedVault()
-    expect(await addBeneficiary('Nuria', NU, '')).toMatchObject({ error: 'storage locked' })
+    expect(await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')).toMatchObject({ error: 'storage locked' })
     await unlock()
     localStorage.setItem(bookKey(), JSON.stringify(await tamper('[]')))
-    expect(await addBeneficiary('Nuria', NU, '')).toMatchObject({ error: 'storage unreadable' })
+    expect(await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')).toMatchObject({ error: 'storage unreadable' })
     localStorage.removeItem(bookKey()); localStorage.removeItem(`konclave.unreadable.benef.${GK}`)
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
-    const r = await addBeneficiary('Nuria', NU, '')
+    const r = await addBeneficiary(getSelectedVault(), 'Nuria', NU, '')
     spy.mockRestore()
     expect(r).toMatchObject({ error: 'storage failed' })
     for (const [dict, tag] of [[en, 'en'], [ptBR, 'pt']] as const) {
@@ -331,7 +331,7 @@ describe('a book that is set aside does not block the backup of the seat', () =>
     await unlock()
     const bad = JSON.stringify(await tamper(JSON.stringify(BOOK)))
     localStorage.setItem(bookKey(), bad)
-    expect(await getBeneficiaries()).toBeNull() // set aside by this read
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull() // set aside by this read
     expect(localStorage.getItem(asideKey())).toBe(bad)
     return bad
   }
@@ -402,10 +402,10 @@ describe('a book that is set aside does not block the backup of the seat', () =>
     await unlock()
     const older = JSON.stringify(await tamper('[1]'))
     localStorage.setItem(bookKey(), older)
-    expect(await getBeneficiaries()).toBeNull() // older is set aside
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull() // older is set aside
     const newer = JSON.stringify({ v: 2, note: 'a later bad value' })
     localStorage.setItem(bookKey(), newer)
-    expect(await getBeneficiaries()).toBeNull() // aside is taken, so the newer one stays in place
+    expect(await getBeneficiaries(getSelectedVault())).toBeNull() // aside is taken, so the newer one stays in place
     expect(localStorage.getItem(asideKey())).toBe(older)
     let payload: Record<string, unknown> = {}
     await rewriteBundle(await exportVault(GK, PASS), (p) => { payload = p })

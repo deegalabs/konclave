@@ -93,7 +93,7 @@ export async function unlockWith(
       })
       return { ok: true }
     }
-    const r = await deps.unlockVault(pass)
+    const r = await deps.unlockVault(id, pass)
     if (r.ok) {
       deps.markVaultUnlocked(id)
       return { ok: true }
