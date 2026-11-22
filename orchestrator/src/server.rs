@@ -2232,10 +2232,11 @@ fn serve_on(server: &tiny_http::Server, cfg: &Config) {
                 token = Some(h.value.as_str().to_string());
             }
         }
-        // Bounded body (L4): a local daemon must not buffer an unbounded Vec. 2 MiB (the shared
-        // ceiling of konclave-http) is generous for a payroll. Over → 413, whether the request announces its length or not: an
-        // announced length over the limit is refused unread, and every body is read through a
-        // reader that stops one byte past the limit, so a chunked body is held to it too (#1088).
+        // Bounded body (L4): the handler never receives more than 2 MiB (the shared ceiling of
+        // konclave-http), generous for a payroll. Over → 413, whether the request announces its
+        // length or not: an announced length over the limit is refused without reading the body
+        // into this Vec, and every other body is read through a reader that stops one byte past
+        // the limit, so a chunked body's data is held to it too (#1088).
         use konclave_http::MAX_BODY;
         // A protocol upgrade hands the reader the raw connection, and the bridge has no use for
         // one: refused before anything is read.
