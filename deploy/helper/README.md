@@ -129,6 +129,13 @@ that backup, together. Restoring only the binaries leaves every migrated vault u
 Without the backup, the only way back is rebuilding each wallet from its birthday (RECOVERY.md B),
 with every balance offline until the rescan finishes.
 
+Restore a `wallet/` only from a backup this coordinator's own volume produced: a platform snapshot
+of the volume, or a copy whose sha256 for every file under `wallet/` was recorded when it was taken
+and matches before it is put back. Never restore a wallet database, or its `-wal` or `-journal`,
+that came from anywhere else, and never restore a `-wal` without the database it was taken with.
+SQLite before 3.54.0 can return stale memory when it opens a database with a `-wal` someone else
+wrote (RUSTSEC-2026-0459).
+
 The move to the stable NU7 crate line (`zcash_client_sqlite` 0.23.0) works the same way. Only
 `zcash-devtool wallet upgrade` migrates a wallet, and the coordinator runs it before the first sync
 or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the new

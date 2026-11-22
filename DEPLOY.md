@@ -222,9 +222,11 @@ who can replace the binary can make it report anything.
 
 `.github/workflows/ci.yml` gates every push and PR: Rust fmt + clippy `-D warnings` + tests, the
 WASM browser build, the UI (oxlint + vitest + `tsc -b && vite build`), the relay image, and the
-changelog gate (`scripts/changelog-gate.mjs`, which decides WHICH changelog a change must touch). `.github/workflows/advisories.yml` checks both Cargo locks (the root one and the relay's) against the
-RustSec advisory database on every push and pull request and once a day, and fails on a new advisory; the
-ignore list, each entry with the reason it does not apply, is `.cargo/audit.toml`.
+changelog gate (`scripts/changelog-gate.mjs`, which decides WHICH changelog a change must touch). `.github/workflows/advisories.yml` checks the root and relay
+Cargo locks against the RustSec advisory database on every pull request, every push to `main` or
+`staging` and once a day, and fails on a vulnerability advisory (warnings are printed). The ignore
+list, each entry with the reason it does not apply, is `.cargo/audit.toml`. The zcash-devtool build
+lock under `engine/patches/` is not checked there yet.
 
 ## Honest limits
 

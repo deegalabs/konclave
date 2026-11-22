@@ -1,10 +1,12 @@
 name: Advisories
 
-# Every Cargo.lock in the repository is checked against the RustSec advisory database: the root lock
-# (the coordinator, the signer, the WASM module, the desktop shell) and the relay's own lock. A new
-# advisory against a locked version fails the check, on a push or pull request and once a day, since
-# an advisory can be published while the lock does not change. The ignore list, with the reason for
-# each entry, is .cargo/audit.toml.
+# The root lock (the coordinator, the signer, the WASM module, the desktop shell) and the relay's own
+# lock are checked against the RustSec advisory database. A vulnerability advisory against a locked
+# version fails the check, on a pull request, a push to main or staging, and once a day on the
+# default branch, since an advisory can be published while the lock does not change. Warnings
+# (unmaintained, unsound, yanked) are printed and do not fail it. The ignore list, with the reason
+# for each entry, is .cargo/audit.toml. The zcash-devtool build lock under engine/patches/ is not
+# checked here yet: its open advisories are triaged first.
 
 on:
   push:
@@ -23,7 +25,7 @@ concurrency:
 
 jobs:
   cargo-audit:
-    name: Cargo advisories (both locks)
+    name: Cargo advisories
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
