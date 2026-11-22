@@ -57,7 +57,13 @@ export const COORDINATOR_CODE_KEYS = {
   read_key_pinned: 'registration.readKeyPinned',
   roster_invalid: 'registration.rosterInvalid',
   address_mismatch: 'registration.addressMismatch',
+  // #575: an unsigned vote under a name several seats hold, with no seat named.
+  seat_required: 'error.seatRequired',
 } as const
+
+/** The refusal of a vote or a proposal that names no seat where several hold the name (#575). The vote
+ *  and the proposal screens word it; `COORDINATOR_CODE_KEYS` stays the one place that names the code. */
+export const SEAT_REQUIRED: CoordinatorCode = 'seat_required'
 
 export type CoordinatorCode = keyof typeof COORDINATOR_CODE_KEYS
 

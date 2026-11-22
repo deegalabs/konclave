@@ -92,6 +92,26 @@ FROST signing share, matching the Zcash Foundation's frost-client pattern.
   to register the write keys, so read-gate (#388) and write-auth (#288) migrate in one guided flow.
   No key change, no re-creation, funds untouched.
 
+### Amendment, 2026-11-13: votes recorded before a vault required signatures (#575)
+
+D5 lets a vault take unsigned writes until its first device registers a write key. Until #575 a vote
+was a name, and one recorded in that window went on counting after the vault required signatures. From
+#575 each vote records the seat that cast it and, when it was signed, the signed write. The rule for a
+vote recorded before the vault required signatures:
+
+- **On a proposal still open**, an unsigned vote counts for nothing once the vault requires
+  signatures, approval and refusal alike. The member votes again, signed; the app asks them to.
+- **A proposal already decided** (sent, or refused) with no signed vote is read as it was recorded, as
+  history: a sent payment keeps who approved it, and a refused payment is not reopened (#328). On such
+  a refused proposal history ends per seat: the first signed vote keeps every other seat's unsigned
+  refusal counting (`Vote::carried`), so no vote reopens it, and each seat withdraws only its own
+  refusal by voting again, signed (#369).
+- **A protocol-3 vault** never took an unsigned write (ADR-0012), so its votes recorded before votes
+  carried their signature count as signed.
+
+The count is one function in `orchestrator::write_auth` (`counted`, `vote_counts`), read through the
+record's basis (`HelperProposal::reading_basis`); the quorum decision is `orchestrator::proposal::decide`.
+
 ### Amendment, 2026-11-08: seat certificates for new vaults (ADR-0012)
 
 Recorded, not rewritten. For vaults created under creation protocol 3 (v0.18.0 on):

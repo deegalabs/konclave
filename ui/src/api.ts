@@ -5,6 +5,7 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { COORDINATOR_CODE_KEYS, SEAT_REQUIRED } from './conclude-registration'
 import { SETTLED } from './ledger-state'
 import { rememberBalance, rememberProposals } from './vault-status'
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
@@ -21,6 +22,7 @@ import {
   createProposal as netCreateProposal,
   createPayroll as netCreatePayroll,
   lastHelperPostFailure,
+  type HelperPostFailure,
   TOO_MANY_ACTIONS,
   voteProposal as netVote,
   listMembers as netListMembers,
@@ -538,6 +540,20 @@ async function proposeProof(vaultId: string, who: { seat: number; name: string }
   return { proof: await writeProof(vaultId, 'propose', who.name) }
 }
 
+/** What a refused payment or payroll proposal reads as, from the coordinator's failure. ONE reading for
+ *  both callers (#575): the second caller missing a branch is how a refusal ends up untranslated. */
+export function proposalFailure(f: HelperPostFailure | null): CreateResult & { ok: false } {
+  if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+  // #575: two seats share the proposer's name and the proposal did not say which seat it is.
+  if (f?.status === 400 && f.code === SEAT_REQUIRED) return { ok: false, error: 'seat required' }
+  // #821: too large to sign. The two counts travel with it, since the message is made of them.
+  if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
+  // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
+  // it recognises and shows the rest verbatim, which is still better than a wrong translation.
+  if (f?.error) return { ok: false, error: f.error }
+  return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+}
+
 export async function createProposal(vaultId: string, input: NewProposal): Promise<CreateResult> {
   // Before any await: the vault the screen showed, or nothing is sent. `id` is the only one used below.
   const shown = shownVault(vaultId)
@@ -571,14 +587,7 @@ export async function createProposal(vaultId: string, input: NewProposal): Promi
     // This is the SAME defect #509 fixed for the vote, in the other caller: `postJson` collapses
     // every failure to `null` and the caller invents a reason. The machinery #509 built to stop
     // that is right here and was simply not used. One rule, two callers, one of them fixed.
-    const f = lastHelperPostFailure()
-    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
-    // #821: too large to sign. The two counts travel with it, since the message is made of them.
-    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
-    // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
-    // it recognises and shows the rest verbatim, which is still better than a wrong translation.
-    if (f?.error) return { ok: false, error: f.error }
-    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+    return proposalFailure(lastHelperPostFailure())
   }
   try {
     const res = await fetch(`${BASE}${vaultQuery('/api/proposals', id)}`, {
@@ -722,6 +731,7 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))
     return t('error.notYourSeat')
   if (has('not a member of this vault')) return t('error.notAMember')
+  if (e === 'seat required') return t(COORDINATOR_CODE_KEYS[SEAT_REQUIRED])
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
   // The coordinator's own wordings, matched because they are what it actually sends. Before this,
@@ -929,12 +939,7 @@ export async function createPayroll(
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.
-    const f = lastHelperPostFailure()
-    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
-    // #821: too large to sign. The two counts travel with it, since the message is made of them.
-    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
-    if (f?.error) return { ok: false, error: f.error }
-    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+    return proposalFailure(lastHelperPostFailure())
   }
   try {
     const res = await fetch(`${BASE}${vaultQuery('/api/payroll', id)}`, {
@@ -1208,11 +1213,14 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
 }
 
 /** Why the coordinator did not take a vote, as the code `humanError` words. */
-export function voteFailure(f: { status: number; error?: string } | null): string {
+export function voteFailure(f: { status: number; error?: string; code?: string } | null): string {
   // Not every failure is a conflict, and saying so when it is not sends the member looking for a
   // vote that does not exist. A 401 here means this device could not prove it holds the seat:
   // it is locked, or it never registered a write key for its seat on this vault (#288).
   if (f?.status === 401) return 'write not authorized'
+  // 400 seat_required (#575): two seats of this vault share the name, and a vote with no proof of
+  // its seat cannot say which. Unlocking the vault on this device supplies the proof.
+  if (f?.status === 400 && f.code === SEAT_REQUIRED) return 'seat required'
   // A 403 is a refusal WITH a reason: the name is not on the roster, or it is not the seat that
   // signed (#568). Calling it a conflicting vote sent the member looking for a vote that does
   // not exist.

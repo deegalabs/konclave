@@ -58,6 +58,21 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   limit in total, so many addresses together could keep creating vaults until its volume was full.
   That put the service at risk for every vault; no funds and no vault's books were exposed by it.
   The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
+
+- **An approval counts once per member, and only if it was signed once the vault requires signatures
+  (#575).** Until now an approval was a name. While a vault still took unsigned actions, anyone holding
+  its id could record an approval under a member's exact name, and it went on counting as that
+  member's after the vault required signatures; on a 2-of-2 a payment could read as approved by both
+  when one had approved. Two members with the same name counted as one. Each vote now records the
+  seat that cast it and, when it was signed, the signed action itself; the coordinator counts seats,
+  and a vote recorded without a signature, approval or refusal, stops counting on a payment still open
+  once the vault requires signatures (ADR-0011, amendment of 2026-11-13). A payment already sent or
+  refused is read as it was recorded. The answers about a proposal carry the counts and each seat's
+  stance, for the app to show the coordinator's count instead of counting names.
+  A proposal under a name on no seat is refused. An approval given before a vault required signatures
+  has to be given again, signed. Records stay readable by an older coordinator: the names are kept as
+  before, beside the votes.
+
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -271,6 +286,19 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 - **A copy the browser stored before this change was deployed stays in its cache** until the browser clears it; the change only
   stops new copies from being kept.
 
+- **Who holds a seat is not proven on vaults created before 8 November 2026 (#577).** A vote is bound
+  to the seat that signed it, but on an older vault the first device to register a seat's key holds it,
+  and that device's votes count as the seat's. Vaults created since prove each seat with its share.
+- **A payment refused before its vault required signatures stays refused,** even if a refusal on it
+  was not the member's own. A member can lift only their own refusal, and the app does not offer it
+  on a refused payment; the remedy is a new proposal.
+- **On a vault whose reads are protected but which still takes unsigned actions,** a proposal under a
+  name is refused when the name is on no seat, which tells a caller holding the vault id whether a
+  name is a member's.
+- **Going back to an older coordinator counts names again.** The record keeps the names beside the
+  votes, so nothing is lost, but an older binary counts the names, with the limits this entry removes.
+- **Restoring a vault without its device registry opens it to unsigned actions again,** and unsigned
+  approvals count again (`docs/RECOVERY.md`).
 - **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
   operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block
   3,590,417). Even so, a vault pays it only when every seat has reported that its device accepts it. A seat's report is
