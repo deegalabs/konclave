@@ -677,8 +677,10 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
     const vl = codeAt(fileURLToPath(new URL('./screens/Vaults.tsx', import.meta.url)))
     expect(vl).toMatch(/finishing !== v\.id \?[\s\S]{0,1200}?disabled=\{finishArmed !== v\.id\}[\s\S]{0,500}?updateVaultMeta\(v\.id, \{ pending: false \}\)/)
   })
-  it('lets no rejoin touch the seats while a vault is being created', () => {
-    expect(nv).toMatch(/parsed\.type === 'rejoin'\) \{\s*if \(ceremonyRef\.current\) return true/)
+  it('lets no rejoin touch the seats: the page no longer handles one, and consumes it', () => {
+    expect(nv).not.toContain("'rejoin'")
+    expect(nv).not.toMatch(/seatByTagRef\.current\.set\(/)
+    expect(nv).toMatch(/return machine\.handle\(parsed, msg\.from\)\s*\}\s*return true/)
   })
 
   describe('the certificate each seat finishes with', () => {
