@@ -1,0 +1,44 @@
+name: Advisories
+
+# Every Cargo.lock in the repository is checked against the RustSec advisory database: the root lock
+# (the coordinator, the signer, the WASM module, the desktop shell) and the relay's own lock. A new
+# advisory against a locked version fails the check, on a push or pull request and once a day, since
+# an advisory can be published while the lock does not change. The ignore list, with the reason for
+# each entry, is .cargo/audit.toml.
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+  schedule:
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: advisories-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-audit:
+    name: Cargo advisories (both locks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-05
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Only the installed tool is worth keeping between runs; nothing here builds the workspace.
+          cache-targets: false
+      # Built from crates.io at an exact version with its own lock, not fetched as a prebuilt binary.
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit --version 0.22.2
+      - name: Root lock
+        run: cargo audit --file Cargo.lock
+      - name: Relay lock
+        run: cargo audit --file relay-server/Cargo.lock

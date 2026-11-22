@@ -1,0 +1,18 @@
+# Read by `cargo audit` (.github/workflows/advisories.yml) for both locks: the root Cargo.lock and
+# relay-server/Cargo.lock. Cargo itself does not read this file.
+#
+# An entry here says why the advisory does not apply to Konclave, and when to look again. Nothing is
+# ignored because it is inconvenient: a fix that is available is taken instead.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0459 (CVE-2026-119375): SQLite before 3.54.0, bundled by libsqlite3-sys before
+  # 0.39.0, can return stale memory when it opens a database together with a `-wal` file of another
+  # page size that a less trusted party wrote. Konclave opens only databases its own process
+  # created: the local bridge's store (orchestrator/src/store.rs) and the coordinator's view-only
+  # wallets under its own volume (zcash_client_sqlite, through konclave-signer). No path opens a
+  # database file a member, a peer or the network supplies. The fix needs rusqlite 0.41, and
+  # zcash_client_sqlite 0.23.0 (the newest release, which konclave-signer links) still requires
+  # rusqlite 0.37. Look again when zcash_client_sqlite moves to rusqlite 0.41 or later.
+  "RUSTSEC-2026-0459",
+]
