@@ -660,9 +660,11 @@ export default function SigningPanel() {
       // a locked device, which the helper still accepts while the vault has no write keys.
       proof: await writeProof(vault.group_pubkey, 'send', active!.id),
     }
-    // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. No
-    // secret is logged (the group key and the proposal id are public vault material).
-    console.info('[konclave] send: start', { proposal: args.proposalId, room: args.room, phase: bg.phase })
+    // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. Only
+    // the proposal id and the signer's phase are logged. The signing room of a protected vault comes
+    // from its access secret S, so the vault id alone does not give it, and it stays out of the console
+    // (console-no-vault-secrets.test.ts scans every source file for it).
+    console.info('[konclave] send: start', { proposal: args.proposalId, phase: bg.phase })
     setConfirming(null)
     let asked = false
     setSending(true)

@@ -496,7 +496,7 @@ export async function writeProof(
     // Still non-fatal - an unsigned write is refused by a migrated vault and accepted by an open
     // one, which is the right shape - but no longer INVISIBLE. A silent catch here cost a live
     // vault an afternoon, because the failure was indistinguishable from a locked device.
-    console.error('[konclave] could not sign a governance write', { action, vaultId, error: e })
+    console.error('[konclave] could not sign a governance write', { action, vault: vaultId.slice(0, 8), error: e instanceof Error ? e.name : 'error' })
     return undefined
   }
 }
