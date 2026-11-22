@@ -1,13 +1,13 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark } from './components'
 import { Identicon, memberSeed } from './avatar'
 import { useT } from './i18n'
 import { useSeatRefusalCode } from './seat-registration'
 import { coordinatorCode, refusalKey } from './conclude-registration'
+import { isSelectionKey } from './shown-vault'
 import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
-import { readSecretFor } from './session'
-import { needsUnlock, securedLocally } from './vault-lock'
+import { localLockNow, lockedNow } from './vault-readable'
 import { readVaults } from './storage'
 import { clearPayrollDraft } from './payroll-draft'
 import { VaultSignerProvider } from './VaultSigner'
@@ -60,6 +60,25 @@ export default function Layout() {
   // Bumped on unlock so the screen underneath refetches. It counts rather than flags because two
   // unlocks in one session must both be seen, and a boolean that is already `true` says nothing.
   const [unlockNonce, setUnlockNonce] = useState(0)
+  // The vault the lock was decided FOR. No screen is mounted unless it is the vault selected now, and
+  // none while that vault is locked: a screen that does not exist reads nothing, so none of them has
+  // to know about the lock to stay quiet behind the overlay (P0A). It is an id and not a flag
+  // because the selection moves (the rail, another tab) and a screen reads the selection when it
+  // mounts: a decision about the previous vault says nothing about the one it would read.
+  const [decidedFor, setDecidedFor] = useState<string | null>(null)
+  // The selection as this render sees it. Another tab changes it in storage, not in this tab's state,
+  // so the `storage` event below only makes this render again.
+  const selId = getSelectedVault() ?? ''
+  const [, setSelTick] = useState(0)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => { if (e.key === null || isSelectionKey(e.key)) setSelTick((n) => n + 1) }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  const decided = decidedFor === selId
+  // The selection as of the latest render, for answers that land later (an unlock, a rail read).
+  const selRef = useRef(selId)
+  selRef.current = selId
 
   // Close the mobile "More" sheet and the vault-switch popover on any route change.
   useEffect(() => { setMoreOpen(false); setSwitchOpen(false) }, [loc.pathname])
@@ -92,43 +111,74 @@ export default function Layout() {
     // dashboard changes no route, so nothing else would take focus (a route change moves it on).
     switchD.close(true)
     if (id === vault?.id) return
+    // The selection is the whole act: the decision below re-runs for it, through the same lock
+    // question as at load, and reads the vault only if the device may (P0A).
     setSelectedVault(id)
-    // The rail names the vault the signer is on: re-read it, since Layout reads its own once (#610).
-    setVault(null)
-    void getVault().then((v) => setVault(v))
     nav(isVaultUnlocked(id) ? '/dashboard' : '/vaults')
   }
 
-  // One-time bootstrap: decide whether the vault is reachable/unlocked and route.
+  // Decide, for the selected vault, whether it is reachable/unlocked. Runs at load and again whenever
+  // the selection changes, by whatever route, so it is one path for all of them.
   useEffect(() => {
     let on = true
+    const forId = selId
     void (async () => {
-      const ok = await health()
-      if (!on || !ok) return
-      const v = await getVault()
-      if (!on) return
-      // This device cannot read the vault yet. `needsUnlock` is the shared rule (#439): asking only
-      // the BRIDGE's `locked` here let a member walk into a #388-protected vault holding no S,
-      // where every private read 401s into a blank screen.
-      if (v && needsUnlock({
-        bridgeLocked: v.locked,
-        unlockedThisSession: isVaultUnlocked(v.id),
-        securedLocally: await securedLocally(v.id),
-        hasAccessSecret: !!readSecretFor(v.id),
-      })) {
-        // Lock in place instead of routing away (#467). #446 D returned the member where they
-        // were, but the round trip still happened - the vault they were inside disappeared, they
-        // picked it out of a list again, and only then got the field. A reload shuts the door; it
-        // does not move them to another room. `src` is 'net' unless the bridge owns the lock.
-        clearPayrollDraft(v.id) // a locked vault leaves no typed payroll behind on the device
-        setLocked({ id: v.id, name: v.name || t('settings.vault'), src: v.locked ? 'local' : 'net' })
-        setVault(v) // the rail still names the vault behind the overlay
-        return
+      // The rail names the vault being decided, not the one before it (#610).
+      setVault(null)
+      setLocked(null)
+      // The decision is about the vault being decided now: the previous one's must not stand if the
+      // selection comes back to it before this one lands.
+      setDecidedFor(null)
+      try {
+        // The device's own record first (P0A): a protected vault it holds and has not unlocked is
+        // locked in place with no request that names it, so a coordinator that is down at load still
+        // reaches the unlock screen (#439) and the overlay names the vault from the record.
+        const id = forId || null
+        const local = id ? await localLockNow(id) : undefined
+        if (!on) return
+        if (id && local?.locked) {
+          clearPayrollDraft(id) // a locked vault leaves no typed payroll behind on the device
+          setLocked({ id, name: local.name || t('settings.vault'), src: 'net' })
+          return
+        }
+        // A record that says "open" is the whole decision on the web: nothing the coordinator answers
+        // can lock it (its vault answer carries no `locked`), so the screen does not wait on a
+        // coordinator that is slow or silent (the 2026-08-27 shape). The rail's name still comes from it.
+        if (local) setDecidedFor(forId)
+        const ok = await health()
+        if (!on || !ok) return
+        const v = await getVault(id ?? undefined)
+        if (!on) return
+        // This device cannot read the vault yet. `lockedNow` is the shared rule (#439): asking only
+        // the BRIDGE's `locked` here let a member walk into a #388-protected vault holding no S,
+        // where every private read 401s into a blank screen.
+        if (v && !local && (await lockedNow(v))) {
+          // Lock in place instead of routing away (#467). A reload shuts the door; it does not move
+          // them to another room. `src` is 'net' unless the bridge owns the lock.
+          clearPayrollDraft(v.id)
+          setLocked({ id: v.id, name: v.name || t('settings.vault'), src: v.locked ? 'local' : 'net' })
+          setVault(v) // the rail still names the vault behind the overlay
+          return
+        }
+        if (v) setVault(v)
+      } finally {
+        // On every exit, a failed health check included: a decision that never lands is a blank screen (#439).
+        if (on) setDecidedFor(forId)
       }
-      if (v) setVault(v)
     })()
     return () => { on = false }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `selId` is the one input; the rest are setters
+  }, [selId])
+
+  // The coordinator was unreachable and is back: a rail that never got the vault's name asks again.
+  const prevLive = useRef<boolean | null>(null)
+  useEffect(() => {
+    const was = prevLive.current
+    prevLive.current = live
+    if (was === false && live === true && !vault && !locked && decided) {
+      void getVault(selId || undefined).then((v) => { if (v && v.id === selRef.current) setVault(v) }).catch(() => {})
+    }
+  }, [live]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Proactive liveness signal: poll the bridge/helper so a daemon that stops (or
   // comes back) is reflected without a reload - plus an immediate re-check when the
@@ -193,8 +243,8 @@ export default function Layout() {
     {/* One signer per vault (#610): it reads its vault once, so switching from the rail mounts a
         new one instead of leaving the previous vault's share, room and record in place. Layout
         re-renders on every navigation, and a switch always navigates. */}
-    <VaultSignerProvider key={getSelectedVault() ?? ''}>
-    <div className="applayout">
+    <VaultSignerProvider key={selId} vaultId={selId || null} unlockNonce={unlockNonce}>
+    <div className="applayout" inert={locked ? true : undefined}>
       <aside className="rail">
         <Link to="/" className="brand">
           <Mark />
@@ -280,8 +330,8 @@ export default function Layout() {
                 <path d="M17 21l2.8 2.8L26 17.5" stroke="var(--success)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <span className="rv-meta">
-                <span className="rv-name">{vault?.name ?? '…'}</span>
-                <small className="rv-q">{quorum ? `${quorum} · ${t('seal.caption')}` : t('common.loading')}</small>
+                <span className="rv-name">{locked ? locked.name : (vault?.name ?? '…')}</span>
+                <small className="rv-q">{locked ? t('lock.lockedCaption') : quorum ? `${quorum} · ${t('seal.caption')}` : t('common.loading')}</small>
               </span>
               <span className="rv-caret" aria-hidden="true">▾</span>
             </button>
@@ -343,7 +393,8 @@ export default function Layout() {
         {refusedCode && (
           <p className="unlock-err" role="alert">{t(knownCode ? refusalKey({ refused: 'coded', code: knownCode }) : 'registration.seatRefused')}</p>
         )}
-        <Outlet context={{ locked: !!locked, unlockNonce, live } satisfies VaultLockContext} />
+        {!decided && !locked && <p className="hint" role="status">{t('common.loading')}</p>}
+        {decided && !locked && <Outlet context={{ locked: false, unlockNonce, live } satisfies VaultLockContext} />}
       </div>
     </div>
     {locked && (
@@ -351,10 +402,23 @@ export default function Layout() {
         vaultId={locked.id}
         vaultName={locked.name}
         src={locked.src}
-        onUnlocked={() => { setLocked(null); setUnlockNonce((n) => n + 1) }}
+        onUnlocked={() => {
+          // Clear the lock of the vault that was opened and no other: the unlock resolves after a
+          // passphrase derivation or a passkey prompt, and the selection may have moved to a locked
+          // vault meanwhile, whose lock is not this unlock's to clear.
+          const opened = locked.id
+          setLocked((cur) => (cur?.id === opened ? null : cur))
+          if (opened !== selRef.current) return
+          setUnlockNonce((n) => n + 1)
+          // Locked from the record, the shell never read the vault: it does now (rail name, quorum chip).
+          if (!vault) void getVault(opened).then((v) => { if (v && v.id === selRef.current) setVault(v) }).catch(() => {})
+        }}
         // Leaving is the only honest alternative: staying would show a screen whose every private
         // read is refused, which is the blank-screen defect #439 exists to prevent.
-        onCancel={() => { setLocked(null); nav('/vaults') }}
+        // `locked` is not cleared first: the route change is a transition and the clear is not, so the
+        // clear alone renders the open screen once, and its first read names the vault. /vaults is
+        // outside Layout, which unmounts with the lock.
+        onCancel={() => nav('/vaults')}
       />
     )}
     <SigningPanel />

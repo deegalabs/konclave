@@ -24,13 +24,11 @@ import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useI18n, useTr } from '../i18n'
 import { useReveal } from '../reveal'
 import {
-  getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
+  getVault, getProposals, readBalance, getLedger, shortAddr,
   type Vault, type Proposal,
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
-import { readSecretFor } from '../session'
 import { ReadyCard } from '../ready-card'
-import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
 import { useSeatRefusal } from '../seat-registration'
@@ -175,9 +173,10 @@ export default function Dashboard() {
     return () => { on = false }
   }, [])
 
-  // #467: `Layout` owns the lock and shows the overlay; this screen only needs to know when the
-  // door opens, so it can load the data it deliberately did not fetch while locked.
-  const { unlockNonce, live } = useOutletContext<VaultLockContext>()
+  // #467: `Layout` owns the lock and shows the overlay. It mounts this screen only for a vault it
+  // has decided and that is open (P0A), so the screen holds no lock logic: it reads from its first
+  // render, and an unlock mounts it fresh.
+  const { live } = useOutletContext<VaultLockContext>()
 
   // The poll closure is created once; a ref lets it read today's liveness without tearing the
   // interval down and rebuilding it on every change.
@@ -199,19 +198,8 @@ export default function Dashboard() {
         if (liveRef.current === false) return
         const v = await getVault()
         if (!on) return
-        // Cannot read this vault yet → stop here and let `Layout` ask for the passphrase over this
-        // screen (#467). It used to navigate to `/vaults`, which is why a reload threw the member
-        // out of the vault they were already in. The shared rule (#439) is unchanged: asking only
-        // the bridge's `locked` let a #388-protected vault through with no S, and every read below
-        // would 401 into a dashboard that showed nothing and said nothing.
-        //
-        // Only on first load, so a background poll never blanks a working dashboard.
-        if (first && v && needsUnlock({
-          bridgeLocked: v.locked,
-          unlockedThisSession: isVaultUnlocked(v.id),
-          securedLocally: await securedLocally(v.id),
-          hasAccessSecret: !!readSecretFor(v.id),
-        })) { setVault(v); return } // name the vault behind the overlay; fetch nothing
+        // `Layout` mounts this screen only once the vault is readable (it decides the lock from the
+        // device's own record and shows the overlay instead), so no lock check is made here.
         if (v) setVault(v)
         // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
         // dashboard on these so it appears immediately, instead of waiting on the balance.
@@ -238,10 +226,7 @@ export default function Dashboard() {
     // sync) and refresh immediately on return (#123).
     const stop = startVisiblePoll(() => void load(false), 12_000)
     return () => { on = false; stop() }
-    // `unlockNonce` re-runs this the moment the overlay's passphrase lands (#467). Without it the
-    // dashboard would sit on the empty state it returned above, and the member would reach for the
-    // reload that put them there.
-  }, [unlockNonce])
+  }, [])
 
   // Load "you" + creator for the members peek, once per vault (not on the 12s poll).
   useEffect(() => {

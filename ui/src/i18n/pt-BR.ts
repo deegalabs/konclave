@@ -631,6 +631,7 @@ export const ptBR: Record<string, string> = {
   // o cofre está trancado, nunca que a pessoa precisa ir a outro lugar ou recomeçar.
   'lock.prompt': 'Este cofre está trancado. Digite a sua frase-senha deste aparelho para continuar de onde parou.',
   'lock.unlock': 'Destravar',
+  'lock.lockedCaption': 'Trancado',
   'lock.leave': 'Sair do cofre',
   'vaults.netUnlockPrompt': 'Digite a sua frase-senha deste aparelho para abrir o seu pedaço da chave. A chave é decifrada só na memória.',
   'vaults.passphrase': 'Frase-senha',

@@ -7,6 +7,9 @@ import { NET_AT_LOAD } from './helper'
 // Persisted so a reload stays in the same vault; sent as ?vault=<id> so the bridge scopes data per
 // vault (not always the first).
 const VAULT_KEY = 'konclave.selectedVault'
+/** Whether a `storage` event's key is the selection's: the key itself stays here, so reading the
+ *  selection goes through `getSelectedVault` and the scan of its readers stays exact. */
+export function isSelectionKey(key: string | null): boolean { return key === VAULT_KEY }
 export function setSelectedVault(id: string): void {
   try { localStorage.setItem(VAULT_KEY, id) } catch { /* storage unavailable */ }
 }
