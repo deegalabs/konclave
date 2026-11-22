@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withStances } from './test-stances'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -28,9 +29,10 @@ const { default: Proposal } = await import('./screens/Proposal')
 
 const TX1 = 'a'.repeat(64)
 const ADDR = 'u1' + 'q'.repeat(76)
-const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2, kind: 'payment', to_address: ADDR, value_zat: 150000000, value_zec: '1.5' }
-const sent = { ...base, id: 'p1', state: 'sent', memo: 'October rent', created_at: 1759300000, txid: TX1 }
-const awaiting = { ...base, id: 'p2', state: 'awaiting', memo: 'Chairs', created_at: 1759300000, expiry_unix: Math.floor(Date.now() / 1000) + 3 * 86400, approvals: ['Alice'], approvals_count: 1 }
+const base = withStances({ vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2, kind: 'payment', to_address: ADDR, value_zat: 150000000, value_zec: '1.5' })
+const sent = withStances({ ...base, id: 'p1', state: 'sent', memo: 'October rent', created_at: 1759300000, txid: TX1 })
+const awaiting = withStances({ ...base, id: 'p2', state: 'awaiting', memo: 'Chairs', created_at: 1759300000, // An hour short of three days, so the label reads 2d with room for the clock to move under it.
+  expiry_unix: Math.floor(Date.now() / 1000) + 3 * 86400 - 3600, approvals: ['Alice'], approvals_count: 1 })
 
 const mount = (id: string) => render(
   <MemoryRouter initialEntries={[{ pathname: '/proposal', state: { id } }]}><I18nProvider><Proposal /></I18nProvider></MemoryRouter>,

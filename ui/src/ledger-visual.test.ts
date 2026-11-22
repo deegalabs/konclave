@@ -11,7 +11,7 @@ const CSS = () => codeOf('App.css')
 
 const p = (state: string, over: Partial<Proposal> = {}): Proposal => ({
   id: 'x', vault_id: 'v', kind: 'payment', state, proposer: 'Ana', value_zat: 1, value_zec: '0', is_public: false,
-  approvals: [], refusals: [], approvals_count: 0, ...over,
+  approvals: [], refusals: [], approvals_count: 0, stances: [], ...over,
 })
 const g = (state: string, over: Partial<Proposal> = {}) => stateGroupOf(p(state, over))
 

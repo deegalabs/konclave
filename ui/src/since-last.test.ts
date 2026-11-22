@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { changeLabelKey, changesSince, snapshotOf, type Snapshot } from './since-last'
 import type { Proposal } from './api'
+import { withStances } from './test-stances'
 import { codeOf } from './source-scan'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
@@ -11,9 +12,9 @@ import { ptBR } from './i18n/pt-BR'
  * comparison of the proposals' states against a snapshot kept on this device; nothing new on the
  * coordinator. */
 
-const p = (id: string, state: string, over: Partial<Proposal> = {}): Proposal => ({
+const p = (id: string, state: string, over: Partial<Proposal> = {}): Proposal => withStances({
   id, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat: 1, value_zec: '0.00000001',
-  is_public: false, approvals: [], refusals: [], approvals_count: 0, ...over,
+  is_public: false, approvals: [], refusals: [], approvals_count: 0, stances: [], ...over,
 })
 
 describe('what changed since the snapshot', () => {

@@ -12,6 +12,15 @@ describe('the Dashboard reads the desk rules from desk.ts', () => {
     expect(imp![1]).toMatch(/\bstampKey\b/)
     expect(imp![1]).toMatch(/\bexpiredByClock\b/)
   })
+  it('reads lineKey from desk.ts too, and keeps none of its own (#575)', () => {
+    const imp = src.match(/import \{([^}]*)\} from '\.\.\/desk'/)
+    expect(imp![1]).toMatch(/\blineKey\b/)
+    expect(src).not.toMatch(/function lineKey\s*\(/)
+    expect(src).not.toMatch(/const lineKey\s*=/)
+  })
+  it('offers the review-and-vote button only to a personal desk', () => {
+    expect(src).toMatch(/lead\.band === 'vote' && desk\.personal/)
+  })
   it('keeps no copy of stampKey of its own', () => {
     expect(src).not.toMatch(/function stampKey\s*\(/)
     expect(src).not.toMatch(/const stampKey\s*=/)

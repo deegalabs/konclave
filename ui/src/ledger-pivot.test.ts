@@ -45,7 +45,7 @@ describe('grouping by payee', () => {
 })
 
 describe('entries from the book', () => {
-  const pay = { id: 'p1', kind: 'payment' as const, state: 'confirmed', to_address: 'u1aaa', value_zat: 100, approvals: [], refusals: [], approvals_count: 0, proposer: 'x', is_public: false, vault_id: 'v', value_zec: '0.000001' }
+  const pay = { id: 'p1', kind: 'payment' as const, state: 'confirmed', to_address: 'u1aaa', value_zat: 100, approvals: [], refusals: [], approvals_count: 0, stances: [], proposer: 'x', is_public: false, vault_id: 'v', value_zec: '0.000001' }
   const roll = { ...pay, id: 'r1', kind: 'payroll' as const, state: 'ready', to_address: undefined, value_zat: 70 }
   const lines = { r1: [{ label: 'Ana', address: 'u1aaa', value_zat: 40, value_zec: '', memo: '', is_public: false }, { label: 'Bia', address: 'u1bbb', value_zat: 30, value_zec: '', memo: '', is_public: false }] }
   it('a payment is one entry, a payroll one per line, with the proposal state', () => {

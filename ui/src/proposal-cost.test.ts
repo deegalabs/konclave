@@ -11,7 +11,7 @@ const estimate: FeeEstimator = (n) => 1_000 * (n + 3)
 const proposal = (over: Partial<Proposal>): Proposal => ({
   id: 'p', vault_id: 'v', kind: 'payment', state: 'awaiting', proposer: 'A',
   value_zat: 10_000, value_zec: '0.0001', is_public: false,
-  approvals: [], refusals: [], approvals_count: 0, ...over,
+  approvals: [], refusals: [], approvals_count: 0, stances: [], ...over,
 })
 
 describe('proposalCostZat', () => {

@@ -34,7 +34,7 @@ vi.mock('./api', async (orig) => ({
   getLedger: async () => [],
   getBalance: async () => null,
   readTransactions: async () => [],
-  getProposalDetail: async () => ({ proposal: { id: 'p1', vault_id: 'X', proposer: 'Bia', is_public: false, approvals: ['Bia'], refusals: [], approvals_count: 1, state: 'awaiting', kind: 'payment', to_address: 'u1payee', value_zat: 5000, value_zec: '0.00005' }, lines: [] }),
+  getProposalDetail: async () => ({ proposal: { id: 'p1', vault_id: 'X', proposer: 'Bia', is_public: false, approvals: ['Bia'], refusals: [], approvals_count: 1, stances: [{ seat: 2, name: 'Bia', stance: 'approved', counted: true }, { seat: 1, name: 'Ana', stance: 'none', counted: false }], state: 'awaiting', kind: 'payment', to_address: 'u1payee', value_zat: 5000, value_zec: '0.00005' }, lines: [] }),
 }))
 vi.mock('./storage', async (orig) => ({
   ...(await orig<typeof import('./storage')>()),

@@ -16,13 +16,14 @@ import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
   getProposalDetail, proposalReadFailure, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance, vaultRefusalText,
-  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx, type Book,
+  readTransactions, IS_NET, mySeat, type Proposal, type PayrollLine, type WalletTx, type Book,
 } from '../api'
 import { getSelectedVault, pinnedAnswer } from '../shown-vault'
 import { useVaultReadable } from '../vault-readable'
 import { readPlan } from '../approved-payment'
 import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
+import { approvalsShown, hasVoted, myUncounted, people, stancesKnown } from '../stance'
 import { useVaultSigner } from '../VaultSigner'
 import { UnusualNote } from '../UnusualNote'
 import { useUnusual } from '../useUnusual'
@@ -171,12 +172,13 @@ export default function Proposal() {
 
   async function vote(approve: boolean) {
     if (!p) return
-    const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
     // A device casts ONLY its own vote (`me`). Never let a proposer/device vote as another member.
-    const voter = me && canVote.includes(me) ? me : ''
-    if (!voter) { setError(t('proposal.errNoVoter')); return }
+    // Whether it still may is the coordinator's counted stance (#575), not a name in a list.
+    if (!stancesKnown(p)) return
+    const who = me && members.includes(me) && !hasVoted(p, { seat: mySeat(voteVault ?? undefined), name: me }) ? me : ''
+    if (!who) { setError(t('proposal.errNoVoter')); return }
     setError(null); setBusy(true)
-    const res = await voteProposal(voteVault, p.id, voter, approve)
+    const res = await voteProposal(voteVault, p.id, who, approve)
     setBusy(false)
     if (res.ok) {
       setP(res.proposal)
@@ -219,7 +221,7 @@ export default function Proposal() {
   const plan = readPlan(p.id, p, { proposal: p, lines })
   if (!plan) {
     const done = p.state === 'sent' || p.state === 'confirmed'
-    const canRefuse = p.state === 'awaiting' && !!me && members.includes(me) && !p.approvals.includes(me) && !p.refusals.includes(me)
+    const canRefuse = p.state === 'awaiting' && stancesKnown(p) && !!me && members.includes(me) && !hasVoted(p, { seat: mySeat(voteVault ?? undefined), name: me })
     return (<><main className="page narrow">
         <PageHeader back={{ to: '/proposals', label: t('proposals.title') }} title={t('proposal.planRefusedTitle')}
           actions={<span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>} />
@@ -260,7 +262,6 @@ export default function Proposal() {
   const isExpired = p.state === 'expired'
   const isSent = p.state === 'sent' || p.state === 'confirmed'
   const isTerminalBad = isRejected || isExpired || p.state === 'cancelled'
-  const pendingApprovers = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
 
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
@@ -272,11 +273,17 @@ export default function Proposal() {
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
 
   // Everyone involved, with their stance - people, not a mono string.
-  const everyone = Array.from(new Set([p.proposer, ...members, ...p.approvals, ...p.refusals]))
-  const stance = (m: string) => {
-    const approved = p.approvals.includes(m)
-    if (approved) return { cls: 'ok', label: m === p.proposer ? t('proposal.stanceProposedApproved') : t('proposal.stanceApproved') }
-    if (p.refusals.includes(m)) return { cls: 'no', label: t('proposal.stanceRefused') }
+  // One row per seat the coordinator reports (#575): two seats under one name are two people.
+  // An older coordinator sends no stances (#575): no rows, and no vote, rather than everyone pending.
+  const known = stancesKnown(p)
+  const everyone = known ? people(p, members) : []
+  const stance = (s: (typeof everyone)[number]) => {
+    const m = s.name
+    if (!s.counted && s.stance !== 'none') {
+      return { cls: '', label: t(s.stance === 'approved' ? 'proposal.stanceUncounted' : 'proposal.stanceUncountedRefused') }
+    }
+    if (s.stance === 'approved') return { cls: 'ok', label: m.trim() === p.proposer.trim() ? t('proposal.stanceProposedApproved') : t('proposal.stanceApproved') }
+    if (s.stance === 'refused') return { cls: 'no', label: t('proposal.stanceRefused') }
     // Once it went out, a member who did not take part was not needed, not still awaited (SIGNER-SEAT1).
     if (p.state === 'sent' || p.state === 'confirmed') return { cls: '', label: t('proposal.stanceNotNeeded') }
     return { cls: '', label: t('proposal.stanceAwaiting') }
@@ -375,13 +382,14 @@ export default function Proposal() {
 
         <div className="who-head">
           <span className="klab">{t('proposal.approvals')}</span>
-          <span className="who-prog"><span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span> <b>{t('proposal.ofN', { count: p.approvals_count, total: threshold })}</b></span>
+          <span className="who-prog">{p.approvals_count !== null && <span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < (p.approvals_count ?? 0) ? 'on' : ''} />)}</span>} <b>{t('proposal.ofN', { count: approvalsShown(p), total: threshold })}</b></span>
         </div>
         <div className="people">
-          {everyone.map((m) => {
-            const s = stance(m)
+          {everyone.map((row, i) => {
+            const s = stance(row)
+            const m = row.name
             return (
-              <div className="who-row" key={m}>
+              <div className="who-row" key={`${row.seat}:${m}:${i}`}>
                 <Identicon seed={seedForName(who?.vaultId, who?.list, m)} size={30} />
                 <span className="who-name">{m}</span>
                 <span className={'who-st ' + s.cls}>{s.label}</span>
@@ -399,28 +407,35 @@ export default function Proposal() {
         )}
 
         {isAwaiting && (() => {
-          const falta = Math.max(0, threshold - p.approvals_count)
+          // Unknown (an older coordinator): no 'remaining' sentence, rather than one the app cannot back.
+          const falta = p.approvals_count === null ? null : Math.max(0, threshold - p.approvals_count)
           // Authorization: this device may vote only for its own seat, and only while that seat is
           // still pending. The proposer already counts as an approval, so they are never pending
           // here (their approve control does not render).
-          const iAmPending = !!me && pendingApprovers.includes(me)
-          const iAlreadyVoted = !!me && (p.approvals.includes(me) || p.refusals.includes(me))
+          // By this device's seat when known (#575): two seats under one name are two members.
+          const meId = { seat: mySeat(voteVault ?? undefined), name: me }
+          const iAlreadyVoted = !!me && hasVoted(p, meId)
+          const iAmPending = known && !!me && members.includes(me) && !iAlreadyVoted
+          const iVotedUncounted = !!me && myUncounted(p, meId) !== null
           return (
           <>
             <div className="confirm mt">
-              {tr('proposal.awaitingIntro', { proposer: p.proposer, count: p.approvals_count, total: threshold })}{' '}
-              {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
+              {p.approvals_count === null ? tr('proposal.awaitingIntroUnknown', { proposer: p.proposer, total: threshold }) : tr('proposal.awaitingIntro', { proposer: p.proposer, count: approvalsShown(p), total: threshold })}{' '}
+              {falta === null ? null : falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
             {iAmPending ? (
               <>
                 {/* Approving is not paying: the sentence sits where the button is, and the button is
                     described by it, so the two moments that move money are two sentences (#309). */}
+                {iVotedUncounted && <p className="hint warn mt">{t('proposal.voteAgain')}</p>}
                 <p className="hint mt" id="vote-means">{t('proposal.approveMeans')}</p>
                 <div className="btns mt-sm">
                   <button className="btn ok" onClick={() => vote(true)} disabled={busy || !voteVault} aria-describedby="vote-means">{busy ? '…' : t('proposal.approve')}</button>
                   <button className="btn" onClick={() => vote(false)} disabled={busy || !voteVault}>{t('proposal.refuse')}</button>
                 </div>
               </>
+            ) : !known ? (
+              <div className="hint warn mt">{t('proposal.voteUnknown')}</div>
             ) : (
               <div className="hint mt">{iAlreadyVoted ? t('proposal.alreadyVoted') : t('proposal.waitingMembers')}</div>
             )}

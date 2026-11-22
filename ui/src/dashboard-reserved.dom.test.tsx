@@ -42,7 +42,7 @@ const { fmtZecExact } = await import('./format')
 
 const open = (over: Partial<Proposal>): Proposal => ({
   id: 'p1', vault_id: 'v', kind: 'payment', state: 'awaiting', proposer: 'Ana', value_zat: 10_000, value_zec: '0.0001',
-  is_public: false, approvals: [], refusals: [], approvals_count: 0, created_at: Math.floor(Date.now() / 1000),
+  is_public: false, approvals: [], refusals: [], approvals_count: 0, stances: [], created_at: Math.floor(Date.now() / 1000),
   expiry_unix: Math.floor(Date.now() / 1000) + 3600, destinations: 1, ...over,
 })
 

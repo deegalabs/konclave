@@ -10,15 +10,16 @@ import { PageHeader } from '../page'
 import { Identicon, seedForName } from '../avatar'
 import MembersPeek from '../MembersPeek'
 import { fmtZecExact, expiryLabel, fmtDate } from '../format'
-import { rankDesk, stampKey, expiredByClock, type Band } from '../desk'
+import { rankDesk, stampKey, lineKey, expiredByClock, type Band } from '../desk'
 import { balanceParts, reservedZatOf } from '../balance-parts'
 import { estimatorOf, useFeeEstimate } from '../fee-estimate'
 import { participation } from '../participation'
 import { monthShort } from '../period'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, type WalletTx } from '../api'
+import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, mySeat, type WalletTx } from '../api'
 import { proposalName } from '../proposal-name'
 import { WALLET_BUSY } from '../helper'
+import { approvalsShown, countedNames } from '../stance'
 import { movementOf, settlementOf, type Movement } from '../settlement'
 import { useI18n, useTr } from '../i18n'
 import { useReveal } from '../reveal'
@@ -67,17 +68,6 @@ const NOTE_KEY: Record<Band, string> = {
   vote: 'desk.noteVote',
   wait: 'desk.noteWait',
   voted: 'desk.noteVoted',
-}
-
-/**
- * The one-line summary. Like the stamp (`stampKey`, desk.ts, shared with the proposals list), it
- * falls back to neutral, vault-level wording when this device does not know its own member name
- * (`desk.personal === false`): we will not tell someone their vote is missing when we cannot tell
- * whether they voted.
- */
-function lineKey(band: Band, personal: boolean): string {
-  if (!personal) return band === 'sign' ? 'dashboard.readyToSign' : 'dashboard.needsYou'
-  return `desk.line.${band}`
 }
 
 /** What a proposal is about, in the member's own words when they left any. */
@@ -298,7 +288,7 @@ export default function Dashboard() {
   // ordered by array position rather than urgency, and said "needs you" to a member who had
   // already voted. Open proposals still hold funds, so they also feed the reserved KPI below.
   // A proposal past its deadline on this clock is left out, as the list does (desk.ts).
-  const desk = rankDesk((proposals ?? []).filter((p) => !expiredByClock(p)), me, thr)
+  const desk = rankDesk((proposals ?? []).filter((p) => !expiredByClock(p)), me, thr, mySeat())
   const lead = desk.items[0] ?? null
   const queue = desk.items.slice(1, 1 + QUEUE_ROWS)
   const open = desk.items.map((i) => i.p)
@@ -315,7 +305,7 @@ export default function Dashboard() {
         return {
           date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
           title: proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
-          by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
+          by: t('dashboard.movBy', { proposer: p.proposer }) + (countedNames(p, 'approved').length ? t('dashboard.movApprovedBy', { who: countedNames(p, 'approved').join(', ') }) : ''),
           value: movement.out ? `−${fmtZecExact(p.value_zat / 1e8)}` : fmtZecExact(p.value_zat / 1e8),
           dir: 'out' as const,
           movement,
@@ -503,9 +493,9 @@ export default function Dashboard() {
                 <div className="ny-amt"><Secret>{fmtZecExact(lead.p.value_zat / 1e8)}</Secret> <span className="dim small">ZEC</span></div>
                 <div className="a-to">{tr('dashboard.whatProposedBy', { what: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
                 <div className="a-meta">
-                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < lead.p.approvals_count ? 'on' : ''} />)}</span>
+                  {lead.p.approvals_count !== null && <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < (lead.p.approvals_count ?? 0) ? 'on' : ''} />)}</span>}
                   <span>
-                    {t('dashboard.ofApprovals', { count: lead.p.approvals_count, total: thr })}
+                    {t('dashboard.ofApprovals', { count: approvalsShown(lead.p), total: thr })}
                     {lead.last ? ` · ${t('desk.signSends')}` : ''}
                     {leadExpiry ? ` · ${leadExpiry}` : ''}
                   </span>
@@ -520,7 +510,7 @@ export default function Dashboard() {
                   </button>
                   <Link className="btn ghost" to="/proposal" state={{ id: lead.p.id }}>{t('desk.view')}</Link>
                 </>
-              ) : lead.band === 'vote' ? (
+              ) : lead.band === 'vote' && desk.personal ? (
                 <Link className="btn ok" to="/proposal" state={{ id: lead.p.id }}>{t('dashboard.reviewVote')}</Link>
               ) : (
                 <Link className="btn ghost" to="/proposal" state={{ id: lead.p.id }}>{t('desk.view')}</Link>
@@ -537,8 +527,8 @@ export default function Dashboard() {
                       <span className={'stamp ' + STAMP_CLASS[it.band]}>{t(stampKey(it.band, desk.personal))}</span>
                       <span className="dq-amt"><Secret sm>{fmtZecExact(it.p.value_zat / 1e8)}</Secret> <span className="dim">ZEC</span></span>
                       <span className="dq-what">{whatOf(it.p, t)}</span>
-                      <span className="prog sm">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < it.p.approvals_count ? 'on' : ''} />)}</span>
-                      <span className="dq-when">{when || t('dashboard.ofApprovals', { count: it.p.approvals_count, total: thr })}</span>
+                      {it.p.approvals_count !== null && <span className="prog sm">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < (it.p.approvals_count ?? 0) ? 'on' : ''} />)}</span>}
+                      <span className="dq-when">{when || t('dashboard.ofApprovals', { count: approvalsShown(it.p), total: thr })}</span>
                       <span className="dq-go" aria-hidden="true">›</span>
                     </Link>
                   )
@@ -577,7 +567,7 @@ export default function Dashboard() {
                       <div className="prow" key={r.name}>
                         <span className="pname">{r.name}</span>
                         <span className="trk"><span className="fil" style={{ width: `${r.pct}%` }} /></span>
-                        <span className="pn num">{r.approved}/{part.considered}</span>
+                        <span className="pn num">{r.approved ?? '—'}/{part.considered}</span>
                       </div>
                     ))}
                   </div>
