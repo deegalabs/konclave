@@ -95,11 +95,11 @@ pub fn fee_and_actions_of(pczt_bytes: &[u8]) -> Result<(u64, u64), ToolError> {
     konclave_seal::spends::fee_and_actions(&pczt).map_err(|e| ToolError::parse("pczt", e))
 }
 
-/// The copy of a proven PCZT that goes into the signing room: the same transaction without the
-/// optional per-spend key field (96 bytes per spend, in both pools) that no device reads. The sighash,
-/// the outputs and the payment a device shows are built from the effecting data and the output
-/// fields. The coordinator keeps its own full copy to apply the signatures to; only what is
-/// PUBLISHED passes through here.
+/// The copy of a proven PCZT that goes into the signing room. It leaves out, in both pools, five
+/// fields no device reads (the calls below name them); the tests pin that exactly those five go.
+/// The sighash, the outputs and the payment a device shows are built from the
+/// effecting data and the output fields. The coordinator keeps its own full copy to apply the
+/// signatures to; only what is PUBLISHED passes through here.
 ///
 /// Fails closed: a PCZT that cannot be read is not published as it is.
 pub fn published_copy(pczt_bytes: &[u8]) -> Result<Vec<u8>, ToolError> {
@@ -107,10 +107,22 @@ pub fn published_copy(pczt_bytes: &[u8]) -> Result<Vec<u8>, ToolError> {
         .map_err(|e| ToolError::parse("pczt", format!("cannot read the proven PCZT: {e:?}")))?;
     ::pczt::roles::redactor::Redactor::new(pczt)
         .redact_orchard_with(|mut bundle| {
-            bundle.redact_actions(|mut action| action.clear_spend_fvk())
+            bundle.clear_bsk();
+            bundle.clear_zkproof();
+            bundle.redact_actions(|mut action| {
+                action.clear_spend_fvk();
+                action.clear_rcv();
+                action.clear_spend_witness();
+            })
         })
         .redact_ironwood_with(|mut bundle| {
-            bundle.redact_actions(|mut action| action.clear_spend_fvk())
+            bundle.clear_bsk();
+            bundle.clear_zkproof();
+            bundle.redact_actions(|mut action| {
+                action.clear_spend_fvk();
+                action.clear_rcv();
+                action.clear_spend_witness();
+            })
         })
         .finish()
         .serialize()
@@ -237,38 +249,52 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
         ));
     }
 
-    // The published copy: the proven PCZT without each spend's optional 96-byte key field, which the
-    // devices never read (the sighash, the outputs and the payment they show come from the effecting
-    // data and the output fields).
+    // The published copy: the proven PCZT without the five fields no device reads (the sighash, the
+    // outputs and the payment they show come from the effecting data and the output fields).
     const ORCHARD_TWO_SPEND: &[u8] =
         include_bytes!("../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt");
 
-    /// How many key fields `out` lacks compared with `original`, checking that THAT is the only
-    /// difference. On the wire the field is `Option<[u8; 96]>`: a `01` tag and the 96 bytes, or a
-    /// lone `00`. So `out` must equal `original` with each `01 <96 bytes>` replaced by `00`, and
-    /// nothing else. Walks both, so the check does not use the redaction it is checking.
-    fn keys_removed(original: &[u8], out: &[u8]) -> usize {
-        let (mut i, mut j, mut removed) = (0, 0, 0);
-        while i < original.len() && j < out.len() {
-            if original[i] == out[j] {
-                i += 1;
-                j += 1;
+    /// `d` (a derived Debug) with every `field: Some(..)` written as `field: None`, matching the
+    /// brackets so a nested value goes whole. An empty proof (`Some([])`, which a pool with no
+    /// actions carries by construction) is left as it is.
+    fn none_out(d: &str, field: &str) -> String {
+        let key = format!("{field}: Some(");
+        let (mut out, mut rest) = (String::new(), d);
+        while let Some(i) = rest.find(&key) {
+            let start = i + key.len();
+            let mut depth = 1;
+            let end = rest[start..]
+                .char_indices()
+                .find_map(|(j, c)| {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                    (depth == 0).then_some(start + j + 1)
+                })
+                .unwrap();
+            out.push_str(&rest[..i]);
+            if field == "zkproof" && &rest[start..end] == "[])" {
+                out.push_str(&rest[i..end]);
             } else {
-                assert!(
-                    original[i] == 1 && out[j] == 0 && i + 97 <= original.len(),
-                    "a difference that is not a removed key, at byte {i}"
-                );
-                i += 97;
-                j += 1;
-                removed += 1;
+                out.push_str(&format!("{field}: None"));
             }
+            rest = &rest[end..];
         }
-        assert_eq!(
-            (i, j),
-            (original.len(), out.len()),
-            "lengths do not line up"
-        );
-        removed
+        out.push_str(rest);
+        out
+    }
+
+    /// How many spend key fields `original` has and `out` lacks. Read from the derived Debug, which
+    /// names every field, so it does not use the redaction it checks.
+    fn keys_removed(original: &[u8], out: &[u8]) -> usize {
+        let count = |b: &[u8]| {
+            format!("{:?}", ::pczt::Pczt::parse(b).unwrap())
+                .matches("fvk: Some")
+                .count()
+        };
+        count(original) - count(out)
     }
 
     #[test]
@@ -278,7 +304,7 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
         for (name, vector, keys) in [("ironwood", VECTOR, 4), ("orchard", ORCHARD_TWO_SPEND, 2)] {
             let out = published_copy(vector).unwrap();
             assert_eq!(keys_removed(vector, &out), keys, "{name}");
-            assert_eq!(vector.len() - out.len(), 96 * keys, "{name}");
+            assert!(vector.len() - out.len() >= 96 * keys, "{name}");
         }
     }
 
@@ -308,6 +334,113 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
             4
         );
         assert!(action_count_of(b"not a pczt").is_err());
+    }
+
+    /// A fixed-sequence generator for the one nonce the extractor draws: it signs a test vector, and a
+    /// test must not depend on the machine's entropy.
+    struct TestRng(u64);
+    impl rand_core_10::TryRng for TestRng {
+        type Error = core::convert::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok((self.try_next_u64()? >> 32) as u32)
+        }
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            Ok(self.0)
+        }
+        fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+            for chunk in dst.chunks_mut(8) {
+                let n = self.try_next_u64()?.to_le_bytes();
+                chunk.copy_from_slice(&n[..chunk.len()]);
+            }
+            Ok(())
+        }
+    }
+    impl rand_core_10::TryCryptoRng for TestRng {}
+
+    /// What a copy answers to the PCZT's IO finalization step (`finalize_io`), asked through the
+    /// signer's parse, on the pool `ironwood` selects.
+    fn finalize_step(bytes: &[u8], ironwood: bool) -> String {
+        use ::pczt::roles::low_level_signer::{OrchardParseError, Signer};
+        let mut out = String::new();
+        let f = |_: &::pczt::Pczt,
+                 b: &mut ::orchard::pczt::Bundle,
+                 _: &mut u8|
+         -> Result<(), OrchardParseError> {
+            out = match b.finalize_io([7u8; 32], TestRng(1)) {
+                Ok(()) => "ok".into(),
+                Err(e) => format!("{e:?}"),
+            };
+            Ok(())
+        };
+        let s = Signer::new(::pczt::Pczt::parse(bytes).unwrap());
+        if ironwood {
+            s.sign_ironwood_with(f).unwrap();
+        } else {
+            s.sign_orchard_with(f).unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn the_published_copy_cannot_be_finalized_in_either_pool() {
+        for (name, vector, ironwood) in [
+            ("orchard", ORCHARD_TWO_SPEND, false),
+            ("ironwood", VECTOR, true),
+        ] {
+            // Control: the full copy answers the step, so a refusal below is the copy's, not the step's.
+            assert_eq!(finalize_step(vector, ironwood), "ok", "{name}");
+            let out = finalize_step(&published_copy(vector).unwrap(), ironwood);
+            assert!(out.contains("MissingValueCommitTrapdoor"), "{name}: {out}");
+        }
+    }
+
+    #[test]
+    fn the_published_copy_lacks_exactly_the_five_fields_in_either_pool() {
+        for (name, vector) in [("orchard", ORCHARD_TWO_SPEND), ("ironwood", VECTOR)] {
+            // Control: the proven vector has them, so an empty answer cannot be a reader's blind spot.
+            let full = ::pczt::Pczt::parse(vector).unwrap();
+            let out = ::pczt::Pczt::parse(&published_copy(vector).unwrap()).unwrap();
+            // The derived Debug names every field, including the ones with no getter.
+            let seen = |p: &::pczt::Pczt| {
+                let d = format!("{p:?}");
+                let d = d[d.find("orchard: Bundle").unwrap()..].to_string();
+                [
+                    d.matches("rcv: Some").count(),
+                    d.matches("bsk: Some").count(),
+                    // A pool with no actions carries an empty proof by construction: not a proof.
+                    d.matches("zkproof: Some").count() - d.matches("zkproof: Some([])").count(),
+                    d.matches("witness: Some").count(),
+                ]
+            };
+            let (before, after) = (seen(&full), seen(&out));
+            assert!(
+                before.iter().all(|n| *n > 0),
+                "{name}: the vector has none of one to remove: {before:?}"
+            );
+            assert_eq!(after, [0, 0, 0, 0], "{name}");
+            // And nothing else is missing: the published copy reads as the full one with exactly
+            // those five set to None. (Everything before the Orchard bundle, the empty Sapling one,
+            // is compared as it is.)
+            let (full_d, out_d) = (format!("{full:?}"), format!("{out:?}"));
+            let split = |d: &str| {
+                d.find("orchard: Bundle")
+                    .map(|i| (d[..i].to_string(), d[i..].to_string()))
+                    .unwrap()
+            };
+            let ((full_head, full_tail), (out_head, out_tail)) = (split(&full_d), split(&out_d));
+            assert_eq!(full_head, out_head, "{name}: the head differs");
+            let mut expected = full_tail;
+            for field in ["fvk", "rcv", "bsk", "witness", "zkproof"] {
+                expected = none_out(&expected, field);
+            }
+            assert_eq!(
+                expected, out_tail,
+                "{name}: something else was cleared or changed"
+            );
+        }
     }
 
     /// The devices' side of this is tested in `konclave-wasm` against these two files. They are this

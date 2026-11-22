@@ -3625,6 +3625,7 @@ dependencies = [
  "orchard",
  "pczt",
  "rand 0.8.7",
+ "rand_core 0.10.1",
  "reddsa 0.5.2",
  "rusqlite",
  "serde",
