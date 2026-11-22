@@ -1,4 +1,4 @@
-//! Neither public server may read a request body without a ceiling.
+//! No server may read a request body without a ceiling in its own code.
 //!
 //! A unit test cannot catch this: the rule is not "does `body_read_cap` work" - it did, and its own
 //! tests passed the whole time - but "does every server CALL it". #269 was open for fifteen days
@@ -23,8 +23,8 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {rel}: {e}"))
 }
 
-/// The local bridge faces only the loopback, and is held to the same rule (#1088): it reads every
-/// body through the shared ceiling too, one byte past it, to refuse what goes over.
+/// The local bridge faces only the loopback, and is held to the same rule (#1088): a body it reads
+/// goes through the shared ceiling, one byte past it, to refuse what goes over.
 const LOOPBACK_SERVERS: [&str; 1] = ["../orchestrator/src/server.rs"];
 
 #[test]
@@ -40,7 +40,7 @@ fn no_server_reads_a_request_body_unbounded() {
             assert!(
                 l.contains(".take("),
                 "{rel}:{} reads a request body with no ceiling:\n    {l}\n\
-                 Use konclave_http::body_read_cap and .take(limit). An unbounded read on a public \
+                 Use konclave_http::body_read_cap and .take(limit). An unbounded read on a \
                  POST is memory exhaustion by one request (#269).",
                 i + 1,
             );
