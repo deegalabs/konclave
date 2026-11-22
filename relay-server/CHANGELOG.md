@@ -107,7 +107,7 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   that failed ended alone, and when none were left the relay exited with code 0, which a restart-on-failure policy
   does not restart. Now the first worker to end takes the process with it, with code 70. Rooms are in memory, so they
   are lost on that restart as on any other. A request whose handler fails is now answered with a 500 and costs
-  nothing else, so only a failure outside a request's handler reaches that rule.
+  only its own answer, so only a failure outside a request's handler reaches that rule.
 
 - **The relay's answers are not kept by the browser's cache.** Every answer now says so, so a room's messages do
   not stay in the browser after the session ends.

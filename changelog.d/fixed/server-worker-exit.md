@@ -5,5 +5,5 @@
   and the log says which server stopped. Requests in flight on the other workers end too: a send that had reached
   its broadcast wrote its record to the volume first, and the coordinator reports it as held when it starts again; a
   send still collecting its signatures had broadcast nothing and is signed again. The local bridge exits the same way
-  when its loop ends. A request whose handler fails at the relay is now answered with a 500 and costs nothing else, as
+  when its loop ends. A request whose handler fails at the relay is now answered with a 500 and costs only its own answer, as
   it already was at the coordinator.

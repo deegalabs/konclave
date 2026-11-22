@@ -38,10 +38,29 @@ fn read(rel: &Path) -> String {
 /// The production code of a server file: line comments removed and its test module cut off.
 fn production(src: &str) -> String {
     let body = src.split("\nmod tests {").next().unwrap_or(src);
-    body.lines()
-        .map(|l| l.split("//").next().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("\n")
+    body.lines().map(code_part).collect::<Vec<_>>().join("\n")
+}
+
+/// A line up to its `//` comment, where a `//` inside a string literal does not start one.
+fn code_part(line: &str) -> &str {
+    let (mut in_str, mut escaped) = (false, false);
+    let bytes = line.as_bytes();
+    for i in 0..bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_str = false,
+                _ => {}
+            }
+        } else if c == b'"' {
+            in_str = true;
+        } else if c == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            return &line[..i];
+        }
+    }
+    line
 }
 
 #[test]
@@ -74,7 +93,7 @@ fn every_server_runs_its_request_loop_through_the_shared_rule() {
             code.contains(call),
             "{rel:?} must run its request loop through {call} in code"
         );
-        for own in ["thread::spawn", "thread::Builder", ".join()"] {
+        for own in ["spawn(", "thread::Builder", "thread::scope", ".join()"] {
             assert!(
                 !code.contains(own),
                 "{rel:?} uses `{own}` outside its tests; a worker of its own that dies is not seen"
@@ -89,7 +108,8 @@ fn the_pooled_servers_catch_a_handler_panic_through_the_shared_guard() {
         let rel = Path::new(krate).join(file);
         let code = production(&read(&rel));
         assert!(
-            code.contains("konclave_http::guard("),
+            code.contains("konclave_http::guard(|| state.handle(")
+                || code.contains("konclave_http::guard(work)"),
             "{rel:?} must run each request's handler through konclave_http::guard"
         );
         assert!(
@@ -97,4 +117,17 @@ fn the_pooled_servers_catch_a_handler_panic_through_the_shared_guard() {
             "{rel:?} catches panics with a copy of its own"
         );
     }
+}
+
+#[test]
+fn a_comment_is_cut_at_its_slashes_but_a_string_holding_slashes_is_kept() {
+    assert_eq!(code_part("let a = 1; // thread::spawn"), "let a = 1; ");
+    assert_eq!(
+        code_part(r#"let u = "http://x"; std::thread::spawn(f);"#),
+        r#"let u = "http://x"; std::thread::spawn(f);"#
+    );
+    assert_eq!(
+        code_part(r#"let q = "a\"//b"; // c"#),
+        r#"let q = "a\"//b"; "#
+    );
 }

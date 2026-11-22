@@ -16,8 +16,9 @@
 //! broadcast wrote its record to the volume first, and the coordinator reports it as held when it
 //! starts again; a send still collecting its signatures had broadcast nothing and is signed again.
 //!
-//! A panic INSIDE a request's handler is not a worker ending: [`guard`] turns it into that request's
-//! 5xx, and only what fails outside the handler reaches the rule below.
+//! In the pooled servers a panic INSIDE a request's handler is not a worker ending: [`guard`] turns it
+//! into that request's 5xx, and only what fails outside the handler reaches the rule below. The local
+//! bridge does not guard its handler yet, so a panic there ends it with the same code.
 //!
 //! One rule for the pooled servers ([`run_workers`]) and the single-loop bridge ([`run_in_place`]),
 //! because the same rule in three files is how the body ceiling once reached only one server.
