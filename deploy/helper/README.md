@@ -122,6 +122,8 @@ Before `railway up`, with no send in flight:
 1. Take a FULL backup of the volume, wallets included. Prefer a platform snapshot of the volume
    (Railway: the service's volume backups), which keeps the data on the platform. The ops backup in
    [docs/RECOVERY.md](../../docs/RECOVERY.md) D excludes `wallet/` on purpose and is NOT enough here.
+   If you take a copy instead, record the sha256 of every file under each `wallet/` as you take it,
+   and keep that list apart from the copy, where whoever can write the copy cannot write the list.
 2. Write down the sha256 of the four binaries that were running, so the old image can be rebuilt.
 
 To go back after the new engine has run: redeploy the old binaries AND restore every `wallet/` from
@@ -129,18 +131,25 @@ that backup, together. Restoring only the binaries leaves every migrated vault u
 Without the backup, the only way back is rebuilding each wallet from its birthday (RECOVERY.md B),
 with every balance offline until the rescan finishes.
 
+Restore a `wallet/` only from a backup this coordinator's own volume produced: a platform snapshot
+of the volume, or a copy whose sha256 for every file under `wallet/` was recorded when it was taken
+and matches before it is put back. Never restore a wallet database, or its `-wal` or `-journal`,
+that came from anywhere else, and never restore a `-wal` without the database it was taken with.
+SQLite before 3.54.0 can return stale memory when it opens a database with a `-wal` someone else
+wrote (RUSTSEC-2026-0459).
+
 The move to the stable NU7 crate line (`zcash_client_sqlite` 0.23.0) works the same way. Only
 `zcash-devtool wallet upgrade` migrates a wallet, and the coordinator runs it before the first sync
-or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the new
-`konclave-signer` opens a wallet with `WalletDb::for_path` and does not migrate it, and the new
+or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the
+new `konclave-signer` opens a wallet with `WalletDb::for_path` and does not migrate it, and the new
 devtool's `sync` fails on an unmigrated wallet until `upgrade` has run. The signer and the devtool
-ship as ONE set. Before the deploy, copy `/data/vaults/*/wallet` (the ops backup excludes it) and keep
-the copy until the first reads and one send have gone through: going back after the first read is
-not proven safe outside the wallet shape that was tried (one Orchard/Ironwood note, where the
-previous signer and devtool still worked; the migrations that rewrite rows were not exercised). The
-pins named in this file (`pczt 0.9.3`, `zcash_client_backend 0.24.0`) describe the engine deployed
-today; the records for the new line arrive with the follow-up change to `engine/versions.lock` and
-are not part of the crate move.
+ship as ONE set. Before the deploy, copy `/data/vaults/*/wallet` (the ops backup excludes it),
+record the sha256 of every file in it as above, and keep the copy until the first reads and one send
+have gone through: going back after the first read is not proven safe outside the wallet shape that
+was tried (one Orchard/Ironwood note, where the previous signer and devtool still worked; the
+migrations that rewrite rows were not exercised). The pins named in this file (`pczt 0.9.3`,
+`zcash_client_backend 0.24.0`) describe the engine deployed today; the records for the new line
+arrive with the follow-up change to `engine/versions.lock` and are not part of the crate move.
 
 Validate locally before deploying:
 
