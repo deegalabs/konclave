@@ -82,3 +82,19 @@ fn every_server_runs_its_request_loop_through_the_shared_rule() {
         }
     }
 }
+
+#[test]
+fn the_pooled_servers_catch_a_handler_panic_through_the_shared_guard() {
+    for (krate, file, _) in SERVERS.iter().filter(|(_, _, c)| c.contains("run_workers")) {
+        let rel = Path::new(krate).join(file);
+        let code = production(&read(&rel));
+        assert!(
+            code.contains("konclave_http::guard("),
+            "{rel:?} must run each request's handler through konclave_http::guard"
+        );
+        assert!(
+            !code.contains("catch_unwind"),
+            "{rel:?} catches panics with a copy of its own"
+        );
+    }
+}

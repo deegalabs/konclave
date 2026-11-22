@@ -23,7 +23,7 @@
 //! carries no dependencies at all and stays something either server can take without argument.
 
 mod workers;
-pub use workers::{run_in_place, run_workers, WORKER_ENDED_EXIT};
+pub use workers::{guard, run_in_place, run_workers, WORKER_ENDED_EXIT};
 
 /// How much of a request body to read.
 #[derive(Debug, PartialEq, Eq)]

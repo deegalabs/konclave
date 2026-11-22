@@ -851,7 +851,15 @@ fn main() {
                 }
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
-            state.handle(&method, &path, &url, &buf, now_unix(), &addr)
+            // A handler that panics answers this request with a 500 and leaves the worker, the
+            // process and every other room standing; only a failure outside it ends the worker.
+            konclave_http::guard(|| state.handle(&method, &path, &url, &buf, now_unix(), &addr))
+                .unwrap_or_else(|| {
+                    (
+                        500,
+                        r#"{"error":"the relay failed on this request"}"#.to_string(),
+                    )
+                })
         } else if path == "/" || path == "/health" {
             (200, state.health_json(now_unix()))
         } else {

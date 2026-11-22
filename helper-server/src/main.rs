@@ -2183,14 +2183,12 @@ const REQUEST_PANICKED_TEXT: &str = "the coordinator could not handle this reque
 /// `readReply`); an unplanned failure may come after a broadcast, so the send gets the answer that
 /// makes no claim. That is also what such a failure looked like before the guard existed.
 fn guarded(method: &Method, path: &str, work: impl FnOnce() -> Resp) -> Resp {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
-        Ok(r) => r,
-        Err(_)
-            if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) =>
-        {
+    match konclave_http::guard(work) {
+        Some(r) => r,
+        None if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) => {
             resp(500, json!({}).to_string())
         }
-        Err(_) => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
+        None => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
     }
 }
 
