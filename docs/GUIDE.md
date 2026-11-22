@@ -181,7 +181,6 @@ classDiagram
     }
     class SendOutcome {
         +Option txid
-        +String signed_pczt
         +String sighash
     }
     class SigningInput {

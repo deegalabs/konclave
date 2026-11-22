@@ -348,7 +348,7 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
         serde_json::from_str(&text).map_err(|e| format!("invalid ceremony config: {e}"))?;
 
     if dry_run {
-        eprintln!("== DRY-RUN: signs but does NOT broadcast (no funds move) ==");
+        eprintln!("== DRY-RUN: signs, does NOT broadcast, and keeps no signed transaction ==");
     } else {
         eprintln!("== REAL SEND: will broadcast to mainnet ==");
     }
@@ -370,10 +370,9 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("ceremony/send: {e}"))?;
 
     eprintln!("signed sighash: {}", outcome.sighash);
-    eprintln!("signed PCZT: {}", outcome.signed_pczt);
     match outcome.txid {
         Some(txid) => println!("TXID {txid}"),
-        None => println!("DRY-RUN OK (PCZT signed, no broadcast)"),
+        None => println!("DRY-RUN OK (signed, not broadcast, nothing kept on this machine)"),
     }
     Ok(())
 }
@@ -450,10 +449,11 @@ fn run_net_send(args: &[String]) -> Result<(), String> {
     .map_err(|e| format!("net-send: {e}"))?;
 
     eprintln!("signed sighash: {}", outcome.sighash);
-    eprintln!("signed PCZT: {}", outcome.signed_pczt);
     match outcome.txid {
         Some(txid) => println!("TXID {txid}"),
-        None => println!("DRY-RUN OK (PCZT signed by the devices, no broadcast)"),
+        None => println!(
+            "DRY-RUN OK (signed by the devices, not broadcast, nothing kept on this machine)"
+        ),
     }
     Ok(())
 }
