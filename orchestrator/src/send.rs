@@ -1889,7 +1889,6 @@ mod tests {
             in_the_room.len() < PROVEN.len(),
             "the room saw the full PCZT"
         );
-        assert_eq!((PROVEN.len() - in_the_room.len()) % 96, 0);
         assert_eq!(in_the_room, pczt::published_copy(PROVEN).unwrap());
         assert_eq!(
             signed.txid(),

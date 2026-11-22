@@ -4267,11 +4267,11 @@ pub mod pczt_bridge {
         const IW_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
 
-        // What the coordinator publishes into the signing room is a copy of the proven PCZT with an
-        // optional per-spend field removed (`orchestrator::pczt::published_copy`, whose output for
+        // What the coordinator publishes into the signing room is a copy of the proven PCZT that
+        // carries only what a device reads (`orchestrator::pczt::published_copy`, whose output for
         // these two vectors is committed beside them and pinned byte for byte by that crate's
         // tests). Everything a device runs on a request must answer the same on it as on the full
-        // PCZT, or removing the field would change what a device shows or signs.
+        // PCZT, or leaving a field out would change what a device shows or signs.
         const IW_PUBLISHED: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.published.pczt");
         const OR_PROVEN: &[u8] =

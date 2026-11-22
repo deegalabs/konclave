@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The coordinator shares a smaller copy of each transaction with the vault's devices.** What a
+  device shows and checks (the payment, the fee and what it signs) is unchanged. The details follow
+  in a later entry.
+
 - **The coordinator builds a vault's payments from fewer of its notes.** Same change as the root
   changelog's Security entry of 0.22.0; details follow in a later entry. The hosted coordinator has
   run this since 2026-11-18 (e5e581ee).
