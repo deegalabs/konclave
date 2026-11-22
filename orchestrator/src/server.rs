@@ -2216,6 +2216,7 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
 
 /// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.
 fn serve_on(server: &tiny_http::Server, cfg: &Config) {
+    use std::io::Read as _;
     let session_token = new_session_token();
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
@@ -2231,15 +2232,30 @@ fn serve_on(server: &tiny_http::Server, cfg: &Config) {
                 token = Some(h.value.as_str().to_string());
             }
         }
-        // Bounded body (L4): reject an over-large payload up front by Content-Length - a local
-        // daemon must not buffer an unbounded Vec. 2 MiB is generous for a payroll. Over → 413.
-        const MAX_BODY: usize = 2 * 1024 * 1024;
-        let too_large = req.body_length().map(|n| n > MAX_BODY).unwrap_or(false);
+        // Bounded body (L4): a local daemon must not buffer an unbounded Vec. 2 MiB (the shared
+        // ceiling of konclave-http) is generous for a payroll. Over → 413, whether the request announces its length or not: an
+        // announced length over the limit is refused unread, and every body is read through a
+        // reader that stops one byte past the limit, so a chunked body is held to it too (#1088).
+        use konclave_http::MAX_BODY;
+        // A protocol upgrade hands the reader the raw connection, and the bridge has no use for
+        // one: refused before anything is read.
+        let upgrade = req.headers().iter().any(|h| {
+            h.field.equiv("Connection") && h.value.as_str().to_ascii_lowercase().contains("upgrade")
+        });
+        let mut too_large = req.body_length().is_some_and(|n| n as u64 > MAX_BODY);
         let mut body = Vec::new();
-        if !too_large {
-            let _ = req.as_reader().read_to_end(&mut body);
+        if !too_large && !upgrade {
+            let _ = req.as_reader().take(MAX_BODY + 1).read_to_end(&mut body);
+            too_large = body.len() as u64 > MAX_BODY;
         }
-        let resp = if too_large {
+        let resp = if upgrade {
+            let mut refused = Response::json(
+                400,
+                &serde_json::json!({ "error": "upgrade not supported" }),
+            );
+            no_store_for_api(&url, &mut refused);
+            refused
+        } else if too_large {
             let mut refused =
                 Response::json(413, &serde_json::json!({ "error": "payload too large" }));
             no_store_for_api(&url, &mut refused);
