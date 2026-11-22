@@ -40,6 +40,8 @@ jobs:
       # Built from crates.io at an exact version with its own lock, not fetched as a prebuilt binary.
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit --version 0.22.2
+      # Both scans run from the repository root, which is where cargo-audit finds .cargo/audit.toml;
+      # a `working-directory` on either step would drop the ignore list.
       - name: Root lock
         run: cargo audit --file Cargo.lock
       - name: Relay lock
