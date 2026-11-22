@@ -8,9 +8,13 @@
 //!
 //! A worker never ends on purpose: it serves until the process stops. So ending at all, by a panic
 //! or by returning, is a failure of the whole server, and the process exits with
-//! [`WORKER_ENDED_EXIT`] at once, while the platform can still restart it. The cost is that requests
-//! in flight on the other workers end with it; a send holds its record on the volume and the
-//! coordinator reports it as held when it boots again.
+//! [`WORKER_ENDED_EXIT`] at once, while the platform can still restart it. Exiting on the FIRST end,
+//! not when the pool is empty, matters: tiny_http's accept thread stops for good on an accept error
+//! and hands that error to one worker, so the others would wait forever and the pool never empties.
+//!
+//! The cost is that requests in flight on the other workers end with it. A send that had reached its
+//! broadcast wrote its record to the volume first, and the coordinator reports it as held when it
+//! starts again; a send still collecting its signatures had broadcast nothing and is signed again.
 //!
 //! One rule for the pooled servers ([`run_workers`]) and the single-loop bridge ([`run_in_place`]),
 //! because the same rule in three files is how the body ceiling once reached only one server.
@@ -41,8 +45,8 @@ where
             let _watch = Watch(ended);
             work();
         });
-        if started.is_err() {
-            eprintln!("{service}: a request worker could not be started; exiting");
+        if let Err(e) = started {
+            eprintln!("{service}: a request worker could not be started ({e}); exiting");
             std::process::exit(WORKER_ENDED_EXIT);
         }
     }

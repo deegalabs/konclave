@@ -3133,7 +3133,9 @@ fn main() {
     // A worker that ends, by a panic outside `guarded` or otherwise, ends the process with a
     // failure code so the platform restarts it, instead of the pool thinning out to an exit 0.
     konclave_http::run_workers("konclave-helper", workers, move || loop {
-        // `recv` fails only when the server is gone; then the worker ends, and the process with it.
+        // `recv` fails when the server is gone, and also when tiny_http's accept thread hits an
+        // accept error and stops for good; the other workers would then wait forever, so this
+        // worker ending ends the process, which is what gets the server restarted.
         let Ok(mut req) = server.recv() else { return };
         if req.method() == &Method::Options {
             let _ = req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
