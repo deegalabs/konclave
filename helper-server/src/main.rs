@@ -2183,14 +2183,12 @@ const REQUEST_PANICKED_TEXT: &str = "the coordinator could not handle this reque
 /// `readReply`); an unplanned failure may come after a broadcast, so the send gets the answer that
 /// makes no claim. That is also what such a failure looked like before the guard existed.
 fn guarded(method: &Method, path: &str, work: impl FnOnce() -> Resp) -> Resp {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
-        Ok(r) => r,
-        Err(_)
-            if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) =>
-        {
+    match konclave_http::guard(work) {
+        Some(r) => r,
+        None if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) => {
             resp(500, json!({}).to_string())
         }
-        Err(_) => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
+        None => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
     }
 }
 
@@ -3130,87 +3128,77 @@ fn main() {
 
     let server = Arc::new(server);
     let limits = Arc::new(admission::Limits::new());
-    let mut pool = Vec::with_capacity(workers);
-    for _ in 0..workers {
-        let (server, state, cfg, locks, limits) = (
-            Arc::clone(&server),
-            Arc::clone(&state),
-            Arc::clone(&cfg),
-            Arc::clone(&locks),
-            Arc::clone(&limits),
-        );
-        pool.push(std::thread::spawn(move || loop {
-            // `recv` fails only when the server is gone; then the worker retires.
-            let Ok(mut req) = server.recv() else { return };
-            if req.method() == &Method::Options {
-                let _ =
-                    req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
-                continue;
-            }
-            let method = req.method().clone();
-            let path = req.url().to_string();
-            // The #388 read token rides in a header (never the URL/query, §6.3). Read it before
-            // as_reader() takes the mutable borrow.
-            let read_token = req
-                .headers()
+    // A worker that ends, by a panic outside `guarded` or otherwise, ends the process with a
+    // failure code so the platform restarts it, instead of the pool thinning out to an exit 0.
+    konclave_http::run_workers("konclave-helper", workers, move || loop {
+        // `recv` fails when the server is gone, and also when tiny_http's accept thread hits an
+        // accept error and stops for good; the other workers would then wait forever, so this
+        // worker ending ends the process, which is what gets the server restarted.
+        let Ok(mut req) = server.recv() else { return };
+        if req.method() == &Method::Options {
+            let _ = req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
+            continue;
+        }
+        let method = req.method().clone();
+        let path = req.url().to_string();
+        // The #388 read token rides in a header (never the URL/query, §6.3). Read it before
+        // as_reader() takes the mutable borrow.
+        let read_token = req
+            .headers()
+            .iter()
+            .find(|h| h.field.equiv(READ_TOKEN_HEADER))
+            .map(|h| h.value.as_str().to_string());
+        // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
+        // the proxy, so the address comes from the forwarded header, and which value of it to
+        // believe is the booted rule (default: the first hop, only as good as the platform).
+        let remote = req.remote_addr().map(|a| a.ip().to_string());
+        let client = konclave_http::request_client_address(
+            req.headers()
                 .iter()
-                .find(|h| h.field.equiv(READ_TOKEN_HEADER))
-                .map(|h| h.value.as_str().to_string());
-            // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
-            // the proxy, so the address comes from the forwarded header, and which value of it to
-            // believe is the booted rule (default: the first hop, only as good as the platform).
-            let remote = req.remote_addr().map(|a| a.ip().to_string());
-            let client = konclave_http::request_client_address(
-                req.headers()
-                    .iter()
-                    .filter(|h| h.field.equiv("X-Forwarded-For"))
-                    .map(|h| h.value.as_str()),
-                remote.as_deref(),
-            );
-            let now = i64::try_from(now_unix()).unwrap_or(i64::MAX);
-            // BEFORE the body is read. A refused request should cost a map lookup, not two
-            // megabytes of buffering and the worker that reads them. Refusals are deliberately not
-            // logged: a line per refused request would turn a flood of requests into a flood of
-            // log, and would write client addresses to disk, which nothing here needs.
-            if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
-                let _ = req.respond(http_response(refusal(refused)));
-                continue;
+                .filter(|h| h.field.equiv("X-Forwarded-For"))
+                .map(|h| h.value.as_str()),
+            remote.as_deref(),
+        );
+        let now = i64::try_from(now_unix()).unwrap_or(i64::MAX);
+        // BEFORE the body is read. A refused request should cost a map lookup, not two
+        // megabytes of buffering and the worker that reads them. Refusals are deliberately not
+        // logged: a line per refused request would turn a flood of requests into a flood of
+        // log, and would write client addresses to disk, which nothing here needs.
+        if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
+            let _ = req.respond(http_response(refusal(refused)));
+            continue;
+        }
+        // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
+        // has capped since #390; the helper did not, because the rule lived in the relay's own
+        // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
+        let mut body = Vec::new();
+        match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
+            konclave_http::ReadPlan::Read(limit) => {
+                // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
+                // `take` needs a sized receiver, so calling it inline resolves against the
+                // trait object itself and does not compile.
+                let reader = req.as_reader();
+                let _ = reader.take(limit).read_to_end(&mut body);
             }
-            // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
-            // has capped since #390; the helper did not, because the rule lived in the relay's own
-            // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
-            let mut body = Vec::new();
-            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-                konclave_http::ReadPlan::Read(limit) => {
-                    // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
-                    // `take` needs a sized receiver, so calling it inline resolves against the
-                    // trait object itself and does not compile.
-                    let reader = req.as_reader();
-                    let _ = reader.take(limit).read_to_end(&mut body);
-                }
-                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
-            }
+            konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+        }
 
-            let r = guarded(&method, &path, || {
-                serve(
-                    &state,
-                    &cfg,
-                    &locks,
-                    &limits,
-                    &client,
-                    now,
-                    &method,
-                    &path,
-                    &body,
-                    read_token.as_deref(),
-                )
-            });
-            let _ = req.respond(http_response(r));
-        }));
-    }
-    for w in pool {
-        let _ = w.join();
-    }
+        let r = guarded(&method, &path, || {
+            serve(
+                &state,
+                &cfg,
+                &locks,
+                &limits,
+                &client,
+                now,
+                &method,
+                &path,
+                &body,
+                read_token.as_deref(),
+            )
+        });
+        let _ = req.respond(http_response(r));
+    })
 }
 
 #[cfg(test)]

@@ -9,8 +9,9 @@
 //! worked for the write message in `konclave-seal`: the rule lives in ONE place that both callers
 //! read. A third copy cannot drift from the other two if there is no third copy.
 //!
-//! The worker pool deliberately stays OUT of here, and finding out why is the reason this crate is
-//! small. The two look like one duplicated rule and are not: the helper sizes at
+//! The worker pool's SIZE deliberately stays OUT of here, and finding out why is the reason this
+//! crate is small. (What happens when a worker ends is one rule and lives here, in `workers`.) The
+//! two sizes look like one duplicated rule and are not: the helper sizes at
 //! `(parallelism * 4).clamp(16, 64)` because a send holds a worker for as long as the quorum takes,
 //! the relay at `(parallelism * 2).clamp(4, 32)` because it is in-memory mailbox work behind one
 //! mutex. Sharing them would have quietly shrunk the helper's pool - on the service whose outage
@@ -20,6 +21,9 @@
 //! nothing else, on purpose - it is a blind mailbox and its bus factor is its smallness. Sharing
 //! through `orchestrator` would have dragged the whole engine-facing crate into it, so this crate
 //! carries no dependencies at all and stays something either server can take without argument.
+
+mod workers;
+pub use workers::{guard, run_in_place, run_workers, WORKER_ENDED_EXIT};
 
 /// How much of a request body to read.
 #[derive(Debug, PartialEq, Eq)]
