@@ -243,7 +243,8 @@ unlocked; that is the one thing that no longer happens.)
    freeze the wrong key again. Build the replacement ON YOUR OWN MACHINE from a copy of the file (the
    coordinator's image has no `jq`), with the one record changed, and check it there. `jq . new` is NOT a
    check: it passes an empty file, `[]`, `{}` and `null`, and `[]` or a record with no seat or write key
-   OPENS the vault to unsigned writes. Use `jq -e 'type == "array" and length > 0 and all(.[]; (.comms |
+   OPENS the vault to unsigned writes, and on an open vault approvals recorded without a signature
+   count again (#575). Use `jq -e 'type == "array" and length > 0 and all(.[]; (.comms |
    type == "string") and (.seat | type == "number") and (.write | type == "string"))' new` (when every
    record holds a seat) and `diff <(jq -S . old) <(jq -S . new)`, which must show only that record. Put it
    on the volume under a temporary name in the same directory, give it the owner and mode the

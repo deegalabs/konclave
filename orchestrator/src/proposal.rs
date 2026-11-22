@@ -104,6 +104,52 @@ impl Quorum {
     }
 }
 
+/// Where the votes leave a proposal that is still open (#575): the ONE quorum rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision {
+    /// Still collecting votes.
+    Pending,
+    /// Approvals reached the threshold.
+    Ready,
+    /// Refusals left fewer possible approvers than the threshold.
+    Refused,
+    /// The deadline passed with neither.
+    Expired,
+}
+
+/// Decide an open proposal from its COUNTED votes. Both lifecycles call this - the coordinator's
+/// (`HelperProposal::recompute`) and the local bridge's ([`Proposal::approve`] / [`Proposal::refuse`])
+/// - so the threshold arithmetic exists once (CLAUDE.md §11). Before #575 each wrote its own.
+///
+/// ORDER MATTERS, and it is not chronological: refusal is decided BEFORE expiry. A refusal is a
+/// decision the group made, an expiry a deadline nobody met; when both hold, the record reports the
+/// decision (#328). Refusal is derived from the count every time, so a withdrawn refusal moves a
+/// proposal back out of it (#369).
+///
+/// A zero threshold or total never decides anything: such a record is malformed, and reading it as
+/// approved would be the one wrong answer.
+pub fn decide(
+    approvals: usize,
+    refusals: usize,
+    threshold: u16,
+    total: u16,
+    expired: bool,
+) -> Decision {
+    let threshold = usize::from(threshold);
+    let total = usize::from(total);
+    if total > 0 && threshold > 0 && total.saturating_sub(refusals) < threshold {
+        return Decision::Refused;
+    }
+    if expired {
+        return Decision::Expired;
+    }
+    if threshold > 0 && approvals >= threshold {
+        Decision::Ready
+    } else {
+        Decision::Pending
+    }
+}
+
 /// A proposal and its collected votes.
 #[derive(Debug, Clone)]
 pub struct Proposal {
@@ -120,10 +166,9 @@ impl Proposal {
     pub fn propose(proposer: MemberId, quorum: Quorum) -> Self {
         let mut approvals = BTreeSet::new();
         approvals.insert(proposer.clone());
-        let state = if approvals.len() as u16 >= quorum.threshold {
-            ProposalState::Ready
-        } else {
-            ProposalState::Awaiting
+        let state = match decide(approvals.len(), 0, quorum.threshold, quorum.total, false) {
+            Decision::Ready => ProposalState::Ready,
+            _ => ProposalState::Awaiting,
         };
         Proposal {
             proposer,
@@ -189,9 +234,7 @@ impl Proposal {
             return Err(ProposalError::ConflictingVote { member });
         }
         self.approvals.insert(member); // idempotent
-        if self.approvals.len() as u16 >= self.quorum.threshold {
-            self.state = ProposalState::Ready;
-        }
+        self.settle();
         Ok(())
     }
 
@@ -205,10 +248,7 @@ impl Proposal {
             return Err(ProposalError::ConflictingVote { member });
         }
         self.refusals.insert(member); // idempotent
-        let reachable_approvals = self.quorum.total as usize - self.refusals.len();
-        if (reachable_approvals as u16) < self.quorum.threshold {
-            self.state = ProposalState::Rejected;
-        }
+        self.settle();
         Ok(())
     }
 
@@ -233,6 +273,23 @@ impl Proposal {
             return Err(ProposalError::NotProposer);
         }
         self.transition(ProposalState::Awaiting, ProposalState::Cancelled)
+    }
+
+    /// Move an awaiting proposal to where its votes leave it, through [`decide`]. The bridge has no
+    /// clock of its own here (expiry is [`Proposal::expire`], driven by its caller).
+    fn settle(&mut self) {
+        let d = decide(
+            self.approvals.len(),
+            self.refusals.len(),
+            self.quorum.threshold,
+            self.quorum.total,
+            false,
+        );
+        self.state = match d {
+            Decision::Ready => ProposalState::Ready,
+            Decision::Refused => ProposalState::Rejected,
+            Decision::Pending | Decision::Expired => ProposalState::Awaiting,
+        };
     }
 
     fn transition(&mut self, from: ProposalState, to: ProposalState) -> Result<(), ProposalError> {
@@ -403,5 +460,25 @@ mod tests {
         let mut awaiting = Proposal::propose("alice".into(), q(2, 3));
         awaiting.expire().unwrap();
         assert_eq!(awaiting.state(), ProposalState::Expired);
+    }
+
+    /// #575: the one quorum rule, with the ordering the coordinator depends on.
+    #[test]
+    fn decide_reports_refusal_before_expiry_and_needs_a_real_quorum() {
+        assert_eq!(decide(1, 0, 2, 3, false), Decision::Pending);
+        assert_eq!(decide(2, 0, 2, 3, false), Decision::Ready);
+        assert_eq!(decide(0, 2, 2, 3, false), Decision::Refused);
+        // Refused AND past the deadline: the decision wins (#328).
+        assert_eq!(decide(0, 2, 2, 3, true), Decision::Refused);
+        assert_eq!(decide(1, 1, 2, 3, true), Decision::Expired);
+        // Approved AND past the deadline: expired, as the coordinator always read it.
+        assert_eq!(decide(2, 0, 2, 3, true), Decision::Expired);
+        // A malformed quorum is never approved.
+        assert_eq!(decide(5, 0, 0, 3, false), Decision::Pending);
+        assert_eq!(
+            decide(5, 0, 2, 0, false),
+            Decision::Ready,
+            "no total: refusal cannot be judged, approval can"
+        );
     }
 }

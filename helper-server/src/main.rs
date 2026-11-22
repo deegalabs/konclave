@@ -38,8 +38,9 @@ use orchestrator::helper::recipients_for;
 use orchestrator::helper::{
     claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
     load_proposal, payment_plan, read_authorized, register_vault, rename_member, save_proposal,
-    send_config_for, vault_balance, vault_transactions, DeviceError, HelperConfig, HelperProposal,
-    HelperState, PayrollLine, RegisterError, RosterWrite, VaultRegistration, WriteGate,
+    send_config_for, vault_balance, vault_transactions, vote_basis_for, DeviceError, HelperConfig,
+    HelperProposal, HelperState, PayrollLine, RegisterError, RosterWrite, VaultRegistration,
+    WriteGate,
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
@@ -47,7 +48,8 @@ use orchestrator::send_record::{
     promote_mined_attempts, send_proposal, Broadcast, LiveSend, SendResult,
 };
 use orchestrator::write_auth::{
-    authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
+    authorize_write, same_member, seat_acts_as, seat_holder, unsigned_seat, SeatError, SignedWrite,
+    Vote, VoteProof, WriteAction, WriteAuth,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -624,9 +626,12 @@ fn handle_request(
                 Some(reg) => {
                     settle_mined_sends(locks, cfg, &reg);
                     let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
+                    // #575: each proposal with its counts and each seat's stance, read by the one rule.
+                    let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+                    let views: Vec<_> = ps.iter().map(|p| p.view(&basis.as_basis())).collect();
                     // Additive: present only while a send holds the vault, so a screen can say
                     // "sending" instead of waiting for an answer that is behind the send.
-                    let mut out = json!({ "proposals": ps });
+                    let mut out = json!({ "proposals": views });
                     if let Some((proposal, since_secs)) = locks.sending(&reg.vault_id) {
                         out["sending"] = json!({ "proposal": proposal, "since_secs": since_secs });
                     }
@@ -640,7 +645,10 @@ fn handle_request(
                 Some(reg) => {
                     settle_mined_sends(locks, cfg, &reg);
                     let entries = sent_proposals(cfg, &reg.vault_id);
-                    resp(200, json!({ "entries": entries }).to_string())
+                    // #575: each entry with who approved it, read by the one rule (history as recorded).
+                    let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+                    let views: Vec<_> = entries.iter().map(|p| p.view(&basis.as_basis())).collect();
+                    resp(200, json!({ "entries": views }).to_string())
                 }
             }
         }
@@ -651,7 +659,13 @@ fn handle_request(
                 // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
                 Some(reg) => {
                     settle_mined_sends(locks, cfg, &reg);
-                    resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id)))
+                    {
+                        let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+                        resp(
+                            200,
+                            ledger_csv(&sent_proposals(cfg, &reg.vault_id), &basis.as_basis()),
+                        )
+                    }
                 }
             }
         }
@@ -1040,6 +1054,10 @@ fn too_many_actions_resp(t: orchestrator::net_send::TooLarge) -> Resp {
 struct Gated {
     name: Option<String>,
     signed: bool,
+    /// The seat the signature proved, and the signed write itself (#575): what a vote records so it
+    /// counts once the vault requires signatures. `None` on an open vault.
+    seat: Option<u16>,
+    proof: Option<VoteProof>,
 }
 
 /// [`gate_write_checked`] for the writes that only need the name to record.
@@ -1120,6 +1138,8 @@ fn gate_write_checked(
             return Ok(Gated {
                 name: None,
                 signed: false,
+                seat: None,
+                proof: None,
             });
         }
         WriteGate::Keys(keys) => keys,
@@ -1164,12 +1184,22 @@ fn gate_write_checked(
             Ok(Gated {
                 name: recorded,
                 signed: true,
+                seat: Some(seat),
+                proof: Some(VoteProof {
+                    action: action.tag().to_string(),
+                    target: target.to_string(),
+                    ts: w.ts,
+                    nonce: w.nonce.clone(),
+                    sig: w.sig.clone(),
+                }),
             })
         }
         // unreachable: keys were non-empty
         WriteAuth::Open => Ok(Gated {
             name: None,
             signed: false,
+            seat: None,
+            proof: None,
         }),
         WriteAuth::Refused(why) => {
             eprintln!(
@@ -1181,6 +1211,50 @@ fn gate_write_checked(
                 json!({ "error": "signature required" }).to_string(),
             ))
         }
+    }
+}
+
+/// The vote a gated write records (#575). Proven: the seat the signature proved, the roster's
+/// spelling of its name, and the signed write. Unproven (an open vault): the one seat under the name,
+/// or the seat the request names when it holds that name; a name held by several seats with no seat
+/// named is refused rather than guessed, so a resent click cannot count twice.
+fn vote_of(
+    roster: &[String],
+    gated: Gated,
+    name: &str,
+    claimed_seat: Option<u16>,
+    approve: bool,
+) -> Result<Vote, Resp> {
+    if let (true, Some(seat)) = (gated.signed, gated.seat) {
+        return Ok(Vote {
+            seat,
+            name: gated.name.unwrap_or_else(|| name.to_string()),
+            approve,
+            proof: gated.proof,
+            carried: false,
+        });
+    }
+    match unsigned_seat(roster, name, claimed_seat) {
+        Ok(seat) => Ok(Vote {
+            seat,
+            name: seat_holder(roster, seat).unwrap_or(name).to_string(),
+            approve,
+            proof: None,
+            carried: false,
+        }),
+        Err(SeatError::Ambiguous) => Err(coded(
+            400,
+            "seat_required",
+            "More than one member has this name, so the vote must say which seat it is for. Unlock the vault on this device and try again.",
+        )),
+        Err(SeatError::NotThisSeat) => Err(resp(
+            403,
+            json!({ "error": "you can only vote for your own seat" }).to_string(),
+        )),
+        Err(SeatError::NotAMember) => Err(resp(
+            403,
+            json!({ "error": "not a member of this vault" }).to_string(),
+        )),
     }
 }
 
@@ -1678,7 +1752,16 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
     // members then had to read and refuse. The signature covers the PROPOSER's name, and since #568
     // the gate also checks that the seat which signed holds that name. Until then this comment
     // claimed a device could not propose under another member's name, and nothing enforced it.
-    let proposer = match gate_write(
+    // #575: with a roster, a proposer on no seat is refused, as a vote is: an approval on no seat
+    // never counts, and a payment proposed under it would read as nobody's.
+    let roster = load_members(&cfg.vaults_dir, &reg.vault_id);
+    if !roster.is_empty() && !roster.iter().any(|m| same_member(m, req.proposer.trim())) {
+        return resp(
+            403,
+            json!({ "error": "not a member of this vault" }).to_string(),
+        );
+    }
+    let proposer_gate = match gate_write_checked(
         cfg,
         &reg,
         WriteAction::Propose,
@@ -1690,9 +1773,19 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         req.sig.clone(),
         "this vault requires a signed proposal",
     ) {
-        // The roster's spelling on a proven write. On an open vault, the request's, as before.
-        Ok(proven) => proven.unwrap_or_else(|| req.proposer.clone()),
+        Ok(g) => g,
         Err(refused) => return refused,
+    };
+    // The proposer's own approval, recorded with its seat (and its signed write, when there was one).
+    let proposer_vote = match vote_of(&roster, proposer_gate, req.proposer.trim(), req.seat, true) {
+        Ok(v) => v,
+        Err(refused) => return refused,
+    };
+    // The roster's spelling on a proven write, or of the one seat under the name; else the request's.
+    let proposer = if proposer_vote.seat > 0 {
+        proposer_vote.name.clone()
+    } else {
+        req.proposer.clone()
     };
     // Reuse the send-path validation (authoritative address + amount) so a proposal can only name a
     // destination the vault could actually pay.
@@ -1739,15 +1832,20 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         state: "pending".into(),
         approvals: vec![proposer],
         refusals: vec![],
+        votes: vec![proposer_vote],
         threshold: reg.threshold,
         total: reg.total,
         created_at_unix: now,
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
+    let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+    p.recompute_with(now, &basis.as_basis());
     match save_proposal(&cfg.vaults_dir, &p) {
-        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        Ok(()) => resp(
+            200,
+            serde_json::to_string(&p.view(&basis.as_basis()).voted_only()).unwrap_or_default(),
+        ),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
 }
@@ -1802,7 +1900,16 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
     // #288's second half, same rule as the single payment: a vault id is no longer enough to put a
     // payroll on the desk, the signature covers the proposer's name, and the seat that signed must
     // hold that name (#568).
-    let proposer = match gate_write(
+    // #575: with a roster, a proposer on no seat is refused, as a vote is: an approval on no seat
+    // never counts, and a payment proposed under it would read as nobody's.
+    let roster = load_members(&cfg.vaults_dir, &reg.vault_id);
+    if !roster.is_empty() && !roster.iter().any(|m| same_member(m, req.proposer.trim())) {
+        return resp(
+            403,
+            json!({ "error": "not a member of this vault" }).to_string(),
+        );
+    }
+    let proposer_gate = match gate_write_checked(
         cfg,
         &reg,
         WriteAction::Propose,
@@ -1814,9 +1921,19 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         req.sig.clone(),
         "this vault requires a signed proposal",
     ) {
-        // The roster's spelling on a proven write. On an open vault, the request's, as before.
-        Ok(proven) => proven.unwrap_or_else(|| req.proposer.clone()),
+        Ok(g) => g,
         Err(refused) => return refused,
+    };
+    // The proposer's own approval, recorded with its seat (and its signed write, when there was one).
+    let proposer_vote = match vote_of(&roster, proposer_gate, req.proposer.trim(), req.seat, true) {
+        Ok(v) => v,
+        Err(refused) => return refused,
+    };
+    // The roster's spelling on a proven write, or of the one seat under the name; else the request's.
+    let proposer = if proposer_vote.seat > 0 {
+        proposer_vote.name.clone()
+    } else {
+        req.proposer.clone()
     };
     // Validate every line (authoritative address + amount) and sum the total, with overflow guard.
     let mut total: u64 = 0;
@@ -1878,15 +1995,20 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         state: "pending".into(),
         approvals: vec![proposer],
         refusals: vec![],
+        votes: vec![proposer_vote],
         threshold: reg.threshold,
         total: reg.total,
         created_at_unix: now,
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
+    let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+    p.recompute_with(now, &basis.as_basis());
     match save_proposal(&cfg.vaults_dir, &p) {
-        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        Ok(()) => resp(
+            200,
+            serde_json::to_string(&p.view(&basis.as_basis()).voted_only()).unwrap_or_default(),
+        ),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
 }
@@ -1962,7 +2084,7 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     let Some(reg) = state.get(&req.vault) else {
         return resp(404, json!({ "error": "no such vault" }).to_string());
     };
-    let voter = match gate_write(
+    let gated = match gate_write_checked(
         cfg,
         &reg,
         action,
@@ -1974,7 +2096,13 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
         req.sig.clone(),
         "this vault requires a signed vote",
     ) {
-        Ok(proven) => proven.unwrap_or_else(|| req.member.clone()),
+        Ok(g) => g,
+        Err(refused) => return refused,
+    };
+    // #575: the vote records its SEAT (and the signed write, when there was one); the count is of
+    // seats, and a vote recorded unsigned stops counting once the vault requires signatures.
+    let vote = match vote_of(&roster, gated, req.member.trim(), req.seat, approve) {
+        Ok(v) => v,
         Err(refused) => return refused,
     };
 
@@ -1983,14 +2111,23 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if !p.vote(&voter, approve, now, &roster) {
+    let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+    if !p.cast(vote, now, &basis.as_basis()) {
         return resp(
             409,
             json!({ "error": "proposal is no longer open", "state": p.state }).to_string(),
         );
     }
     match save_proposal(&cfg.vaults_dir, &p) {
-        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        // The answer is read after the save, from a fresh basis (a device may have registered meanwhile).
+        Ok(()) => {
+            let basis = vote_basis_for(&cfg.vaults_dir, &reg);
+            p.recompute_with(now, &basis.as_basis());
+            resp(
+                200,
+                serde_json::to_string(&p.view(&basis.as_basis()).voted_only()).unwrap_or_default(),
+            )
+        }
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
 }
@@ -4328,13 +4465,14 @@ mod tests {
             state: "pending".into(),
             approvals: vec![],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 2,
             created_at_unix: now,
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now, &[]);
+        p.recompute_with(now, &orchestrator::helper::VoteBasis::default().as_basis());
         orchestrator::helper::save_proposal(&c.vaults_dir, &p).unwrap();
         // Alice registered her key, so the vault is gated.
         let r = register(
@@ -5296,13 +5434,14 @@ mod tests {
             state: "pending".into(),
             approvals: vec![],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 2,
             created_at_unix: now,
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now, &[]);
+        p.recompute_with(now, &orchestrator::helper::VoteBasis::default().as_basis());
         orchestrator::helper::save_proposal(dir, &p).unwrap();
     }
 
@@ -5791,13 +5930,14 @@ mod tests {
             state: "pending".into(),
             approvals: vec![],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 2,
             created_at_unix: now,
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now, &[]);
+        p.recompute_with(now, &orchestrator::helper::VoteBasis::default().as_basis());
         orchestrator::helper::save_proposal(dir, &p).unwrap();
 
         let unsigned = |member: &str| {
@@ -7557,6 +7697,7 @@ mod tests {
             state: "sent".into(),
             approvals: vec!["alice".into(), "bob".into()],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 3,
             created_at_unix: 100,
@@ -7958,6 +8099,81 @@ mod tests {
         );
     }
 
+    /// Two seats vote on one proposal at the same instant, through `serve`: one approves, the other
+    /// withdraws an approval it gave earlier. Every vote the coordinator answered 200 to has to be in
+    /// the record afterwards. Without the vault's lock the two requests load the same file and the
+    /// later save writes the earlier one's change away: the withdrawal is answered and not kept.
+    /// Rounds are many because the unlocked failure is a race; each checks both statuses, so
+    /// "serialised" cannot pass as "never ran".
+    #[test]
+    fn two_concurrent_votes_on_one_proposal_both_land() {
+        let st = HelperState::new();
+        seed(&st, "lostv");
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let _ = claim_members(&dir, "lostv", &["alice".into(), "bob".into()]);
+        let post = |path: &str, member: &str| {
+            let body = format!(r#"{{"vault":"lostv","member":"{member}"}}"#);
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                &CLIENT,
+                T0,
+                &Method::Post,
+                path,
+                body.as_bytes(),
+                None,
+            )
+            .status
+        };
+        let mut both_ran = 0;
+        for round in 0..100 {
+            an_open_two_of_two_proposal(&dir, "lostv");
+            assert_eq!(post("/api/vault/proposals/p1/approve", "bob"), 200);
+            let start = std::sync::Barrier::new(2);
+            let (a, b) = std::thread::scope(|s| {
+                let a = s.spawn(|| {
+                    start.wait();
+                    post("/api/vault/proposals/p1/approve", "alice")
+                });
+                let b = s.spawn(|| {
+                    start.wait();
+                    post("/api/vault/proposals/p1/refuse", "bob")
+                });
+                (a.join().expect("alice"), b.join().expect("bob"))
+            });
+            let p = load_proposal(&dir, "lostv", "p1", now_unix()).expect("the proposal");
+            if a == 200 {
+                assert!(
+                    p.approvals.iter().any(|m| m == "alice"),
+                    "round {round}: alice was answered 200 and is not recorded: {:?}",
+                    p.approvals
+                );
+            }
+            if b == 200 {
+                assert!(
+                    p.refusals.iter().any(|m| m == "bob")
+                        && !p.approvals.iter().any(|m| m == "bob"),
+                    "round {round}: bob's withdrawal was answered 200 and is not kept: {:?} / {:?}",
+                    p.approvals,
+                    p.refusals
+                );
+                assert_ne!(
+                    p.state, "ready",
+                    "round {round}: a withdrawn approval still counts"
+                );
+            }
+            if a == 200 && b == 200 {
+                both_ran += 1;
+            }
+        }
+        eprintln!("rounds where both votes were applied: {both_ran}");
+    }
+
     /// A request refused for naming two vaults is refused BEFORE admission, so a registration
     /// refused that way is not counted against its sender's allowance for new vaults: admission
     /// counts only what will reach the engine (#558).
@@ -8001,7 +8217,9 @@ mod tests {
     #[test]
     fn an_approval_planted_while_the_vault_was_open_does_not_count_once_it_is_signed() {
         use konclave_seal::WriteAction;
-        for planted in ["alice ", "alice\u{00a0}", "mallory"] {
+        // A name on no seat is refused at creation now (#575, design M1), so the plants are
+        // spellings of a member's name.
+        for planted in ["alice ", "alice\u{00a0}"] {
             let st = HelperState::new();
             seed(&st, "planted");
             let mut two_of_two = st.get("planted").expect("seeded");
@@ -8052,14 +8270,8 @@ mod tests {
                 "{planted:?} and alice are one approval at most: {:?}",
                 p.approvals
             );
-            // Her own vote replaced a spelling of her name; a name on no seat stays on record and
-            // counts for nobody.
-            let expected: Vec<String> = if planted == "mallory" {
-                vec!["mallory".into(), "alice".into()]
-            } else {
-                vec!["alice".into()]
-            };
-            assert_eq!(p.approvals, expected, "{planted:?}");
+            // Her own vote replaced the spelling of her name, entry for entry.
+            assert_eq!(p.approvals, vec!["alice".to_string()], "{planted:?}");
 
             // The send gate reads the same count, so the planted approval cannot open a ceremony.
             let env = signed_as_seat_one(&sk, "planted", WriteAction::Send, &id, "n2");
@@ -8077,9 +8289,148 @@ mod tests {
         }
     }
 
-    /// A payment or a payroll is answered with its state when it is created, and the proposer is
-    /// recorded as approving. That state is counted against the roster too: on a 1-of-2 vault a
-    /// proposer on no seat approves nothing.
+    // #575, the case still open after #631: an approval recorded UNSIGNED while the vault was open,
+    // under a member's EXACT roster spelling, went on counting as that member's once the vault
+    // required signatures. Here "bob" is planted by anyone holding the id; alice then signs. On a
+    // 2-of-2 that read as approved by both. Votes now record their seat and whether they were
+    // proven, and an unsigned one stops counting once signatures are required.
+    #[test]
+    fn an_unsigned_approval_under_a_members_exact_name_stops_counting_once_the_vault_requires_signatures(
+    ) {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "exact");
+        let mut two_of_two = st.get("exact").expect("seeded");
+        two_of_two.total = 2;
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        // On disk, as a registration is in production: the count reads the vault's gate from it.
+        orchestrator::helper::save_registration(dir, &two_of_two).expect("saved");
+        st.insert(two_of_two);
+        let _ = claim_members(dir, "exact", &["alice".into(), "bob".into()]);
+        let created = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals",
+            format!(r#"{{"vault":"exact","proposer":"bob","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#).as_bytes(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let id = serde_json::from_str::<serde_json::Value>(&created.body).expect("json")["id"]
+            .as_str()
+            .expect("an id")
+            .to_string();
+        let sk = alice_registers_seat_one(dir, "exact");
+        let env = signed_as_seat_one(&sk, "exact", WriteAction::Approve, &id, "n1");
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            format!(r#"{{"vault":"exact","member":"alice",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        let answered: serde_json::Value = serde_json::from_str(&voted.body).expect("json");
+        assert_eq!(answered["state"], "pending", "{}", voted.body);
+        assert_eq!(answered["approvals_counted"], 1, "{}", voted.body);
+        // Each seat's stance comes with the answer: bob's approval is shown, and does not count.
+        let rows = answered["stances"].as_array().expect("stances");
+        assert_eq!(rows[0]["seat"], 1);
+        assert_eq!(rows[0]["counted"], true);
+        assert_eq!(rows[1]["seat"], 2);
+        assert_eq!(rows[1]["stance"], "approved");
+        assert_eq!(rows[1]["counted"], false);
+        let p = load_proposal(dir, "exact", &id, now_unix()).expect("the proposal");
+        assert_eq!(p.state, "pending");
+        // On disk the names stay whole, so an older binary reads the record as before.
+        assert_eq!(p.approvals, vec!["bob".to_string(), "alice".to_string()]);
+    }
+
+    /// A device holding `seat`, registered, and the signed-write fields of a body signed as it.
+    fn seat_device(
+        dir: &std::path::Path,
+        vault: &str,
+        seat: u16,
+        tag: &str,
+    ) -> ed25519_dalek::SigningKey {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&konclave_seal::write_key_seed_from_share(
+            format!("key package of seat {seat}").as_bytes(),
+        ));
+        let pubhex: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, vault, tag, Some((seat, &pubhex))).unwrap();
+        sk
+    }
+    fn signed_as(
+        sk: &ed25519_dalek::SigningKey,
+        vault: &str,
+        seat: u16,
+        action: konclave_seal::WriteAction,
+        target: &str,
+        nonce: &str,
+    ) -> String {
+        use ed25519_dalek::Signer;
+        let ts = 1_700_000_000_000i64;
+        let msg = konclave_seal::write_message(vault, action, target, seat, ts, nonce);
+        let sig: String = sk
+            .sign(&msg)
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!(r#""seat":{seat},"ts":{ts},"nonce":"{nonce}","sig":"{sig}""#)
+    }
+
+    // #575 acceptance: two seats that share a name are two members. By name they counted as one: a
+    // vote replaced its member's earlier entry, so the second "bob" replaced the first.
+    #[test]
+    fn two_seats_sharing_a_name_count_as_two() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "twins");
+        let mut two_of_two = st.get("twins").expect("seeded");
+        two_of_two.total = 2;
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        orchestrator::helper::save_registration(dir, &two_of_two).expect("saved");
+        st.insert(two_of_two);
+        let _ = claim_members(dir, "twins", &["bob".into(), "bob".into()]);
+        let one = seat_device(dir, "twins", 1, "aa");
+        let two = seat_device(dir, "twins", 2, "bb");
+        let env = signed_as(&one, "twins", 1, WriteAction::Propose, "bob", "p1");
+        let created = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals",
+            format!(r#"{{"vault":"twins","proposer":"bob","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,{env}}}"#).as_bytes(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        let id = serde_json::from_str::<serde_json::Value>(&created.body).expect("json")["id"]
+            .as_str()
+            .expect("an id")
+            .to_string();
+        let env = signed_as(&two, "twins", 2, WriteAction::Approve, &id, "v2");
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            format!(r#"{{"vault":"twins","member":"bob",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        let answered: serde_json::Value = serde_json::from_str(&voted.body).expect("json");
+        assert_eq!(answered["approvals_counted"], 2, "{}", voted.body);
+        assert_eq!(answered["state"], "ready", "{}", voted.body);
+    }
+
+    /// A payment or a payroll proposed under a name on no seat is refused (#575, design M1): an
+    /// approval on no seat never counts, and a proposal under it would read as nobody's. Before, it
+    /// was accepted and counted for nobody.
     #[test]
     fn a_new_proposal_is_counted_against_the_roster() {
         let st = HelperState::new();
@@ -8105,9 +8456,7 @@ mod tests {
             ),
         ] {
             let r = handle(&st, &c, &Method::Post, path, body.as_bytes());
-            assert_eq!(r.status, 200, "{path}: {}", r.body);
-            let p: serde_json::Value = serde_json::from_str(&r.body).expect("json");
-            assert_eq!(p["state"], "pending", "{path}: {}", r.body);
+            assert_eq!(r.status, 403, "{path}: {}", r.body);
         }
     }
 
@@ -8118,6 +8467,35 @@ mod tests {
 
     /// A 2-of-3 proposal on `vault` that already has its quorum, so a send reaches every gate.
     fn a_ready_proposal(dir: &std::path::Path, vault: &str) {
+        a_ready_proposal_with(dir, vault, vec![]);
+    }
+
+    /// A proposal that is READY under the count of #575 on a vault that requires signed actions: the
+    /// approvals of seats 1 and 2 carry the proof the count reads. `a_ready_proposal` records names
+    /// only, which stop counting once a write key is registered, so the proposal reloads as pending
+    /// and a test of the send never reaches what it claims to test.
+    fn a_ready_signed_proposal(dir: &std::path::Path, vault: &str) {
+        let vote = |seat: u16, name: &str| orchestrator::write_auth::Vote {
+            seat,
+            name: name.into(),
+            approve: true,
+            proof: Some(orchestrator::write_auth::VoteProof {
+                action: "approve".into(),
+                target: "p1".into(),
+                ts: 1,
+                nonce: format!("n{seat}"),
+                sig: "00".into(),
+            }),
+            carried: false,
+        };
+        a_ready_proposal_with(dir, vault, vec![vote(1, "alice"), vote(2, "bob")]);
+    }
+
+    fn a_ready_proposal_with(
+        dir: &std::path::Path,
+        vault: &str,
+        votes: Vec<orchestrator::write_auth::Vote>,
+    ) {
         let now = now_unix();
         let p = HelperProposal {
             id: "p1".into(),
@@ -8132,6 +8510,7 @@ mod tests {
             state: "ready".into(),
             approvals: vec!["alice".into(), "bob".into()],
             refusals: vec![],
+            votes,
             threshold: 2,
             total: 3,
             created_at_unix: now,
@@ -8294,11 +8673,18 @@ mod tests {
         let mut c = cfg();
         let (fake, _log) = fake_devtool(&c.vaults_dir, None);
         c.devtool = fake;
-        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_ready_signed_proposal(&c.vaults_dir, "relayv");
         let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 of 3 seats
 
+        let before =
+            load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).expect("the proposal");
+        assert_eq!(
+            before.state, "ready",
+            "precondition: the send must reach the seal rule"
+        );
         let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-signed");
         let r = send_as(&st, &c, Some(&fields));
+        assert!(!r.body.contains("not ready"), "{}", r.body);
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert_ne!(r.status, 401, "{}", r.body);
         // Past the refusal of a practice run too, or this test says nothing about the seal.
@@ -8317,8 +8703,10 @@ mod tests {
             cp: Some(3),
             ..st.get("relayv").unwrap()
         };
-        st.insert(reg);
         let mut c = cfg();
+        // On disk, as in production: the vote count reads the vault's protocol from it (#575).
+        orchestrator::helper::save_registration(&c.vaults_dir, &reg).expect("saved");
+        st.insert(reg);
         let (fake, log) = fake_devtool(&c.vaults_dir, None);
         c.devtool = fake;
         a_ready_proposal(&c.vaults_dir, "relayv");
@@ -8563,7 +8951,7 @@ mod tests {
         let mut c = cfg();
         let (fake, log) = fake_devtool(&c.vaults_dir, None);
         c.devtool = fake;
-        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_ready_signed_proposal(&c.vaults_dir, "relayv");
         // Every seat has a usable device key and seat 1's carries Alice's write key, so the request
         // would go out sealed: the write gate is the only thing between a vault id and the engine.
         // With one device registered, the unsealed-send refusal would stop it anyway and this test
@@ -8588,6 +8976,12 @@ mod tests {
             orchestrator::helper::upsert_device(&c.vaults_dir, "relayv", &dev, write).unwrap();
         }
 
+        let before =
+            load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).expect("the proposal");
+        assert_eq!(
+            before.state, "ready",
+            "precondition: the gate must be the only defence"
+        );
         let r = send_as(&st, &c, None);
         assert_eq!(r.status, 401, "{}", r.body);
         assert!(
@@ -12158,5 +12552,702 @@ mod tests {
                 &script[to..]
             )
         }
+    }
+
+    // ---- #575: tests from the test challenge, and the round-1 audit fixes ----------------------
+    use orchestrator::helper::vote_basis;
+
+    /// A 2-of-2 vault `vault` on disk (the count reads its gate from the registration), roster
+    /// alice/bob unless `roster` says otherwise.
+    fn t575_vault(
+        st: &HelperState,
+        dir: &std::path::Path,
+        vault: &str,
+        roster: &[&str],
+        cp: Option<u32>,
+    ) {
+        seed(st, vault);
+        let mut reg = st.get(vault).expect("seeded");
+        reg.total = 2;
+        reg.cp = cp;
+        orchestrator::helper::save_registration(dir, &reg).expect("saved");
+        st.insert(reg);
+        let names: Vec<String> = roster.iter().map(|s| s.to_string()).collect();
+        let _ = claim_members(dir, vault, &names);
+    }
+
+    fn t575_propose(st: &HelperState, c: &HelperConfig, vault: &str, extra: &str) -> Resp {
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals",
+            format!(
+                r#"{{"vault":"{vault}","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,{extra}}}"#
+            )
+            .as_bytes(),
+        )
+    }
+
+    fn t575_id(r: &Resp) -> String {
+        serde_json::from_str::<serde_json::Value>(&r.body).expect("json")["id"]
+            .as_str()
+            .expect("an id")
+            .to_string()
+    }
+
+    fn t575_listed(st: &HelperState, c: &HelperConfig, vault: &str, id: &str) -> serde_json::Value {
+        let r = handle(
+            st,
+            c,
+            &Method::Get,
+            &format!("/api/vault/proposals?vault={vault}"),
+            b"",
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let v: serde_json::Value = serde_json::from_str(&r.body).expect("json");
+        v["proposals"]
+            .as_array()
+            .expect("proposals")
+            .iter()
+            .find(|p| p["id"] == id)
+            .cloned()
+            .expect("the proposal is listed")
+    }
+
+    /// Race / design audit §5: votes cast while the gate was Open; a device registers before the
+    /// next read. Every read (load, list, the send gate) now counts zero and the send is refused.
+    #[test]
+    fn t575_votes_cast_while_open_stop_counting_once_a_device_registers_and_the_send_is_refused() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "race", &["alice", "bob"], None);
+        let created = t575_propose(&st, &c, "race", r#""proposer":"bob""#);
+        assert_eq!(created.status, 200, "{}", created.body);
+        let id = t575_id(&created);
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            br#"{"vault":"race","member":"alice"}"#,
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        let answered: serde_json::Value = serde_json::from_str(&voted.body).unwrap();
+        assert_eq!(
+            answered["state"], "ready",
+            "open vault: both unsigned votes count"
+        );
+        assert_eq!(answered["approvals_counted"], 2);
+
+        let sk = alice_registers_seat_one(dir, "race");
+
+        assert_eq!(
+            load_proposal(dir, "race", &id, now_unix()).unwrap().state,
+            "pending"
+        );
+        let listed = t575_listed(&st, &c, "race", &id);
+        assert_eq!(listed["approvals_counted"], 0, "{listed}");
+        assert_eq!(listed["state"], "pending", "{listed}");
+        let rows = listed["stances"].as_array().unwrap();
+        assert!(rows.iter().all(|r| r["counted"] == false), "{listed}");
+        // §8 insufficient quorum: the send gate reads the same count.
+        let env = signed_as_seat_one(&sk, "race", WriteAction::Send, &id, "s1");
+        let send = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/send"),
+            format!(r#"{{"vault":"race","relay_base":"https://relay.test","room":"r","dry_run":false,{env}}}"#)
+                .as_bytes(),
+        );
+        assert_eq!(send.status, 409, "{}", send.body);
+    }
+
+    /// §8 insufficient quorum with the issue's EXACT-name plant: the send gate answers 409 (the
+    /// branch's own test stops at the vote answer and the load).
+    #[test]
+    fn t575_an_exact_name_plant_cannot_open_the_send() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "exact2", &["alice", "bob"], None);
+        let created = t575_propose(&st, &c, "exact2", r#""proposer":"bob""#);
+        assert_eq!(created.status, 200, "{}", created.body);
+        let id = t575_id(&created);
+        let sk = alice_registers_seat_one(dir, "exact2");
+        let env = signed_as_seat_one(&sk, "exact2", WriteAction::Approve, &id, "n1");
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            format!(r#"{{"vault":"exact2","member":"alice",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        let env = signed_as_seat_one(&sk, "exact2", WriteAction::Send, &id, "n2");
+        let send = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/send"),
+            format!(r#"{{"vault":"exact2","relay_base":"https://relay.test","room":"r","dry_run":false,{env}}}"#)
+                .as_bytes(),
+        );
+        assert_eq!(send.status, 409, "{}", send.body);
+    }
+
+    /// The proposer's approval on a gated vault counts, and carries the signed Propose it came
+    /// with, taken from the authorized write (never invented).
+    #[test]
+    fn t575_a_signed_proposal_records_its_seat_and_proof_and_counts() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "prop", &["alice", "bob"], None);
+        let sk = alice_registers_seat_one(dir, "prop");
+        let env = signed_as_seat_one(&sk, "prop", WriteAction::Propose, "alice", "p1");
+        let created = t575_propose(&st, &c, "prop", &format!(r#""proposer":"alice",{env}"#));
+        assert_eq!(created.status, 200, "{}", created.body);
+        let v: serde_json::Value = serde_json::from_str(&created.body).unwrap();
+        assert_eq!(v["approvals_counted"], 1, "{v}");
+        assert_eq!(v["stances"][0]["counted"], true, "{v}");
+        let p = load_proposal(dir, "prop", &t575_id(&created), now_unix()).unwrap();
+        assert_eq!(p.votes.len(), 1);
+        assert_eq!(p.votes[0].seat, 1);
+        let proof = p.votes[0]
+            .proof
+            .as_ref()
+            .expect("a proof from the authorized write");
+        assert_eq!(proof.action, "propose");
+        assert_eq!(proof.target, "alice");
+        assert_eq!(proof.nonce, "p1");
+        assert!(
+            env.contains(&proof.sig),
+            "the sig recorded is the one the device sent"
+        );
+    }
+
+    /// A body that carries signed-write fields on an OPEN vault records no proof: a proof only ever
+    /// comes from `Authorized`. Once a device registers, that vote does not count.
+    #[test]
+    fn t575_a_proof_is_never_taken_from_the_body() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "body", &["alice", "bob"], None);
+        let created = t575_propose(&st, &c, "body", r#""proposer":"bob""#);
+        let id = t575_id(&created);
+        let forged = format!("{:0128}", 7);
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            format!(r#"{{"vault":"body","member":"alice","seat":1,"ts":1700000000000,"nonce":"zz","sig":"{forged}"}}"#)
+                .as_bytes(),
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        let p = load_proposal(dir, "body", &id, now_unix()).unwrap();
+        assert!(p.votes.iter().all(|v| v.proof.is_none()), "{:?}", p.votes);
+        let _ = alice_registers_seat_one(dir, "body");
+        let listed = t575_listed(&st, &c, "body", &id);
+        assert_eq!(listed["approvals_counted"], 0, "{listed}");
+    }
+
+    /// An unreadable registry fails closed: nothing recorded unsigned counts.
+    #[test]
+    fn t575_an_unreadable_registry_counts_nothing_unsigned() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "unread", &["alice", "bob"], None);
+        let created = t575_propose(&st, &c, "unread", r#""proposer":"bob""#);
+        let id = t575_id(&created);
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            br#"{"vault":"unread","member":"alice"}"#,
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        assert_eq!(
+            load_proposal(dir, "unread", &id, now_unix()).unwrap().state,
+            "ready"
+        );
+        std::fs::write(dir.join("unread").join("device-keys.json"), "{ half").unwrap();
+        let p = load_proposal(dir, "unread", &id, now_unix()).unwrap();
+        assert_eq!(p.state, "pending", "unreadable gate = requires signatures");
+        let basis = vote_basis(dir, "unread");
+        assert!(basis.requires_signatures);
+        assert_eq!(p.view(&basis.as_basis()).approvals_counted, 0);
+    }
+
+    fn t575_record(vault: &str, id: &str, approvals: &[&str], votes: Vec<Vote>) -> HelperProposal {
+        HelperProposal {
+            id: id.into(),
+            vault_id: vault.into(),
+            kind: "payment".into(),
+            to: "u1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            lines: vec![],
+            proposer: approvals.first().map(|s| s.to_string()).unwrap_or_default(),
+            state: "pending".into(),
+            approvals: approvals.iter().map(|s| s.to_string()).collect(),
+            refusals: vec![],
+            votes,
+            threshold: 2,
+            total: 2,
+            created_at_unix: now_unix(),
+            expiry_unix: 0,
+            txid: None,
+            title: None,
+        }
+    }
+
+    fn t575_signed(seat: u16, name: &str) -> Vote {
+        Vote {
+            seat,
+            name: name.into(),
+            approve: true,
+            proof: Some(VoteProof {
+                action: "approve".into(),
+                target: "x".into(),
+                ts: 1,
+                nonce: format!("n{seat}"),
+                sig: "00".into(),
+            }),
+            carried: false,
+        }
+    }
+
+    /// Legacy files on disk: no `votes` field at all (older than #575), and votes plus a name an
+    /// older binary added after a rollback. Gated: only the signed vote counts. Open: as before.
+    #[test]
+    fn t575_legacy_files_are_read_both_ways() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "legacy", &["alice", "bob"], None);
+        // (a) the field absent, written as an old binary writes it. Open vault: counted as before.
+        let mut v =
+            serde_json::to_value(t575_record("legacy", "pa", &["alice", "bob"], vec![])).unwrap();
+        v.as_object_mut().unwrap().remove("votes");
+        std::fs::create_dir_all(dir.join("legacy").join("proposals")).unwrap();
+        std::fs::write(
+            dir.join("legacy").join("proposals").join("pa.json"),
+            v.to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            load_proposal(dir, "legacy", "pa", now_unix())
+                .unwrap()
+                .state,
+            "ready"
+        );
+        // (b) votes with alice signed; bob added by an older binary after a rollback.
+        save_proposal(
+            dir,
+            &t575_record(
+                "legacy",
+                "pb",
+                &["alice", "bob"],
+                vec![t575_signed(1, "alice")],
+            ),
+        )
+        .unwrap();
+        let _ = alice_registers_seat_one(dir, "legacy");
+        let a = load_proposal(dir, "legacy", "pa", now_unix()).unwrap();
+        assert_eq!(a.state, "pending", "gated: legacy names do not count");
+        let b = load_proposal(dir, "legacy", "pb", now_unix()).unwrap();
+        assert_eq!(b.state, "pending");
+        let basis = vote_basis(dir, "legacy");
+        let view = b.view(&basis.as_basis());
+        assert_eq!(view.approvals_counted, 1);
+        assert_eq!(view.stances[1].stance, "approved");
+        assert!(!view.stances[1].counted, "bob, merged in unsigned");
+    }
+
+    /// On disk, two entries for one seat count once, and a seat past the roster or the total never
+    /// counts, however it is signed.
+    #[test]
+    fn t575_duplicate_and_out_of_range_seats_on_disk_count_once_or_never() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "seats", &["alice", "bob"], None);
+        let _ = alice_registers_seat_one(dir, "seats");
+        save_proposal(
+            dir,
+            &t575_record(
+                "seats",
+                "pd",
+                &["alice", "alice"],
+                vec![t575_signed(1, "alice"), t575_signed(1, "alice")],
+            ),
+        )
+        .unwrap();
+        save_proposal(
+            dir,
+            &t575_record(
+                "seats",
+                "pr",
+                &["alice", "x"],
+                vec![t575_signed(1, "alice"), t575_signed(5, "x")],
+            ),
+        )
+        .unwrap();
+        let basis = vote_basis(dir, "seats");
+        for id in ["pd", "pr"] {
+            let p = load_proposal(dir, "seats", id, now_unix()).unwrap();
+            assert_eq!(p.state, "pending", "{id}");
+            assert_eq!(p.view(&basis.as_basis()).approvals_counted, 1, "{id}");
+        }
+    }
+
+    /// A protocol-3 vault never took an unsigned write: its votes from before `votes` existed keep
+    /// counting. A legacy vault with a registered device does not get that trust.
+    #[test]
+    fn t575_protocol_three_legacy_approvals_keep_counting() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "p3", &["alice", "bob"], Some(3));
+        save_proposal(dir, &t575_record("p3", "pa", &["alice", "bob"], vec![])).unwrap();
+        let basis = vote_basis(dir, "p3");
+        assert!(basis.every_write_signed);
+        assert!(basis.requires_signatures);
+        assert_eq!(
+            load_proposal(dir, "p3", "pa", now_unix()).unwrap().state,
+            "ready"
+        );
+    }
+
+    /// Two seats under one name on an OPEN vault: an unsigned vote that does not say which seat is
+    /// refused (400 seat_required), never guessed; naming the seat records it, and a resend of the
+    /// same vote counts once.
+    #[test]
+    fn t575_an_ambiguous_unsigned_vote_is_refused_and_a_resend_counts_once() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "amb", &["bob", "bob"], None);
+        let refused = t575_propose(&st, &c, "amb", r#""proposer":"bob""#);
+        assert_eq!(refused.status, 400, "{}", refused.body);
+        assert!(refused.body.contains("seat_required"), "{}", refused.body);
+        let created = t575_propose(&st, &c, "amb", r#""proposer":"bob","seat":1"#);
+        assert_eq!(created.status, 200, "{}", created.body);
+        let id = t575_id(&created);
+        let path = format!("/api/vault/proposals/{id}/approve");
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &path,
+            br#"{"vault":"amb","member":"bob"}"#,
+        );
+        assert_eq!(r.status, 400, "{}", r.body);
+        assert!(r.body.contains("seat_required"), "{}", r.body);
+        // The sentence says what resolves it (the device proves its seat), not "update the app".
+        assert!(r.body.contains("Unlock the vault"), "{}", r.body);
+        assert!(!r.body.contains("Update the app"), "{}", r.body);
+        // Seat 1 resending: still one approval.
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &path,
+            br#"{"vault":"amb","member":"bob","seat":1}"#,
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(v["approvals_counted"], 1, "{v}");
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &path,
+            br#"{"vault":"amb","member":"bob","seat":2}"#,
+        );
+        let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(v["approvals_counted"], 2, "{v}");
+        assert_eq!(v["state"], "ready", "{v}");
+    }
+
+    /// A rename moves the seat's vote name (display), keeps its proof, and the count is unchanged.
+    /// The record left on disk carries the state the vault's real basis gives.
+    #[test]
+    fn t575_a_rename_carries_the_seats_vote_and_keeps_the_count() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "ren", &["alice", "bob"], None);
+        // bob plants unsigned while open, then alice registers and approves signed.
+        let created = t575_propose(&st, &c, "ren", r#""proposer":"bob""#);
+        let id = t575_id(&created);
+        let sk = alice_registers_seat_one(dir, "ren");
+        let env = signed_as_seat_one(&sk, "ren", WriteAction::Approve, &id, "n1");
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            &format!("/api/vault/proposals/{id}/approve"),
+            format!(r#"{{"vault":"ren","member":"alice",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(voted.status, 200, "{}", voted.body);
+        rename_member(dir, "ren", "alice", "ali", now_unix()).expect("renamed");
+        let p = load_proposal(dir, "ren", &id, now_unix()).unwrap();
+        let mine = p.votes.iter().find(|v| v.seat == 1).expect("seat 1");
+        assert_eq!(mine.name, "ali");
+        assert!(mine.proof.is_some());
+        assert_eq!(p.state, "pending");
+        let basis = vote_basis(dir, "ren");
+        let view = p.view(&basis.as_basis());
+        assert_eq!(view.approvals_counted, 1);
+        assert_eq!(
+            (view.stances[0].name.as_str(), view.stances[0].counted),
+            ("ali", true)
+        );
+        // The raw record a rename writes: is its state the gated one?
+        let raw: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("ren").join("proposals").join(format!("{id}.json")))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(raw["state"], "pending", "rename persisted {raw}");
+    }
+
+    // Round-1 audit (B1/F4): a payment sent before this change keeps who approved it. Its record has
+    // only names; the view reads them as history, not re-judged by today's gate.
+    #[test]
+    fn t575_a_payment_sent_before_votes_existed_keeps_its_approvers() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "old", &["alice", "bob"], None);
+        let mut p = t575_record("old", "p1", &["alice", "bob"], vec![]);
+        p.state = "sent".into();
+        p.txid = Some("ab".repeat(32));
+        save_proposal(dir, &p).unwrap();
+        let _ = alice_registers_seat_one(dir, "old"); // the vault now requires signatures
+        let listed = t575_listed(&st, &c, "old", "p1");
+        assert_eq!(listed["approvals_counted"], 2, "{listed}");
+        assert_eq!(listed["state"], "sent");
+    }
+
+    // Round-1 audit (B2): a refusal recorded before the vault required signatures still counts, so a
+    // payment the group refused does not come back to the desk.
+    #[test]
+    fn t575_a_refusal_recorded_while_open_keeps_a_refused_payment_refused() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "refd", &["alice", "bob"], None);
+        let mut p = t575_record("refd", "p1", &[], vec![]);
+        p.refusals = vec!["bob".into()];
+        p.threshold = 2;
+        p.total = 2;
+        p.state = "refused".into();
+        save_proposal(dir, &p).unwrap();
+        let _ = alice_registers_seat_one(dir, "refd");
+        assert_eq!(
+            load_proposal(dir, "refd", "p1", now_unix()).unwrap().state,
+            "refused"
+        );
+    }
+
+    // Round-1 audit (F6): the answer to a write names only the seats that voted.
+    #[test]
+    fn t575_a_write_answer_names_only_the_seats_that_voted() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "quiet", &["alice", "bob"], None);
+        let created = t575_propose(&st, &c, "quiet", r#""proposer":"bob""#);
+        assert_eq!(created.status, 200, "{}", created.body);
+        let v: serde_json::Value = serde_json::from_str(&created.body).unwrap();
+        let rows = v["stances"].as_array().expect("stances");
+        assert_eq!(rows.len(), 1, "{}", created.body);
+        assert_eq!(rows[0]["name"], "bob");
+    }
+
+    // Round-1 audit (I1/F2): with no registration readable on disk, a vault whose device registered a
+    // write key still requires signatures (fail closed).
+    #[test]
+    fn t575_a_missing_registration_file_does_not_open_the_count() {
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ = claim_members(dir, "noreg", &["alice".into(), "bob".into()]);
+        let _ = alice_registers_seat_one(dir, "noreg");
+        assert!(vote_basis(dir, "noreg").requires_signatures);
+    }
+
+    // Round-2 audit (R2-A, code R2-M2): a payment sent SINCE votes exist is read by the vault's basis,
+    // so an approval recorded without a signature on a gated vault is not listed as an approver, in
+    // the ledger route or its CSV. (A payment sent before votes existed is history: test above.)
+    #[test]
+    fn t575_the_ledger_and_its_csv_list_only_counted_approvers_of_a_new_payment() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "book", &["alice", "bob"], None);
+        let _ = alice_registers_seat_one(dir, "book");
+        let mut p = t575_record(
+            "book",
+            "p1",
+            &["bob", "alice"],
+            vec![
+                Vote {
+                    seat: 2,
+                    name: "bob".into(),
+                    approve: true,
+                    proof: None,
+                    carried: false,
+                },
+                t575_signed(1, "alice"),
+            ],
+        );
+        p.state = "sent".into();
+        p.txid = Some("cd".repeat(32));
+        save_proposal(dir, &p).unwrap();
+        let r = handle(&st, &c, &Method::Get, "/api/vault/ledger?vault=book", b"");
+        assert_eq!(r.status, 200, "{}", r.body);
+        let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(v["entries"][0]["approvals_counted"], 1, "{}", r.body);
+        let csv = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/ledger.csv?vault=book",
+            b"",
+        );
+        assert_eq!(csv.status, 200, "{}", csv.body);
+        let row = csv.body.lines().nth(1).expect("a row");
+        // created_at,amount_zat,amount_zec,to,memo,proposer,approvals,txid
+        let approvers = row.split(',').nth(6).expect("the approvals column");
+        assert_eq!(approvers, "alice", "{row}");
+    }
+
+    // ADR-0011 amendment 2026-11-13: on a proposal still open, an unsigned refusal stops counting once
+    // the vault requires signatures, as an unsigned approval does; a refusal planted while the vault
+    // was open no longer holds the payment. (An already-refused record stays refused: test above.)
+    #[test]
+    fn t575_an_unsigned_refusal_on_an_open_proposal_stops_counting_once_signatures_are_required() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        t575_vault(&st, dir, "hold", &["alice", "bob"], None);
+        let mut p = t575_record("hold", "p1", &[], vec![]);
+        p.refusals = vec!["bob".into()];
+        p.threshold = 2;
+        p.total = 2;
+        p.state = "pending".into();
+        save_proposal(dir, &p).unwrap();
+        let _ = alice_registers_seat_one(dir, "hold");
+        let got = load_proposal(dir, "hold", "p1", now_unix()).unwrap();
+        assert_eq!(got.state, "pending");
+        let basis = vote_basis(dir, "hold");
+        assert_eq!(got.view(&basis.as_basis()).refusals_counted, 0);
+    }
+
+    /// A 2-of-3 vault on disk whose payment p1 reached `refused` while it was open: bob and carol
+    /// refused unsigned. Then devices registered (seats 1 and 2), so the vault requires signatures.
+    fn t575_refused_two_of_three(
+        st: &HelperState,
+        dir: &std::path::Path,
+    ) -> (ed25519_dalek::SigningKey, ed25519_dalek::SigningKey) {
+        seed(st, "r3");
+        let mut reg = st.get("r3").expect("seeded");
+        (reg.threshold, reg.total) = (2, 3);
+        orchestrator::helper::save_registration(dir, &reg).expect("saved");
+        st.insert(reg);
+        let _ = claim_members(dir, "r3", &["alice".into(), "bob".into(), "carol".into()]);
+        let mut p = t575_record("r3", "p1", &["alice"], vec![]);
+        p.refusals = vec!["bob".into(), "carol".into()];
+        (p.threshold, p.total) = (2, 3);
+        p.state = "refused".into();
+        p.proposer = "alice".into();
+        save_proposal(dir, &p).unwrap();
+        (
+            seat_device(dir, "r3", 1, "aa"),
+            seat_device(dir, "r3", 2, "bb"),
+        )
+    }
+
+    fn t575_vote(
+        st: &HelperState,
+        c: &HelperConfig,
+        sk: &ed25519_dalek::SigningKey,
+        seat: u16,
+        name: &str,
+        approve: bool,
+        nonce: &str,
+    ) -> serde_json::Value {
+        use konclave_seal::WriteAction;
+        let action = if approve {
+            WriteAction::Approve
+        } else {
+            WriteAction::Refuse
+        };
+        let env = signed_as(sk, "r3", seat, action, "p1", nonce);
+        let path = format!(
+            "/api/vault/proposals/p1/{}",
+            if approve { "approve" } else { "refuse" }
+        );
+        let r = handle(
+            st,
+            c,
+            &Method::Post,
+            &path,
+            format!(r#"{{"vault":"r3","member":"{name}",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        serde_json::from_str(&r.body).unwrap()
+    }
+
+    // Round-4 audit (R4-A): a refused payment read as history ends its history PER SEAT. A signed vote
+    // from a seat that did not refuse does not reopen it, and a refuser confirming their own refusal
+    // signed does not reopen it either; a refuser withdrawing (approving, signed) lifts only their own.
+    #[test]
+    fn t575_a_refused_payment_is_not_reopened_by_another_seats_signed_vote() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let (alice, _) = t575_refused_two_of_three(&st, dir);
+        let after = t575_vote(&st, &c, &alice, 1, "alice", true, "a1");
+        assert_eq!(after["state"], "refused", "{after}");
+        assert_eq!(
+            load_proposal(dir, "r3", "p1", now_unix()).unwrap().state,
+            "refused"
+        );
+    }
+
+    #[test]
+    fn t575_a_refuser_confirming_their_refusal_keeps_the_payment_refused() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let (_, bob) = t575_refused_two_of_three(&st, dir);
+        let after = t575_vote(&st, &c, &bob, 2, "bob", false, "b1");
+        assert_eq!(after["state"], "refused", "{after}");
+    }
+
+    #[test]
+    fn t575_a_refuser_withdrawing_lifts_only_their_own_refusal() {
+        let st = HelperState::new();
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let (_, bob) = t575_refused_two_of_three(&st, dir);
+        let after = t575_vote(&st, &c, &bob, 2, "bob", true, "b2");
+        // carol's refusal is carried and still counts (1 of 3 refused: the quorum stays reachable).
+        assert_eq!(after["state"], "pending", "{after}");
+        assert_eq!(after["refusals_counted"], 1, "{after}");
     }
 }

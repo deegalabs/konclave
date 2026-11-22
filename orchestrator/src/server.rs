@@ -206,6 +206,10 @@ struct ProposalDto {
     /// is what the fee estimate takes (#1017). `None` when it cannot be read: a consumer must
     /// treat that as unknown, never as 1.
     destinations: Option<usize>,
+    /// Each member's stance, in the shape the coordinator answers with (#575), so the app reads one
+    /// shape and never compares names. The bridge is the device and records names only: no roster
+    /// here, so a row per member who voted, every one counted.
+    stances: Vec<crate::write_auth::Stance>,
 }
 
 impl ProposalDto {
@@ -246,11 +250,25 @@ impl ProposalDto {
             txid: p.txid,
             created_at: p.created_at,
             approvals_count: p.approvals.len(),
+            stances: bridge_stances(&p.approvals, &p.refusals),
             approvals: p.approvals,
             refusals: p.refusals,
             destinations,
         }
     }
+}
+
+/// The bridge's votes read through the ONE stance rule (#575): open (the bridge is loopback and IS
+/// the device, ADR-0011 amendment), with no roster.
+fn bridge_stances(approvals: &[String], refusals: &[String]) -> Vec<crate::write_auth::Stance> {
+    use crate::write_auth::{reconcile_votes, stances, Basis};
+    let votes = reconcile_votes(&[], approvals, refusals, &[]);
+    let basis = Basis {
+        roster: &[],
+        requires_signatures: false,
+        every_write_signed: false,
+    };
+    stances(&votes, &basis, u16::MAX)
 }
 
 #[derive(Serialize)]
@@ -3516,6 +3534,14 @@ mod tests {
         let j = body_json(&r);
         assert_eq!(j["proposal"]["state"], "ready");
         assert_eq!(j["proposal"]["approvals_count"], 2);
+        // #575: the stance rows the app reads, the same shape the coordinator answers with.
+        let rows = j["proposal"]["stances"].as_array().expect("stances");
+        let approved: Vec<&str> = rows
+            .iter()
+            .filter(|s| s["stance"] == "approved" && s["counted"] == true)
+            .map(|s| s["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(approved, vec!["Ana", "Bruno"]);
     }
 
     #[test]

@@ -114,9 +114,12 @@ describe('the counts are carried on every path that meets the refusal', () => {
 
   it('both create calls hand them to the screen, and both screens pass them to humanError', () => {
     const api = codeOf('api.ts')
+    // Both calls read a refusal through the one function that carries the counts (#575).
+    const reader = api.split('export function proposalFailure')[1]?.split('\nexport ')[0] ?? ''
+    expect(reader).toMatch(/if \(f\?\.tooLarge\) return \{ ok: false, error: f\.error \?\? TOO_MANY_ACTIONS, tooLarge: f\.tooLarge \}/)
     for (const fn of ['createProposal', 'createPayroll']) {
       const body = api.split(`export async function ${fn}`)[1]?.split('\nexport ')[0] ?? ''
-      expect(body, fn).toMatch(/if \(f\?\.tooLarge\) return \{ ok: false, error: f\.error \?\? TOO_MANY_ACTIONS, tooLarge: f\.tooLarge \}/)
+      expect(body, fn).toMatch(/return proposalFailure\(lastHelperPostFailure\(\)\)/)
     }
     for (const screen of ['screens/NewPayment.tsx', 'screens/NewPayroll.tsx']) {
       expect(codeOf(screen), screen).toMatch(/humanError\(t, res\.error, res\.detail, res\.tooLarge\)/)

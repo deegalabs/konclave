@@ -154,54 +154,307 @@ pub fn seat_acts_as(roster: &[String], seat: u16, name: &str) -> bool {
         .is_some_and(|name| seat_holder(roster, seat).and_then(member_name) == Some(name))
 }
 
-/// How many MEMBERS a list of recorded names amounts to (#575): each name counts at most as many
-/// times as the roster has seats under it, and a name under no seat does not count.
-///
-/// An approval is recorded as a name, and the count used to be the length of the list. Nothing
-/// checked that an entry belongs to a member, or that two entries belong to two members. So an
-/// approval planted as `"alice "` while a vault still took unsigned writes went on counting beside
-/// alice's own signed vote, recorded as `"alice"`, and a 2-of-2 proposal read as approved by both.
-///
-/// Names are compared the way [`seat_acts_as`] compares them, through the same function, because a
-/// count that disagreed with the binding would hand back what the binding refuses.
-///
-/// Two seats under the same name can count as two only when their entries are two entries. A vote
-/// replaces the earlier entry of the same member ([`same_member`]), so two seats both called
-/// `"bob"` leave one entry and count as one; telling them apart needs the seat recorded with the
-/// vote.
-///
-/// A vault with no roster has nothing to match against, so every entry counts, as it always did.
-pub fn members_counted(entries: &[String], roster: &[String]) -> usize {
-    if roster.is_empty() {
-        return entries.len();
-    }
-    let mut seats: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for name in roster.iter().filter_map(|n| member_name(n)) {
-        *seats.entry(name).or_default() += 1;
-    }
-    entries
-        .iter()
-        .filter_map(|e| member_name(e))
-        .filter(|name| match seats.get_mut(name) {
-            Some(free) if *free > 0 => {
-                *free -= 1;
-                true
-            }
-            _ => false,
-        })
-        .count()
-}
-
 /// Whether two recorded names are the same member's, compared as everywhere here.
 ///
-/// A vote replaces what was recorded for its member before (#575). By exact string, an entry
-/// planted as `"alice "` while a vault took unsigned writes survived alice's own vote: she refused,
-/// and the planted approval went on counting as hers.
+/// Names in the record are compared with it (#575); votes are counted by seat (see [`counted`]).
 ///
 /// Two seats whose names differ only at the edges therefore replace each other's votes, as two seats
 /// with the identical name already did. [`seat_acts_as`] treats them as one name too.
 pub fn same_member(a: &str, b: &str) -> bool {
     konclave_seal::same_member(a, b)
+}
+
+/// The signed write that recorded a vote, kept with it (#575).
+///
+/// Only [`authorize_write`] answering `Authorized` may produce one: it is what makes a vote count on
+/// a vault that requires signatures, so it is never built from what a request body says.
+///
+/// It is the write the device signed, not yet an approval of the proposal's CONTENT: a vote signs
+/// the proposal id, and the proposer's own approval signs a `Propose` over the proposer's name.
+/// Binding an approval to what it pays is #567, and it extends this record rather than replacing it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VoteProof {
+    /// The signed action's tag ([`WriteAction::tag`]).
+    pub action: String,
+    /// The signed target: the proposal id for a vote, the proposer's name for a proposal.
+    pub target: String,
+    pub ts: i64,
+    pub nonce: String,
+    /// Ed25519 signature over [`write_message`], hex.
+    pub sig: String,
+}
+
+/// One seat's stance on a proposal (#575).
+///
+/// The SEAT is the member. The name is the roster's spelling when the vote was recorded, for
+/// display, and is read by the count in exactly one case: a vault with no roster, where no seat can
+/// be known (`seat == 0`, see [`counted`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Vote {
+    /// The 1-based FROST seat, or `0` when it cannot be known (a vault with no roster).
+    pub seat: u16,
+    pub name: String,
+    pub approve: bool,
+    /// Present when the vote came through a proven signed write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<VoteProof>,
+    /// An unsigned REFUSAL inherited from a payment that had already reached `refused` before its vault
+    /// required signatures, kept counting once another seat voted signed on it (ADR-0011 amendment
+    /// 2026-11-13): history ends per seat, so each seat withdraws only its own refusal (#369).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub carried: bool,
+}
+
+impl Vote {
+    pub fn signed(&self) -> bool {
+        self.proof.is_some()
+    }
+}
+
+/// What the count needs to know about the vault, built in ONE place from its write gate.
+#[derive(Debug, Clone, Copy)]
+pub struct Basis<'a> {
+    /// The vault's member list, in seat order. Empty when the vault never recorded one.
+    pub roster: &'a [String],
+    /// The vault refuses unsigned governance writes now (or cannot say: an unreadable registry
+    /// counts as requiring them).
+    pub requires_signatures: bool,
+    /// The vault never accepted an unsigned write at all (a protocol-3 vault: its gate is never
+    /// open). A vote recorded there before votes carried their proof was signed all the same.
+    pub every_write_signed: bool,
+}
+
+/// How many seats approve and refuse (#575).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Counted {
+    pub approvals: usize,
+    pub refusals: usize,
+}
+
+/// Whether one vote counts, under `basis`, for a vault of `total` seats.
+///
+/// A seat counts when it exists (`1..=total`, and on the roster when there is one) and its vote was
+/// proven, or the vault still takes unsigned writes. So an approval recorded while the vault was
+/// open stops counting the moment the vault requires signatures: before this, it went on counting
+/// as its member's until that member voted (#575).
+pub fn vote_counts(v: &Vote, basis: &Basis, total: u16) -> bool {
+    // Approvals and refusals alike (#575, ADR-0011 amendment 2026-11-13): unsigned, they stop counting
+    // once the vault requires signatures. A payment that had already reached `refused` is read as
+    // history by its record's own basis (`HelperProposal::reading_basis`), so it is not reopened.
+    let proven = v.signed() || v.carried || basis.every_write_signed || !basis.requires_signatures;
+    if v.seat == 0 {
+        // A seat that cannot be known: only on a vault with no roster, which is also the only
+        // place a name is read (by `counted`).
+        return proven && basis.roster.is_empty() && member_name(&v.name).is_some();
+    }
+    let on_roster = basis.roster.is_empty()
+        || seat_holder(basis.roster, v.seat)
+            .and_then(member_name)
+            .is_some();
+    proven && v.seat <= total && on_roster
+}
+
+/// The ONE count of a proposal's votes (#575): distinct seats, each counted by [`vote_counts`].
+///
+/// If a record holds two entries for one seat, the LAST is that seat's stance: a vote replaces the
+/// seat's earlier one, and this does not trust that it did.
+///
+/// THE EXCEPTION, the one place a name is read: on a vault with no roster no seat can be known, so
+/// its votes are recorded under seat 0 and counted by distinct trimmed name, at most `total`. That is
+/// the count such a vault always had.
+pub fn counted(votes: &[Vote], basis: &Basis, total: u16) -> Counted {
+    // Newest first, so the first entry met for a seat (or, at seat 0, a name) is its stance.
+    let mut seen_seats = std::collections::BTreeSet::new();
+    let mut seen_names = std::collections::BTreeSet::new();
+    let mut named = 0usize;
+    let mut c = Counted::default();
+    for v in votes.iter().rev() {
+        let first = if v.seat == 0 {
+            member_name(&v.name).is_some_and(|n| seen_names.insert(n))
+        } else {
+            seen_seats.insert(v.seat)
+        };
+        if !first || !vote_counts(v, basis, total) {
+            continue;
+        }
+        if v.seat == 0 {
+            if named >= usize::from(total) {
+                continue;
+            }
+            named += 1;
+        }
+        if v.approve {
+            c.approvals += 1;
+        } else {
+            c.refusals += 1;
+        }
+    }
+    c
+}
+
+/// One seat's stance as an answer reports it (#575), so a reader never compares names to find it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Stance {
+    /// The seat, or `0` on a vault with no roster (then `name` is the member).
+    pub seat: u16,
+    pub name: String,
+    /// `approved`, `refused` or `none`.
+    pub stance: &'static str,
+    /// Whether [`counted`] counts this stance. A stance recorded unsigned on a vault that now
+    /// requires signatures is `false`: it is shown, apart, and never as part of the quorum.
+    pub counted: bool,
+}
+
+/// Every seat's stance, the ONE reading an answer carries (#575): a row per roster seat, `none` where
+/// the seat has not voted; on a vault with no roster, a row per distinct name that voted.
+/// It reads the same last-entry-wins rule as [`counted`], and `counted` on each row is
+/// [`vote_counts`], so the rows and the count cannot disagree.
+pub fn stances(votes: &[Vote], basis: &Basis, total: u16) -> Vec<Stance> {
+    let row = |v: &Vote| Stance {
+        seat: v.seat,
+        name: v.name.trim().to_string(),
+        stance: if v.approve { "approved" } else { "refused" },
+        counted: vote_counts(v, basis, total),
+    };
+    if basis.roster.is_empty() {
+        let mut out: Vec<Stance> = Vec::new();
+        for v in votes.iter().rev() {
+            if member_name(&v.name).is_some() && !out.iter().any(|s| same_member(&s.name, &v.name))
+            {
+                out.push(row(v));
+            }
+        }
+        out.reverse();
+        return out;
+    }
+    basis
+        .roster
+        .iter()
+        .enumerate()
+        .filter_map(|(i, name)| Some((u16::try_from(i + 1).ok()?, name)))
+        .map(
+            |(seat, name)| match votes.iter().rev().find(|v| v.seat == seat) {
+                Some(v) => Stance {
+                    name: name.trim().to_string(),
+                    ..row(v)
+                },
+                None => Stance {
+                    seat,
+                    name: name.trim().to_string(),
+                    stance: "none",
+                    counted: false,
+                },
+            },
+        )
+        .collect()
+}
+
+/// The seat an UNSIGNED vote under `name` is recorded for, or why there is none (#575).
+///
+/// A signed vote never asks this: its seat is the one the signature proved. An unsigned vote can
+/// only come from a vault that still takes them, so this only has to be consistent, and it refuses
+/// rather than guess: a name held by several seats needs the request to say which (`claimed`),
+/// because picking "the next free one" would let a resent click count twice.
+pub fn unsigned_seat(
+    roster: &[String],
+    name: &str,
+    claimed: Option<u16>,
+) -> Result<u16, SeatError> {
+    if roster.is_empty() {
+        return Ok(0);
+    }
+    if let Some(seat) = claimed {
+        return if seat_acts_as(roster, seat, name) {
+            Ok(seat)
+        } else {
+            Err(SeatError::NotThisSeat)
+        };
+    }
+    let Some(name) = member_name(name) else {
+        return Err(SeatError::NotAMember);
+    };
+    let mut seats = roster
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| member_name(n) == Some(name))
+        .map(|(i, _)| i + 1);
+    match (seats.next(), seats.next()) {
+        (None, _) => Err(SeatError::NotAMember),
+        (Some(s), None) => Ok(u16::try_from(s).map_err(|_| SeatError::NotAMember)?),
+        (Some(_), Some(_)) => Err(SeatError::Ambiguous),
+    }
+}
+
+/// Why an unsigned vote has no seat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeatError {
+    /// The name is on no seat.
+    NotAMember,
+    /// The seat the request named does not hold that name.
+    NotThisSeat,
+    /// Several seats hold that name and the request did not say which.
+    Ambiguous,
+}
+
+/// The votes of a record, reconciled with its name lists (#575).
+///
+/// The name lists (`approvals`, `refusals`) stay on disk with every recorded name, as before, so a
+/// rollback to a binary that knows only them loses nothing. This reads the record both ways:
+/// - a vote whose name is no longer in the list of its stance was replaced by a binary that writes
+///   only names, and is dropped;
+/// - a name with no vote (a record older than votes, or written by such a binary) becomes an
+///   UNSIGNED vote, on the seat [`legacy_seat`] gives it, or none.
+///
+/// Nothing here can make a vote count that the names alone would not: an added vote is unsigned.
+pub fn reconcile_votes(
+    votes: &[Vote],
+    approvals: &[String],
+    refusals: &[String],
+    roster: &[String],
+) -> Vec<Vote> {
+    let listed = |v: &Vote| {
+        let list = if v.approve { approvals } else { refusals };
+        list.iter().any(|n| same_member(n, &v.name))
+    };
+    let mut out: Vec<Vote> = votes.iter().filter(|v| listed(v)).cloned().collect();
+    for (approve, list) in [(true, approvals), (false, refusals)] {
+        for name in list {
+            let already = out
+                .iter()
+                .filter(|v| v.approve == approve && same_member(&v.name, name))
+                .count();
+            let entries = list.iter().filter(|n| same_member(n, name)).count();
+            if already >= entries {
+                continue;
+            }
+            if let Some(seat) = legacy_seat(roster, name, &out) {
+                out.push(Vote {
+                    seat,
+                    name: name.clone(),
+                    approve,
+                    proof: None,
+                    carried: false,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The seat a name recorded without one is read as: the first seat under that name that has no
+/// vote yet; `0` on a vault with no roster; `None` for a name on no seat, or when every seat under it
+/// already voted. Used only to read old records, never for a new vote ([`unsigned_seat`]).
+fn legacy_seat(roster: &[String], name: &str, votes: &[Vote]) -> Option<u16> {
+    if roster.is_empty() {
+        return Some(0);
+    }
+    let name = member_name(name)?;
+    roster
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| member_name(n) == Some(name))
+        .filter_map(|(i, _)| u16::try_from(i + 1).ok())
+        .find(|s| !votes.iter().any(|v| v.seat == *s))
 }
 
 /// The one comparison every name check here makes: whitespace at the edges is ignored and nothing
@@ -593,50 +846,202 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// #575, the case in the issue: an approval planted as another spelling of a member's name,
-    /// beside that member's own, is one member.
+    // ---- #575: votes counted by seat -------------------------------------------------------
+
+    fn vote(seat: u16, name: &str, approve: bool, signed: bool) -> Vote {
+        Vote {
+            seat,
+            name: name.into(),
+            approve,
+            proof: signed.then(|| VoteProof {
+                action: if approve { "approve" } else { "refuse" }.into(),
+                target: "p1".into(),
+                ts: 1,
+                nonce: format!("n{seat}"),
+                sig: "00".into(),
+            }),
+            carried: false,
+        }
+    }
+
+    fn basis(roster: &[String], requires_signatures: bool) -> Basis<'_> {
+        Basis {
+            roster,
+            requires_signatures,
+            every_write_signed: false,
+        }
+    }
+
+    /// The case still open in #575: an approval recorded unsigned while the vault was open, under a
+    /// member's exact name, beside a signed approval, once the vault requires signatures. A 2-of-2
+    /// read as approved by both.
     #[test]
-    fn two_spellings_of_one_member_count_once() {
+    fn an_unsigned_vote_stops_counting_once_the_vault_requires_signatures() {
         let r = roster(&["alice", "bob"]);
-        assert_eq!(members_counted(&roster(&["alice ", "alice"]), &r), 1);
-        assert_eq!(members_counted(&roster(&["alice\u{00a0}", "alice"]), &r), 1);
-        assert_eq!(members_counted(&roster(&["alice", "bob"]), &r), 2);
+        let votes = vec![vote(2, "bob", true, false), vote(1, "alice", true, true)];
+        assert_eq!(counted(&votes, &basis(&r, true), 2).approvals, 1);
+        // While the vault is still open, both count, as every unsigned write does there.
+        assert_eq!(counted(&votes, &basis(&r, false), 2).approvals, 2);
+    }
+
+    /// The issue's literal case, through the reading of an old record: two spellings of alice.
+    #[test]
+    fn the_issue_case_from_an_old_record_is_one_approval() {
+        let r = roster(&["alice", "bob"]);
+        let votes = reconcile_votes(&[], &roster(&["alice ", "alice"]), &[], &r);
+        assert_eq!(counted(&votes, &basis(&r, false), 2).approvals, 1);
+        assert_eq!(counted(&votes, &basis(&r, true), 2).approvals, 0);
+    }
+
+    /// Two seats under one name are two members (#575 acceptance). By name they counted as one.
+    #[test]
+    fn two_seats_sharing_a_name_count_as_two() {
+        let r = roster(&["bob", "bob"]);
+        let votes = vec![vote(1, "bob", true, true), vote(2, "bob", true, true)];
+        assert_eq!(counted(&votes, &basis(&r, true), 2).approvals, 2);
     }
 
     #[test]
-    fn a_name_on_no_seat_does_not_count() {
+    fn a_seat_counts_once_and_its_last_entry_is_its_stance() {
         let r = roster(&["alice", "bob"]);
-        assert_eq!(members_counted(&roster(&["mallory"]), &r), 0);
-        assert_eq!(members_counted(&roster(&["mallory", "alice"]), &r), 1);
-        // Case, inner spaces and look-alikes are different names, exactly as in the binding.
+        let votes = vec![vote(1, "alice", true, true), vote(1, "alice", false, true)];
+        let c = counted(&votes, &basis(&r, true), 2);
+        assert_eq!((c.approvals, c.refusals), (0, 1));
+    }
+
+    #[test]
+    fn a_seat_that_does_not_exist_does_not_count() {
+        let r = roster(&["alice", "bob"]);
+        let votes = vec![vote(3, "carol", true, true), vote(0, "alice", true, true)];
         assert_eq!(
-            members_counted(&roster(&["Alice", "al ice", "alice\u{200b}"]), &r),
+            counted(&votes, &basis(&r, false), 3).approvals,
+            0,
+            "past the roster / seat 0"
+        );
+        let none: Vec<String> = vec![];
+        assert_eq!(
+            counted(&[vote(3, "x", true, true)], &basis(&none, false), 2).approvals,
             0
         );
-        // A blank entry names nobody, and a blank seat is nobody's.
-        assert_eq!(members_counted(&roster(&["", "  "]), &r), 0);
+        // A blank seat is nobody's.
+        let blank = roster(&["alice", " "]);
         assert_eq!(
-            members_counted(&roster(&["", " "]), &roster(&["", "bob"])),
+            counted(&[vote(2, " ", true, true)], &basis(&blank, false), 2).approvals,
             0
         );
     }
 
-    /// Two seats under one name are two members, so two entries under it count as two and are not
-    /// capped at one. This is the count alone: a vote replaces its member's earlier entry, so in a
-    /// vault two such seats still leave one entry (Known limits).
+    /// L4: a vault that requires signatures and never recorded a roster no longer counts every
+    /// name. The gate refuses its signed writes (#568), so nothing there can count.
     #[test]
-    fn the_count_gives_each_seat_under_a_name_its_own_entry() {
-        let r = roster(&["bob", "bob "]);
-        assert_eq!(members_counted(&roster(&["bob", "bob "]), &r), 2);
-        // But never more entries than seats.
-        assert_eq!(members_counted(&roster(&["bob", "bob ", " bob"]), &r), 2);
+    fn a_vault_requiring_signatures_with_no_roster_counts_no_name() {
+        let none: Vec<String> = vec![];
+        let votes = reconcile_votes(&[], &roster(&["alice", "bob"]), &[], &none);
+        assert_eq!(counted(&votes, &basis(&none, true), 2).approvals, 0);
+        // Open, it keeps the count it always had: distinct names, at most `total`.
+        assert_eq!(counted(&votes, &basis(&none, false), 2).approvals, 2);
+        let many = reconcile_votes(&[], &roster(&["a", "b", "c", "a "]), &[], &none);
+        assert_eq!(counted(&many, &basis(&none, false), 2).approvals, 2);
     }
 
-    /// A vault that never recorded a roster has nothing to match against, and keeps the count it
-    /// always had rather than counting nobody.
+    /// A protocol-3 vault never took an unsigned write, so its votes recorded before votes carried
+    /// their proof still count.
     #[test]
-    fn a_vault_with_no_roster_counts_every_entry() {
-        assert_eq!(members_counted(&roster(&["alice ", "alice"]), &[]), 2);
-        assert_eq!(members_counted(&[], &[]), 0);
+    fn a_vault_that_never_took_an_unsigned_write_keeps_its_old_votes() {
+        let r = roster(&["alice", "bob"]);
+        let votes = reconcile_votes(&[], &roster(&["alice", "bob"]), &[], &r);
+        let b = Basis {
+            roster: &r,
+            requires_signatures: true,
+            every_write_signed: true,
+        };
+        assert_eq!(counted(&votes, &b, 2).approvals, 2);
+    }
+
+    /// Reading a record both ways: a vote replaced by a binary that only writes names is dropped,
+    /// and a name with no vote comes back unsigned. Nothing added this way can be signed.
+    #[test]
+    fn reconciling_drops_replaced_votes_and_adds_unsigned_names() {
+        let r = roster(&["alice", "bob"]);
+        // An older binary moved alice from approvals to refusals; the vote still says approve.
+        let votes = reconcile_votes(
+            &[vote(1, "alice", true, true)],
+            &[],
+            &roster(&["alice"]),
+            &r,
+        );
+        assert_eq!(votes, vec![vote(1, "alice", false, false)]);
+        // A record written by this binary reads back unchanged.
+        let mine = vec![vote(1, "alice", true, true), vote(2, "bob", false, true)];
+        assert_eq!(
+            reconcile_votes(&mine, &roster(&["alice"]), &roster(&["bob"]), &r),
+            mine
+        );
+        // Two seats under one name, two entries: two unsigned votes on the two seats.
+        let rb = roster(&["bob", "bob"]);
+        let two = reconcile_votes(&[], &roster(&["bob", "bob"]), &[], &rb);
+        assert_eq!(two.iter().map(|v| v.seat).collect::<Vec<_>>(), vec![1, 2]);
+        // A name on no seat gets no vote.
+        assert!(reconcile_votes(&[], &roster(&["mallory"]), &[], &r).is_empty());
+    }
+
+    #[test]
+    fn an_unsigned_vote_takes_the_one_seat_under_its_name_or_is_refused() {
+        let r = roster(&["alice", "bob", "bob"]);
+        assert_eq!(unsigned_seat(&r, "alice", None), Ok(1));
+        assert_eq!(unsigned_seat(&r, " alice", None), Ok(1));
+        assert_eq!(unsigned_seat(&r, "bob", None), Err(SeatError::Ambiguous));
+        assert_eq!(unsigned_seat(&r, "bob", Some(3)), Ok(3));
+        assert_eq!(
+            unsigned_seat(&r, "bob", Some(1)),
+            Err(SeatError::NotThisSeat)
+        );
+        assert_eq!(
+            unsigned_seat(&r, "mallory", None),
+            Err(SeatError::NotAMember)
+        );
+        assert_eq!(unsigned_seat(&r, "  ", None), Err(SeatError::NotAMember));
+        assert_eq!(unsigned_seat(&[], "anyone", None), Ok(0));
+    }
+
+    /// The rows an answer carries agree with the count, and name every seat.
+    #[test]
+    fn stances_name_every_seat_and_agree_with_the_count() {
+        let r = roster(&["alice", "bob", "carol "]);
+        let votes = vec![vote(2, "bob", true, false), vote(1, "alice", true, true)];
+        let b = basis(&r, true);
+        let rows = stances(&votes, &b, 3);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            (rows[0].seat, rows[0].stance, rows[0].counted),
+            (1, "approved", true)
+        );
+        assert_eq!(
+            (rows[1].seat, rows[1].stance, rows[1].counted),
+            (2, "approved", false)
+        );
+        assert_eq!((rows[2].name.as_str(), rows[2].stance), ("carol", "none"));
+        let shown = rows
+            .iter()
+            .filter(|s| s.counted && s.stance == "approved")
+            .count();
+        assert_eq!(shown, counted(&votes, &b, 3).approvals);
+        // No roster: a row per distinct name, last stance wins.
+        let none: Vec<String> = vec![];
+        let v2 = vec![vote(0, "x", true, false), vote(0, "x ", false, false)];
+        let rows = stances(&v2, &basis(&none, false), 2);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].stance, "refused");
+    }
+
+    /// Approvals and refusals alike: unsigned, neither counts once the vault requires signatures
+    /// (ADR-0011 amendment 2026-11-13). A payment already refused is kept by its reading basis.
+    #[test]
+    fn an_unsigned_refusal_counts_no_more_than_an_unsigned_approval() {
+        let r = roster(&["alice", "bob"]);
+        let b = basis(&r, true);
+        assert!(!vote_counts(&vote(2, "bob", false, false), &b, 2));
+        assert!(!vote_counts(&vote(2, "bob", true, false), &b, 2));
+        assert!(vote_counts(&vote(2, "bob", false, true), &b, 2));
     }
 }

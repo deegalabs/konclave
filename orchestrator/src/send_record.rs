@@ -906,6 +906,7 @@ mod tests {
             state: state.into(),
             approvals: vec!["alice".into(), "bob".into()],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 3,
             created_at_unix: 1_000,
