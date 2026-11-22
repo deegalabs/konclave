@@ -62,7 +62,7 @@ export async function unlockWithPasskeyUsing(
     // reason is what a phone can show, and a phone is where this always fails - the shortcut is
     // per device by design.
     console.error('[konclave] the passkey did not open this vault; the passphrase still does', {
-      vaultId, rpId, reason: s, waitedMs: UNLOCK_TIMEOUT_MS,
+      vault: vaultId.slice(0, 8), rpId, reason: s, waitedMs: UNLOCK_TIMEOUT_MS,
     })
     return s
   }
