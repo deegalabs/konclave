@@ -280,9 +280,11 @@ export async function backfillAddress(id: string, address: string): Promise<bool
   }
 }
 
-export async function getVault(): Promise<Vault | null> {
+export async function getVault(forId?: string): Promise<Vault | null> {
   if (NET) {
-    const id = getSelectedVault()
+    // The vault a caller decided about, when it names one: the selection is shared between tabs and
+    // can move between a caller's check and this read.
+    const id = forId ?? getSelectedVault()
     if (!id) return null
     // The device's own record, read once and FIRST: it carries the vault's name, its roster, its
     // address, and the creation protocol the vault was made with, which the read below names (never

@@ -9,6 +9,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getVault, getProposalDetail, IS_NET, type Proposal, type Vault } from './api'
+import { localLockNow } from './vault-readable'
 import { listVaults } from './storage'
 import { approvedLinesFor, paidKey, readPlan, refusePlan, gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type ApprovedPlan, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
@@ -75,7 +76,7 @@ export function useVaultSigner(): VaultSignerCtx {
   return ctx
 }
 
-export function VaultSignerProvider({ children }: { children: ReactNode }) {
+export function VaultSignerProvider({ children, unlockNonce = 0, vaultId = null }: { children: ReactNode; unlockNonce?: number; vaultId?: string | null }) {
   const [vault, setVault] = useState<Vault | null>(null)
   const [myName, setMyName] = useState<string | null>(null)
   const [active, setActive] = useState<Proposal | null>(null)
@@ -94,7 +95,10 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let on = true
     void (async () => {
-      const v = await getVault()
+      // A protected vault this device holds a record of and has not unlocked is not asked for: the
+      // shell's overlay unlock moves `unlockNonce` and this reads then (P0A).
+      if (IS_NET && vaultId && (await localLockNow(vaultId))?.locked) return
+      const v = await getVault(vaultId ?? undefined)
       if (on) setVault(v)
       if (v) {
         try {
@@ -104,7 +108,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       }
     })()
     return () => { on = false }
-  }, [nonce])
+  }, [nonce, unlockNonce, vaultId])
 
   // The signer runs only while the ceremony panel is OPEN (active != null), not always-on on every
   // screen: an app-wide relay session on every navigation was churny and destabilized the vault

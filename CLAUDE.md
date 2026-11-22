@@ -570,9 +570,17 @@ to the relay). From `S`:
   change receiver - while the readKey is what buys its CONTENTS. Two reasons it stays that way, both
   checked 2026-09-16 rather than assumed: the change receiver is an address of the same class as the
   published one and grants no viewing power (both shielded, neither readable without the UFVK); and
-  `Layout.tsx` calls `getVault()` BEFORE it evaluates `needsUnlock`, so gating the route would make
-  a locked protected vault answer `null`, skip the unlock decision entirely, and land the member on
-  the blank screen #439 exists to prevent. The route being open is load-bearing, not an oversight.
+  `Layout.tsx` still calls `getVault()` before it evaluates `needsUnlock` for a vault this device
+  holds no record of (and on the desktop bridge); for a record that is not protected it decides
+  from the record first and reads the vault only for the rail, so gating the route would make
+  such a vault answer `null`, skip the unlock decision, and land the member on the blank screen #439
+  exists to prevent. For a protected vault this device HOLDS A RECORD OF, the P0A change (on `main`
+  only once merged, and running only once deployed) removes that reason on the web path: `Layout`
+  decides the lock from the record (`localLockNow`) before any request, and mounts no screen for a
+  vault it has not decided or while it is locked, so on opening the app, on leaving the unlock
+  screen and on switching vault from the rail that vault is not named before it is unlocked. The
+  route stays open because open and pre-#388 vaults, and a device with no record, read the vault's
+  metadata through it.
   Live on mainnet: leaked id -> `401` on the listed reads, `200` on the metadata.
 - **The first read key itself was taken on nobody's word, until 2026-11-08
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**

@@ -16,7 +16,7 @@ describe('one signer per vault', () => {
   const layout = codeOf('./Layout.tsx')
 
   it('mounts the signer keyed by the selected vault', () => {
-    expect(layout).toMatch(/<VaultSignerProvider key=\{getSelectedVault\(\) \?\? ''\}>/)
+    expect(layout).toMatch(/<VaultSignerProvider key=\{selId\} vaultId=\{selId \|\| null\} unlockNonce=\{unlockNonce\}>/)
   })
 
   it('reads the approved lines from its own vault, not the selection other tabs can change', () => {
@@ -37,6 +37,8 @@ describe('one signer per vault', () => {
     // returned early on the stale id.
     const start = layout.indexOf('function switchTo(')
     const switchTo = layout.slice(start, layout.indexOf('\n  }\n', start))
-    expect(switchTo).toMatch(/setSelectedVault\(id\)[\s\S]*getVault\(\)/)
+    // The switch only selects; the decision effect depends on the selection and re-reads for it.
+    expect(switchTo).toMatch(/setSelectedVault\(id\)/)
+    expect(layout).toMatch(/getVault\(id \?\? undefined\)[\s\S]*\}, \[selId\]\)/)
   })
 })

@@ -635,6 +635,7 @@ export const en: Record<string, string> = {
   // is locked, never that the member must go somewhere or start again.
   'lock.prompt': 'This vault is locked. Type your passphrase for this device to carry on where you were.',
   'lock.unlock': 'Unlock',
+  'lock.lockedCaption': 'Locked',
   'lock.leave': 'Leave the vault',
   'vaults.netUnlockPrompt': 'Type your passphrase for this device to open your share of the key. The key is decrypted only in memory.',
   'vaults.passphrase': 'Passphrase',

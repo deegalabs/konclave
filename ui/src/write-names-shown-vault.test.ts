@@ -41,7 +41,7 @@ export const READS: Record<string, { reads: number; why: string }> = {
   'api.ts::getBookWithLines': { reads: 1, why: 'read: the selected vault' },
   'api.ts::getProposalDetail': { reads: 1, why: 'read: the selected vault, or the one asked for' },
   'vault-readable.ts::useVaultReadable': { reads: 1, why: 'read: whether the selected vault can be read' },
-  'Layout.tsx::Layout': { reads: 2, why: 'the shell that owns the selection: keys the signer and the seat notice by it' },
+  'Layout.tsx::Layout': { reads: 2, why: 'the shell that owns the selection: reads it once per render (selId) for the seat notice, the signer, and the lock decision it is the one input of, and once for the refusal hook' },
   'screens/Dashboard.tsx::Dashboard': { reads: 2, why: 'read: the dashboard of the selected vault, no write of its own' },
   'screens/Ceremonies.tsx::Ceremonies': { reads: 2, why: 'read: the ceremonies of the selected vault' },
   'screens/SinceLast.tsx::SinceLast': { reads: 1, why: 'read: what changed in the selected vault' },
