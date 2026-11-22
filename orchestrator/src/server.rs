@@ -2209,8 +2209,9 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         cfg.web_dir.display(),
         cfg.db_path
     );
-    serve_on(&server, &cfg);
-    Ok(())
+    // The loop never ends on purpose; if it does, by a panic or otherwise, the process exits with
+    // the same failure code as the public servers' workers.
+    konclave_http::run_in_place("konclave serve", || serve_on(&server, &cfg))
 }
 
 /// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.

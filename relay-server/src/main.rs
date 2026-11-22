@@ -827,45 +827,40 @@ fn main() {
     );
     eprintln!("konclave relay serving with {workers} worker(s)");
 
-    let mut pool = Vec::with_capacity(workers);
-    for _ in 0..workers {
-        let (server, state) = (Arc::clone(&server), Arc::clone(&state));
-        pool.push(std::thread::spawn(move || loop {
-            let Ok(mut req) = server.recv() else { return };
-            let method = req.method().clone();
-            let url = req.url().to_string();
-            let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
-            let addr = client_ip(&req);
+    // A worker that ends, by a panic or otherwise, ends the process with a failure code so the
+    // platform restarts it, instead of the pool thinning out to an exit 0.
+    konclave_http::run_workers("konclave relay", workers, move || loop {
+        let Ok(mut req) = server.recv() else { return };
+        let method = req.method().clone();
+        let url = req.url().to_string();
+        let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
+        let addr = client_ip(&req);
 
-            if method == Method::Options {
-                let _ = req.respond(with_cors(Response::empty(204), false));
-                continue;
-            }
+        if method == Method::Options {
+            let _ = req.respond(with_cors(Response::empty(204), false));
+            continue;
+        }
 
-            let (status, body) = if path.starts_with("/api/relay/") {
-                let mut buf = Vec::new();
-                // Read with a hard ceiling - including when there is NO Content-Length, which used
-                // to be read unbounded (#390). `take` caps a dribbling or chunked body.
-                match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-                    konclave_http::ReadPlan::Read(limit) => {
-                        let _ = req.as_reader().take(limit).read_to_end(&mut buf);
-                    }
-                    konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+        let (status, body) = if path.starts_with("/api/relay/") {
+            let mut buf = Vec::new();
+            // Read with a hard ceiling - including when there is NO Content-Length, which used
+            // to be read unbounded (#390). `take` caps a dribbling or chunked body.
+            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
+                konclave_http::ReadPlan::Read(limit) => {
+                    let _ = req.as_reader().take(limit).read_to_end(&mut buf);
                 }
-                state.handle(&method, &path, &url, &buf, now_unix(), &addr)
-            } else if path == "/" || path == "/health" {
-                (200, state.health_json(now_unix()))
-            } else {
-                (404, r#"{"error":"not found"}"#.to_string())
-            };
+                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+            }
+            state.handle(&method, &path, &url, &buf, now_unix(), &addr)
+        } else if path == "/" || path == "/health" {
+            (200, state.health_json(now_unix()))
+        } else {
+            (404, r#"{"error":"not found"}"#.to_string())
+        };
 
-            let resp = Response::from_string(body).with_status_code(status);
-            let _ = req.respond(with_cors(resp, true));
-        }));
-    }
-    for w in pool {
-        let _ = w.join();
-    }
+        let resp = Response::from_string(body).with_status_code(status);
+        let _ = req.respond(with_cors(resp, true));
+    })
 }
 
 #[cfg(test)]
