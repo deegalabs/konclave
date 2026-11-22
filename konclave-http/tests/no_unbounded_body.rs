@@ -28,7 +28,7 @@ fn read(rel: &str) -> String {
 const LOOPBACK_SERVERS: [&str; 1] = ["../orchestrator/src/server.rs"];
 
 #[test]
-fn no_public_server_reads_a_request_body_unbounded() {
+fn no_server_reads_a_request_body_unbounded() {
     for rel in PUBLIC_SERVERS.iter().chain(LOOPBACK_SERVERS.iter()) {
         for (i, line) in read(rel).lines().enumerate() {
             let l = line.trim();

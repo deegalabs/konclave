@@ -2515,7 +2515,7 @@ mod tests {
             b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
             b"2\r\n{}\r\n0\r\n\r\n",
         ]);
-        // 403 is the handler's own answer to a request with no session token: it read the body.
+        // 403 is the session-token check in handle_secured: the size and upgrade checks let it through.
         assert!(head.starts_with("http/1.1 403"), "{head}");
     }
 
