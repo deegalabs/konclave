@@ -13,7 +13,7 @@ const at = (y: number, m: number, d = 15) => Math.floor(new Date(y, m, d).getTim
 let n = 0
 const p = (state: string, zat: number, created_at: number | undefined): Proposal => ({
   id: `p${n++}`, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat: zat, value_zec: '',
-  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0, destinations: 1,
+  is_public: false, created_at, approvals: [], refusals: [], approvals_count: 0, stances: [], destinations: 1,
 })
 // These tests are about words, not fees: an estimator that adds nothing keeps their figures as they were.
 const NO_FEE: FeeEstimator = () => 0

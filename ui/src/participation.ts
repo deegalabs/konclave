@@ -8,12 +8,14 @@
 // signature, not the signers' identities - that is #290. So a "12 approved · 12 signed" reading
 // would be half invented, and this returns approvals only until the record exists.
 import type { Proposal } from './api'
+import { myStance, stancesKnown } from './stance'
 
 export type Participation = {
   /** The member's name, exactly as the vault records votes by. */
   name: string
-  /** Proposals this member approved, out of `considered`. */
-  approved: number
+  /** Proposals this member approved, out of `considered`; null when a coordinator older than #575 did
+   *  not say who approved, so the screen shows a dash and never 0 of N. */
+  approved: number | null
   /** 0-100, for the bar. Relative to the number of proposals considered, not to the top member. */
   pct: number
 }
@@ -48,9 +50,13 @@ export function participation(
     .slice(0, limit)
 
   const considered = votable.length
-  const seats = roster.filter((n) => n.trim().length > 0)
-  const rows = seats.map((name) => {
-    const approved = votable.filter((p) => p.approvals.includes(name)).length
+  // Seat N is roster[N-1]: the seat goes with the name, so two seats under one name are two rows.
+  const seats = roster.map((name, i) => ({ name, seat: i + 1 })).filter((s) => s.name.trim().length > 0)
+  const known = votable.every(stancesKnown)
+  const rows = seats.map(({ name, seat }) => {
+    if (!known) return { name, approved: null, pct: 0 }
+    // The coordinator's counted stance of that seat (#575), not a name in a list of names.
+    const approved = votable.filter((p) => myStance(p, { seat, name }) === 'approved').length
     return {
       name,
       approved,

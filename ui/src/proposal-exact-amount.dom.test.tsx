@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withStances } from './test-stances'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -27,9 +28,9 @@ vi.mock('./toast', () => ({ useToast: () => ({ ok: () => {}, err: () => {}, warn
 const { default: Proposal } = await import('./screens/Proposal')
 
 const ADDR = 'u1' + 'q'.repeat(76)
-const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2, created_at: 1759300000 }
-const ready = { ...base, id: 'p1', kind: 'payment', state: 'ready', memo: 'Tip', to_address: ADDR, value_zat: 9000, value_zec: '0.00009' }
-const payroll = { ...base, id: 'p2', kind: 'payroll', state: 'awaiting', memo: 'Stipends', value_zat: 9000, value_zec: '0.00009', approvals: ['Alice'], approvals_count: 1 }
+const base = withStances({ vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2, created_at: 1759300000 })
+const ready = withStances({ ...base, id: 'p1', kind: 'payment', state: 'ready', memo: 'Tip', to_address: ADDR, value_zat: 9000, value_zec: '0.00009' })
+const payroll = withStances({ ...base, id: 'p2', kind: 'payroll', state: 'awaiting', memo: 'Stipends', value_zat: 9000, value_zec: '0.00009', approvals: ['Alice'], approvals_count: 1 })
 const line = { label: 'Carol', address: ADDR, value_zat: 9000, value_zec: '0.00009', memo: '', is_public: false }
 
 const mount = (id: string) => render(

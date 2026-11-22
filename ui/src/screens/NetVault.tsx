@@ -1508,7 +1508,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                     <div className="net-trail-row">
                       <span className="net-trail-label">{tt('net.restore.approvals')}</span>
                       <code>
-                        {p.approvals.length}/{p.threshold || '?'}
+                        {/* The coordinator's count (#575); an older one reports none. */}
+                        {p.approvals_counted ?? '—'}/{p.threshold || '?'}
                       </code>
                     </div>
                     <div className="net-trail-row" style={{ marginTop: 4 }}>

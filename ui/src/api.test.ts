@@ -68,6 +68,12 @@ describe('NET adapter (helper proposal -> PWA proposal)', () => {
       state: 'pending',
       approvals: ['Alice'],
       refusals: [],
+      approvals_counted: 1,
+      stances: [
+        { seat: 1, name: 'Alice', stance: 'approved', counted: true },
+        { seat: 2, name: 'Bob', stance: 'none', counted: false },
+        { seat: 3, name: 'Carol', stance: 'none', counted: false },
+      ],
       threshold: 2,
       total: 3,
       created_at_unix: 1_700_000_000,
@@ -83,6 +89,7 @@ describe('NET adapter (helper proposal -> PWA proposal)', () => {
     expect(p.is_public).toBe(false) // unified address is shielded
     expect(p.memo).toBeUndefined() // null -> undefined
     expect(p.approvals_count).toBe(1)
+    expect(p.stances).toHaveLength(3)
     expect(p.txid).toBeUndefined()
     expect(p.destinations).toBe(1) // a payment pays one output (#1017)
   })
@@ -100,10 +107,31 @@ describe('NET adapter (helper proposal -> PWA proposal)', () => {
     expect(mapNetProposal({ ...base, lines: [] }).destinations).toBeUndefined()
   })
 
+  // #575: the count is the coordinator's, never the length of the names it recorded. Here a name was
+  // recorded unsigned before the vault required signatures: two names, one approval that counts.
+  it('takes the approval count from the coordinator, not from the names it recorded', () => {
+    const hp: NetProposal = {
+      id: 'p3', vault_id: 'v1', kind: 'payment', to: 'u1recipient', amount_zat: 1000, memo: null,
+      proposer: 'Alice', state: 'pending', approvals: ['Bob', 'Alice'], refusals: [],
+      approvals_counted: 1,
+      stances: [
+        { seat: 1, name: 'Alice', stance: 'approved', counted: true },
+        { seat: 2, name: 'Bob', stance: 'approved', counted: false },
+      ],
+      threshold: 2, total: 2, created_at_unix: 1, expiry_unix: 0, txid: null,
+    }
+    expect(mapNetProposal(hp).approvals_count).toBe(1)
+    // A coordinator older than the count says nothing: the count is unknown (shown as a dash), never a
+    // 0 and never a count of names made by the app.
+    const { approvals_counted: _c, stances: _s, ...old } = hp
+    expect(mapNetProposal(old).approvals_count).toBeNull()
+    expect(mapNetProposal(old).stances).toBeNull()
+  })
+
   it('flags a transparent destination as public and carries a txid', () => {
     const hp: NetProposal = {
       id: 'p2', vault_id: 'v1', kind: 'payment', to: 't1transparent', amount_zat: 1000,
-      memo: 'rent', proposer: 'Bob', state: 'sent', approvals: ['Alice', 'Bob'], refusals: [],
+      memo: 'rent', proposer: 'Bob', state: 'sent', approvals: ['Alice', 'Bob'], refusals: [], approvals_counted: 2,
       threshold: 2, total: 3, created_at_unix: 1, expiry_unix: 0, txid: 'abc123',
     }
     const p = mapNetProposal(hp)

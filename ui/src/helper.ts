@@ -23,6 +23,7 @@ import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
 import type { SendReply, TooLarge } from './send-outcome'
+import type { Stance } from './stance'
 
 // The env is read one key at a time, never as an object (#605, src/env-reads.test.ts).
 
@@ -399,8 +400,13 @@ export type Proposal = {
   lines?: { label?: string; to: string; amount_zat: number; memo?: string | null }[]
   proposer: string
   state: string // pending | ready | sent | refused | expired
+  /** Every recorded name, for the record. Who counts is `stances` / `approvals_counted` (#575). */
   approvals: string[]
   refusals: string[]
+  /** Seats whose approval counts (#575). Absent from a coordinator older than the field. */
+  approvals_counted?: number
+  refusals_counted?: number
+  stances?: Stance[]
   threshold: number
   total: number
   created_at_unix: number

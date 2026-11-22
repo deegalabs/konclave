@@ -42,6 +42,7 @@ import { decodeBundle } from './signing'
 import { addressText } from './approved-payment'
 import { mustCompareCode, protocolOfRecord, verifiedAddress } from './creation-protocol'
 import { PAYROLL_TITLE_MAX } from './proposal-name'
+import type { Stance } from './stance'
 
 export type Member = { name: string; pubkey: string }
 
@@ -97,9 +98,16 @@ export type Proposal = {
   expiry_unix?: number
   created_at?: number
   txid?: string
+  /** Every recorded name, for the record only: who COUNTS is in `stances` (#575). */
   approvals: string[]
   refusals: string[]
-  approvals_count: number
+  /** The approvals the coordinator counts (seats, signed once the vault requires it), never a name
+   *  count; null when the coordinator is older than the count and did not say (#575): shown as a dash. */
+  approvals_count: number | null
+  /** Each seat's stance and whether it counts. Read through `stance.ts`. */
+  /** null when the coordinator is older than #575 and did not say: nobody is shown as pending and no
+   *  vote is offered (a vote cannot be told from a first one), never an empty list. */
+  stances: Stance[] | null
   /** How many outputs it pays: 1 for a payment, the line count for a payroll (#1017). What the fee
    *  estimate takes. Absent or null means it could not be read, and a reader must treat it as
    *  unknown (`proposalCostZat` answers null), never as 1. */
@@ -165,7 +173,10 @@ export function mapNetProposal(p: NetProposal): Proposal {
     txid: p.txid ?? undefined,
     approvals: p.approvals,
     refusals: p.refusals,
-    approvals_count: p.approvals.length,
+    // #575: the coordinator's count of seats, not the length of a list of names. A coordinator older
+    // than the field says nothing, and the app shows a dash rather than a 0 or a count of names.
+    approvals_count: p.approvals_counted ?? null,
+    stances: p.stances ?? null,
     destinations: p.kind === 'payroll' ? (p.lines?.length ? p.lines.length : undefined) : 1,
   }
 }
@@ -1139,6 +1150,16 @@ export async function getBookWithLines(): Promise<Book | null> {
     if (d?.lines && d.lines.length > 0) linesById[r.id] = d.lines
   }
   return { history, linesById }
+}
+
+/** This device's seat on `vaultId` (the selected vault when omitted), from its unlocked share; undefined
+ *  while it is locked or holds no share here. Screens read a member's stance by this seat (#575), and
+ *  fall back to the name, unique on the roster, while it is unknown. */
+export function mySeat(vaultId?: string): number | undefined {
+  const vid = vaultId ?? getSelectedVault()
+  const share = vid ? getUnlockedShare(vid) : undefined
+  if (!share) return undefined
+  try { return decodeBundle(share).seat } catch { return undefined }
 }
 
 /** Proposal detail including payroll lines (empty for a single payment). */

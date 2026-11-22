@@ -31,6 +31,7 @@ const WRITE_MARKERS = [
  *  of it too, and is listed: what it does afterwards uses the pin. */
 export const READS: Record<string, { reads: number; why: string }> = {
   'api.ts::withVault': { reads: 2, why: 'builds the ?vault= of a read' },
+  'api.ts::mySeat': { reads: 1, why: 'read: which stance row is this device\'s, for the list screens (#575); the proposal screen passes the vault its vote goes to, and the vote itself goes through voteProposal(shown, ...)' },
   'api.ts::getVault': { reads: 2, why: 'read: the selected vault' },
   'api.ts::getProposals': { reads: 3, why: 'read: the selected vault' },
   'api.ts::readBalance': { reads: 3, why: 'read: the selected vault, or the one asked for' },
@@ -188,5 +189,13 @@ describe('a function that reads the selection is a listed read', () => {
       expect(codeOf(f), f).not.toMatch(/\.id\s*===\s*pinned/)
       expect(codeOf(f), f).toMatch(/pinnedAnswer\(/)
     }
+  })
+})
+
+describe('the proposal screen reads its seat on the vault its vote goes to (#575)', () => {
+  it('every mySeat call in screens/Proposal.tsx names voteVault', () => {
+    const calls = codeOf('screens/Proposal.tsx').match(/\bmySeat\s*\([^)]*\)/g) ?? []
+    expect(calls.length).toBeGreaterThan(0)
+    for (const c of calls) expect(c).toMatch(/^mySeat\s*\(\s*voteVault\b/)
   })
 })

@@ -5,7 +5,8 @@ import { Secret } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader } from '../page'
 import { Identicon, seedForName } from '../avatar'
-import { getProposals, getVault, readTransactions, type Proposal, type Vault, type WalletTx } from '../api'
+import { approvalsShown } from '../stance'
+import { getProposals, getVault, mySeat, readTransactions, type Proposal, type Vault, type WalletTx } from '../api'
 import { proposalName } from '../proposal-name'
 import { listVaults } from '../storage'
 import { rankDesk, expiredByClock, stampKey, type Band } from '../desk'
@@ -55,8 +56,8 @@ function Row({ p, band, last, personal, threshold, t, tr, open, who }: RowProps)
         <div className="plist-val"><Secret sm><span>{fmtZec(p.value_zec)} ZEC</span></Secret></div>
         {!closed && (
           <div className="plist-prog">
-            <span className="prog" aria-hidden="true">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span>
-            {' '}{t('ledger.approvalsOf', { count: p.approvals_count, total: threshold })}
+            {p.approvals_count !== null && <span className="prog" aria-hidden="true">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < (p.approvals_count ?? 0) ? 'on' : ''} />)}</span>}
+            {' '}{t('ledger.approvalsOf', { count: approvalsShown(p), total: threshold })}
           </div>
         )}
       </div>
@@ -170,7 +171,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   // other members. Sent ones stay until the chain has them in a block (settlement.ts), then leave
   // for the ledger. Closed ones wait behind a toggle.
   const all = rows ?? []
-  const desk = rankDesk(all.filter((p) => !expiredByClock(p)), me, threshold)
+  const desk = rankDesk(all.filter((p) => !expiredByClock(p)), me, threshold, mySeat())
   // With no known member name the bands are statements about the vault (desk.ts), so the first
   // group holds only what is ready to sign and the second everything still awaiting approval:
   // no awaiting proposal sits under a heading that promises a signature.
