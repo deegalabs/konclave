@@ -240,6 +240,14 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A coordinator that lost its request workers now stops with a failure code, so the platform can restart it.** A
+  worker that failed ended alone, and when none were left the coordinator exited with code 0, which a
+  restart-on-failure policy does not restart. Now the first worker to end takes the process with it, with code 70, and
+  the log says so. Requests in flight on the other workers end too: a send that had reached its broadcast wrote its
+  record to the volume first, and is reported as held when the coordinator starts again; a send still collecting its
+  signatures had broadcast nothing and is signed again. A request whose handler fails was already answered with a 500
+  and cost only its own answer, and still is.
+
 - **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
   read made under a vault's address does not stay in the browser after the session ends.
 - **A send no longer fails because one light-client server stops answering.** The broadcast goes to the server the send
