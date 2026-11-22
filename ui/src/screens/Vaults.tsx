@@ -26,7 +26,7 @@ import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
-import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
+import { unlockOnDevice, importAndUnlock, openFailKey, unlockFailKey, isWrongPassphrase } from '../unlock'
 import { Identicon, memberSeed } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
@@ -181,7 +181,7 @@ export default function Vaults() {
       setResumeBusy(id)
       const u = await unlockOnDevice(id, 'net', resumePass).catch(() => ({ ok: false as const, wrong: true }))
       if (!u.ok) {
-        setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(u.wrong)) }))
+        setResumeMsg((m) => ({ ...m, [id]: t(unlockFailKey(u)) }))
         setResumePass('')
         setResumeBusy(null)
         return
@@ -329,7 +329,7 @@ export default function Vaults() {
         await openUnlocked(unlocking, used)
         return
       }
-      setUnlockErr(t(openFailKey(r.wrong, src)))
+      setUnlockErr(t(unlockFailKey(r, src)))
     } catch (e) {
       setUnlockErr(t(openFailKey(isWrongPassphrase(e), src)))
     } finally {

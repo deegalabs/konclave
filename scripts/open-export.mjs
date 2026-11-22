@@ -181,8 +181,10 @@ export function shareFacts(hex) {
   try {
     const bytes = Uint8Array.from(hex.match(/../g).map((x) => parseInt(x, 16)))
     const b = JSON.parse(new TextDecoder().decode(bytes))
-    // The same test the app applies before it imports a share (`isShareBundle`): the key package and
-    // the group's public keys, as non-empty text. Anything else that opens is not a share.
+    // The shape test the app applies before it imports a share (`isShareBundle`): the key package and
+    // the group's public keys, as non-empty text. Anything else that opens is not a share. The app
+    // goes further: it checks the key package against the group's public keys, which needs its WASM,
+    // and this script does not (the report says so).
     const isBundle = typeof b === 'object' && b && typeof b.kp === 'string' && b.kp !== '' &&
       typeof b.pubkeys === 'string' && b.pubkeys !== ''
     return isBundle ? b : null
@@ -214,6 +216,14 @@ export function examine(payload, v1 = false) {
     problems.push(`The share does not decode. The file opened - the passphrase is right and the
     ciphertext is intact - but what came out is not the bundle this device wrote. Do not rely on
     this backup; take a fresh one.`)
+  }
+  // The app reads a share's seat and quorum as whole numbers from 1 to 65535 and refuses the file
+  // otherwise (`assertShareIsThisSeats`), so a backup whose seat or quorum is anything else is
+  // reported as refused too. Only that part of its check runs here.
+  const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 0xffff
+  if (share && !(whole(share.seat) && whole(share.t))) {
+    problems.push(`The share's seat or quorum is missing or is not a whole number. Konclave refuses to
+    import it; take a fresh backup.`)
   }
   // The same rule for a v1 and a v2 (the app's `vaultIdOf`): both a 64-character key, and equal.
   if (!payload.id || !payload.groupKey) {
@@ -320,6 +330,9 @@ export function reportLines(bundle, env, v1, payload, showSecrets = false) {
   #405 replaced that format, and a fresh export from Settings is one opaque blob.
 `)
   }
+  lines.push(`  This report does not check the share against its seat: whether the key in it is the one
+  for its seat of this vault needs Konclave itself, which does that when it imports the backup.
+`)
   if (showSecrets) {
     lines.push('  --- secrets ---')
     lines.push(JSON.stringify(payload, null, 2))

@@ -1035,6 +1035,30 @@ export function approvalDecision(signed, sighash) {
 }
 
 /**
+ * Does this saved key package belong to this seat of this vault, against the group's public
+ * package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
+ * `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+ * every import and every unlock; the rule is `recovery::check_share_bundle`.
+ * @param {Uint8Array} key_package
+ * @param {Uint8Array} pubkeys
+ * @param {number} seat
+ * @param {Uint8Array} group_key
+ * @param {number} t
+ */
+export function checkShareBundle(key_package, pubkeys, seat, group_key, t) {
+    const ptr0 = passArray8ToWasm0(key_package, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(group_key, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.checkShareBundle(ptr0, len0, ptr1, len1, seat, ptr2, len2, t);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
  * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
  * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.

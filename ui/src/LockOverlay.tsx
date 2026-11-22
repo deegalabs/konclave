@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Dialog } from './components'
 import PasskeyButton from './PasskeyButton'
 import { useT } from './i18n'
-import { openFailKey, unlockOnDevice, type VaultSrc } from './unlock'
+import { unlockFailKey, unlockOnDevice, type VaultSrc } from './unlock'
 import { loadPrfWrap } from './prf-store'
 import { unlockWithPasskey } from './passkey-unlock'
 import { OPEN_DENIAL_COPY } from './prf-denial-copy'
@@ -50,7 +50,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
     const r = await unlockOnDevice(vaultId, src, pass)
     setBusy(false)
     if (r.ok) { setPass(''); onUnlocked(); return }
-    setErr(t(openFailKey(r.wrong, src)))
+    setErr(t(unlockFailKey(r, src)))
   }
 
   /** The passkey shortcut, when this device holds a wrap. `S` only - signing still asks for the

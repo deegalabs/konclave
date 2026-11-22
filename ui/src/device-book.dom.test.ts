@@ -14,6 +14,10 @@ import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 import { setUnlockedShare, clearUnlockedShare } from './session'
 
+// This suite is about what a protected vault keeps on the device, with a stand-in share. The share
+// check (#965) has its own real-wasm tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 const GK = 'c3'.repeat(32)
 const PASS = 'a long passphrase for tests'
 const S = new Uint8Array(32).fill(0x5a)
@@ -24,7 +28,7 @@ const BOOK = [
 ]
 const base = (over: Partial<VaultData> = {}): VaultData => ({
   name: 'v', governance: 'quorum', myName: 'Alice', creatorName: 'Alice',
-  groupKey: new Uint8Array(32).fill(0xc3), address: 'u1vault', roster: ['Alice', 'Bob'], sealedShare: new Uint8Array(32).fill(1), ...over,
+  groupKey: new Uint8Array(32).fill(0xc3), address: 'u1vault', roster: ['Alice', 'Bob'], sealedShare: new TextEncoder().encode(JSON.stringify({ kp: 'x', pubkeys: 'y', seat: 1, n: 2, t: 2 })) /* a device-bundle shape; the check itself is mocked above */, ...over,
 })
 const bookKey = (id = GK) => `konclave.benef.${id}`
 

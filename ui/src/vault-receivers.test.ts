@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { codeAt } from './source-scan'
+import { storageError } from './storage-errors'
 
 const h = vi.hoisted(() => ({
   ufvk: null as { ufvk: string; birthday?: number } | null,
@@ -95,6 +96,11 @@ describe('repairing a device that pinned a key the vault does not answer with', 
   it('the passphrase comes first, and nothing is touched without it', async () => {
     h.load.mockRejectedValueOnce(new Error('wrong passphrase'))
     expect(await repair(await agreedCode(), 'nope')).toEqual({ state: 'wrongPassphrase' })
+    expect(h.swap).not.toHaveBeenCalled()
+  })
+  it('a share that is not this seat\'s is not called a wrong passphrase (#965)', async () => {
+    h.load.mockRejectedValueOnce(storageError('wrong-seat', 'not this seat'))
+    expect(await repair(await agreedCode())).toEqual({ state: 'wrongSeat' })
     expect(h.swap).not.toHaveBeenCalled()
   })
   it('only the key whose code the member typed is taken, whatever the coordinator answers at that click', async () => {

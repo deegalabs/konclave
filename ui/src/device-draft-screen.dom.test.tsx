@@ -6,6 +6,10 @@ import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
 
+// This suite is about what a protected vault keeps on the device, with a stand-in share. The share
+// check (#965) has its own real-wasm tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 // The payroll screen of a PROTECTED vault: every write path (typing, the CSV, a restore) keeps the
 // draft in memory, and storage sees none of it. A restore is async now, so it gives a `restored` signal
 // before anything is written back.

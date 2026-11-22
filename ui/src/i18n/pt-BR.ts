@@ -255,6 +255,7 @@ export const ptBR: Record<string, string> = {
   'vaults.plainKeyBtn': 'Criptografar agora',
   'vaults.plainKeyBusy': 'Criptografando…',
   'vaults.openFailed': 'Este cofre não abriu neste aparelho, e sua frase-senha pode estar certa. Tente de novo. Se continuar, abra um backup dele em outro perfil do navegador e mantenha esta cópia até dar certo.',
+  'vaults.openWrongSeat': 'A cópia salva neste aparelho não pertence a este assento do cofre, então não foi aberta. Restaure este assento a partir do backup dele.',
   'vaults.plainKeyWrong': 'Essa frase-senha não abriu este cofre. Nada mudou.',
   'dashboard.evictionBanner': "Este navegador não garantiu guardar a sua parte da chave, então ela pode ser apagada sem aviso.",
   'dashboard.evictionInstall': "Instalar o app é o que faz ele garantir.",
@@ -1526,6 +1527,7 @@ export const ptBR: Record<string, string> = {
   'storage.err.sealedFieldUnreadable': 'Uma parte deste cofre neste aparelho não abriu, então a frase-senha não foi trocada e nada se perdeu. Para escolher outra, faça um backup, confira se ele diz que está completo e restaure em outro perfil do navegador, mantendo esta cópia até dar certo. Esta cópia e os backups anteriores ainda abrem com a frase-senha atual.',
   'storage.err.samePassphrase': 'A nova frase-senha é igual à atual.',
   'storage.err.weakPassphrase': 'Essa frase-senha é curta demais ou fácil demais de adivinhar. Nada foi alterado.',
+  'storage.err.wrongSeat': 'Esta cópia não pertence a este assento do cofre. Nada foi alterado. Use o backup feito para este assento.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'O aplicativo de mesa existe (v{ver}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Por enquanto o caminho é o app web: a sua parte da chave fica selada no seu aparelho, e o nosso coordenador hospedado, que o app de mesa também usa, monta e envia os pagamentos que o seu quórum assina.',
   'lv.toggleTheme': 'Alternar tema',

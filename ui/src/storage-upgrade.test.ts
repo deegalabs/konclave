@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 vi.setConfig({ testTimeout: 60_000 })
 import { loadVault, saveVault } from './storage'
 
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 const share = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))
 const secret = new Uint8Array(32).fill(9)
 const AAD = new TextEncoder().encode('konclave-ufvk-at-rest')

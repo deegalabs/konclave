@@ -17,6 +17,10 @@ import { RecipientCombobox } from './RecipientCombobox'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 
+// This suite is about what a protected vault keeps on the device, with a stand-in share. The share
+// check (#965) has its own real-wasm tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 const GK = 'c3'.repeat(32)
 const PASS = 'a long passphrase for tests'
 const S = new Uint8Array(32).fill(0x5a)
