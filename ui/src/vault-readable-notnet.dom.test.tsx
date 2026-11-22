@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// P0A T3. Outside the browser-native app (the local bridge, the desktop shell) the device's record
+// #1108 T3. Outside the browser-native app (the local bridge, the desktop shell) the device's record
 // does not decide: the bridge answers with its own `locked`, so the function says nothing.
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), IS_NET: false }))
 
@@ -10,7 +10,7 @@ const { saveVault, deleteVault } = await import('./storage')
 const { localLockNow } = await import('./vault-readable')
 const GK = 'ef'.repeat(32)
 
-describe('localLockNow outside the browser-native app (P0A T3)', () => {
+describe('localLockNow outside the browser-native app (#1108 T3)', () => {
   afterEach(async () => { await deleteVault(GK).catch(() => {}) })
   it('answers undefined even for a protected record the device holds', async () => {
     await saveVault(GK, {

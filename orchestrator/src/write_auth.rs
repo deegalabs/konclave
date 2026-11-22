@@ -931,7 +931,7 @@ mod tests {
         );
     }
 
-    /// L4: a vault that requires signatures and never recorded a roster no longer counts every
+    /// A vault that requires signatures and never recorded a roster no longer counts every
     /// name. The gate refuses its signed writes (#568), so nothing there can count.
     #[test]
     fn a_vault_requiring_signatures_with_no_roster_counts_no_name() {

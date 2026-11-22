@@ -8211,7 +8211,7 @@ mod tests {
     #[test]
     fn an_approval_planted_while_the_vault_was_open_does_not_count_once_it_is_signed() {
         use konclave_seal::WriteAction;
-        // A name on no seat is refused at creation now (#575, design M1), so the plants are
+        // A name on no seat is refused at creation now (#575), so the plants are
         // spellings of a member's name.
         for planted in ["alice ", "alice\u{00a0}"] {
             let st = HelperState::new();
@@ -8422,7 +8422,7 @@ mod tests {
         assert_eq!(answered["state"], "ready", "{}", voted.body);
     }
 
-    /// A payment or a payroll proposed under a name on no seat is refused (#575, design M1): an
+    /// A payment or a payroll proposed under a name on no seat is refused (#575): an
     /// approval on no seat never counts, and a proposal under it would read as nobody's. Before, it
     /// was accepted and counted for nobody.
     #[test]
@@ -13083,7 +13083,7 @@ mod tests {
         assert!(vote_basis(dir, "noreg").requires_signatures);
     }
 
-    // Round-2 audit (R2-A, code R2-M2): a payment sent SINCE votes exist is read by the vault's basis,
+    // A payment sent SINCE votes exist is read by the vault's basis,
     // so an approval recorded without a signature on a gated vault is not listed as an approver, in
     // the ledger route or its CSV. (A payment sent before votes existed is history: test above.)
     #[test]

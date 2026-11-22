@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { I18nProvider } from './i18n'
 
-// P0A. `Layout` decides the lock from the device's own record before it asks anyone about the vault,
+// #1108. `Layout` decides the lock from the device's own record before it asks anyone about the vault,
 // and mounts no screen while that is undecided or locked. The real Layout, the real store and the
 // real session; the network, the signer and the shell's decoration are fakes, and the test reads
 // whether the vault was named.
@@ -69,7 +69,7 @@ beforeEach(() => {
 })
 afterEach(async () => { cleanup(); vi.clearAllMocks(); clearReadSecret(ID); clearReadSecret(ID2); await deleteVault(ID).catch(() => {}); await deleteVault(ID2).catch(() => {}); localStorage.removeItem(draftKey(ID)) })
 
-describe('a protected vault this device holds is not named before it is unlocked (P0A)', () => {
+describe('a protected vault this device holds is not named before it is unlocked (#1108)', () => {
   it('T6: locked from the record, no screen mounts, the vault is never asked for, the draft is cleared, the overlay names the record', async () => {
     await save(true)
     localStorage.setItem(draftKey(ID), JSON.stringify({ competencia: 'x', description: '', copiedFrom: null, rows: [] }))

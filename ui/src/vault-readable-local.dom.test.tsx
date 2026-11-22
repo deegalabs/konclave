@@ -5,7 +5,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { codeAt } from './source-scan'
 
-// P0A. Whether this device must unlock a vault is decided from its OWN record, so that an app which
+// #1108. Whether this device must unlock a vault is decided from its OWN record, so that an app which
 // is opened and not unlocked makes no request that names the vault. The state here is real (a vault
 // saved in the real store, the real session); only the storage read that must fail is a switch.
 localStorage.setItem('konclave.coord.mode', 'custom')
@@ -28,7 +28,7 @@ const save = (secret: boolean, cp?: number) => saveVault(GK, {
   sealedShare: new Uint8Array(32).fill(1), ...(secret ? { accessSecret: S } : {}), ...(cp !== undefined ? { cp } : {}),
 }, 'river stone maple lantern')
 
-describe('localLockNow decides from the record, with the rule needsUnlock (P0A T3)', () => {
+describe('localLockNow decides from the record, with the rule needsUnlock (#1108 T3)', () => {
   beforeEach(() => { readFails.on = false })
   afterEach(async () => { clearReadSecret(GK); await deleteVault(GK).catch(() => {}) })
 
@@ -62,7 +62,7 @@ describe('localLockNow decides from the record, with the rule needsUnlock (P0A T
   })
 })
 
-describe('the rule is asked in one place (P0A T5)', () => {
+describe('the rule is asked in one place (#1108 T5)', () => {
   it('needsUnlock is called only from vault-readable.ts', () => {
     const files: string[] = []
     const walk = (d: string) => {

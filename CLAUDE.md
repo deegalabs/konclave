@@ -574,7 +574,7 @@ to the relay). From `S`:
   holds no record of (and on the desktop bridge); for a record that is not protected it decides
   from the record first and reads the vault only for the rail, so gating the route would make
   such a vault answer `null`, skip the unlock decision, and land the member on the blank screen #439
-  exists to prevent. For a protected vault this device HOLDS A RECORD OF, the P0A change (on `main`
+  exists to prevent. For a protected vault this device HOLDS A RECORD OF, the #1108 change (on `main`
   only once merged, and running only once deployed) removes that reason on the web path: `Layout`
   decides the lock from the record (`localLockNow`) before any request, and mounts no screen for a
   vault it has not decided or while it is locked, so on opening the app, on leaving the unlock

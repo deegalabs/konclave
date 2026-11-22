@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 
-// P0A (T1). A protected vault this device holds a record of, an app opened and NOT unlocked: no
+// #1108 (T1). A protected vault this device holds a record of, an app opened and NOT unlocked: no
 // request, anywhere in the app, names the vault. The capture counts every request, from every page
 // and the service worker (the context's, not one page's), whose URL, body or headers carry the vault
 // id, over every screen under the shell, past the 12 s poll for 30 s, and a window focus; and every
