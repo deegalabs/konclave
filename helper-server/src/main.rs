@@ -837,7 +837,7 @@ impl Drop for ScratchDir {
 /// 4. It names every directory it removes on stderr, so the deploy log is the record of what went.
 ///
 /// Nothing of account lives in a scratch dir: a send's txid is in the proposal record and in
-/// `ceremonies.jsonl`, and `SendOutcome::signed_pczt` is only ever reported, never read back.
+/// `ceremonies.jsonl`, and a send's proven and signed transactions are not kept here at all.
 fn sweep_send_work(vaults_dir: &std::path::Path) -> usize {
     let Ok(entries) = std::fs::read_dir(vaults_dir) else {
         return 0; // no volume yet (first boot) - nothing to sweep
@@ -3005,6 +3005,12 @@ fn main() {
     // Nothing of record lives here: the txid is in the proposal and in ceremonies.jsonl, and the
     // registration, wallet, roster and proposals are sibling paths this never touches.
     let swept = sweep_send_work(&cfg.vaults_dir);
+    // The private temporary files of an earlier process (a tool's output it never got to delete).
+    // Boot is when none of this process's is in flight, so every file of our own prefix is a leftover.
+    let swept_private = orchestrator::secrets::sweep_private_leftovers();
+    if swept_private > 0 {
+        eprintln!("swept {swept_private} private temporary file(s)");
+    }
     // The record of a send needs a volume that can hard-link and sync a directory. Say so now, in the
     // log, rather than at the first payment, which would be refused after its devices had signed.
     // The directory is made first: a first boot on an empty volume is not a volume that cannot.

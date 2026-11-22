@@ -126,6 +126,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
 
+- **A payment or payroll keeps less of its work on the coordinator.** The details follow in a later entry.
+
 ### Added
 
 - **`/api/health` lists the light-client servers (`light_servers`).** Each entry is `{host, ok, chain, height_lag}` (`chain` is `main`, `test` or `other`):

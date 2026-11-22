@@ -4,7 +4,7 @@
 //!
 //! This is where "an error costs real funds" (CLAUDE.md §4), so it follows the proven
 //! slice recipe exactly (docs/VERTICAL_SLICE.md) and supports a **dry-run** that stops
-//! right before broadcast - everything up to a fully-signed PCZT, no funds moved.
+//! right before broadcast - everything up to a fully-signed PCZT, which is not broadcast and is not kept.
 //!
 //! `frostd` is started fresh per call and killed on drop, so no ceremony leaks a server
 //! or a stale session.
@@ -125,8 +125,6 @@ fn default_port() -> u16 {
 pub struct SendOutcome {
     /// The broadcast txid - `None` on a dry-run (signed but not sent).
     pub txid: Option<String>,
-    /// Path to the fully-signed PCZT.
-    pub signed_pczt: String,
     /// The shielded sighash the ceremony signed (hex) - useful for the receipt.
     pub sighash: String,
     /// The aggregate FROST signature(s) the quorum produced, one hex string per real spend, in
@@ -293,17 +291,17 @@ fn funding_check_capped(
     // konclave-signer has to change or be rebuilt for it (#522).
     let crossed = match &outcome {
         Ok(bytes) => {
-            let probe_pczt = format!("{probe_dir}/funding-check.pczt");
-            match std::fs::write(&probe_pczt, bytes) {
-                Ok(()) => matches!(
-                    signer::extract(&probe.konclave_signer, &probe_pczt),
+            // The same unproven bytes the builder just kept private: a private file, not the volume.
+            // Could not write the probe: say nothing rather than report a refusal we did not
+            // measure; the send path asks the same question again, so a miss here costs the old
+            // behaviour, not a wrong answer.
+            crate::secrets::with_private_file(bytes, |probe_pczt| {
+                matches!(
+                    signer::extract(&probe.konclave_signer, &probe_pczt.to_string_lossy()),
                     Err(e) if is_mixed_pool(&e.to_string())
-                ),
-                // Could not write the probe. Say nothing rather than report a refusal we did not
-                // measure: the send path asks the same question again, so a miss here costs the
-                // old behaviour, not a wrong answer.
-                Err(_) => false,
-            }
+                )
+            })
+            .unwrap_or(false)
         }
         Err(_) => false,
     };
@@ -415,7 +413,11 @@ fn build_unproven_with(
         SpendPlan::Payroll { .. } => "payroll spec",
     };
     let spec = serde_json::to_string(lines).map_err(|e| ToolError::parse(what, e.to_string()))?;
-    let out_path = format!("{}/payroll.pczt", sc.work_dir);
+    // The unproven PCZT names the payee and the amount: the signer writes it to private temporary
+    // storage, and the guard removes it on every return path, panics included.
+    let out = crate::secrets::PrivateOutPath::new()
+        .map_err(|e| ToolError::parse("built transaction output", e.to_string()))?;
+    let out_path = out.path().to_string_lossy().into_owned();
     let from = sc.zip2009_from.map(|h| h.to_string());
     crate::secrets::with_private_file(spec.as_bytes(), |spec_path| {
         let spec_path = spec_path.to_string_lossy();
@@ -445,15 +447,30 @@ fn build_unproven_with(
         crate::tools::run(&sc.konclave_signer, &args, None)
     })
     .map_err(|e| ToolError::parse(what, e.to_string()))??;
-    let built = std::fs::read(&out_path).map_err(ToolError::Io);
-    // The unproven PCZT names the payee and the amount; a payment used to pipe it through stdout and
-    // leave nothing behind, so it is not left in the work directory now either.
-    let _ = std::fs::remove_file(&out_path);
-    built
+    std::fs::read(&out_path).map_err(ToolError::Io)
 }
 
-/// Run the full spend. On `dry_run` it stops after producing a signed PCZT (no broadcast,
-/// no funds moved) - the way to validate the ceremony works today without spending.
+/// A private place for one of a send's working files (the proven transaction, a signature, the signed
+/// transaction): never under the work directory, and removed when the guard drops - on success, on an
+/// error return and on panic. The same guard the built transaction uses, not a second mechanism.
+fn private_work_file(what: &str) -> Result<crate::secrets::PrivateOutPath, ToolError> {
+    #[cfg(test)]
+    if what == "signed transaction" && tests::PRIVATE_STORAGE_FULL.with(|f| f.get()) {
+        return Err(ToolError::parse(
+            "private temporary storage",
+            format!("could not create a file for the {what}: no space left on device"),
+        ));
+    }
+    crate::secrets::PrivateOutPath::new().map_err(|e| {
+        ToolError::parse(
+            "private temporary storage",
+            format!("could not create a file for the {what}: {e}"),
+        )
+    })
+}
+
+/// Run the full spend. On `dry_run` it stops after producing a signed PCZT and does not broadcast it.
+/// Nothing the run wrote stays on disk when it returns, so no signed transaction is left behind.
 ///
 /// Handles multi-note spends: a transaction may consume several input notes, each a real
 /// Orchard spend needing its own FROST signature (one ceremony round per randomizer).
@@ -533,7 +550,8 @@ pub fn orchestrate_send(
 
     // 2) prove it (ZK proofs, local).
     let tx2 = pczt::prove(&sc.devtool, &sc.wallet_dir, &tx1)?;
-    let tx2_path = format!("{}/tx2-proven.pczt", sc.work_dir);
+    let tx2_file = private_work_file("proven transaction")?;
+    let tx2_path = tx2_file.path().to_string_lossy().into_owned();
     std::fs::write(&tx2_path, &tx2).map_err(ToolError::Io)?;
 
     // 3) extract the sighash + the per-spend randomizers the ceremony must sign.
@@ -555,9 +573,10 @@ pub fn orchestrate_send(
     // 5) one ceremony per real spend → collect every (action_index, signature). The
     //    message is the same sighash; each spend re-randomizes it with its own alpha.
     let mut signatures = Vec::with_capacity(input.randomizers.len());
-    for (round, r) in input.randomizers.iter().enumerate() {
+    for r in input.randomizers.iter() {
         let alpha_hex = hex_encode(&r.alpha);
-        let sig_path = format!("{}/sig-{round}.raw", sc.work_dir);
+        let sig_file = private_work_file("signature")?;
+        let sig_path = sig_file.path().to_string_lossy().into_owned();
         let sig = run_ceremony(
             sc,
             &coordinator_config,
@@ -573,7 +592,8 @@ pub fn orchestrate_send(
     }
 
     // 6) inject every signature back into the PCZT (inject verifies each).
-    let tx3_path = format!("{}/tx3-signed.pczt", sc.work_dir);
+    let tx3_file = private_work_file("signed transaction")?;
+    let tx3_path = tx3_file.path().to_string_lossy().into_owned();
     signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &signatures)?;
 
     // 7) broadcast - unless this is a dry-run.
@@ -586,7 +606,6 @@ pub fn orchestrate_send(
 
     Ok(SendOutcome {
         txid,
-        signed_pczt: tx3_path,
         sighash: sighash_hex,
         signatures: signatures.iter().map(|(_, s)| hex_encode(s)).collect(),
     })
@@ -609,7 +628,6 @@ pub struct SignedSend {
     /// The signed PCZT, held as bytes: the expiry that gets recorded and the transaction that gets
     /// broadcast are read from the SAME bytes, not from a file that could change between the two.
     tx3: Vec<u8>,
-    tx3_path: String,
 }
 
 /// The signed PCZT names the recipients, the amounts and the memos, which must never be logged or
@@ -634,12 +652,11 @@ impl SignedSend {
         signatures: Vec<String>,
     ) -> Result<Self, ToolError> {
         let tx3 = std::fs::read(tx3_path).map_err(ToolError::Io)?;
-        Self::from_bytes(tx3, tx3_path, sighash, signatures)
+        Self::from_bytes(tx3, sighash, signatures)
     }
 
     pub(crate) fn from_bytes(
         tx3: Vec<u8>,
-        tx3_path: &str,
         sighash: &[u8; 32],
         signatures: Vec<String>,
     ) -> Result<Self, ToolError> {
@@ -650,7 +667,6 @@ impl SignedSend {
             sighash: hex_encode(sighash),
             signatures,
             tx3,
-            tx3_path: tx3_path.to_string(),
         })
     }
 
@@ -686,7 +702,6 @@ impl SignedSend {
             expiry_height,
             branch_id: konclave_seal::epochs::NU6_3,
             tx3: Vec::new(),
-            tx3_path: String::new(),
         }
     }
 }
@@ -870,7 +885,11 @@ fn prepare_capped<T: Transport>(
         pczt::consensus_branch_of(&tx2)?,
         pczt::expiry_height_of(&tx2)?,
     )?;
-    let tx2_path = format!("{}/net-tx2-proven.pczt", sc.work_dir);
+    // The proven and the signed transaction name the payees and the amounts: they live in private
+    // temporary storage, owned by these guards, and are removed when the step no longer needs them and
+    // on every way out of this function. The signer still takes paths.
+    let tx2_file = private_work_file("proven transaction")?;
+    let tx2_path = tx2_file.path().to_string_lossy().into_owned();
     std::fs::write(&tx2_path, &tx2).map_err(ToolError::Io)?;
 
     // 2) extract the sighash + per-spend randomizers the devices must sign.
@@ -912,9 +931,14 @@ fn prepare_capped<T: Transport>(
     // index, same 64 bytes, so `into_sigs` accepts them - and only the cryptography catches it,
     // as `IronwoodSign(InvalidExternalSignature)` at inject time. Every send after the first one
     // in a room failed that way until the room expired (#358).
-    // tx3 is written by the verifier below (a candidate is verified BY injecting it), so it must
-    // exist before the poll loop.
-    let tx3_path = format!("{}/net-tx3-signed.pczt", sc.work_dir);
+    // Each candidate is tried into its own private file, which goes at once if the candidate does not
+    // verify; the one that does is kept here until its bytes are read.
+    let accepted: std::cell::RefCell<Option<crate::secrets::PrivateOutPath>> =
+        std::cell::RefCell::new(None);
+    let no_file: std::cell::RefCell<Option<ToolError>> = std::cell::RefCell::new(None);
+    // The last time the signer's check did not run (it could not start, or could not write its
+    // output): said at the end instead of "timed out", which would hide why nothing was accepted.
+    let last_inject_error: std::cell::RefCell<Option<ToolError>> = std::cell::RefCell::new(None);
     let mut since = posted;
     let mut collected = None;
     let mut retries = net_send::Retries::default();
@@ -922,7 +946,7 @@ fn prepare_capped<T: Transport>(
     let speaks = signer::speaks_refusal_status(&sc.konclave_signer);
     for _ in 0..max_polls {
         // Verify each candidate by trial-injecting it: `inject` checks every redpallas signature
-        // as it applies it, so a real device's response injects cleanly (and tx3_path is then the
+        // as it applies it, so a real device's response injects cleanly (and its file is then the
         // signed tx, ready to broadcast) while a bogus response an outsider posted into the public
         // room fails the crypto and is SKIPPED - noise, not a kill (#391). Before this, the send
         // accepted the first structurally-valid message and died at inject, so any outsider could
@@ -933,34 +957,75 @@ fn prepare_capped<T: Transport>(
         // not start, the PCZT could not be read or written) says nothing about it, and the candidate
         // is read again on a later poll instead of being lost.
         let verify = |sigs: &net_send::SpendSigs| {
-            signer::inject_verdict(
-                &signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs),
-                speaks,
-            )
+            // A file that cannot be made says nothing about the response, and this poll ends the send
+            // with that error (below) instead of reading the answer again: keep the error, and say it.
+            let out = match private_work_file("signed transaction") {
+                Ok(out) => out,
+                Err(e) => {
+                    *no_file.borrow_mut() = Some(e);
+                    return net_send::Verdict::CouldNotRun;
+                }
+            };
+            let out_path = out.path().to_string_lossy().into_owned();
+            let result = signer::inject(&sc.konclave_signer, &tx2_path, &out_path, sigs);
+            let verdict = signer::inject_verdict(&result, speaks);
+            if verdict == net_send::Verdict::Valid {
+                *accepted.borrow_mut() = Some(out);
+            } else if verdict == net_send::Verdict::CouldNotRun {
+                *last_inject_error.borrow_mut() = result.err();
+            }
+            verdict
         };
         let (found, next) =
             net_send::collect_response_retrying(client, &req, since, verify, &mut retries)
                 .map_err(|e| ToolError::parse("relay", e))?;
         since = next;
+        if found.is_none() {
+            if let Some(e) = no_file.borrow_mut().take() {
+                return Err(e);
+            }
+        }
         if found.is_some() {
             collected = found;
             break;
         }
         thread::sleep(poll_delay);
     }
-    // The accepted response was already injected by `verify`; tx3_path holds the signed tx. `sigs`
+    // The accepted response was already injected by `verify`; `accepted` holds the signed tx. `sigs`
     // is still used below to record the ceremony's signatures.
-    let sigs = collected.ok_or_else(|| {
-        ToolError::parse("net-send", "timed out waiting for the devices' signatures")
-    })?;
+    let sigs = match collected {
+        Some(sigs) => sigs,
+        None => {
+            // Compose rather than replace: an old inject error must not stand in for the timeout.
+            return Err(match last_inject_error.into_inner() {
+                Some(e) => ToolError::parse(
+                    "net-send",
+                    format!(
+                        "timed out waiting for the devices' signatures; the signer's check could not run on an answer: {e}"
+                    ),
+                ),
+                None => ToolError::parse("net-send", "timed out waiting for the devices' signatures"),
+            });
+        }
+    };
+
+    // The build no longer needs the proven transaction.
+    drop(tx2_file);
 
     // 5) read what a later send needs to judge this one - the transaction's own expiry, from the signed
     // PCZT, and its id, from the sighash - out of the very bytes that will be broadcast.
-    SignedSend::describe(
+    let tx3_file = accepted
+        .into_inner()
+        .ok_or_else(|| ToolError::parse("net-send", "no verified signed transaction"))?;
+    let tx3_path = tx3_file.path().to_string_lossy().into_owned();
+    let described = SignedSend::describe(
         &tx3_path,
         &input.sighash,
         sigs.iter().map(|(_, s)| hex_encode(s)).collect(),
-    )
+    );
+    // Read into memory: the file is not needed, and goes now.
+    drop(tx3_file);
+    described
 }
 
 /// The operator's command line (`konclave net-send`): prepare, and broadcast unless `dry_run`, with NO
@@ -998,7 +1063,6 @@ pub fn net_orchestrate_send_untracked(
     };
     Ok(SendOutcome {
         txid,
-        signed_pczt: signed.tx3_path.clone(),
         sighash: signed.sighash.clone(),
         signatures: signed.signatures.clone(),
     })
@@ -1232,12 +1296,78 @@ mod tests {
         max_actions: Option<usize>,
         payroll: bool,
     ) -> (Result<SignedSend, ToolError>, Vec<String>, bool) {
+        prepare_against_stand_ins_faulty(
+            tag,
+            proven_bytes,
+            extra,
+            unproven,
+            device_pubs,
+            max_actions,
+            payroll,
+            Fault::None,
+        )
+    }
+
+    /// What the stand-in signer gets wrong, to reach each way out of the send after the proven
+    /// transaction was written.
+    #[cfg(unix)]
+    #[derive(Clone, Copy)]
+    enum Fault {
+        None,
+        /// `extract` fails.
+        ExtractFails,
+        /// `inject` writes bytes that are not a PCZT, so the signed transaction cannot be described.
+        SignedUnreadable,
+        /// `inject` exits 1 for every candidate (the check did not run, as when it cannot write).
+        InjectFails,
+    }
+
+    /// Every path a stand-in signer was handed that lives outside `dir` (the private files), and every
+    /// working file left in the work directory: neither may hold a send's transaction once the send
+    /// is over. Returns how many private paths were seen, so a test can tell it looked at something.
+    #[cfg(unix)]
+    fn assert_no_send_files_left(dir: &std::path::Path, log: &std::path::Path) -> usize {
+        let work = dir.join("work");
+        if let Ok(rd) = std::fs::read_dir(&work) {
+            let left: Vec<_> = rd.flatten().map(|e| e.file_name()).collect();
+            assert!(left.is_empty(), "left in the work dir: {left:?}");
+        }
+        let seen = std::fs::read_to_string(log).unwrap_or_default();
+        let mut private = std::collections::BTreeSet::new();
+        for word in seen.split_whitespace() {
+            let p = std::path::Path::new(word);
+            if p.is_absolute() && !p.starts_with(dir) {
+                private.insert(p.to_path_buf());
+            }
+        }
+        for p in &private {
+            assert!(!p.exists(), "a send's file was left at {}", p.display());
+        }
+        private.len()
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_against_stand_ins_faulty(
+        tag: &str,
+        proven_bytes: &[u8],
+        extra: usize,
+        unproven: Option<&[u8]>,
+        device_pubs: &[String],
+        max_actions: Option<usize>,
+        payroll: bool,
+        fault: Fault,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>, bool) {
         let dir =
             std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let vector = dir.join("signed.pczt");
-        std::fs::write(&vector, VECTOR).unwrap();
+        let log = dir.join("signer.log");
+        match fault {
+            Fault::SignedUnreadable => std::fs::write(&vector, b"not a pczt").unwrap(),
+            _ => std::fs::write(&vector, VECTOR).unwrap(),
+        }
         let script = |name: &str, body: String| {
             let path = dir.join(name);
             crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
@@ -1285,12 +1415,23 @@ mod tests {
             r#"echo '{"signature_rejected":3}'"#.to_string()
         };
         let refused = if older { 1 } else { 3 };
+        let extract_body = match fault {
+            Fault::ExtractFails => "exit 1".to_string(),
+            _ => format!(
+                "echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}'",
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32)
+            ),
+        };
+        let inject_fails = match fault {
+            Fault::InjectFails => "echo 'No space left on device' >&2; exit 1; ",
+            _ => "",
+        };
         let signer = script(
             "signer",
             format!(
-                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject-statuses) {statuses};; inject) [ -e {flaky} ] && {{ rm {flaky}; exit 1; }}; case \"$*\" in *{}*) cp {} \"$3\";; *) exit {refused};; esac;; esac",
-                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
-                "11".repeat(32),
+                "echo \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) {build_payroll};; extract) {extract_body};; inject-statuses) {statuses};; inject) {inject_fails}[ -e {flaky} ] && {{ rm {flaky}; exit 1; }}; case \"$*\" in *{}*) cp {} \"$3\";; *) exit {refused};; esac;; esac",
+                log.display(),
                 "ab".repeat(64),
                 vector.display()
             ),
@@ -1357,6 +1498,14 @@ mod tests {
         };
         let seen = published.lock().unwrap().clone();
         let proved = dir.join("proved").exists();
+        // Whatever way the send ended, none of its transactions is left on disk.
+        let private = assert_no_send_files_left(&dir, &log);
+        if proved {
+            assert!(
+                private >= 2,
+                "the stand-in signer saw {private} private paths"
+            );
+        }
         std::fs::remove_dir_all(&dir).ok();
         (result, seen, proved)
     }
@@ -1422,6 +1571,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let vector = dir.join("signed.pczt");
         std::fs::write(&vector, VECTOR).unwrap();
+        let log = dir.join("signer.log");
         let script = |name: &str, body: String| {
             let path = dir.join(name);
             crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
@@ -1439,7 +1589,8 @@ mod tests {
         let signer = script(
             "signer",
             format!(
-                "out=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) cp {} \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "echo \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) cp {} \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                log.display(),
                 proven.display(),
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
@@ -1481,8 +1632,203 @@ mod tests {
             Duration::from_millis(1),
             &fixed_clock_gate(&no_tip),
         );
+        let private = assert_no_send_files_left(&dir, &log);
+        assert!(
+            private >= 2,
+            "the stand-in signer saw {private} private paths"
+        );
         std::fs::remove_dir_all(&dir).ok();
         (result, gets.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// The proven and the signed transaction name the payees and the amounts. Whatever way the send
+    /// ends, neither is left under the work directory or in private storage: the harness checks it
+    /// after every run (`assert_no_send_files_left`), so each of these only has to reach its exit.
+    #[cfg(unix)]
+    #[test]
+    fn a_successful_send_leaves_no_proven_or_signed_file() {
+        let (r, _, proved) =
+            prepare_against_stand_ins_as("files-ok", PROVEN, 0, None, &[], None, false);
+        assert!(r.is_ok() && proved);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_signer_error_leaves_no_proven_file() {
+        let (r, _, _) = prepare_against_stand_ins_faulty(
+            "files-extract",
+            PROVEN,
+            0,
+            None,
+            &[],
+            None,
+            false,
+            Fault::ExtractFails,
+        );
+        assert!(r.is_err());
+    }
+
+    /// The signed transaction is written, accepted, and then cannot be described: it still goes.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_signed_transaction_is_not_left_behind() {
+        let (r, _, _) = prepare_against_stand_ins_faulty(
+            "files-unreadable",
+            PROVEN,
+            0,
+            None,
+            &[],
+            None,
+            false,
+            Fault::SignedUnreadable,
+        );
+        assert!(r.is_err());
+    }
+
+    /// The signer's check did not run on any answer (it cannot write the signed transaction): the
+    /// send says why next to the timeout, instead of only "timed out".
+    #[cfg(unix)]
+    #[test]
+    fn an_inject_that_cannot_run_is_reported_with_its_own_cause_beside_the_timeout() {
+        let (r, _, _) = prepare_against_stand_ins_faulty(
+            "files-checkcannotrun",
+            PROVEN,
+            0,
+            None,
+            &[],
+            None,
+            false,
+            Fault::InjectFails,
+        );
+        let why = r.expect_err("no answer could be checked").to_string();
+        assert!(why.contains("No space left"), "{why}");
+        assert!(why.contains("timed out"), "{why}");
+    }
+
+    /// A candidate that does not verify is tried into a file of its own, which goes at once.
+    #[cfg(unix)]
+    #[test]
+    fn a_response_that_does_not_verify_leaves_no_signed_file() {
+        let (r, _, _) =
+            prepare_against_stand_ins_as("files-bogus", PROVEN, 3, None, &[], None, false);
+        assert!(r.is_ok());
+    }
+
+    /// A send that times out leaves nothing either (checked by the silent-relay harness).
+    #[cfg(unix)]
+    #[test]
+    fn a_send_that_times_out_leaves_no_proven_file() {
+        let (r, _) = prepare_on_a_silent_relay("files-timeout", 2, 0);
+        assert!(r.is_err());
+    }
+
+    thread_local! {
+        /// Makes `private_work_file("signed transaction")` fail on this thread, as a full tmpfs does.
+        pub(super) static PRIVATE_STORAGE_FULL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// A private file that cannot be created for a response is not "the devices never answered": the
+    /// send says so, instead of timing out.
+    #[cfg(unix)]
+    #[test]
+    fn a_full_private_storage_is_not_reported_as_a_timeout() {
+        PRIVATE_STORAGE_FULL.with(|f| f.set(true));
+        let (r, _, proved) =
+            prepare_against_stand_ins_as("files-full", PROVEN, 0, None, &[], None, false);
+        PRIVATE_STORAGE_FULL.with(|f| f.set(false));
+        let why = r.expect_err("no file for the response").to_string();
+        assert!(proved);
+        assert!(why.contains("private temporary storage"), "{why}");
+        assert!(why.contains("no space left"), "{why}");
+        assert!(!why.contains("failed to parse signed transaction"), "{why}");
+        assert!(!why.contains("timed out"), "{why}");
+    }
+
+    /// The local bridge and the command line: a dry run signs and does not broadcast, and nothing it
+    /// wrote (the proven transaction, a signature, the signed transaction) stays on disk.
+    #[cfg(unix)]
+    #[test]
+    fn a_dry_run_leaves_no_transaction_or_signature_on_disk() {
+        for fail_inject in [false, true] {
+            dry_run_leaves_nothing(fail_inject);
+        }
+    }
+
+    /// One run of the test above; `fail_inject` makes the signer's `inject` fail (an error exit).
+    #[cfg(unix)]
+    fn dry_run_leaves_nothing(fail_inject: bool) {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-dry-{fail_inject}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = TmpDir(dir.clone());
+        let vector = dir.join("signed.pczt");
+        std::fs::write(&vector, VECTOR).unwrap();
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, PROVEN).unwrap();
+        let log = dir.join("tools.log");
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            crate::test_exec::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
+            path
+        };
+        let devtool = script(
+            "devtool",
+            format!(
+                "case \"$4\" in prove) cat >/dev/null; cat {};; esac",
+                proven.display()
+            ),
+        );
+        let inject = if fail_inject {
+            "exit 1".to_string()
+        } else {
+            format!("cp {} \"$3\"", vector.display())
+        };
+        let signer = script(
+            "signer",
+            format!(
+                "echo \"$@\" >> {}\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\ncase \"$1\" in build-payroll) cp {} \"$out\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) {inject};; esac",
+                log.display(),
+                proven.display(),
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32),
+            ),
+        );
+        // `coordinator ... -o <path>` writes a 64-byte signature there; `participant` just returns.
+        let frost = script(
+            "frost-client",
+            format!(
+                "cat >/dev/null\necho \"$@\" >> {}\nif [ \"$1\" = coordinator ]; then out=; prev=; for a in \"$@\"; do [ \"$prev\" = -o ] && out=\"$a\"; prev=\"$a\"; done; head -c 64 /dev/zero > \"$out\"; fi",
+                log.display()
+            ),
+        );
+        // Started by the send it stays up.
+        let frostd = script("frostd", "sleep 30".to_string());
+        // Something must answer where frostd is said to listen.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = std::fs::remove_file(&log);
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": frostd, "frost_client": frost,
+            "members": [{"name": "ana", "pubkey": "pk", "config": "/c"}], "threshold": 1,
+            "group": "g", "frostd_cert": "c", "frostd_key": "k", "frostd_ip": "127.0.0.1",
+            "frostd_port": port, "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let out = orchestrate_send(&sc, &plan, &["ana".to_string()], true);
+        assert_eq!(out.is_err(), fail_inject, "{out:?}");
+        if let Ok(out) = out {
+            assert!(out.txid.is_none(), "a dry run broadcasts nothing");
+        }
+        let private = assert_no_send_files_left(&dir, &log);
+        assert!(private >= 3, "the tools saw {private} private paths");
+        drop(listener);
     }
 
     /// The wait is as many polls as it was given, no more and no fewer: nothing answers, and the
@@ -2224,6 +2570,103 @@ mod tests {
         assert!(argv("fee-from-only", false, Some(7)).contains("--zip2009-from 7"));
     }
 
+    /// Removes its directory when dropped, panics included.
+    #[cfg(unix)]
+    struct TmpDir(std::path::PathBuf);
+    #[cfg(unix)]
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A signer that records where it was told to write, writes there, and exits with `code`.
+    /// Returns (config, recorded-out-path file, dir).
+    #[cfg(unix)]
+    fn out_recording_signer(tag: &str, code: i32) -> (SendConfig, std::path::PathBuf, TmpDir) {
+        let dir = std::env::temp_dir().join(format!("konclave-l4-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let recorded = dir.join("out.path");
+        let signer = dir.join("signer");
+        crate::test_exec::write_script(
+            &signer,
+            &format!(
+                "#!/bin/sh\nout=; prev=; for a in \"$@\"; do [ \"$prev\" = --out ] && out=\"$a\"; prev=\"$a\"; done\necho \"$out\" > {}\nprintf built > \"$out\"\nexit {code}\n",
+                recorded.display()
+            ),
+        );
+        let cfg = serde_json::json!({
+            "devtool": "/x", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        });
+        let sc: SendConfig = serde_json::from_value(cfg).unwrap();
+        std::fs::create_dir_all(&sc.work_dir).unwrap();
+        (sc, recorded, TmpDir(dir))
+    }
+
+    fn l4_plans() -> [SpendPlan; 2] {
+        [
+            SpendPlan::Payment {
+                to: "u1payee".into(),
+                value_zat: 1,
+                memo: None,
+            },
+            SpendPlan::Payroll {
+                lines: vec![PayrollDest {
+                    address: "u1payee".into(),
+                    value_zat: 1,
+                    memo: None,
+                }],
+            },
+        ]
+    }
+
+    /// The built transaction names the payee and the amount: it is written to private temporary
+    /// storage, never under the durable work directory, and nothing is left where it was written.
+    #[cfg(unix)]
+    #[test]
+    fn the_built_transaction_is_written_outside_the_work_dir_and_removed() {
+        for (i, plan) in l4_plans().iter().enumerate() {
+            let (sc, recorded, _dir) = out_recording_signer(&format!("ok{i}"), 0);
+            let built = build_unproven(&sc, plan).unwrap();
+            assert_eq!(built, b"built");
+            let out = std::path::PathBuf::from(
+                std::fs::read_to_string(&recorded)
+                    .unwrap()
+                    .trim()
+                    .to_string(),
+            );
+            assert!(
+                !out.starts_with(&sc.work_dir),
+                "the output is under the work dir: {}",
+                out.display()
+            );
+            assert!(!out.exists(), "the output was left at {}", out.display());
+            assert_eq!(std::fs::read_dir(&sc.work_dir).unwrap().count(), 0);
+        }
+    }
+
+    /// A signer that writes its output and then fails must not leave the output behind.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_build_leaves_no_output_behind() {
+        for (i, plan) in l4_plans().iter().enumerate() {
+            let (sc, recorded, _dir) = out_recording_signer(&format!("fail{i}"), 1);
+            assert!(build_unproven(&sc, plan).is_err());
+            let out = std::path::PathBuf::from(
+                std::fs::read_to_string(&recorded)
+                    .unwrap()
+                    .trim()
+                    .to_string(),
+            );
+            assert!(!out.exists(), "the output was left at {}", out.display());
+            assert_eq!(std::fs::read_dir(&sc.work_dir).unwrap().count(), 0);
+        }
+    }
+
     /// F3. The proof of funds is ALWAYS built at the legacy fee, whatever the vault permits: a
     /// proposal that only fits at the ZIP 2009 fee must not pass at creation.
     #[cfg(unix)]
@@ -2232,6 +2675,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("konclave-f3-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        let _guard = TmpDir(dir.clone());
         let unproven = dir.join("unproven.pczt");
         std::fs::write(&unproven, VECTOR).unwrap();
         let log = dir.join("argv.log");
@@ -2262,6 +2706,19 @@ mod tests {
             memo: None,
         };
         assert!(matches!(funding_check(&sc, &plan, 1), Ok(Funding::Ok)));
+        // The copy the check hands to `extract` is private too: not under the work directory, and
+        // gone afterwards.
+        let seen0 = std::fs::read_to_string(&log).unwrap();
+        let extract = seen0
+            .lines()
+            .find(|l| !l.starts_with("build-payroll"))
+            .expect("extract ran");
+        let copy = extract.split_whitespace().last().unwrap();
+        assert!(
+            !copy.starts_with(&sc.work_dir),
+            "the funding check's copy is under the work dir: {copy}"
+        );
+        assert!(!std::path::Path::new(copy).exists(), "left at {copy}");
         let seen = std::fs::read_to_string(&log).unwrap();
         let builds: Vec<&str> = seen
             .lines()
@@ -2509,8 +2966,7 @@ mod tests {
             "server_url": "s", "work_dir": dir.join("work"),
         }))
         .unwrap();
-        let signed =
-            SignedSend::from_bytes(VECTOR.to_vec(), "x", &vector_sighash(), vec![]).unwrap();
+        let signed = SignedSend::from_bytes(VECTOR.to_vec(), &vector_sighash(), vec![]).unwrap();
 
         let txid = broadcast_signed(&sc, &signed).expect("broadcasts");
         assert_eq!(txid, "cd".repeat(32));
@@ -2522,8 +2978,7 @@ mod tests {
     /// `Debug` would print every byte of it.
     #[test]
     fn debug_printing_a_signed_send_never_shows_the_pczt() {
-        let signed =
-            SignedSend::from_bytes(VECTOR.to_vec(), "x", &vector_sighash(), vec![]).unwrap();
+        let signed = SignedSend::from_bytes(VECTOR.to_vec(), &vector_sighash(), vec![]).unwrap();
         let shown = format!("{signed:?}");
         assert!(shown.contains(signed.txid()), "{shown}");
         // The PCZT's first bytes are "PCZT" = 80, 67, 90, 84.
@@ -2534,7 +2989,7 @@ mod tests {
     #[test]
     fn a_transaction_that_cannot_be_described_cannot_be_sent() {
         // No PCZT, no expiry, no record, no broadcast: never a silent zero.
-        let r = SignedSend::from_bytes(b"not a pczt".to_vec(), "x", &[0u8; 32], vec![]);
+        let r = SignedSend::from_bytes(b"not a pczt".to_vec(), &[0u8; 32], vec![]);
         assert!(r.is_err());
         let missing = SignedSend::describe("/nonexistent/net-tx3-signed.pczt", &[0u8; 32], vec![]);
         assert!(missing.is_err());

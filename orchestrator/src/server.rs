@@ -1833,7 +1833,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
         return Response::json(
             200,
             &serde_json::json!({
-                "dry_run": true, "sighash": outcome.sighash, "signed_pczt": outcome.signed_pczt
+                "dry_run": true, "sighash": outcome.sighash
             }),
         );
     }
