@@ -2405,10 +2405,9 @@ mod tests {
         assert_eq!(cache(&refused).as_deref(), Some("no-store"));
     }
 
-    /// The size refusal is answered in `serve` before any handler runs, so it is checked through
-    /// the real loop: an API request announcing more than 2 MiB gets `413` and `no-store`.
-    #[test]
-    fn the_size_refusal_is_not_kept_by_the_browser_cache() {
+    /// Starts the bridge's real request loop on a port of its own, writes `request` (in pieces, so a
+    /// body can stream), and returns the head of the answer, lowercased.
+    fn bridge_answer_head(pieces: &[&[u8]]) -> String {
         use std::io::{Read, Write};
         let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
         let addr = server.server_addr().to_ip().expect("ip address");
@@ -2416,19 +2415,123 @@ mod tests {
         let mut conn = std::net::TcpStream::connect(addr).expect("connect");
         conn.set_read_timeout(Some(std::time::Duration::from_secs(10)))
             .expect("timeout");
-        write!(
-            conn,
-            "POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
-            3 * 1024 * 1024
-        )
-        .expect("write");
+        for piece in pieces {
+            // The server may answer and stop reading before the last piece; that is not a failure.
+            if conn.write_all(piece).is_err() {
+                break;
+            }
+        }
         let mut head = Vec::new();
         let mut byte = [0u8; 1];
         while !head.ends_with(b"\r\n\r\n") {
             conn.read_exact(&mut byte).expect("read the answer head");
             head.push(byte[0]);
         }
-        let head = String::from_utf8_lossy(&head).to_ascii_lowercase();
+        String::from_utf8_lossy(&head).to_ascii_lowercase()
+    }
+
+    /// A chunked body announces no length, so the size limit has to hold while reading it: over
+    /// 2 MiB is refused with `413` like a body that announces its length.
+    #[test]
+    fn a_chunked_body_over_the_limit_is_refused() {
+        let chunk = vec![b'a'; 64 * 1024];
+        let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
+        framed.extend_from_slice(&chunk);
+        framed.extend_from_slice(b"\r\n");
+        let mut pieces: Vec<&[u8]> = vec![
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        ];
+        // 33 chunks of 64 KiB: 2 MiB and one chunk more.
+        for _ in 0..33 {
+            pieces.push(&framed);
+        }
+        pieces.push(b"0\r\n\r\n");
+        let head = bridge_answer_head(&pieces);
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
+
+    /// A chunked body of `size` bytes, framed in 64 KiB chunks, posted to an API route.
+    fn chunked_post(size: usize) -> Vec<u8> {
+        let mut out =
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+                .to_vec();
+        let mut left = size;
+        while left > 0 {
+            let n = left.min(64 * 1024);
+            out.extend_from_slice(format!("{n:x}\r\n").as_bytes());
+            out.extend(std::iter::repeat_n(b'a', n));
+            out.extend_from_slice(b"\r\n");
+            left -= n;
+        }
+        out.extend_from_slice(b"0\r\n\r\n");
+        out
+    }
+
+    /// The limit is inclusive: a chunked body of exactly 2 MiB reaches the handler, one byte more
+    /// is refused.
+    #[test]
+    fn a_chunked_body_is_held_to_the_limit_at_its_edge() {
+        let max = konclave_http::MAX_BODY as usize;
+        let at = bridge_answer_head(&[&chunked_post(max)]);
+        assert!(at.starts_with("http/1.1 403"), "exactly the limit: {at}");
+        let over = bridge_answer_head(&[&chunked_post(max + 1)]);
+        assert!(over.starts_with("http/1.1 413"), "one byte over: {over}");
+    }
+
+    /// The bound holds while the body is still arriving: a chunked body that has passed the limit
+    /// and never ends is refused once the limit is crossed, not read until the sender stops.
+    #[test]
+    fn an_unfinished_chunked_body_over_the_limit_is_refused_while_it_streams() {
+        let max = konclave_http::MAX_BODY as usize;
+        let mut request = chunked_post(max + 64 * 1024);
+        // Drop the final chunk: the connection stays open and the body never ends.
+        request.truncate(request.len() - b"0\r\n\r\n".len());
+        let head = bridge_answer_head(&[&request]);
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+    }
+
+    /// The bound does not refuse a chunked body under the limit: it reaches the handler.
+    #[test]
+    fn a_chunked_body_under_the_limit_reaches_the_handler() {
+        let head = bridge_answer_head(&[
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"2\r\n{}\r\n0\r\n\r\n",
+        ]);
+        // 403 is the handler's own answer to a request with no session token: it read the body.
+        assert!(head.starts_with("http/1.1 403"), "{head}");
+    }
+
+    /// The bridge has no use for a protocol upgrade, and such a request hands the reader the raw
+    /// connection: it is refused before anything is read, rather than held open.
+    #[test]
+    fn an_upgrade_request_is_refused_without_reading() {
+        let head = bridge_answer_head(&[
+            b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+        ]);
+        assert!(head.starts_with("http/1.1 400"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
+
+    /// A browser asks for an upgrade with several tokens in one header (`keep-alive, Upgrade`), and
+    /// tiny_http hands over the raw connection whenever the header contains the word.
+    #[test]
+    fn an_upgrade_among_other_connection_tokens_is_refused() {
+        let head = bridge_answer_head(&[
+            b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n",
+        ]);
+        assert!(head.starts_with("http/1.1 400"), "{head}");
+    }
+
+    /// The size refusal is answered in `serve` before any handler runs, so it is checked through
+    /// the real loop: an API request announcing more than 2 MiB gets `413` and `no-store`.
+    #[test]
+    fn the_size_refusal_is_not_kept_by_the_browser_cache() {
+        let request = format!(
+            "POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+            3 * 1024 * 1024
+        );
+        let head = bridge_answer_head(&[request.as_bytes()]);
         assert!(head.starts_with("http/1.1 413"), "{head}");
         assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
     }

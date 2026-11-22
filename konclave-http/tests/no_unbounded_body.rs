@@ -23,9 +23,13 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {rel}: {e}"))
 }
 
+/// The local bridge faces only the loopback, and is held to the same rule (#1088): it reads every
+/// body through the shared ceiling too, one byte past it, to refuse what goes over.
+const LOOPBACK_SERVERS: [&str; 1] = ["../orchestrator/src/server.rs"];
+
 #[test]
 fn no_public_server_reads_a_request_body_unbounded() {
-    for rel in PUBLIC_SERVERS {
+    for rel in PUBLIC_SERVERS.iter().chain(LOOPBACK_SERVERS.iter()) {
         for (i, line) in read(rel).lines().enumerate() {
             let l = line.trim();
             if l.starts_with("//") || !l.contains("read_to_end") {
