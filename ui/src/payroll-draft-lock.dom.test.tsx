@@ -64,7 +64,7 @@ describe('a locked vault keeps no payroll draft, on screen or on disk (G)', () =
     mount()
     await screen.findByText(en('lock.prompt'))
     await waitFor(() => expect(localStorage.getItem(draftKey(ID))).toBeNull())
-    // P0A: `Layout` mounts no screen while locked, so there is no field to restore the draft into
+    // #1108: `Layout` mounts no screen while locked, so there is no field to restore the draft into
     // (it used to be restored at mount, kept, and written back on the next edit).
     expect(screen.queryByPlaceholderText(en('payroll.competencePlaceholder'))).toBeNull()
     expect(document.body.textContent).not.toContain('March secret period')

@@ -58,7 +58,7 @@ it decides whether to show the unlock - so gating that route would make a locked
 skip the unlock decision, and land the member on a blank screen.
 
 *Update (2026-11-22, a note on this record, which is kept as it was written): for a protected vault
-the device holds a record of, once the P0A change is deployed, `Layout` no longer reads the vault
+the device holds a record of, once the #1108 change is deployed, `Layout` no longer reads the vault
 before it decides the lock (it is not deployed as of this note); see
 CLAUDE.md §11. The route stays open for the other cases, and the first sentence above still stands
 for them.*

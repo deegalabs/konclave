@@ -96,7 +96,7 @@ export function VaultSignerProvider({ children, unlockNonce = 0, vaultId = null 
     let on = true
     void (async () => {
       // A protected vault this device holds a record of and has not unlocked is not asked for: the
-      // shell's overlay unlock moves `unlockNonce` and this reads then (P0A).
+      // shell's overlay unlock moves `unlockNonce` and this reads then (#1108).
       if (IS_NET && vaultId && (await localLockNow(vaultId))?.locked) return
       const v = await getVault(vaultId ?? undefined)
       if (on) setVault(v)

@@ -26,7 +26,7 @@ export async function lockedNow(v: { id: string; locked?: boolean } | null): Pro
 }
 
 /**
- * The same rule from this device's own record, with no request (P0A). On the web a vault this device
+ * The same rule from this device's own record, with no request (#1108). On the web a vault this device
  * holds a record of is decided here, so an app that is opened and not unlocked names the vault to
  * nobody: the lock needs only `secured` (is there a sealed S), the session, and the S in memory.
  *

@@ -62,7 +62,7 @@ export default function Layout() {
   const [unlockNonce, setUnlockNonce] = useState(0)
   // The vault the lock was decided FOR. No screen is mounted unless it is the vault selected now, and
   // none while that vault is locked: a screen that does not exist reads nothing, so none of them has
-  // to know about the lock to stay quiet behind the overlay (P0A). It is an id and not a flag
+  // to know about the lock to stay quiet behind the overlay (#1108). It is an id and not a flag
   // because the selection moves (the rail, another tab) and a screen reads the selection when it
   // mounts: a decision about the previous vault says nothing about the one it would read.
   const [decidedFor, setDecidedFor] = useState<string | null>(null)
@@ -112,7 +112,7 @@ export default function Layout() {
     switchD.close(true)
     if (id === vault?.id) return
     // The selection is the whole act: the decision below re-runs for it, through the same lock
-    // question as at load, and reads the vault only if the device may (P0A).
+    // question as at load, and reads the vault only if the device may (#1108).
     setSelectedVault(id)
     nav(isVaultUnlocked(id) ? '/dashboard' : '/vaults')
   }
@@ -130,7 +130,7 @@ export default function Layout() {
       // selection comes back to it before this one lands.
       setDecidedFor(null)
       try {
-        // The device's own record first (P0A): a protected vault it holds and has not unlocked is
+        // The device's own record first (#1108): a protected vault it holds and has not unlocked is
         // locked in place with no request that names it, so a coordinator that is down at load still
         // reaches the unlock screen (#439) and the overlay names the vault from the record.
         const id = forId || null

@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 
-// P0A T4. The signer provider reads its vault on mount; for a protected vault this device holds a
+// #1108 T4. The signer provider reads its vault on mount; for a protected vault this device holds a
 // record of and has not unlocked, it must not name it. After the overlay unlock (`unlockNonce`
 // moves) it reads once.
 localStorage.setItem('konclave.coord.mode', 'custom')
@@ -34,7 +34,7 @@ afterEach(async () => { cleanup(); vi.clearAllMocks(); clearReadSecret(ID); awai
 
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)) })
 
-describe('the signer provider does not name a locked vault (P0A T4)', () => {
+describe('the signer provider does not name a locked vault (#1108 T4)', () => {
   it('reads nothing while locked, and once after the unlock nonce moves', async () => {
     const ui = (n: number) => <VaultSignerProvider vaultId={ID} unlockNonce={n}><span /></VaultSignerProvider>
     const { rerender } = render(ui(0))

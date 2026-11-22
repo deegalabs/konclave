@@ -174,7 +174,7 @@ export default function Dashboard() {
   }, [])
 
   // #467: `Layout` owns the lock and shows the overlay. It mounts this screen only for a vault it
-  // has decided and that is open (P0A), so the screen holds no lock logic: it reads from its first
+  // has decided and that is open (#1108), so the screen holds no lock logic: it reads from its first
   // render, and an unlock mounts it fresh.
   const { live } = useOutletContext<VaultLockContext>()
 
