@@ -217,16 +217,6 @@ export class RelaySession {
   }
 }
 
-/** A short, human-friendly room code (the "invite code" a guest types on their device). */
-export function newRoomCode(): string {
-  // Ambiguity-free alphabet (no 0/O/1/I). Not a secret - the security is in the crypto that
-  // rides the room, not in the room's name. 8 chars is easy to read aloud / paste.
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = new Uint8Array(8)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
-}
-
 // Crockford base32 (no I/L/O/U): unambiguous when read aloud, typed or scanned. The same alphabet
 // as the vault fingerprint, from one definition.
 const INVITE_ALPHABET = CROCKFORD

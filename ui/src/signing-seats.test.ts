@@ -55,9 +55,8 @@ describe('SigningSeats - signing-room seating (rejoin handshake)', () => {
   })
 })
 
-// `seatHolder` is the eviction rule itself, pulled out so `/net` and the background signer cannot
-// answer it differently - which is how the hijack stayed open on `/net` after #401 closed it here
-// (#424). If this is ever inlined again, it will drift again.
+// `seatHolder` is the eviction rule itself, pulled out so no caller can answer it differently
+// (the hijack once stayed open on `/net` after #401 closed it for the background signer, #424). If this is ever inlined again, it will drift again.
 describe('seatHolder — who would be evicted (#424)', () => {
   const table = new Map([['tag-a', 1], ['tag-b', 2]])
 

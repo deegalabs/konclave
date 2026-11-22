@@ -1,8 +1,7 @@
 // Seating for a SIGNING session (issue #49, Stage 3 wiring). In a signing room the seats are FIXED
 // (they were assigned by the DKG); a device that (re)joins announces its OWN, already-known seat and
 // every device rebuilds the tag->seat table from those announcements. This is the `rejoin` handshake
-// NetVault's beginSign runs - lifted here so the app-level background signer can seat devices on the
-// vault's signing room without being the /net screen.
+// the app-level background signer runs to seat devices on the vault's signing room.
 //
 // It is deliberately tiny and pure: it maps relay tags to 1-based FROST seats and provides the
 // `seatOf`/`mySeat` lookups the SigningMachine needs. It never touches shares or crypto.
