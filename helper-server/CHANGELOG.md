@@ -45,9 +45,25 @@ entry in this section is live from then at the latest.
 
 ### Security
 
-- **The coordinator shares a smaller copy of each transaction with the vault's devices.** What a
-  device shows and checks (the payment, the fee and what it signs) is unchanged. The details follow
-  in a later entry.
+- **The copy of a transaction the coordinator shares for signing no longer carries what finishes
+  it.** The copy each device receives to check and sign a payment also carried each action's
+  value-commitment blinding, the bundle's binding signing key and its proof, and each spend's
+  witness. With those and the devices' signatures, which cross the signing room unsealed, anyone
+  who could read the request could put the signed transaction together and broadcast it without the
+  coordinator. The vault's members always received it. Others could read it when it crossed the
+  room unsealed: every send until 29 August 2026; after that, a send from a vault created before
+  8 November 2026 while one of its seats had not registered its device key; and every send from the
+  `konclave net-send` command line. The room of a vault created before 30 August 2026 is derived
+  from the vault's id, so anyone holding the id could read it; for a later vault, the relay and
+  anyone who learned the room. It is the transaction the quorum signed, with the same recipients and
+  amounts, so no funds could be sent anywhere else; what it allowed was broadcasting a signed payment
+  outside the coordinator's send step, including a practice run of `konclave net-send`, which the
+  devices sign and which is meant not to be broadcast. The copy now leaves out those fields in both
+  pools, so it cannot be finished from the room, and what a device shows and checks (the payment,
+  the fee and what it signs) is unchanged. Through the coordinator, a vault created since 8 November
+  2026 never sends its request unsealed. The hosted coordinator has run this since 23 November 2026,
+  published on 23 November 2026; exposed from 31 July 2026 to 23 November 2026, and for `konclave net-send`
+  until the member runs this release's command line.
 
 - **The coordinator builds a vault's payments from fewer of its notes.** Same change as the root
   changelog's Security entry of 0.22.0; details follow in a later entry. The hosted coordinator has
@@ -129,7 +145,18 @@ entry in this section is live from then at the latest.
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
 
-- **A payment or payroll keeps less of its work on the coordinator.** The details follow in a later entry.
+- **The transaction the coordinator builds for a payment or payroll, and the copy its funding check
+  makes, are written to private temporary storage (0600) instead of the volume, and removed when the
+  step ends** (the builder's output also at the next start).
+- **The proven and signed transaction files of a send no longer touch the coordinator's volume:**
+  they are kept in private temporary storage (0600) and removed when the send step ends, on every
+  outcome, and any that an interrupted send left are removed when the coordinator next starts. The
+  recovery backup command now leaves out each vault's send working directory. Until this change the
+  files sat on the volume while a send ran (since 27 August 2026 they were removed when it ended;
+  before that date they stayed), so a backup or copy of the volume taken during a send carried them.
+  The same volume and backup hold each vault's viewing key and its proposals, so the files showed no
+  payment such a reader could not already read. The hosted coordinator has run this since
+  23 November 2026, published on 23 November 2026; the files were on the volume from 31 July 2026 to 23 November 2026.
 
 ### Added
 
@@ -309,9 +336,12 @@ entry in this section is live from then at the latest.
   name is refused when the name is on no seat, which tells a caller holding the vault id whether a
   name is a member's.
 - **Going back to an older coordinator counts names again.** The record keeps the names beside the
-  votes, so nothing is lost, but an older binary counts the names, with the limits this entry removes.
-- **Restoring a vault without its device registry opens it to unsigned actions again,** and unsigned
-  approvals count again (`docs/RECOVERY.md`).
+  votes, so an older binary reads every record, but it counts the names, with the limits this entry
+  removes. A proposal it writes keeps only the names, so if it is still open after the update, its
+  members vote again.
+- **Restoring a vault created before 8 November 2026 without its device registry opens it to
+  unsigned actions again,** and unsigned approvals count again (`docs/RECOVERY.md`). A protocol-3
+  vault without its registry refuses governance writes and sends instead (503).
 - **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
   operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block
   3,590,417). Even so, a vault pays it only when every seat has reported that its device accepts it. A seat's report is

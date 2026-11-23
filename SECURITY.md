@@ -48,6 +48,14 @@ Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zc
   member's passphrase: 600,000 iterations for anything sealed since 2026-09-06 (#479); records
   stored before that keep 210,000 until the passphrase is next typed on that device (a passkey unlock does not re-seal, and a record with a sealed field that no longer opens stays at its count), and an export made before
   that keeps 210,000 for good.
+- On a protected vault, the saved people and the addresses recently paid from it are sealed in the
+  browser under a key derived from the vault's secret, and open only once the vault is unlocked on
+  the device; an unfinished payroll is not written to the browser's storage and is kept in memory
+  only while the vault stays unlocked (since 0.23.0).
+- A send's proven and signed transaction files are kept in private temporary storage (readable only
+  by the account that runs the send on Linux and macOS) and removed when the step ends, on the
+  hosted coordinator, the local bridge and the command line, and the coordinator's
+  recovery backup leaves out each vault's send working directory (since 0.23.0).
 - `frostd` (local build) and the relay see only public or sealed protocol material, plus, on the
   relay, the member names and the quorum exchanged while a vault is created and, until every
   member's device has registered its public device key, the signing request in the clear (see Privacy below). The hosted
@@ -120,7 +128,15 @@ What is fixed and what is open, by kind of attack:
   learn who a payment pays or how much (#63); the coordinator's private reads (balance, history,
   proposals, ledger, members) and the signing room are gated by a per-vault secret, so a leaked
   vault id opens neither, though it still shows the vault's addresses (receive and change) and its quorum (#402, #403);
-  and, once a vault has a registered device, the viewing key reaches the devices sealed (#481). Open: the coordinator holds each vault's
+  once a vault has a registered device, the viewing key reaches the devices sealed (#481); the app's
+  console messages no longer name a vault's signing room and name a vault only by the first 8
+  characters of its id; and the copy of a transaction the coordinator shares for signing no longer
+  carries what finishes it, so whoever could read an unsealed signing request can no longer put the
+  signed transaction together and broadcast it (both since 0.23.0). Open: what a protected vault saved
+  on a device before 0.23.0 stays in plain text until the vault is next unlocked there, the sealed
+  lists open with the vault's secret, which every member holds, and the vault's record on the device
+  keeps its id, name, members' names, quorum and receive address in the clear (the app's changelog
+  lists the rest under Known limits); the coordinator holds each vault's
   viewing key and reads its books (#516); a vault where some member has not yet unlocked it on a
   current version still sends its signing requests unsealed; vaults created before the per-vault secret stay
   readable by id until they are re-created, or upgraded in place if #406 lands; a device that restored a vault before the fix keeps its viewing key unencrypted in local storage until that vault's passphrase is next typed, and a copy already taken stays valid for the life of the vault (#599); the coordinator stores proposals
