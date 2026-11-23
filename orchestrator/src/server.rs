@@ -2495,6 +2495,28 @@ mod tests {
         drop(stalled);
     }
 
+    /// A bridge that receives no connection for longer than the socket timeout still answers the
+    /// next one: a quiet stretch never ends it.
+    #[test]
+    fn a_quiet_bridge_still_answers_the_next_request() {
+        use std::io::{Read, Write};
+        use std::time::Duration;
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(200))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tiny_http::Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || serve_on(&server, &cfg_with(tmp_db(), None)));
+        std::thread::sleep(Duration::from_millis(700));
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut got = [0u8; 32];
+        let n = c.read(&mut got).unwrap_or(0);
+        assert!(n > 0 && got.starts_with(b"HTTP/1.1 "), "no answer");
+    }
+
     /// A chunked body announces no length, so the size limit has to hold while reading it: over
     /// 2 MiB is refused with `413` like a body that announces its length.
     #[test]
