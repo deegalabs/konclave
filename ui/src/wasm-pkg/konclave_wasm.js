@@ -1037,7 +1037,7 @@ export function approvalDecision(signed, sighash) {
 /**
  * Does this saved key package belong to this seat of this vault, against the group's public
  * package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
- * `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+ * `not-this-quorum`, `share-does-not-derive`, `package-inconsistent`) and never key material. The device runs it on
  * every import and every unlock; the rule is `recovery::check_share_bundle`.
  * @param {Uint8Array} key_package
  * @param {Uint8Array} pubkeys

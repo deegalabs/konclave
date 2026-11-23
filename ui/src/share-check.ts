@@ -1,9 +1,9 @@
 // Does a saved share belong to this seat of this vault? The device-side door to the one rule.
 //
 // The rule is `check_share_bundle` in konclave-wasm: the key package against the group's public
-// package (seat, group key in both, quorum, the public share recorded for the seat, and that the
-// signing share derives it). This file only reads the device bundle, hands its parts to that rule
-// and turns a refusal into a storage error. Import (both export versions) and `loadVault`, the one
+// package (seat, group key in both, quorum, that the public package is one vault's, the public
+// share recorded for the seat, and that the signing share derives it). This file only reads the
+// device bundle, hands its parts to that rule and turns a refusal into a storage error. Import (both export versions) and `loadVault`, the one
 // place a sealed share is opened, call it; nothing here is a second implementation of the check.
 
 import { checkShareBundle } from './wasm-pkg/konclave_wasm.js'

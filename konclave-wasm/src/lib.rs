@@ -1348,8 +1348,8 @@ pub mod creation {
             return Err("invalid quorum".into());
         }
         // The one rule for "this share is this seat's of this vault" (seat, group key, quorum, the
-        // package's public share for the seat, the signing share deriving it), or the certificate
-        // says nothing about the seat.
+        // package being one vault's, the package's public share for the seat, the signing share
+        // deriving it), or the certificate says nothing about the seat.
         super::recovery::check_share_bundle(key_package, pubkeys, seat, &pkp.group_key, t)
             .map_err(|c| {
                 format!(
@@ -1984,6 +1984,23 @@ pub mod creation {
             /// `own_certificate` reads the same rule as the import and the unlock (#965).
             #[test]
             fn a_real_dkg_share_passes_the_share_check_and_a_tampered_one_gets_no_certificate() {
+                for (n, t) in [(2u16, 2u16), (5, 3)] {
+                    for (i, d) in finished(n, t).iter().enumerate() {
+                        let (kp, pk) = (d.c.key_package(), d.c.pubkeys());
+                        assert_eq!(
+                            super::super::recovery::check_share_bundle(
+                                &kp,
+                                &pk,
+                                i as u16 + 1,
+                                &d.c.group_vk(),
+                                t
+                            ),
+                            Ok(()),
+                            "{t}-of-{n}, seat {}",
+                            i + 1
+                        );
+                    }
+                }
                 let ds = finished(3, 2);
                 for (i, d) in ds.iter().enumerate() {
                     let (kp, pk) = (d.c.key_package(), d.c.pubkeys());
@@ -2669,6 +2686,10 @@ pub mod recovery {
         NotThisQuorum,
         /// The signing share does not derive the public share the package states.
         ShareDoesNotDerive,
+        /// The group's public package is not one vault's: it does not hold seats exactly 1..=n,
+        /// its quorum is not possible, or its public shares do not lie on one polynomial of
+        /// degree `t - 1` through the group key.
+        PackageInconsistent,
     }
 
     impl ShareCheck {
@@ -2679,14 +2700,25 @@ pub mod recovery {
                 ShareCheck::NotThisVault => "not-this-vault",
                 ShareCheck::NotThisQuorum => "not-this-quorum",
                 ShareCheck::ShareDoesNotDerive => "share-does-not-derive",
+                ShareCheck::PackageInconsistent => "package-inconsistent",
             }
         }
     }
 
     /// Does this saved key package belong to this seat of this vault? Checked against the group's
     /// public package at the two doors a share comes through, an import and an unlock (§6.8): the
-    /// seat's identifier, the vault's group key in both packages, the quorum, the public share the
-    /// group records for the seat, and that the signing share derives it. The one home of the rule.
+    /// seat's identifier, the vault's group key in both packages, the quorum, that the public
+    /// package is one vault's (seats 1..=n on one polynomial of degree `t - 1` through the group
+    /// key, `share_sig::verify_package_any_size`: the rule the seat certificates read, without the
+    /// cap on seats, so a vault created under a higher cap still opens; n is the package's own
+    /// count), the public share the group records for the seat, and that the signing share
+    /// derives it. The one home of the rule.
+    ///
+    /// What it cannot say, for any t: a polynomial of degree `t - 1` is fixed by t points, and the
+    /// group key and a chosen share are only two of them, so a whole package built around a share
+    /// that is not the vault's is still consistent. Nor does it know how many seats the vault has:
+    /// a package cut to its first m >= t seats is consistent too. Only a record pinned at creation
+    /// (a digest of the package) closes both; this rule does not hold one.
     pub fn check_share_bundle(
         key_package: &[u8],
         pubkeys: &[u8],
@@ -2706,6 +2738,17 @@ pub mod recovery {
             return Err(ShareCheck::NotThisVault);
         }
         if *kp.min_signers() != t {
+            return Err(ShareCheck::NotThisQuorum);
+        }
+        let n = u16::try_from(pk.verifying_shares().len())
+            .map_err(|_| ShareCheck::PackageInconsistent)?;
+        let canon =
+            crate::creation::pkp_of(pubkeys, t, n).map_err(|_| ShareCheck::PackageInconsistent)?;
+        let vault: [u8; 32] = group_key.try_into().map_err(|_| ShareCheck::Malformed)?;
+        seal::share_sig::verify_package_any_size(&canon, &vault)
+            .map_err(|_| ShareCheck::PackageInconsistent)?;
+        // A package from before frost 3.0 records no quorum; one that does must say this one.
+        if pk.min_signers().is_some_and(|m| m != t) {
             return Err(ShareCheck::NotThisQuorum);
         }
         if matches_group_share(&kp, &pk) != Some(true) {
@@ -3036,6 +3079,229 @@ pub mod recovery {
                 check_share_bundle(&kp, &pk, 0, &v.group_key, 2),
                 Err(ShareCheck::Malformed)
             );
+        }
+
+        // ---- the group's public package itself (#965): one vault's, or refused ----
+
+        use frost::{Field, Group, PallasGroup, PallasScalarField};
+        type Point = <PallasGroup as Group>::Element;
+        type Scalar = <PallasScalarField as Field>::Scalar;
+
+        fn point(share: &frost::keys::VerifyingShare) -> Point {
+            let bytes: [u8; 32] = share.serialize().unwrap().try_into().unwrap();
+            PallasGroup::deserialize(&bytes).unwrap()
+        }
+
+        fn share_of(p: Point) -> frost::keys::VerifyingShare {
+            frost::keys::VerifyingShare::deserialize(&PallasGroup::serialize(&p).unwrap()).unwrap()
+        }
+
+        /// `v` with its public package replaced by these shares and this recorded quorum.
+        fn with_package(
+            v: &Vault,
+            shares: std::collections::BTreeMap<Identifier, frost::keys::VerifyingShare>,
+            min_signers: Option<u16>,
+        ) -> Vault {
+            Vault {
+                kps: v.kps.clone(),
+                pubkeys: frost::keys::PublicKeyPackage::new(
+                    shares,
+                    *v.pubkeys.verifying_key(),
+                    min_signers,
+                ),
+                group_key: v.group_key.clone(),
+            }
+        }
+
+        /// A share that is not on the vault's polynomial, presented with a public package that
+        /// records it for its seat: everything about the seat agrees, the package does not.
+        #[test]
+        fn a_share_off_the_vaults_polynomial_is_refused_even_with_its_entry_swapped_in() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            let mut shares = v.pubkeys.verifying_shares().clone();
+            shares.insert(seat(1), public);
+            let swapped = with_package(&v, shares, Some(2));
+            assert_eq!(
+                check(&forged, &swapped, 1, &v.group_key, 2),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// A package that holds only this seat out of five cannot be checked against anything.
+        #[test]
+        fn a_package_holding_only_this_seat_is_refused() {
+            let v = vault(5, 3);
+            let mut shares = std::collections::BTreeMap::new();
+            shares.insert(seat(1), v.pubkeys.verifying_shares()[&seat(1)]);
+            let lone = with_package(&v, shares, Some(3));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &lone, 1, &v.group_key, 3),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// A package that records another quorum than the key package and the vault.
+        #[test]
+        fn a_package_recording_another_quorum_is_refused() {
+            let v = vault(5, 3);
+            let other = with_package(&v, v.pubkeys.verifying_shares().clone(), Some(4));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &other, 1, &v.group_key, 3),
+                Err(ShareCheck::NotThisQuorum)
+            );
+        }
+
+        /// A package from before frost 3.0 records no quorum, and still passes: the vault's t is
+        /// the device's record, and the polynomial is checked at that degree.
+        #[test]
+        fn a_package_that_records_no_quorum_still_passes() {
+            let v = vault(5, 3);
+            let old = with_package(&v, v.pubkeys.verifying_shares().clone(), None);
+            for s in 1..=5u16 {
+                assert_eq!(check(&v.kps[&seat(s)], &old, s, &v.group_key, 3), Ok(()));
+            }
+        }
+
+        /// Another seat's public share replaced: this seat's own entry is intact, and the package
+        /// is still refused, so a member cannot unlock beside a package that misstates the others.
+        #[test]
+        fn a_package_misstating_another_seat_is_refused() {
+            let v = vault(3, 2);
+            let mut shares = v.pubkeys.verifying_shares().clone();
+            let stray = frost::keys::VerifyingShare::from(frost::keys::SigningShare::new(
+                PallasScalarField::random(&mut OsRng),
+            ));
+            shares.insert(seat(3), stray);
+            let bad = with_package(&v, shares, Some(2));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &bad, 1, &v.group_key, 2),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// THE LIMIT, recorded on purpose: a share that is not the vault's, with a whole package
+        /// built on a polynomial through the group key and it, is consistent and passes. Only a
+        /// digest of the package pinned at creation would refuse it. The day this test fails,
+        /// that pin exists and the docs that state the limit must change with it.
+        #[test]
+        fn for_two_of_three_a_coherent_forged_package_still_passes() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let ak = {
+                let bytes: [u8; 32] = v.group_key.clone().try_into().unwrap();
+                PallasGroup::deserialize(&bytes).unwrap()
+            };
+            let p1 = point(&public);
+            // P(x) = ak + x (P1 - ak)
+            let line = |x: u64| ak + (p1 - ak) * Scalar::from(x);
+            let mut shares = std::collections::BTreeMap::new();
+            for s in 1..=3u16 {
+                shares.insert(seat(s), share_of(line(s as u64)));
+            }
+            let forged_pk = with_package(&v, shares, Some(2));
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(check(&forged, &forged_pk, 1, &v.group_key, 2), Ok(()));
+        }
+
+        /// The same limit for t = 3: the group key and the chosen share fix two of the three
+        /// points, a third is free, and the rest is interpolated.
+        #[test]
+        fn for_three_of_five_a_coherent_forged_package_still_passes() {
+            let v = vault(5, 3);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let ak = {
+                let bytes: [u8; 32] = v.group_key.clone().try_into().unwrap();
+                PallasGroup::deserialize(&bytes).unwrap()
+            };
+            let p1 = point(&public);
+            let p2 = point(&frost::keys::VerifyingShare::from(
+                frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng)),
+            ));
+            // Lagrange through (0, ak), (1, p1), (2, p2), in the exponent.
+            let at = |x: u64| {
+                let x = Scalar::from(x);
+                let (one, two) = (Scalar::from(1u64), Scalar::from(2u64));
+                let half = PallasScalarField::invert(&two).unwrap();
+                let l0 = (x - one) * (x - two) * half;
+                let l1 = x * (x - two) * (-one);
+                let l2 = x * (x - one) * half;
+                ak * l0 + p1 * l1 + p2 * l2
+            };
+            let mut shares = std::collections::BTreeMap::new();
+            for s in 1..=5u16 {
+                shares.insert(seat(s), share_of(at(s as u64)));
+            }
+            let forged_pk = with_package(&v, shares, Some(3));
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(check(&forged, &forged_pk, 1, &v.group_key, 3), Ok(()));
+        }
+
+        /// THE OTHER LIMIT, recorded on purpose: the rule takes n from the package, so a package
+        /// cut to its first m >= t seats is still one vault's. Only a pinned digest (or a seat
+        /// count recorded at creation) would refuse it. Same day, same change as the test above.
+        #[test]
+        fn a_package_cut_to_its_first_t_seats_still_passes() {
+            let v = vault(5, 3);
+            let shares = (1..=3u16)
+                .map(|s| (seat(s), v.pubkeys.verifying_shares()[&seat(s)]))
+                .collect();
+            let cut = with_package(&v, shares, Some(3));
+            assert_eq!(check(&v.kps[&seat(1)], &cut, 1, &v.group_key, 3), Ok(()));
+        }
+
+        /// A vault with more seats than creation allows today (the cap was 32 before #871) still
+        /// opens: the cap limits what is created, not what a member's device opens.
+        #[test]
+        fn a_vault_over_todays_seat_cap_still_opens() {
+            let n = seal::share_sig::N_MAX + 1;
+            let v = vault(n, 2);
+            for s in [1, n] {
+                assert_eq!(
+                    check(&v.kps[&seat(s)], &v, s, &v.group_key, 2),
+                    Ok(()),
+                    "seat {s}"
+                );
+            }
+        }
+
+        #[test]
+        fn honest_packages_pass_for_every_seat_and_quorum() {
+            for (n, t) in [(2u16, 2u16), (3, 2), (5, 3), (16, 16)] {
+                let v = vault(n, t);
+                for s in 1..=n {
+                    assert_eq!(
+                        check(&v.kps[&seat(s)], &v, s, &v.group_key, t),
+                        Ok(()),
+                        "{t}-of-{n}, seat {s}"
+                    );
+                }
+            }
         }
     }
 }
@@ -7532,7 +7798,7 @@ mod js_recovery {
 
     /// Does this saved key package belong to this seat of this vault, against the group's public
     /// package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
-    /// `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+    /// `not-this-quorum`, `share-does-not-derive`, `package-inconsistent`) and never key material. The device runs it on
     /// every import and every unlock; the rule is `recovery::check_share_bundle`.
     #[wasm_bindgen(js_name = checkShareBundle)]
     pub fn check_share_bundle(

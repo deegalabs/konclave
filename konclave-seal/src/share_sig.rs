@@ -23,7 +23,11 @@ const READKEY_DOMAIN: &[u8] = b"konclave-readkey-v1\0";
 
 /// A quorum the signing library accepts: frost-core refuses fewer than 2 signers.
 pub fn quorum_is_possible(t: u16, n: u16) -> bool {
-    t >= 2 && t <= n && n <= N_MAX
+    quorum_up_to(t, n, N_MAX)
+}
+
+fn quorum_up_to(t: u16, n: u16, max_n: u16) -> bool {
+    t >= 2 && t <= n && n <= max_n
 }
 
 /// What one seat states about the vault it was created into.
@@ -255,11 +259,26 @@ impl PkpCanonical {
 /// The package belongs to this vault and lies on one polynomial of degree `t - 1`. The vault check
 /// comes first, before any arithmetic. Holding a share is a separate question, for the certificates.
 pub fn verify_package(pkp: &PkpCanonical, vault_id: &[u8; 32]) -> Result<(), PackageError> {
+    package_up_to(pkp, vault_id, N_MAX)
+}
+
+/// The same rule without the cap on seats, for a vault that already exists: `N_MAX` limits what
+/// is created now, and a vault created when the cap was higher must still open on its members'
+/// devices. Everything else (this vault, a quorum frost-core accepts, one polynomial) is the same
+/// check, from the same code.
+pub fn verify_package_any_size(
+    pkp: &PkpCanonical,
+    vault_id: &[u8; 32],
+) -> Result<(), PackageError> {
+    package_up_to(pkp, vault_id, u16::MAX)
+}
+
+fn package_up_to(pkp: &PkpCanonical, vault_id: &[u8; 32], max_n: u16) -> Result<(), PackageError> {
     if pkp.group_key != *vault_id {
         return Err(PackageError::NotThisVault);
     }
     let n = u16::try_from(pkp.shares.len()).map_err(|_| PackageError::Quorum)?;
-    if !quorum_is_possible(pkp.t, n) {
+    if !quorum_up_to(pkp.t, n, max_n) {
         return Err(PackageError::Quorum);
     }
     // A group key with an odd y can never be a vault's spend-validating key.
@@ -305,7 +324,8 @@ fn interpolate(known: &[pallas::Point], x: u64) -> pallas::Point {
             numerator *= at - scalar(m);
             denominator *= scalar(j) - scalar(m);
         }
-        // `j != m` and both are at most N_MAX, so the denominator is never zero.
+        // `j != m` and both are seat numbers that fit a u16, far below the field order, so the
+        // denominator is never zero.
         sum += *point * (numerator * denominator.invert().unwrap());
     }
     sum
@@ -644,6 +664,40 @@ mod tests {
             };
             assert_eq!(
                 verify_package(&pkp, &pkp.group_key),
+                Err(PackageError::Quorum)
+            );
+        }
+    }
+
+    /// The cap on seats limits what is created, not what opens: a vault from when the cap was
+    /// higher passes the uncapped rule, and the uncapped rule refuses everything else the capped
+    /// one does.
+    #[test]
+    fn the_uncapped_rule_differs_from_the_capped_one_only_in_the_seat_cap() {
+        let big = package(&[5, 7], N_MAX + 1);
+        assert_eq!(
+            verify_package(&big, &big.group_key),
+            Err(PackageError::Quorum)
+        );
+        assert_eq!(verify_package_any_size(&big, &big.group_key), Ok(()));
+        let mut off = big.clone();
+        off.shares[N_MAX as usize] = off.shares[0];
+        assert_eq!(
+            verify_package_any_size(&off, &off.group_key),
+            Err(PackageError::NotOnePolynomial)
+        );
+        assert_eq!(
+            verify_package_any_size(&big, &[0xaa; 32]),
+            Err(PackageError::NotThisVault)
+        );
+        for (t, n) in [(0u16, 3usize), (1, 3), (4, 3), (2, 0)] {
+            let pkp = PkpCanonical {
+                t,
+                shares: vec![big.shares[0]; n],
+                ..big.clone()
+            };
+            assert_eq!(
+                verify_package_any_size(&pkp, &pkp.group_key),
                 Err(PackageError::Quorum)
             );
         }

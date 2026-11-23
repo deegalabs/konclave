@@ -229,7 +229,7 @@ export function approvalDecision(signed: string, sighash: string): string;
 /**
  * Does this saved key package belong to this seat of this vault, against the group's public
  * package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
- * `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+ * `not-this-quorum`, `share-does-not-derive`, `package-inconsistent`) and never key material. The device runs it on
  * every import and every unlock; the rule is `recovery::check_share_bundle`.
  */
 export function checkShareBundle(key_package: Uint8Array, pubkeys: Uint8Array, seat: number, group_key: Uint8Array, t: number): void;
@@ -530,6 +530,29 @@ export interface InitOutput {
     readonly vaultReceivers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly __wbg_coordinator_free: (a: number, b: number) => void;
+    readonly __wbg_round1_free: (a: number, b: number) => void;
+    readonly __wbg_testvault_free: (a: number, b: number) => void;
+    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
+    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly coordinator_checkShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly coordinator_prepare: (a: number) => [number, number];
+    readonly coordinator_seed: (a: number) => [number, number];
+    readonly coordinator_signingPackage: (a: number) => [number, number];
+    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
+    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly participantRound1: (a: number, b: number) => [number, number, number];
+    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly round1_commitment: (a: number) => [number, number];
+    readonly testvault_groupVk: (a: number) => [number, number];
+    readonly testvault_id: (a: number, b: number) => [number, number];
+    readonly testvault_key_package: (a: number, b: number) => [number, number];
+    readonly testvault_new: () => [number, number, number];
+    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
     readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
     readonly checkShareBundle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
@@ -558,29 +581,6 @@ export interface InitOutput {
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly upgradeHeight: () => number;
     readonly selftest: () => [number, number];
-    readonly __wbg_coordinator_free: (a: number, b: number) => void;
-    readonly __wbg_round1_free: (a: number, b: number) => void;
-    readonly __wbg_testvault_free: (a: number, b: number) => void;
-    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
-    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly coordinator_checkShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
-    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly coordinator_prepare: (a: number) => [number, number];
-    readonly coordinator_seed: (a: number) => [number, number];
-    readonly coordinator_signingPackage: (a: number) => [number, number];
-    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
-    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly participantRound1: (a: number, b: number) => [number, number, number];
-    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
-    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
-    readonly round1_commitment: (a: number) => [number, number];
-    readonly testvault_groupVk: (a: number) => [number, number];
-    readonly testvault_id: (a: number, b: number) => [number, number];
-    readonly testvault_key_package: (a: number, b: number) => [number, number];
-    readonly testvault_new: () => [number, number, number];
-    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
