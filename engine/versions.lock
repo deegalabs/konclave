@@ -526,7 +526,7 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 # what a build of this source produced. CI rebuilds and compares on every push.
 [wasm]
 wasm_pack     = "0.13.1"
-source_digest = "31ca7f89666d115207e0662385134fb1014f68e4cdf44955f93e78ea4f917fc5"
+source_digest = "0c8cd9dff8acd746d0021bb4c8fd51ef804ec8de16ffbdb33e07be74cd37a558"
 
 [[wasm_file]]
 name   = "README.md"
@@ -535,23 +535,23 @@ bytes  = 2826
 
 [[wasm_file]]
 name   = "konclave_wasm.d.ts"
-sha256 = "9666e7f8e827e1622fef8c221a133100a18261c0934b342233fe16bdd46897a7"
-bytes  = 31039
+sha256 = "25aa1222774adc47a3659917e53e4261af8000653792a5db1fb94df3ef69cc96"
+bytes  = 32599
 
 [[wasm_file]]
 name   = "konclave_wasm.js"
-sha256 = "5b5de9099f53b1728259666fb65f166eec39867790517db6bbc62042fc8f959b"
-bytes  = 76210
+sha256 = "b1093c26771f065338009595b44fe90c155290671ccbedb362c6e18c60b2df99"
+bytes  = 79868
 
 [[wasm_file]]
 name   = "konclave_wasm_bg.wasm"
-sha256 = "25a11e6746a9e70275c3e07a756612ebc52f0a4143f3635e6ad0068c861e7f33"
-bytes  = 1481123
+sha256 = "6f4247ee151930cb7deeb9c2db261993d891b895419e5c753046735b44d69833"
+bytes  = 1530947
 
 [[wasm_file]]
 name   = "konclave_wasm_bg.wasm.d.ts"
-sha256 = "fccce07ead4da5b85c1bae7b7f31f2251d5055d027340dcc6616b8da17b5d505"
-bytes  = 10611
+sha256 = "97b053abca301c1693721e414ff76d089acf832db743821e0ff3f8ddcfd995c6"
+bytes  = 10795
 
 [[wasm_file]]
 name   = "package.json"

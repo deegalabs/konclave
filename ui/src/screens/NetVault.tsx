@@ -490,6 +490,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       // background signer have diverged three times (#424, #425, #363) because a rule lived in one
       // and not the other. It cannot silently miss this one - it has to say so, here.
       decideApproval: () => 'match',
+      // /net has no record of the vault's receivers and no content gate (Known limits): the reading
+      // does not concede the vault's zero-value change here.
+      ourReceivers: () => null,
+      // Nor a viewing key: it answers no coordinator request (`claim` below refuses), so nothing here
+      // reads a payment's spends.
+      viewingKey: async () => null,
       // /net binds no consent to a transaction and keeps no record, so it contributes to no
       // coordinator's signing request: a proposal is signed from its signing panel (VaultSigner),
       // which does both. This is the only place a request reaches a share here, so /net signs none.

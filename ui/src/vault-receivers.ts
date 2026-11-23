@@ -5,13 +5,15 @@
 // how members find out they were not given the same one.
 import { deviceCommsKey, devicePubHex } from './device-key'
 import { getUfvk } from './helper'
-import { decodeBundle } from './signing'
+import { decodeBundle, deviceGroupKey } from './signing'
+import { OpenVaultError } from './signing-refusal'
 import { receiversFingerprint } from './format'
 import { listVaults, loadVault, recordReceiversRefused, recordVerifiedReceivers, replaceRefusedReceivers, type VaultLoaded } from './storage'
 import { StorageError } from './storage-errors'
 import { ensureWasm } from './wasm-ready'
-import { addressText } from './approved-payment'
-import { uaIsExactly, vaultReceivers } from './wasm-pkg/konclave_wasm.js'
+import { addressText, ourReceiversFrom } from './approved-payment'
+import { getUnlockedShare, setUnlockedShare } from './session'
+import { checkViewingKey, uaIsExactly, uaReceiver, vaultReceivers } from './wasm-pkg/konclave_wasm.js'
 
 export type ReceiversVerdict =
   | { state: 'verified'; address: string }
@@ -129,4 +131,52 @@ export async function checkedViewingKey(vaultId: string, share: VaultLoaded): Pr
     return { ...keys, birthday }
   }
   return share.ufvk && fits(share.ufvk) ? { ufvk: share.ufvk, birthday: floor } : null
+}
+
+/**
+ * The vault's viewing key, for the device's own check of what a payment's spends are worth: the one
+ * place a device gets it. The copy this device holds (sealed at rest, open in the session) comes
+ * first; otherwise it asks the vault for it (`getUfvk`, the same gated read the receivers use) and
+ * keeps what fits in the SESSION, in memory, for the next payment. It is never logged and never
+ * written to disk from here.
+ *
+ * "Fits" is the reading's own rule, not a copy of it: `checkViewingKey` is the check `readForSigning`
+ * makes of the key it is given (the key's `ak` is this device's group key, and it derives the
+ * receivers this device recorded). A key that does not fit is never kept and never taken as the
+ * answer of a later payment; one the vault served is passed on as it came, uncached, so the reading
+ * refuses it in its own words. A held key that does not fit is not used: the device asks again.
+ *
+ * `null` when there is no key to give: no answer from the vault, or a package that cannot be read.
+ * A vault with no read key never serves one: that is `OpenVaultError`, not a reason to try again.
+ */
+export async function vaultViewingKey(vaultId: string, share: VaultLoaded): Promise<string | null> {
+  await ensureWasm()
+  let opened: ReturnType<typeof deviceOf>
+  try {
+    opened = deviceOf(share)
+  } catch {
+    return null
+  }
+  const { bundle, device } = opened
+  const rec = (await listVaults()).find((v) => v.id === vaultId)
+  const receivers = ourReceiversFrom(rec, uaReceiver)
+  const fits = (ufvk: string) => {
+    try {
+      checkViewingKey(ufvk, deviceGroupKey(bundle), receivers)
+      return true
+    } catch {
+      return false
+    }
+  }
+  const held = getUnlockedShare(vaultId)?.ufvk ?? share.ufvk
+  if (held && fits(held)) return held
+  const keys = await getUfvk(vaultId, device)
+  if (!keys) {
+    if (rec && !rec.secured) throw new OpenVaultError()
+    return null
+  }
+  if (!fits(keys.ufvk)) return keys.ufvk
+  const session = getUnlockedShare(vaultId)
+  if (session) setUnlockedShare(vaultId, { ...session, ufvk: keys.ufvk })
+  return keys.ufvk
 }

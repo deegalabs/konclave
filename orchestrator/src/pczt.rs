@@ -325,6 +325,48 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
         assert!(published_copy(&[]).is_err());
     }
 
+    /// The published copy keeps, on every action of the bundle, what the device rebuilds the spend's
+    /// nullifier from: the note's recipient, value, `rho` and `rseed`. The device reads the spends it
+    /// counts through them (`konclave_seal::spends::bundle_shape`, with the vault's own viewing key);
+    /// a copy that lost any would have every spend it awaits refused, since a spend the device cannot
+    /// check is never signed.
+    #[test]
+    fn the_published_copy_keeps_what_each_spends_nullifier_is_rebuilt_from() {
+        use ::pczt::roles::low_level_signer::{OrchardParseError, Signer};
+        for (name, vector, ironwood) in [
+            ("ironwood", VECTOR, true),
+            ("orchard", ORCHARD_TWO_SPEND, false),
+        ] {
+            let published = ::pczt::Pczt::parse(&published_copy(vector).unwrap()).unwrap();
+            let mut seen = 0;
+            let read = |_: &::pczt::Pczt,
+                        b: &mut orchard::pczt::Bundle,
+                        _: &mut u8|
+             -> Result<(), OrchardParseError> {
+                for (i, a) in b.actions().iter().enumerate() {
+                    assert!(
+                        a.spend().value().is_some(),
+                        "{name}: action {i} lost its spend value"
+                    );
+                    let s = a.spend();
+                    assert!(
+                        s.recipient().is_some() && s.rho().is_some() && s.rseed().is_some(),
+                        "{name}: action {i} lost a field its nullifier is rebuilt from"
+                    );
+                    seen += 1;
+                }
+                Ok(())
+            };
+            let signer = Signer::new(published);
+            if ironwood {
+                signer.sign_ironwood_with(read).unwrap();
+            } else {
+                signer.sign_orchard_with(read).unwrap();
+            }
+            assert!(seen >= 2, "{name}: no actions were read");
+        }
+    }
+
     // #821. One vector per pool, so a count that read only one bundle fails on the other.
     #[test]
     fn the_action_count_reads_both_pools() {

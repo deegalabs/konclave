@@ -29,6 +29,10 @@ export interface BackgroundSessionDeps {
   /** Does a request pay EXACTLY what the quorum approved (#281)? Threaded to the machine, which
    *  calls it once per ceremony right after its own sighash check and before any share moves. */
   decideApproval: (outputs: PcztOutput[]) => GateDecision
+  /** The vault's own receivers as this device recorded them, or null. Threaded to the machine. */
+  ourReceivers: () => string[] | null
+  /** The vault's viewing key, or null. Threaded to the machine. */
+  viewingKey: () => Promise<string | null>
   claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>
   record: (sighashHex: string, expiry: number, branch: number) => Promise<void>
   /** Governance gate: whether this device signs this payment (policy lives in the caller). */
@@ -160,6 +164,8 @@ export class BackgroundSession {
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists
       decideApproval: deps.decideApproval,
+      ourReceivers: deps.ourReceivers,
+      viewingKey: deps.viewingKey,
       claim: deps.claim,
       record: deps.record,
       send: async (m) => { await this.send(JSON.stringify(m)) },

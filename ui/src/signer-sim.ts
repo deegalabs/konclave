@@ -66,6 +66,8 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       myTag: tag,
       mySeat: i + 1,
       decideApproval: () => 'match',
+      ourReceivers: () => null,
+      viewingKey: async () => null,
       claim: () => true,
       record: async () => {},
       signingMaterial: mats[i]!,

@@ -235,6 +235,13 @@ export function approvalDecision(signed: string, sighash: string): string;
 export function checkShareBundle(key_package: Uint8Array, pubkeys: Uint8Array, seat: number, group_key: Uint8Array, t: number): void;
 
 /**
+ * Whether this viewing key is the vault's for this device: the check `readForSigning` makes
+ * of the key it is given (`checked_fvk`), on its own, so a caller decides what to keep by the
+ * reading's own rule. Throws a refusal starting with `[viewingkeywrong]` or `[receivers]`.
+ */
+export function checkViewingKey(ufvk: string, group_vk: Uint8Array, receivers?: string[] | null): void;
+
+/**
  * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
  * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
  * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
@@ -342,14 +349,26 @@ export function pkpDigestHex(pubkeys: Uint8Array, t: number, n: number): string;
  * caller, never the coordinator's height). The one call a signing driver makes before its share
  * leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
  * `[locktime]`, plus `readPayment`'s).
+ *
+ * `receivers` are the vault's own raw receivers as this device recorded them (hex, as
+ * `uaReceiver` returns them), or `null` for a device that has none. They tell the reading which
+ * zero-value output is the vault's own change; the gate refuses such a device anyway.
+ *
+ * `ufvk` is the vault's viewing key as this device holds or was served it, or `null`; `group_vk`
+ * is this device's own group key. The key is checked against both and against `receivers`
+ * (`checked_fvk`), and what the reading counts of the vault's spends is bound to it. With no
+ * key a payment that spends any note of the vault is refused, whatever value the copy declares
+ * for it (`[viewingkey]`); with the key, a spend whose value is left out is refused (`[commitment]`).
  */
-export function readForSigning(pczt: Uint8Array): string;
+export function readForSigning(pczt: Uint8Array, receivers: string[] | null | undefined, ufvk: string | null | undefined, group_vk: Uint8Array): string;
 
 /**
- * What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
- * describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
- * signs on (#610): every output checked against its note commitment, its address label against
- * the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+ * What a proven PCZT pays, as a PREVIEW, as JSON: `{"outputs": [...as describeOutputs...],
+ * "feeZat": number, "actions": number}`. Every output is checked against its note commitment,
+ * its address label against the receiver it pays, each paying output opened for its memo, and
+ * the fee bounded by ZIP 317. It is not what a device signs on (`readForSigning` is): it has no
+ * viewing key to check the spends with, so it counts no spend and applies no bound on the
+ * actions a payment may carry.
  * A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
  * `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
  */
@@ -511,6 +530,34 @@ export interface InitOutput {
     readonly vaultReceivers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
+    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
+    readonly checkShareBundle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
+    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
+    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
+    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_deltaCount: (a: number) => number;
+    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly checkViewingKey: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly estimatedFeeZat: (a: number) => number;
+    readonly extractRandomizers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly feeFrom: () => number;
+    readonly groupKeyOfPackage: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readForSigning: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly upgradeHeight: () => number;
+    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -534,38 +581,11 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
-    readonly selftest: () => [number, number];
-    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
-    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
-    readonly checkShareBundle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
-    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
-    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
-    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
-    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_deltaCount: (a: number) => number;
-    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
-    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly estimatedFeeZat: (a: number) => number;
-    readonly extractRandomizers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly feeFrom: () => number;
-    readonly groupKeyOfPackage: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
-    readonly readPayment: (a: number, b: number) => [number, number, number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
-    readonly upgradeHeight: () => number;
+    readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;

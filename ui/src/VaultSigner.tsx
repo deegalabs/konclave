@@ -211,11 +211,15 @@ export function VaultSignerProvider({ children, unlockNonce = 0, vaultId = null 
   // stops reading as signed, so its owner can sign again after checking the book (the panel says so).
   const claim = useMemo(
     () => async (sighashHex: string, expiry: number) => {
+      // Which vault and proposal this is, read now: the member may move to another one while the key
+      // below is computed, and its consent must not be bound to this transaction.
+      const vaultId = vaultIdRef.current ?? ''
+      const proposalId = activeIdRef.current
       // What the transaction pays, as the gate just matched it: recognises the same payment under a new
       // proposal id until approvals are bound to content (#567).
       const approved = approvalRef.current?.approved
       const paid = approved && approved.length ? await paidKey(approved) : undefined
-      const r = await owner.current.claim(vaultIdRef.current ?? '', activeIdRef.current, sighashHex, expiry, paid)
+      const r = await owner.current.claim(vaultId, proposalId, sighashHex, expiry, paid)
       if (r !== 'ok') { setArmedProposal(null); setArmedAt(null) }
       const last = owner.current.lastSecond
       // The machine read this transaction, so the WASM is ready. The time was computed by WASM, by the
@@ -260,7 +264,9 @@ export function VaultSignerProvider({ children, unlockNonce = 0, vaultId = null 
     return () => window.clearTimeout(id)
   }, [armedAt])
 
-  const bg = useBackgroundSigner(unlocked, gate, decideApproval, claim, record, endConsent)
+  // The vault's own receivers, from this device's record (the same list the gate decides change by).
+  const ourReceivers = useMemo(() => () => ourReceiversRef.current, [])
+  const bg = useBackgroundSigner(unlocked, gate, decideApproval, claim, record, endConsent, ourReceivers)
 
   // A later reading refused what this device signed for: it stops counting itself as signed, once.
   // The room hears this only from the seat named to send; the others count it until the window closes.

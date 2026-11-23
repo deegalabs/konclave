@@ -16,6 +16,7 @@ import type { GateDecision, PcztOutput } from './approved-payment'
 import type { SignPreview } from './signing-machine'
 import { deviceCommsKey, devicePubHex } from './device-key'
 import { unsealSignRequest } from './net-sign'
+import { vaultViewingKey } from './vault-receivers'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
@@ -82,6 +83,9 @@ export function useBackgroundSigner(
   record: (sighashHex: string, expiry: number, branch: number) => Promise<void>,
   // Another device withdrew its signature for the open payment: the caller ends its owner's consent.
   onPeerWithdrew: () => void,
+  // The vault's own receivers as this device recorded them (null: none). The reading of a payment uses
+  // them to know which zero-value output is the vault's own change. Required, like the gate above.
+  ourReceivers: () => string[] | null,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
   const [ready, setReady] = useState(false)
@@ -139,6 +143,8 @@ export function useBackgroundSigner(
   gateRef.current = gate
   const withdrewRef = useRef(onPeerWithdrew)
   withdrewRef.current = onPeerWithdrew
+  const receiversRef = useRef(ourReceivers)
+  receiversRef.current = ourReceivers
 
   const id = vault?.id ?? null
   const nonce = vault?.nonce
@@ -192,6 +198,10 @@ export function useBackgroundSigner(
           decideApproval,
           claim,
           record,
+          ourReceivers: () => receiversRef.current(),
+          // The one place a device gets the vault's key: its own sealed copy, else what the vault serves,
+          // checked against this device's package. Held in memory with the session, never persisted here.
+          viewingKey: () => vaultViewingKey(id, loaded),
           myTag,
           mySeat: b.seat,
           signingMaterial: () => ({ keyPackage: b.keyPackage, groupVk: b.groupVk, pubkeys: b.pubkeys }),
