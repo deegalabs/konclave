@@ -962,6 +962,33 @@ mod tests {
         drop(stalled);
     }
 
+    /// A body framed by a transfer encoding is refused before any of it is read: a chunk-size line
+    /// that never ends costs the relay nothing, and the connection is not read past it.
+    #[test]
+    fn a_chunked_body_is_refused_before_it_is_read() {
+        use std::time::Duration;
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        let head = "POST /api/relay/post HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let mut small = head.as_bytes().to_vec();
+        small.extend_from_slice(b"5\r\nhello\r\n0\r\n\r\n");
+        let got = exchange(addr, &small, Duration::from_secs(3));
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let mut endless = head.as_bytes().to_vec();
+        endless.extend(std::iter::repeat_n(b'f', 32 * 1024));
+        let got = exchange(addr, &endless, Duration::from_secs(3));
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+    }
+
     /// One address may send at most BODIES_PER_ADDRESS bodies at once; the next is a 429, at once.
     #[test]
     fn an_address_past_its_body_slots_is_refused_at_once() {

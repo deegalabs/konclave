@@ -35,6 +35,12 @@ impl<R: Read> Read for Abandonable<R> {
 
 type Source = Abandonable<BufReader<RefinedTcpStream>>;
 
+// Konclave patch: the ceilings on the head of a request. Past any of them the request is answered
+// 400 and the connection closed, as a malformed header already was.
+const MAX_LINE: usize = 8 * 1024;
+const MAX_HEADERS: usize = 100;
+const MAX_HEADER_BYTES: usize = 64 * 1024;
+
 /// A ClientConnection is an object that will store a socket to a client
 /// and return Request objects.
 pub struct ClientConnection {
@@ -108,7 +114,9 @@ impl ClientConnection {
     ///
     /// Reads until `CRLF` is reached. The next read will start
     ///  at the first byte of the new line.
-    fn read_next_line(&mut self) -> IoResult<AsciiString> {
+    ///
+    /// Konclave patch: a line longer than `max` bytes is an error, read no further.
+    fn read_next_line(&mut self, max: usize) -> IoResult<AsciiString> {
         let mut buf = Vec::new();
         let mut prev_byte_was_cr = false;
 
@@ -128,6 +136,9 @@ impl ClientConnection {
 
             prev_byte_was_cr = byte == b'\r';
 
+            if buf.len() > max {
+                return Err(IoError::new(ErrorKind::InvalidData, "Line too long"));
+            }
             buf.push(byte);
         }
     }
@@ -138,7 +149,13 @@ impl ClientConnection {
         let (method, path, version, headers) = {
             // reading the request line
             let (method, path, version) = {
-                let line = self.read_next_line().map_err(ReadError::ReadIoError)?;
+                let line = match self.read_next_line(MAX_LINE) {
+                    Ok(line) => line,
+                    Err(e) if e.kind() == ErrorKind::InvalidData => {
+                        return Err(ReadError::WrongRequestLine)
+                    }
+                    Err(e) => return Err(ReadError::ReadIoError(e)),
+                };
 
                 parse_request_line(
                     line.as_str().trim(), // TODO: remove this conversion
@@ -148,12 +165,23 @@ impl ClientConnection {
             // getting all headers
             let headers = {
                 let mut headers = Vec::new();
+                let mut total = 0usize;
                 loop {
-                    let line = self.read_next_line().map_err(ReadError::ReadIoError)?;
+                    let line = match self.read_next_line(MAX_LINE) {
+                        Ok(line) => line,
+                        Err(e) if e.kind() == ErrorKind::InvalidData => {
+                            return Err(ReadError::WrongHeader(version))
+                        }
+                        Err(e) => return Err(ReadError::ReadIoError(e)),
+                    };
 
                     if line.is_empty() {
                         break;
                     };
+                    total += line.len();
+                    if headers.len() >= MAX_HEADERS || total > MAX_HEADER_BYTES {
+                        return Err(ReadError::WrongHeader(version));
+                    }
                     headers.push(match FromStr::from_str(line.as_str().trim()) {
                         // TODO: remove this conversion
                         Ok(h) => h,

@@ -7148,6 +7148,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A body framed by a transfer encoding is refused before any of it is read, so a chunk-size
+    /// line that never ends costs the coordinator nothing. Every route, before it is served.
+    #[test]
+    fn a_chunked_body_is_refused_before_it_is_read() {
+        use std::io::{Read as _, Write as _};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("konclave-hs-chunked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(500))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let ask = |head: &'static str, tail: Vec<u8>| {
+            let mut c = std::net::TcpStream::connect(addr).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut w = c.try_clone().unwrap();
+            let sender = std::thread::spawn(move || {
+                let _ = w.write_all(head.as_bytes());
+                let _ = w.write_all(&tail);
+            });
+            let mut got = [0u8; 64];
+            let n = c.read(&mut got).unwrap_or(0);
+            drop(c);
+            let _ = sender.join();
+            String::from_utf8_lossy(&got[..n]).into_owned()
+        };
+        let got = ask(
+            "POST /api/vault/proposals HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"5\r\nhello\r\n0\r\n\r\n".to_vec(),
+        );
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let got = ask(
+            "POST /api/health HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n",
+            vec![b'f'; 8 << 20],
+        );
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A declared length past the ceiling is refused unread. The request is then dropped with its
     /// body undrained, and the server must neither try to take that length into memory nor go on
     /// reading the connection as if the next request started inside the body.

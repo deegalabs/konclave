@@ -180,6 +180,9 @@ pub enum BodyRefusal {
     TooSlow,
     /// The connection failed while the body was read.
     Unreadable,
+    /// The body came with a `Transfer-Encoding`. No client of ours sends one; a body must declare
+    /// its length.
+    LengthRequired,
 }
 
 impl BodyRefusal {
@@ -188,6 +191,7 @@ impl BodyRefusal {
             Self::Busy => 429,
             Self::TooSlow => 408,
             Self::Unreadable => 400,
+            Self::LengthRequired => 411,
         }
     }
 
@@ -196,6 +200,9 @@ impl BodyRefusal {
             Self::Busy => r#"{"error":"too many requests in progress, try again shortly"}"#,
             Self::TooSlow => r#"{"error":"the request body took too long to arrive"}"#,
             Self::Unreadable => r#"{"error":"the request body could not be read"}"#,
+            Self::LengthRequired => {
+                r#"{"error":"send the request body with a Content-Length, not a Transfer-Encoding"}"#
+            }
         }
     }
 }
@@ -213,6 +220,15 @@ pub fn read_request_body<'h>(
     addr: ClientAddress,
     slots: &BodySlots,
 ) -> Result<Vec<u8>, BodyRefusal> {
+    // Before anything else, the cap included: a declared length beside an encoding says nothing
+    // about where the body ends. Left unread, the server closes the connection.
+    let headers: Vec<(&str, &str)> = headers.into_iter().collect();
+    if headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding"))
+    {
+        return Err(BodyRefusal::LengthRequired);
+    }
     let limit = match crate::body_read_cap(declared) {
         crate::ReadPlan::Read(limit) => limit,
         crate::ReadPlan::Skip => return Ok(Vec::new()),
@@ -410,6 +426,36 @@ mod tests {
             ),
             Err(BodyRefusal::Busy)
         );
+    }
+
+    /// No client of ours sends a chunked body, and reading one means trusting a framing whose
+    /// size lines the client writes. Refused before a slot is taken or a byte is read, whatever
+    /// the encoding is called and whatever length is declared beside it.
+    #[test]
+    fn a_body_with_a_transfer_encoding_is_refused_unread() {
+        struct Counting(usize);
+        impl Read for Counting {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.0 += buf.len();
+                Ok(buf.len())
+            }
+        }
+        let slots = BodySlots::new();
+        let a = ClientAddress::from_ip("203.0.113.11".parse().unwrap());
+        for (declared, value) in [
+            (None, "chunked"),
+            (Some(10), "chunked"),
+            (None, "gzip, chunked"),
+        ] {
+            for name in ["Transfer-Encoding", "transfer-encoding"] {
+                let mut source = Counting(0);
+                let r = read_request_body(declared, [(name, value)], &mut source, a, &slots);
+                let status = r.as_ref().err().map(|e| e.status());
+                assert_eq!(status, Some(411), "{name}: {value} with {declared:?}");
+                assert_eq!(source.0, 0, "{name}: {value}");
+                assert_eq!(slots.holders(), 0);
+            }
+        }
     }
 
     #[test]
