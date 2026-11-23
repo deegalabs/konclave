@@ -1,1 +1,0 @@
-- **A send keeps less of its work on the coordinator, the local bridge and the command line** (the shared `orchestrator` crate; the coordinator's entry is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)). The details follow in a later entry.

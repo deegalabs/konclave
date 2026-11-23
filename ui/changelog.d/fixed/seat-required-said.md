@@ -1,1 +1,0 @@
-- **A vote or proposal under a name two members share says what to do (#575).** When the coordinator cannot tell which seat a shared name belongs to, the app now says so and asks to unlock the vault on this device, instead of a generic error.

@@ -1,1 +1,0 @@
-- **The local bridge's API answers are not kept by the browser's cache.**
