@@ -2997,9 +2997,21 @@ fn serve(
             }
         },
     };
-    let _wallet = wallet
-        .as_ref()
-        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+    // The wallet on the same rule: a balance sync may hold it for minutes. The answer is the vault's
+    // busy, the one a device retries for a write (a wallet busy is a read's).
+    let _wallet = match wallet.as_ref() {
+        None => None,
+        Some(m) => match locks.take(vault_id, m, VAULT_WAIT) {
+            Some(guard) => Some(guard),
+            None => {
+                return resp(
+                    503,
+                    json!({ "error": VAULT_BUSY_TEXT, "busy": "vault", "retry_after": 2 })
+                        .to_string(),
+                )
+            }
+        },
+    };
 
     handle_request(state, cfg, locks, method, path, body, read_token)
 }
@@ -9947,6 +9959,52 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_millis(1_000),
             "the write waited {:?} for a vault that is sending",
+            started.elapsed()
+        );
+    }
+
+    /// A write that runs the engine waits for a wallet held by someone else (a balance sync, which
+    /// may run for minutes) only as long as it waits for the vault, then answers the vault's busy (the
+    /// one a device retries for a write): a worker parked behind the wallet is one fewer for every
+    /// vault.
+    #[test]
+    fn a_write_waits_for_a_held_wallet_only_a_moment() {
+        let st = HelperState::new();
+        seed(&st, "heldw");
+        let c = cfg();
+        let limits = admission::Limits::new();
+        let locks = concurrency::VaultLocks::new();
+        let wallet = locks.wallet_for_vault("heldw");
+        let held = wallet.lock().unwrap();
+        let started = std::time::Instant::now();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let got = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    &CLIENT,
+                    T0,
+                    &Method::Post,
+                    "/api/vault/proposals",
+                    br#"{"vault":"heldw"}"#,
+                    None,
+                );
+                let _ = tx.send((r.status, r.body));
+            });
+            let got = rx.recv_timeout(Duration::from_secs(6)).ok();
+            drop(held);
+            got
+        });
+        let (status, body) = got.expect("the write was still waiting for the wallet after 6 s");
+        assert_eq!(status, 503, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["busy"], "vault", "{body}");
+        assert!(
+            started.elapsed() < VAULT_WAIT + Duration::from_millis(1_000),
+            "the write waited {:?} for the wallet",
             started.elapsed()
         );
     }
