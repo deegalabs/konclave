@@ -4,31 +4,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-/// Konclave patch: the most a dropped reader drains to keep the connection usable.
-const DRAIN_MAX_BYTES: usize = 64 * 1024;
-/// Konclave patch: how long a drain may take, checked between reads.
-const DRAIN_MAX_TIME: Duration = Duration::from_secs(1);
-/// Konclave patch: the drain buffer, fixed, whatever the declared length.
-const DRAIN_CHUNK: usize = 8 * 1024;
 
 /// A `Reader` that reads exactly the number of bytes from a sub-reader.
 ///
-/// If the limit is reached, it returns EOF. If the limit is not reached
-/// when the destructor is called, the remaining bytes will be read and
-/// thrown away.
+/// If the limit is reached, it returns EOF.
 ///
-/// Konclave patch: the remainder is drained through a fixed buffer, and only up to
-/// `DRAIN_MAX_BYTES` and `DRAIN_MAX_TIME`. When the drain does not finish, `abandoned` is set, and
-/// the connection reads nothing more (see `client.rs`), since the next request would start inside
-/// this body.
+/// Konclave patch: if the limit is not reached when the destructor is called, nothing more is read
+/// and `abandoned` is set, so the connection reads nothing more (see `client.rs`): the next request
+/// would start inside this body. Upstream read the remainder and threw it away.
 pub struct EqualReader<R>
 where
     R: Read,
 {
     reader: R,
     size: usize,
+    // Konclave patch: nothing reads the remainder any more, so nothing is signalled.
+    #[allow(dead_code)]
     last_read_signal: Sender<IoResult<()>>,
     abandoned: Option<Arc<AtomicBool>>,
 }
@@ -87,37 +78,7 @@ where
     R: Read,
 {
     fn drop(&mut self) {
-        let mut remaining_to_read = self.size;
-        if remaining_to_read == 0 {
-            return;
-        }
-        let mut finished = false;
-
-        if remaining_to_read <= DRAIN_MAX_BYTES {
-            let started = Instant::now();
-            let mut buf = [0u8; DRAIN_CHUNK];
-
-            while remaining_to_read > 0 && started.elapsed() < DRAIN_MAX_TIME {
-                let want = remaining_to_read.min(buf.len());
-
-                match self.reader.read(&mut buf[..want]) {
-                    Err(e) => {
-                        self.last_read_signal.send(Err(e)).ok();
-                        break;
-                    }
-                    Ok(0) => {
-                        self.last_read_signal.send(Ok(())).ok();
-                        break;
-                    }
-                    Ok(other) => {
-                        remaining_to_read -= other;
-                    }
-                }
-            }
-            finished = remaining_to_read == 0;
-        }
-
-        if !finished {
+        if self.size > 0 {
             if let Some(flag) = &self.abandoned {
                 flag.store(true, Ordering::SeqCst);
             }
@@ -163,9 +124,10 @@ mod tests {
             assert_eq!(vec[0], b'h');
         }
 
+        // Konclave patch: the rest of the body is left unread (upstream read it, " world" here).
         let mut string = String::new();
         org_reader.read_to_string(&mut string).unwrap();
-        assert_eq!(string, " world");
+        assert_eq!(string, "ello world");
     }
 
     // Konclave patch tests.
@@ -195,60 +157,31 @@ mod tests {
     }
 
     #[test]
-    fn a_small_remainder_is_drained_and_the_connection_kept() {
+    fn any_remainder_is_abandoned_without_reading() {
+        for size in [1, 1_000, 10_000] {
+            let flag = Arc::new(AtomicBool::new(false));
+            let mut source = Endless(0);
+            {
+                let (r, _) = EqualReader::new(&mut source, size);
+                let _r = r.abandon_with(flag.clone());
+            }
+            assert_eq!(source.0, 0, "{size}");
+            assert!(flag.load(Ordering::SeqCst), "{size}");
+        }
+    }
+
+    #[test]
+    fn a_body_read_to_its_end_keeps_the_connection() {
         use std::io::Cursor;
         let flag = Arc::new(AtomicBool::new(false));
         let mut org_reader = Cursor::new(vec![7u8; 20_000]);
         {
             let (r, _) = EqualReader::new(org_reader.by_ref(), 10_000);
-            let _r = r.abandon_with(flag.clone());
+            let mut r = r.abandon_with(flag.clone());
+            let mut body = Vec::new();
+            r.read_to_end(&mut body).unwrap();
+            assert_eq!(body.len(), 10_000);
         }
-        assert_eq!(org_reader.position(), 10_000);
         assert!(!flag.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn a_remainder_past_the_cap_is_abandoned() {
-        let flag = Arc::new(AtomicBool::new(false));
-        let mut source = Endless(0);
-        {
-            let (r, _) = EqualReader::new(&mut source, super::DRAIN_MAX_BYTES + 1);
-            let _r = r.abandon_with(flag.clone());
-        }
-        assert_eq!(source.0, 0);
-        assert!(flag.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn a_body_that_ends_early_is_abandoned() {
-        use std::io::Cursor;
-        let flag = Arc::new(AtomicBool::new(false));
-        let mut org_reader = Cursor::new(vec![7u8; 100]);
-        {
-            let (r, _) = EqualReader::new(org_reader.by_ref(), 1_000);
-            let _r = r.abandon_with(flag.clone());
-        }
-        assert!(flag.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn a_drain_that_takes_too_long_is_abandoned() {
-        /// One byte per 300 ms.
-        struct Slow;
-        impl Read for Slow {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                buf[0] = 0;
-                Ok(1)
-            }
-        }
-        let flag = Arc::new(AtomicBool::new(false));
-        let started = std::time::Instant::now();
-        {
-            let (r, _) = EqualReader::new(Slow, 1_000);
-            let _r = r.abandon_with(flag.clone());
-        }
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
-        assert!(flag.load(Ordering::SeqCst));
     }
 }

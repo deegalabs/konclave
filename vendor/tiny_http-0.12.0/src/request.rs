@@ -5,7 +5,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
@@ -118,6 +118,32 @@ impl From<IoError> for RequestCreationError {
     }
 }
 
+/// Konclave patch: a chunked body that sets `abandoned` when it is dropped before its last chunk,
+/// since the next request would start inside it (see `client.rs`).
+struct ChunkedBody<R: Read> {
+    inner: Decoder<R>,
+    ended: bool,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl<R: Read> Read for ChunkedBody<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n == 0 && !buf.is_empty() {
+            self.ended = true;
+        }
+        Ok(n)
+    }
+}
+
+impl<R: Read> Drop for ChunkedBody<R> {
+    fn drop(&mut self) {
+        if !self.ended {
+            self.abandoned.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 /// Builds a new request.
 ///
 /// After the request line and headers have been read from the socket, a new `Request` object
@@ -222,7 +248,13 @@ where
     } else if transfer_encoding.is_some() {
         // if a transfer-encoding was specified, then "chunked" is ALWAYS applied
         // over the message (RFC2616 #3.6)
-        Box::new(FusedReader::new(Decoder::new(source_data))) as Box<dyn Read + Send + 'static>
+        // Konclave patch: a chunked body left before its last chunk closes the connection too.
+        let body = ChunkedBody {
+            inner: Decoder::new(source_data),
+            ended: false,
+            abandoned,
+        };
+        Box::new(FusedReader::new(body)) as Box<dyn Read + Send + 'static>
     } else {
         // if we have neither a Content-Length nor a Transfer-Encoding,
         // assuming that we have no data
