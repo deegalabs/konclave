@@ -9,6 +9,7 @@ import {
   extractRandomizers,
   describeOutputs,
   readPayment,
+  readForSigning,
   injectSigs,
   toHex,
   fromHex,
@@ -48,6 +49,8 @@ describe('@konclave/frost smoke test', () => {
     expect(typeof extractRandomizers).toBe('function')
     expect(typeof describeOutputs).toBe('function')
     expect(typeof readPayment).toBe('function')
+    // The reading a device signs on: with the vault's viewing key, which readPayment (a preview) lacks.
+    expect(typeof readForSigning).toBe('function')
     expect(typeof injectSigs).toBe('function')
   })
 })

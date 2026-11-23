@@ -4,9 +4,9 @@
 // the injected governance gate approves. Two signers exchange messages over an in-memory relay with
 // the same fixpoint the live signer uses.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it, afterAll } from 'vitest'
+import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init from './wasm-pkg/konclave_wasm.js'
-import { dkg2of3, dkgProvenPczt, dkgVaultKey } from './rekeyed-vault'
+import { dkg2of3, dkgProvenPczt, dkgVaultKey, VECTOR_VIEWING_KEY, VECTOR_RECEIVERS } from './rekeyed-vault'
 import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
@@ -21,6 +21,13 @@ import {
   isSignerActive,
   type GovernanceGate,
 } from './background-signer'
+
+vi.mock('./wasm-pkg/konclave_wasm.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./wasm-pkg/konclave_wasm.js')>()
+  const { standingInForTheVectorsKey } = await import('./rekeyed-vault')
+  return { ...real, readForSigning: standingInForTheVectorsKey(real.readForSigning) }
+})
+
 
 beforeAll(pinClock)
 afterAll(unpinClock)
@@ -50,6 +57,8 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
     // #281 is asserted in signing-machine.test.ts, where the ceremony's own refusal lives. This
     // file exercises the GOVERNANCE gate (approve/arm), so the money gate is permissive here.
     decideApproval: () => 'match',
+    ourReceivers: () => VECTOR_RECEIVERS,
+    viewingKey: async () => VECTOR_VIEWING_KEY,
     claim,
     record,
     seatOf: (t) => SEATS[t],
@@ -233,5 +242,53 @@ describe('the owner\'s consent across a new signing session', () => {
     await run([A3, B3], bus3)
     expect(A3.errors).toEqual([])
     expect(A3.sig?.ok).toBe(true)
+  })
+})
+
+// A rearm can land while the drain is waiting on something (the gate, the viewing key, the claim).
+// What it was waiting for belongs to the payment before: it must not be held in the next one, and
+// the next payment's first message must not be taken for the old one and dropped.
+describe('a rearm in the middle of a drain', () => {
+  it('keeps nothing of the old request and loses nothing of the new one', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    let release: () => void = () => {}
+    const held = new Promise<boolean>((r) => { release = () => r(true) })
+    let calls = 0
+    const gate: GovernanceGate = () => (++calls === 1 ? held : true)
+    const A = makeDev('A', new Bus(), () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), gate)
+    const oldPczt = withExpiry(dkgProvenPczt(), honestExpiry() - 1)
+    const newPczt = withExpiry(dkgProvenPczt())
+    const draining = A.signer.feed('helper', requestFor(oldPczt))
+    for (let i = 0; i < 200 && calls === 0; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(calls).toBe(1)
+    A.signer.rearm()
+    await A.signer.feed('helper', requestFor(newPczt))
+    release()
+    await draining
+    const machine = (A.signer as unknown as { machine: { heldReqs: Map<string, unknown> } }).machine
+    expect([...machine.heldReqs.keys()]).toEqual([bytesToHex(pcztSighash(newPczt))])
+  })
+
+  it('does not join the old payment\'s ceremony when its gate answers after the rearm', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    // The coordinator opens a ceremony; its sreq is what the other device gates on.
+    const bus = new Bus()
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    await run([A], bus)
+    const sreq = bus.msgs.find((m) => m.from === 'A' && (JSON.parse(m.data) as { type?: string }).type === 'sreq')
+    expect(sreq).toBeDefined()
+    let release: () => void = () => {}
+    const held = new Promise<boolean>((r) => { release = () => r(true) })
+    let calls = 0
+    const gate: GovernanceGate = () => (++calls === 1 ? held : true)
+    const B = makeDev('B', new Bus(), () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), gate)
+    const draining = B.signer.feed(sreq!.from, sreq!.data)
+    for (let i = 0; i < 200 && calls === 0; i++) await new Promise((r) => setTimeout(r, 0))
+    expect(calls).toBe(1)
+    B.signer.rearm()
+    release()
+    await draining
+    expect(B.bus.msgs).toEqual([])
   })
 })

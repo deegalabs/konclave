@@ -16,6 +16,7 @@ import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
 import { deviceGroupKey, parseAlphas } from './signing'
+import { OpenVaultError } from './signing-refusal'
 
 /** The signing-only subset of the /net wire protocol. `k` = the 0-based spend position in a
  *  multi-note tx (each real Orchard spend is its own ceremony; single-spend tx is always k=0). */
@@ -96,6 +97,19 @@ export interface SigningDeps {
    *  diverged three times (#424, #425, #363) because a rule existed in one and not the other.
    *  Making every construction site supply it turns "did you remember?" into a compile error. */
   decideApproval: (outputs: PcztOutput[]) => GateDecision
+  /** The vault's own receivers as THIS device recorded them (hex, as `uaReceiver` gives them), or null
+   *  when it has none. The reading uses them to tell the vault's own change from a payment (which
+   *  zero-value output is the change the wallet makes when a note is taken exactly); the gate refuses
+   *  a device with none, so null here only means the reading does not concede that output.
+   *  REQUIRED for the same reason as `decideApproval`: each driver states its answer at its
+   *  construction site. */
+  ourReceivers: () => string[] | null
+  /** The vault's viewing key, for the device's own check of what the transaction's spends are worth
+   *  (`vaultViewingKey`, the one place a device gets it), or null when it cannot get one. The reading
+   *  checks it against this device's own package and the receivers it recorded; a key it was served
+   *  that is not the vault's only makes it refuse. Null refuses a payment that spends a note.
+   *  Never logged. REQUIRED for the same reason as `ourReceivers`: each driver states its answer. */
+  viewingKey: () => Promise<string | null>
   /** The owner's consent claims this transaction (its sighash in hex, derived by this device), after
    *  every other check and before any share moves. False refuses: the consent covers another
    *  transaction. REQUIRED for the same reason as `decideApproval`: each driver states its answer at
@@ -178,6 +192,14 @@ export function refusalKey(e: unknown): string {
       return 'net.err.notBuiltForVault'
     case 'vaultkey':
       return 'net.err.vaultRecordMismatch'
+    case 'viewingkey':
+      return 'net.err.viewingKey'
+    case 'viewingkeywrong':
+      return 'net.err.viewingKeyWrong'
+    case 'receivers':
+      // This device's own record of the vault's receivers is missing or unusable: the same cause, and
+      // the same advice, as an approval it could not load.
+      return 'net.err.approvalUnknown'
     default:
       return 'net.err.unreadablePczt'
   }
@@ -188,6 +210,9 @@ export class SigningMachine {
 
   // --- per-session signing state (was the sign* refs in NetVault) ---
   private started = false
+  /** Which ceremony this machine is in: `rearm` moves it on. Whatever was awaited for an older one is
+   *  dropped when it comes back, so an answer for one payment never starts or is kept in the next. */
+  private epoch = 0
   private msg: Uint8Array = new Uint8Array()
   /** This spend's round-1 handle. The nonces are inside it, in the wasm module, and are spent there
    *  by the one call that makes a share from them. */
@@ -287,10 +312,11 @@ export class SigningMachine {
 
   /** Reset all ceremony state so this SAME machine can sign a NEXT payment (issue #49 re-arm). NOT
    *  called by /net (which signs once per session, so its behavior is unchanged); the background
-   *  signer calls it between payments, each in its OWN fresh signing room - never re-armed inside a
-   *  room whose relay history still holds the previous ceremony's `k`-tagged messages, which would
-   *  cross-contaminate. Fresh session per payment is the contract. */
+   *  signer calls it between payments, in the vault's one signing room, and drops the buffered
+   *  history with it. Each ceremony is told apart by its tag, and an answer still awaited when this
+   *  runs is dropped on return (`epoch`), so nothing of one payment starts or stays in the next. */
   rearm(): void {
+    this.epoch++
     this.started = false
     this.cleared = false
     this.expiry = 0
@@ -334,10 +360,15 @@ export class SigningMachine {
    *  holds only a request it passes. Two readers of one function, so the request a device holds and
    *  the request it signs cannot be judged by two different rules.
    *
+   *  `ufvk` is the vault's viewing key as the caller got it from `viewingKey` (null when it got
+   *  none), what the reading binds each spend's value to. Whatever was served is checked inside the
+   *  reading, against this device's own package and recorded receivers, never here. The callers ask
+   *  for it before calling, because the asking is async and this function is not.
+   *
    *  `parseAlphas` can THROW since #364 (a transaction spending from both pools is refused, not
    *  halved), and every step that can throw is caught here, so a refusal never escapes as an
    *  unhandled rejection that would leave the member looking at nothing. */
-  private vet(pczt: Uint8Array): Vetted {
+  private vet(pczt: Uint8Array, ufvk: string | null): Vetted {
     let sighash: Uint8Array
     try {
       sighash = pcztSighash(pczt)
@@ -350,15 +381,30 @@ export class SigningMachine {
     } catch (err) {
       return { stage: 'spends', sighash, err }
     }
+    // ORDER MATTERS: the device's count of the actions a payment needs takes every spend that awaits
+    // a signature as this vault's own, which is only true because `parseAlphas` above has refused
+    // the whole transaction otherwise (`spends_to_sign_for`, the rk check). Read the payment before
+    // that check and the count would trust spends nobody checked.
     let payment: PcztPayment
     try {
-      payment = JSON.parse(readForSigning(pczt)) as PcztPayment
+      payment = JSON.parse(readForSigning(pczt, this.d.ourReceivers(), ufvk, deviceGroupKey(this.d.signingMaterial()))) as PcztPayment
     } catch (err) {
       return { stage: 'read', sighash, spends, err }
     }
     const decision = this.d.decideApproval(payment.outputs)
     if (decision !== 'match') return { stage: 'approval', sighash, spends, payment, decision }
     return { stage: 'ok', sighash, spends, payment }
+  }
+
+  /** The vault's viewing key from `viewingKey`, or null when it gave none; `openVault` says the
+   *  vault never serves one (`OpenVaultError`), which the refusal tells apart from a key out of reach.
+   *  Never logged. */
+  private async askViewingKey(): Promise<{ ufvk: string | null; openVault: boolean }> {
+    try {
+      return { ufvk: await this.d.viewingKey(), openVault: false }
+    } catch (e) {
+      return { ufvk: null, openVault: e instanceof OpenVaultError }
+    }
   }
 
   /** A request passed over because its transaction is not the one it names is evidence the member
@@ -370,14 +416,14 @@ export class SigningMachine {
 
   /** Whether this device would sign `req`: its PCZT passes every check of `vet`, it has a spend to
    *  sign, and it is the transaction the request names. */
-  private wouldSign(req: SignRequest): boolean {
+  private wouldSign(req: SignRequest, ufvk: string | null): boolean {
     let pczt: Uint8Array
     try {
       pczt = hexBytes(req.pcztHex)
     } catch {
       return false
     }
-    const v = this.vet(pczt)
+    const v = this.vet(pczt, ufvk)
     return v.stage === 'ok' && v.spends.length > 0 && bytesEqual(v.sighash, hexBytes(req.sighash))
   }
 
@@ -404,12 +450,19 @@ export class SigningMachine {
       this.saySwapped()
       return true
     }
+    // The vault's viewing key, asked for once per request that names its own transaction, for every
+    // `wouldSign` below (the asking is async; `vet` is not). Never logged.
+    const epoch = this.epoch
+    const { ufvk } = await this.askViewingKey()
+    // The await is a point where a ceremony can have started, or the machine moved on to the next
+    // payment (`rearm`): re-check both, and keep nothing of a request the machine is past.
+    if (this.started || epoch !== this.epoch) return false
     if (!this.heldReqs.has(named)) {
       this.heldReqs.set(named, helperReq)
       // Bounded: past the cap the oldest one this device would NOT sign goes first, so a flood of
       // junk cannot push out the request the quorum approved.
       while (this.heldReqs.size > MAX_HELD_REQUESTS) {
-        const victim = [...this.heldReqs.keys()].find((k) => !this.wouldSign(this.heldReqs.get(k)!)) ??
+        const victim = [...this.heldReqs.keys()].find((k) => !this.wouldSign(this.heldReqs.get(k)!, ufvk)) ??
           (this.heldReqs.keys().next().value as string)
         this.heldReqs.delete(victim)
       }
@@ -421,7 +474,7 @@ export class SigningMachine {
     // PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one ceremony at a
     // time, so single- and multi-note transactions take the same path.
     const held = [...this.heldReqs.entries()]
-    const latest = held.filter(([, r]) => this.wouldSign(r)).at(-1) ?? held.at(-1)
+    const latest = held.filter(([, r]) => this.wouldSign(r, ufvk)).at(-1) ?? held.at(-1)
     if (latest && this.isCoordinator(this.d.myTag()) && !this.sigDone && this.sreqSentFor !== latest[0]) {
       const [key, asked] = latest
       this.sreqSentFor = key
@@ -531,7 +584,12 @@ export class SigningMachine {
       // Every check of what this device would sign is made by `vet`, the one place that makes them
       // (the request a device holds is chosen by the same function, `tryHelperRequest`). What
       // follows only reports its answer, in the order the member sees it.
-      const v = this.vet(pczt)
+      const epoch = this.epoch
+      const { ufvk, openVault } = await this.askViewingKey()
+      // A `rearm` while the key was asked for moved the machine to the next payment: this request
+      // belongs to the one before and starts nothing. Consumed, since that ceremony is over here.
+      if (epoch !== this.epoch) return true
+      const v = this.vet(pczt, ufvk)
       if (v.stage === 'sighash') {
         this.d.onError(this.d.tt('net.err.sighashMismatch') + ' ' + String(v.err))
         return true
@@ -559,7 +617,10 @@ export class SigningMachine {
       this.sigs = []
       this.startedSpends = new Set()
       if (v.stage === 'read') {
-        this.d.onError(this.d.tt(refusalKey(v.err)))
+        // A vault that never serves its key is told apart from one out of reach: trying again helps
+        // the second and never the first.
+        const key = refusalKey(v.err)
+        this.d.onError(this.d.tt(openVault && key === 'net.err.viewingKey' ? 'net.err.viewingKeyOpenVault' : key))
         this.d.onLog(`~ ${String(v.err)}`)
         return true
       }
@@ -590,14 +651,19 @@ export class SigningMachine {
       this.expiry = read.expiry
       this.branch = read.branch
       let claimed: boolean
+      // As at the key: a `rearm` while the claim is out moves the machine on, and nothing of this
+      // ceremony, its answer included, reaches the next.
+      const claimEpoch = this.epoch
       try {
         claimed = await this.d.claim(bytesToHex(this.msg!), this.expiry)
       } catch (e) {
+        if (claimEpoch !== this.epoch) return true
         // This device could not read what it signed before: final, and said as it is.
         this.d.onError(this.d.tt('net.err.recordUnreadable'))
         this.d.onLog(`~ ${String(e)}`)
         return true
       }
+      if (claimEpoch !== this.epoch) return true
       if (!claimed) {
         this.d.onError(this.d.tt('net.err.signedAnother'))
         // The one refusal its owner can answer: every check above passed, and only their signature
@@ -788,9 +854,13 @@ export class SigningMachine {
       // Before EVERY share, not once per ceremony: the record is also where the owner's consent is
       // asked again, so a package that arrives after they withdrew gets nothing (the store keeps
       // one entry per transaction however often it is asked).
+      // The same at the record: a package answered after a `rearm` would be answered in the next
+      // payment's ceremony, against its own state.
+      const recordEpoch = this.epoch
       try {
         await this.d.record(bytesToHex(this.msg), this.expiry, this.branch)
       } catch (e) {
+        if (recordEpoch !== this.epoch) return true
         // A withdrawn consent is the owner's own choice, already said on their screen and to the
         // room; anything else is a record this device could not keep.
         if (!String(e).includes('[withdrawn]')) this.d.onError(this.d.tt(refusalKey('[record]')))
@@ -800,6 +870,7 @@ export class SigningMachine {
         this.d.onLog(`~ ${String(e)}`)
         return true
       }
+      if (recordEpoch !== this.epoch) return true
       let share: Uint8Array
       try {
         share = participantRound2WithRandomizer(

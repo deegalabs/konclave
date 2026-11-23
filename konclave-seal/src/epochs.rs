@@ -92,10 +92,11 @@ pub fn conventional_fee(marginal: u64, logical_actions: u64) -> Option<u64> {
     marginal.checked_mul(actions)
 }
 
-/// The fewest actions a payment is ESTIMATED at before the wallet picks its notes: one spend, one
-/// destination and change, with the spend and the outputs kept in separate actions, which is what a
+/// The fewest actions a payment is ESTIMATED at before the wallet picks its notes, which is what a
 /// single payment was charged on mainnet (15,000 at 5,000). Decided for #847 so the payment screen,
-/// the proposal and the signing panel stop showing two figures for one payment (#692).
+/// the proposal and the signing panel stop showing two figures for one payment (#692). It is an
+/// estimate, not the shape a device accepts: that is `spends::check_action_bound`, from what the
+/// transaction's spends and outputs need.
 pub const ESTIMATE_MIN_ACTIONS: u64 = 3;
 
 /// The actions a payment to `destinations` is estimated at: one spend, the destinations and change,
@@ -113,9 +114,18 @@ pub fn estimated_actions(destinations: u64) -> u64 {
 /// Whether `fee` is exactly the conventional fee of `logical_actions` at one of `accepted`. The one
 /// comparison: `Table::fee_accepted` and the device's `check_fee` both go through here.
 pub fn fee_in(fee: u64, logical_actions: u64, accepted: &[u64]) -> bool {
+    marginal_paid(fee, logical_actions, accepted).is_some()
+}
+
+/// The marginal fee `fee` is the conventional fee of for `logical_actions`: the rate of `accepted`
+/// that `fee_in` matched. The fee a transaction pays at two different rates differs for any
+/// non-zero action count, so there is at most one. The bound on what a spend must carry to be
+/// counted is read from it (`spends::check_action_bound`).
+pub fn marginal_paid(fee: u64, logical_actions: u64, accepted: &[u64]) -> Option<u64> {
     accepted
         .iter()
-        .any(|m| conventional_fee(*m, logical_actions) == Some(fee))
+        .copied()
+        .find(|m| conventional_fee(*m, logical_actions) == Some(fee))
 }
 
 /// The shape every fee table must have, checked at compile time for the production table: at least
@@ -273,17 +283,6 @@ pub fn fee_rule_for(target_height: u32, in_force: bool) -> u64 {
     } else {
         LEGACY_MARGINAL_FEE
     }
-}
-
-/// The marginal fees the era at `target_height` accepts when the ZIP 2009 rule is `in_force`, else only
-/// [`LEGACY_MARGINAL_FEE`]. NOT the coordinator's guard: since #847 it requires exactly `fee_rule_for`.
-/// No caller is left; it stays only so this crate, built into the device, is unchanged in this release,
-/// and it is removed with the next rebuild of the device package. Do not add a caller.
-pub fn fee_marginals_permitted(target_height: u32, in_force: bool) -> Vec<u64> {
-    if !in_force {
-        return vec![LEGACY_MARGINAL_FEE];
-    }
-    MAINNET.fee_era_at(target_height).accepts.to_vec()
 }
 
 /// The window of heights a device's clock allows, as `height_bounds` gives it.
@@ -1313,19 +1312,6 @@ mod tests {
         ];
         assert!(!every_era_accepts(DROPS, 5_000));
         assert!(!every_era_accepts(DROPS, 1_000));
-    }
-
-    #[test]
-    fn the_era_set_contains_what_the_builder_pays() {
-        assert_eq!(fee_marginals_permitted(3_590_000, false), vec![5_000]);
-        assert_eq!(fee_marginals_permitted(3_589_999, true), vec![5_000]);
-        assert_eq!(fee_marginals_permitted(3_590_000, true), vec![5_000, 1_000]);
-        // Whatever the builder pays for a target is among what the guard permits for it.
-        for h in [0, 3_589_999, 3_590_000, 4_000_000] {
-            for p in [false, true] {
-                assert!(fee_marginals_permitted(h, p).contains(&fee_rule_for(h, p)));
-            }
-        }
     }
 
     #[test]

@@ -44,7 +44,7 @@ describe('the provider hands the gate its answer (#610)', () => {
   it('passes the gate decision through untouched, so no second rule words a refusal', () => {
     const src = codeOf('./VaultSigner.tsx')
     expect(src).toMatch(/\(outputs: PcztOutput\[\]\): GateDecision => gateDecision\(approvalRef\.current, outputs\),/)
-    expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent\)/) // and hands it on as is
+    expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent, ourReceivers\)/) // and hands it on as is
     expect(src).toMatch(/isOurReceiver: \(recipient\) => paysOurselves\(recipient, ourReceiversRef\.current\),/)
   })
 
@@ -68,7 +68,7 @@ describe('the provider hands the gate its answer (#610)', () => {
 
   it('the hook hands the decision to the session as is, and the lab never answers match', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s/)
-    expect(codeOf('./screens/BackgroundSignerLab.tsx')).toMatch(/useBackgroundSigner\(unlocked, gate, \(\) => 'unknown', \(\) => false, async \(\) => \{ throw new Error\('the lab never signs'\) \}, \(\) => \{\}\)/)
+    expect(codeOf('./screens/BackgroundSignerLab.tsx')).toMatch(/useBackgroundSigner\(unlocked, gate, \(\) => 'unknown', \(\) => false, async \(\) => \{ throw new Error\('the lab never signs'\) \}, \(\) => \{\}, \(\) => null\)/)
   })
 })
 
@@ -90,9 +90,19 @@ describe('reopening the same payment keeps what the confirm says', () => {
 describe("the owner's claim and record reach the signer", () => {
   it('the provider passes its own claim and record, made from OwnerSigning', () => {
     const src = codeOf('./VaultSigner.tsx')
-    expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent\)/)
+    expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent, ourReceivers\)/)
+    // The receivers it hands on are the record's own, the list the money gate decides change by.
+    expect(src).toMatch(/const ourReceivers = useMemo\(\(\) => \(\) => ourReceiversRef\.current, \[\]\)/)
     // With the key of what the gate matched (#567 bridge): the same payment under a new id is recognised.
-    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry, paid\)/)
+    expect(src).toMatch(/const r = await owner\.current\.claim\(vaultId, proposalId, sighashHex, expiry, paid\)/)
+    // Which vault and proposal the claim is for is read when the machine asks, before anything is
+    // awaited: a member who moves to another proposal meanwhile does not bind its consent to this one.
+    const body = src.slice(src.indexOf('async (sighashHex: string, expiry: number) =>'))
+    const firstAwait = body.indexOf('await ')
+    expect(body.indexOf("const vaultId = vaultIdRef.current ?? ''")).toBeGreaterThan(-1)
+    expect(body.indexOf("const vaultId = vaultIdRef.current ?? ''")).toBeLessThan(firstAwait)
+    expect(body.indexOf('const proposalId = activeIdRef.current')).toBeGreaterThan(-1)
+    expect(body.indexOf('const proposalId = activeIdRef.current')).toBeLessThan(firstAwait)
     expect(src).toMatch(/const paid = approved && approved\.length \? await paidKey\(approved\) : undefined/)
     expect(src).toMatch(/\(sighashHex: string, expiry: number, branch: number\) => owner\.current\.record\(sighashHex, expiry, branch\)/)
     expect(src).toMatch(/return r === 'ok'/)
@@ -112,6 +122,15 @@ describe("the owner's claim and record reach the signer", () => {
     expect(panel).toMatch(/sameAt=\{signedBefore\?\.sameAt\}/)
     expect(src).toMatch(/lapsedAt: null, sameOutputs: !!last\.sameOutputs, sameAt: last\.sameAt \}/)
     expect(src).toMatch(/lapsedOf: \{ k: ours \? 1 : 0, n: lapsed\.earlier\.length \}, sameOutputs: !!lapsed\.sameOutputs, sameAt: lapsed\.sameAt \}/)
+  })
+  it('the hook hands the receivers it was given to the session, read when the request arrives', () => {
+    // The session is built once, in an effect, so the receivers cannot be captured then: they go
+    // through a ref kept current on every render, which is what lets the list that loads later count.
+    // (The session onwards is exercised with a real list in background-session.test.ts.)
+    const src = codeOf('./useBackgroundSigner.ts')
+    expect(src).toMatch(/const receiversRef = useRef\(ourReceivers\)\s*receiversRef\.current = ourReceivers/)
+    expect(src).toMatch(/ourReceivers: \(\) => receiversRef\.current\(\),/)
+    expect(src).not.toMatch(/ourReceivers: \(\) => null/)
   })
   it('the hook hands them to the session unchanged', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s*claim,\s*record,\s/)

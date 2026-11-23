@@ -18,13 +18,21 @@ import init, {
   readPayment,
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
-import { dkg2of3, dkgFirstSpendKey, dkgOtherPczt, OTHER_EXPIRY, dkgProvenPczt, dkgVaultKey, fixtureVault } from './rekeyed-vault'
+import { dkg2of3, dkgFirstSpendKey, dkgOtherPczt, OTHER_EXPIRY, dkgProvenPczt, dkgVaultKey, fixtureVault, VECTOR_VIEWING_KEY, VECTOR_RECEIVERS } from './rekeyed-vault'
 import { VECTOR_EXPIRY, honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
+import { OpenVaultError } from './signing-refusal'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
 import type { GateDecision } from './approved-payment'
 import { codeAt, codeOf } from './source-scan'
+
+vi.mock('./wasm-pkg/konclave_wasm.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./wasm-pkg/konclave_wasm.js')>()
+  const { standingInForTheVectorsKey } = await import('./rekeyed-vault')
+  return { ...real, readForSigning: standingInForTheVectorsKey(real.readForSigning) }
+})
+
 
 beforeAll(pinClock)
 afterAll(unpinClock)
@@ -74,6 +82,10 @@ interface Device {
   what: SignPreview | null
   /** When set, answers for the request in place of `decision`. */
   gate?: (outputs: unknown[]) => GateDecision
+  /** The viewing key this device is given (`undefined`: the vector's stand-in, `null`: none). */
+  viewingKey?: string | null | Error
+  /** The receivers this device recorded (`undefined`: the vector's own). */
+  receivers?: string[] | null
   /** The tag this device's room named coordinator (SIGNER-SEAT1); null while no quorum completed.
    *  The harness defaults to seat 1's tag, 'A', so the ceremony tests read as before. */
   coordinator?: string | null
@@ -194,6 +206,11 @@ function makeDevice(
     // #281: this harness exercises the CEREMONY, not the money gate. Permissive by default; the
     // refusal is asserted in its own test below, which overrides this.
     decideApproval: (outputs) => (dev.gate ? dev.gate(outputs) : dev.decision),
+    ourReceivers: () => (dev.receivers === undefined ? VECTOR_RECEIVERS : dev.receivers),
+    viewingKey: async () => {
+      if (dev.viewingKey instanceof Error) throw dev.viewingKey
+      return dev.viewingKey === undefined ? VECTOR_VIEWING_KEY : dev.viewingKey
+    },
     claim: async (h, expiry) => { if (dev.claimUnreadable) throw new Error('[unreadable] blocked'); dev.claims.push(h); dev.claimExpiries.push(expiry); return dev.claimAnswer },
     record: async (h, expiry, branch) => { if (dev.recordFails) throw new Error('blocked'); if (dev.recordWithdrawn || (dev.withdrawAfter !== undefined && dev.records.length >= dev.withdrawAfter)) throw new Error('[withdrawn] no consent'); dev.records.push([h, expiry, branch]) },
   }
@@ -229,6 +246,8 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
     // which is the point. Answering 'match' keeps this test measuring the sender check and nothing else;
     // a refusal here would make it pass for the wrong reason.
     decideApproval: () => dev.decision,
+    ourReceivers: () => VECTOR_RECEIVERS,
+    viewingKey: async () => VECTOR_VIEWING_KEY,
     claim: async () => true,
     record: async () => {},
     tt: (k) => k,
@@ -1066,6 +1085,9 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(refusalKey('[expiry] x')).toBe('net.err.expiry')
     expect(refusalKey('[network] x')).toBe('net.err.network')
     expect(refusalKey('[locktime] x')).toBe('net.err.locktime')
+    expect(refusalKey('[viewingkey] x')).toBe('net.err.viewingKey')
+    expect(refusalKey('[viewingkeywrong] x')).toBe('net.err.viewingKeyWrong')
+    expect(refusalKey('[receivers] x')).toBe('net.err.approvalUnknown')
     expect(refusalKey('failed to parse PCZT')).toBe('net.err.unreadablePczt')
   })
 
@@ -1083,10 +1105,251 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
   })
 
+  // A payment that spends a note is bound, spend by spend, to the vault's viewing key. A device
+  // with none says so and signs nothing; one that was handed a key that is not the vault's refuses
+  // too, so a key the coordinator chose can only stop a signature, never change what is signed.
+  const WRONG_KEY = 'uview1z2nst9y9367acqqykyws80hrc3df87ffnwvtvx3ggf3tvx342sncxxfztdgfk67a0xk4c0wptspqyc4k59ucqrtxgdka96ktjudm5gr65d8aaq6js0jpwrfryrafzu82axyezm9e6y5r96z7hk8a04zpvs5896xeze9pmpwwymh5h7xeae79wscp2c08j'
+  for (const [what, key, shown] of [['no viewing key', null, 'net.err.viewingKey'], ['a key that is not the vault\u2019s', WRONG_KEY, 'net.err.viewingKeyWrong']] as const) {
+    it(`refuses, before any share moves, with ${what}`, async () => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+      const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+      A.viewingKey = key
+      B.viewingKey = key
+      bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+      await runCeremony(A, B, bus)
+      expect(A.sig).toBeNull()
+      expect(A.errors).toContain(shown)
+      expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+    })
+  }
+
+  // What the member is told depends on why there is no usable key, because the advice differs: out of
+  // reach (try again), not this vault's (do not, tell the others), this device's own record missing
+  // (reload), and a vault that never serves one (protect it first).
+  const refusedFor = async (set: (d: Device) => void, key: string) => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    set(A)
+    set(B)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(A.errors).toContain(key)
+    expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+  }
+  const OTHER_RECEIVERS = [
+    '0d'.repeat(43),
+    '0e'.repeat(43),
+  ]
+  it('a key that does not derive the receivers this device recorded is not this vault\u2019s: do not retry', async () => {
+    // The vector's own key, and the receivers of another vault. Only the reading's key check, which
+    // the export reaches through `read_for_signing_keyed`, can refuse this: nothing else here differs.
+    await refusedFor((d) => { d.receivers = OTHER_RECEIVERS }, 'net.err.viewingKeyWrong')
+  })
+  it('a device with no recorded receivers cannot check the key and says its record did not load', async () => {
+    await refusedFor((d) => { d.receivers = null }, 'net.err.approvalUnknown')
+  })
+  it('a vault that never serves its key is told apart from one out of reach', async () => {
+    await refusedFor((d) => { d.viewingKey = new OpenVaultError() }, 'net.err.viewingKeyOpenVault')
+    await refusedFor((d) => { d.viewingKey = null }, 'net.err.viewingKey')
+  })
+
+  // The key is a viewing key: it reads the vault's history. Not in the log, not in an error, not in
+  // the console, whether the ceremony runs or is refused.
+  it('never lets the viewing key into a log line, an error or the console', async () => {
+    const seen: string[] = []
+    const logs: string[] = []
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation((...a: unknown[]) => { seen.push(a.map(String).join(' ')) }),
+    )
+    try {
+      for (const set of [(_d: Device) => {}, (d: Device) => { d.viewingKey = 'uview1' + 'q'.repeat(60) }, (d: Device) => { d.receivers = OTHER_RECEIVERS }]) {
+        const { s0, s1, groupVk, pubkeys } = dkg2of3()
+        const bus = new Bus()
+        const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), undefined, 2, logs)
+        const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), undefined, 2, logs)
+        set(A)
+        set(B)
+        bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+        await runCeremony(A, B, bus)
+        seen.push(...A.errors, ...B.errors)
+      }
+    } finally {
+      spies.forEach((x) => x.mockRestore())
+    }
+    seen.push(...logs)
+    expect(seen.length).toBeGreaterThan(0)
+    for (const line of seen) {
+      expect(line).not.toMatch(/uview/)
+      expect(line).not.toContain(VECTOR_VIEWING_KEY)
+    }
+  })
+  it('the machine and the one place that gets the key put neither in a log, an error or the console', () => {
+    for (const f of ['./signing-machine.ts', './vault-receivers.ts']) {
+      const risky = codeOf(f)
+        .split('\n')
+        .filter((l) => /(onLog|onError|console\.|\.log\()/.test(l) && /(ufvk|keys\b|viewingKey\(|\bheld\b)/.test(l))
+      expect(risky, f).toEqual([])
+    }
+  })
+
+  it('a viewing key that cannot be fetched is no viewing key, not a crash', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const viewingKey = vi.fn(async () => { throw new Error('offline') })
+    ;(A.machine as unknown as { d: { viewingKey: () => Promise<string | null> } }).d.viewingKey = viewingKey
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(viewingKey).toHaveBeenCalled()
+    expect(A.errors).toContain('net.err.viewingKey')
+    expect(A.sig).toBeNull()
+  })
+
+  // The key is asked for asynchronously. A `rearm` while that answer is pending (the member moved to
+  // the next proposal) starts a new ceremony; what the pending answer was for belongs to the old one
+  // and must not start, or be kept, in the new one.
+  const gatedKey = (dev: Device, gateCall: number) => {
+    let calls = 0
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => { release = r })
+    ;(dev.machine as unknown as { d: { viewingKey: () => Promise<string | null> } }).d.viewingKey = async () => {
+      calls++
+      if (calls === gateCall) await held
+      return VECTOR_VIEWING_KEY
+    }
+    return { calls: () => calls, release: () => release() }
+  }
+  const until = async (cond: () => boolean) => {
+    for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 0))
+    expect(cond()).toBe(true)
+  }
+  const internals = (dev: Device) => dev.machine as unknown as { started: boolean; heldReqs: Map<string, unknown> }
+
+  it('a rearm while the key is asked for in onSreq does not start the old ceremony in the new one', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    // B's first ask is the held request's; the second is onSreq's, held until after the rearm.
+    const gate = gatedKey(B, 2)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await pump(A, bus)
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"sreq"'))).toBe(true)
+    const draining = pump(B, bus)
+    await until(() => gate.calls() >= 2)
+    B.machine.rearm()
+    gate.release()
+    await draining
+    expect(internals(B).started).toBe(false)
+    expect(B.errors).toEqual([])
+    // The next payment, in its own room, signs.
+    for (const d of [A, B]) {
+      d.machine.rearm()
+      d.consumed = new Set()
+    }
+    const next = new Bus()
+    A.bus = next
+    B.bus = next
+    next.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, next)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('a rearm while the key is asked for in tryHelperRequest keeps nothing of the old request', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const gate = gatedKey(A, 1)
+    const asking = A.machine.tryHelperRequest(signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await until(() => gate.calls() >= 1)
+    A.machine.rearm()
+    gate.release()
+    expect(await asking).toBe(false)
+    expect(internals(A).heldReqs.size).toBe(0)
+    expect(bus.msgs.some((m) => m.data.includes('"sreq"'))).toBe(false)
+  })
+
+  // The claim and the record are asked for asynchronously too, and a `rearm` can land while either is out.
+  const held = <T,>(answer: T) => {
+    let calls = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    return { fn: async () => { calls++; await gate; return answer }, calls: () => calls, release: () => release() }
+  }
+  const typeFrom = (bus: Bus, from: string, type: string) =>
+    bus.msgs.some((m) => { try { return m.from === from && (JSON.parse(m.data) as { type?: string }).type === type } catch { return false } })
+
+  it('a rearm while the claim is out clears nothing and sends no commitment into the next ceremony', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const claim = held(true)
+    ;(B.machine as unknown as { d: { claim: () => Promise<boolean> } }).d.claim = claim.fn
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await pump(A, bus)
+    const draining = pump(B, bus)
+    await until(() => claim.calls() >= 1)
+    B.machine.rearm()
+    claim.release()
+    await draining
+    expect((B.machine as unknown as { cleared: boolean }).cleared).toBe(false)
+    expect(typeFrom(bus, 'B', 's1')).toBe(false)
+    expect(B.errors).toEqual([])
+  })
+
+  it('a rearm while the record is out answers no package and says no mismatch in the next ceremony', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !typeFrom(bus, 'A', 'sp'); i++) {
+      await pump(A, bus)
+      if (typeFrom(bus, 'A', 'sp')) break
+      await pump(B, bus)
+    }
+    expect(typeFrom(bus, 'A', 'sp'), 'the package is on the bus').toBe(true)
+    const record = held(undefined)
+    ;(B.machine as unknown as { d: { record: () => Promise<void> } }).d.record = record.fn
+    const draining = pump(B, bus)
+    await until(() => record.calls() >= 1)
+    B.machine.rearm()
+    record.release()
+    await draining
+    expect(typeFrom(bus, 'B', 's2')).toBe(false)
+    expect(B.errors).toEqual([])
+  })
+
   it('the machine reads what it signs on through readForSigning alone', () => {
     const src = codeOf('./signing-machine.ts')
-    expect(src).toMatch(/JSON\.parse\(readForSigning\(pczt\)\)/)
+    expect(src).toMatch(/JSON\.parse\(readForSigning\(pczt, this\.d\.ourReceivers\(\), ufvk, deviceGroupKey\(this\.d\.signingMaterial\(\)\)\)\)/)
+    // ...with the key from the one place a device gets it, and never from the request.
+    expect(src).toMatch(/ufvk: await this\.d\.viewingKey\(\)/)
     expect(src).not.toMatch(/readPayment\(/)
+  })
+
+  it('every awaiting spend is checked against the vault key BEFORE the payment is read', () => {
+    // The device's count of what a payment needs treats a spend that awaits a signature as the
+    // vault's own; it relies on `parseAlphas` (the rk check, `spends_to_sign_for`) having refused any
+    // that is not, so the order is part of the rule. Moving the reading above it, or letting a refusal
+    // fall through, leaves the count to something that never checked.
+    const src = codeOf('./signing-machine.ts')
+    const check = src.indexOf('parseAlphas(pczt')
+    const read = src.indexOf('readForSigning(pczt')
+    expect(check, 'the spends are checked in the machine').toBeGreaterThan(-1)
+    expect(read, 'the payment is read in the machine').toBeGreaterThan(-1)
+    expect(check).toBeLessThan(read)
+    const between = src.slice(check, read)
+    // A refusal of the spends returns before the reading (`vet`), and its caller reports it.
+    expect(between).toMatch(/catch \(err\) \{\s*return \{ stage: 'spends'/)
   })
 
   it('an unreadable set of spends is refused OUT LOUD, never thrown into the void (#364)', async () => {
@@ -1382,7 +1645,8 @@ describe('the coordinator is fixed for a ceremony once it starts (SIGNER-SEAT1)'
 // transaction inline), so each test hands the two different transactions with a message that matches
 // the one the signature would be made over. The gate answers `match` only for the approved payment.
 describe('a device signs the transaction it checked', () => {
-  // Another payment, built for the same vault, so a device that reads it reaches the content gate.
+  // Another payment, built for the same vault (the Foundation's fixture). Its spends carry no value,
+  // so a device refuses it at the reading, before the content gate is asked.
   const otherPczt = () => withExpiry(dkgOtherPczt(), honestExpiry(), OTHER_EXPIRY)
   const tagOf = (p: Uint8Array) => bytesToHex(pcztSighash(p)).slice(0, 16)
   const outputsOf = (p: Uint8Array) => JSON.stringify((JSON.parse(readPayment(p)) as { outputs: unknown[] }).outputs)
@@ -1425,10 +1689,11 @@ describe('a device signs the transaction it checked', () => {
     const other = otherPczt()
     const r = await run(other, approved, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
-    // By the content gate, not by anything earlier: the transaction is the vault's own, only not
-    // the one that was approved.
-    expect(r.A.errors).toContain('net.err.notApproved')
-    expect(r.B.errors).toContain('net.err.notApproved')
+    // The other transaction is the Foundation's fixture, whose spends carry no value, so the reading
+    // refuses it before the content gate is asked: a spend it cannot check is never signed. The gate
+    // itself is tested where a device answers `mismatch` for a transaction it read.
+    expect(r.A.errors).toContain('net.err.outputMismatch')
+    expect(r.B.errors).toContain('net.err.outputMismatch')
     expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
     expect(r.A.sig).toBeNull()
     expect(r.B.sig).toBeNull()

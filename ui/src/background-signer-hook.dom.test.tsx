@@ -22,7 +22,7 @@ vi.mock('./background-session', () => ({
 
 const { useBackgroundSigner } = await import('./useBackgroundSigner')
 const use = (id: string) => () => useBackgroundSigner(
-  { id }, () => true, () => ({ ok: true }) as never, () => true, async () => {}, () => {},
+  { id }, () => true, () => ({ ok: true }) as never, () => true, async () => {}, () => {}, () => null,
 )
 
 describe('the background signer hook and the cross-tab lock (#285)', () => {

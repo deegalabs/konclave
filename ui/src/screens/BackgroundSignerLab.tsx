@@ -43,7 +43,7 @@ export default function BackgroundSignerLab() {
   // The injected request is built over the demo vector, which belongs to another vault. A device
   // now checks each spend against its own vault's key first, so a real vault of this device
   // refuses it for that reason before the gate above is asked; the lab shows that refusal.
-  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown', () => false, async () => { throw new Error('the lab never signs') }, () => {})
+  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown', () => false, async () => { throw new Error('the lab never signs') }, () => {}, () => null)
 
   useEffect(() => {
     void (async () => {

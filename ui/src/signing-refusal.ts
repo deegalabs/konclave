@@ -16,6 +16,15 @@
 //    it is worded as something ignored and shown beside the progress, never in its place.
 //  - Anything else is a failed send.
 
+/** A vault with no read key never serves its viewing key, so a device of it cannot get one: said
+ *  apart from a vault that is merely out of reach, because trying again will not help. Thrown by
+ *  `vaultViewingKey`, read by the signing machine. */
+export class OpenVaultError extends Error {
+  constructor() {
+    super('this vault has no read key, so its viewing key is not served')
+  }
+}
+
 /** The device's refusals of a transaction: each is final for that transaction on this device. */
 export const REFUSALS: ReadonlySet<string> = new Set([
   'net.err.unreadableSpends',
@@ -26,6 +35,9 @@ export const REFUSALS: ReadonlySet<string> = new Set([
   'net.err.unreadablePczt',
   'net.err.feeTooHigh',
   'net.err.feeClock',
+  'net.err.viewingKey',
+  'net.err.viewingKeyWrong',
+  'net.err.viewingKeyOpenVault',
   'net.err.outputMismatch',
   'net.err.labelMismatch',
   'net.err.unexpectedShape',
