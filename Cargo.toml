@@ -11,9 +11,9 @@ members = [
 ]
 # The relay is its own workspace, with its own Cargo.lock, so the image builds with `--locked` from
 # exactly the lock CI tests. Build it with `--manifest-path relay-server/Cargo.toml`.
-exclude = ["relay-server"]
+exclude = ["relay-server", "vendor/tiny_http-0.12.0"]
 
-# NO [patch.crates-io]. Every librustzcash / orchard crate comes straight from crates.io at a
+# NO [patch.crates-io] for the Zcash crates. Every librustzcash / orchard crate comes straight from crates.io at a
 # RELEASED version - there are zero git sources in Cargo.lock. Keep it that way: a git rev is a
 # moving, unaudited target on a money path, and the released line carries everything the earlier
 # pins were reaching for (#120, re-cut of #259).
@@ -34,3 +34,10 @@ exclude = ["relay-server"]
 #
 # Version pins live per-member (konclave-signer, konclave-wasm, orchestrator). Bump them together,
 # and keep engine/versions.lock in sync.
+
+# The one patch: the HTTP server under the coordinator and the bridge, vendored at its released
+# version (the first commit of vendor/tiny_http-0.12.0 is the unchanged crate) with one change on
+# top, so the diff is the whole of it. The relay workspace carries the same entry. A path, never a
+# git rev. Drop it when an upstream release carries the change.
+[patch.crates-io]
+tiny_http = { path = "vendor/tiny_http-0.12.0" }

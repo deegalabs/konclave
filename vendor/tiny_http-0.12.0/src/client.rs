@@ -6,11 +6,34 @@ use std::io::{BufReader, BufWriter, ErrorKind, Read};
 
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::common::{HTTPVersion, Method};
 use crate::util::RefinedTcpStream;
 use crate::util::{SequentialReader, SequentialReaderBuilder, SequentialWriterBuilder};
 use crate::Request;
+
+/// Konclave patch: the connection's reader, which refuses to read once a request body was
+/// abandoned undrained. Outside the `BufReader`, so bytes it already buffered are refused too.
+pub(crate) struct Abandonable<R> {
+    inner: R,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl<R: Read> Read for Abandonable<R> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        if self.abandoned.load(Ordering::SeqCst) {
+            return Err(IoError::new(
+                ErrorKind::ConnectionAborted,
+                "request body abandoned undrained",
+            ));
+        }
+        self.inner.read(buf)
+    }
+}
+
+type Source = Abandonable<BufReader<RefinedTcpStream>>;
 
 /// A ClientConnection is an object that will store a socket to a client
 /// and return Request objects.
@@ -20,14 +43,17 @@ pub struct ClientConnection {
 
     // sequence of Readers to the stream, so that the data is not read in
     //  the wrong order
-    source: SequentialReaderBuilder<BufReader<RefinedTcpStream>>,
+    source: SequentialReaderBuilder<Source>,
 
     // sequence of Writers to the stream, to avoid writing response #2 before
     //  response #1
     sink: SequentialWriterBuilder<BufWriter<RefinedTcpStream>>,
 
     // Reader to read the next header from
-    next_header_source: SequentialReader<BufReader<RefinedTcpStream>>,
+    next_header_source: SequentialReader<Source>,
+
+    // Konclave patch: set when a request body was abandoned undrained
+    abandoned: Arc<AtomicBool>,
 
     // set to true if we know that the previous request is the last one
     no_more_requests: bool,
@@ -55,7 +81,11 @@ impl ClientConnection {
         let remote_addr = read_socket.peer_addr();
         let secure = read_socket.secure();
 
-        let mut source = SequentialReaderBuilder::new(BufReader::with_capacity(1024, read_socket));
+        let abandoned = Arc::new(AtomicBool::new(false));
+        let mut source = SequentialReaderBuilder::new(Abandonable {
+            inner: BufReader::with_capacity(1024, read_socket),
+            abandoned: abandoned.clone(),
+        });
         let first_header = source.next().unwrap();
 
         ClientConnection {
@@ -65,6 +95,7 @@ impl ClientConnection {
             next_header_source: first_header,
             no_more_requests: false,
             secure,
+            abandoned,
         }
     }
 
@@ -153,6 +184,7 @@ impl ClientConnection {
             *self.remote_addr.as_ref().unwrap(),
             data_source,
             writer,
+            self.abandoned.clone(),
         )
         .map_err(|e| {
             use crate::request;

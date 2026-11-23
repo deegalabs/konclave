@@ -6955,6 +6955,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A declared length past the ceiling is refused unread. The request is then dropped with its
+    /// body undrained, and the server must neither try to take that length into memory nor go on
+    /// reading the connection as if the next request started inside the body.
+    #[test]
+    fn a_huge_declared_body_does_not_end_the_coordinator() {
+        use std::io::{Read as _, Write as _};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("konclave-hs-hugebody-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(500))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let ask = |raw: &[u8]| {
+            let mut c = std::net::TcpStream::connect(addr).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let _ = c.write_all(raw);
+            let mut got = [0u8; 64];
+            let n = c.read(&mut got).unwrap_or(0);
+            String::from_utf8_lossy(&got[..n]).into_owned()
+        };
+        for path in ["/api/vault/proposals", "/api/health", "/nowhere"] {
+            let raw = format!(
+                "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Length: 9223372036854775807\r\n\r\n{{"
+            );
+            let _ = ask(raw.as_bytes());
+        }
+        let got = ask(b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(got.starts_with("HTTP/1.1 200"), "got {got:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn cfg_at(dir: &std::path::Path) -> HelperConfig {
         let mut c = cfg();
         c.vaults_dir = dir.to_path_buf();
