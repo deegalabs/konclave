@@ -42,11 +42,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
-- **The coordinator checks requests, and the actions members sign, more strictly.** For a member
-  whose device keeps the right time nothing changes, except that a request reaching a vault while it
-  is busy is now answered at once with "try again shortly" rather than kept waiting. A device whose
-  clock is far off is told to check its clock and date. The full account follows once the hosted
-  coordinator runs this.
+- **The coordinator checks requests, and the actions members sign, more strictly.** Nothing
+  changes for members in ordinary use. The full account follows once the hosted coordinator runs
+  this.
 
 - **The coordinator shares a smaller copy of each transaction with the vault's devices.** What a
   device shows and checks (the payment, the fee and what it signs) is unchanged. The details follow
