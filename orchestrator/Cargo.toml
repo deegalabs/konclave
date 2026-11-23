@@ -44,7 +44,7 @@ rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"]
 # Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
 # the synchronous core (rusqlite/subprocess) - no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.
-tiny_http = "0.12"
+tiny_http = "=0.12.0" # exact: the vendored, patched copy (see the root [patch.crates-io])
 # Authoritative Zcash address validation (audit M2): a real bech32m/base58 decode with
 # receiver-pool inspection before the send path, so a malformed / wrong-network /
 # Sapling-only destination cannot reach the builder and lock funds (§8). Pure Rust, no

@@ -29,7 +29,7 @@
 mod admission;
 mod concurrency;
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ use orchestrator::send_record::{
 };
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, unsigned_seat, SeatError, SignedWrite,
-    Vote, VoteProof, WriteAction, WriteAuth,
+    Vote, VoteProof, WriteAction, WriteAuth, WriteRefusal,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -1157,7 +1157,7 @@ fn gate_write_checked(
         sig,
     };
     let seen = |n: &str| orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, vault, n);
-    match authorize_write(&write_keys, vault, action, target, &w, seen) {
+    match authorize_write(&write_keys, vault, action, target, &w, now_ms(), seen) {
         WriteAuth::Authorized { seat } => {
             let recorded = match acts_as {
                 None => None,
@@ -1206,10 +1206,12 @@ fn gate_write_checked(
                 "vault {}: refused a write ({why:?})",
                 orchestrator::helper::short_id(vault)
             );
-            Err(resp(
-                401,
-                json!({ "error": "signature required" }).to_string(),
-            ))
+            let error = if why == WriteRefusal::Stale {
+                STALE_WRITE_TEXT
+            } else {
+                "signature required"
+            };
+            Err(resp(401, json!({ "error": error }).to_string()))
         }
     }
 }
@@ -1700,6 +1702,18 @@ fn sent_proposals(cfg: &HelperConfig, vault: &str) -> Vec<HelperProposal> {
         .collect()
 }
 
+/// A signed write whose time is too far from the coordinator's. Almost always a device clock.
+const STALE_WRITE_TEXT: &str =
+    "this action was signed at a time too far from now; check this device's clock and date, then try again";
+
+/// The coordinator's clock in ms, the unit a signed write carries.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
 /// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
@@ -2017,15 +2031,8 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
 /// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) - the money gate is the
 /// FROST ceremony, not this vote. A vote on a terminal proposal is a 409.
 fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
-    let rest = path.trim_start_matches("/api/vault/proposals/");
-    let (id, action) = match rest.rsplit_once('/') {
-        Some(v) => v,
-        None => return resp(404, json!({ "error": "not found" }).to_string()),
-    };
-    let approve = match action {
-        "approve" => true,
-        "refuse" => false,
-        _ => return resp(404, json!({ "error": "not found" }).to_string()),
+    let Some((id, approve)) = vote_path(path) else {
+        return resp(404, json!({ "error": "not found" }).to_string());
     };
     #[derive(Deserialize)]
     struct Req {
@@ -2770,6 +2777,39 @@ fn is_send_path(route: &str) -> bool {
     route.starts_with("/api/vault/proposals/") && route.ends_with("/send")
 }
 
+/// The proposal and the vote of a vote's path (`/api/vault/proposals/{id}/approve|refuse`), or
+/// `None` for any other path. ONE parser: the vote handler reads the path with it and `lock_class`
+/// asks it whether a path is routed at all.
+fn vote_path(route: &str) -> Option<(&str, bool)> {
+    let rest = route.strip_prefix("/api/vault/proposals/")?;
+    match rest.rsplit_once('/')? {
+        (id, "approve") => Some((id, true)),
+        (id, "refuse") => Some((id, false)),
+        _ => None,
+    }
+}
+
+/// The writes the router answers by their exact path. The proposal routes with an id in the path
+/// are recognised by `is_send_path` and `vote_path`. `every_routed_path_is_in_the_lock_table` holds
+/// this list to the router.
+const WRITE_ROUTES: &[&str] = &[
+    "/api/vault",
+    "/api/vault/devicekey",
+    "/api/vault/members",
+    "/api/vault/members/rename",
+    "/api/vault/payroll",
+    "/api/vault/proposals",
+    "/api/vault/readkey",
+];
+
+/// How long a write waits for its vault's lock before it answers `busy: vault` (the screens retry
+/// that answer). A write that has the lock runs to its end; one that does not must not hold a
+/// worker for as long as another request holds the vault, a send for minutes.
+const VAULT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The answer of a write that did not get its vault's lock within `VAULT_WAIT`. Nothing was done.
+const VAULT_BUSY_TEXT: &str = "this vault is busy with another request; try again shortly";
+
 /// Which locks a request takes before its handler runs.
 #[derive(Debug, PartialEq, Eq)]
 enum LockClass {
@@ -2779,10 +2819,13 @@ enum LockClass {
     /// Anything that can change a vault: the write lock, and the wallet lock too for a request that
     /// runs the engine on the wallet (a proposal, a payroll, a send).
     Write { wallet: bool },
+    /// A method and path no handler answers: a 404 before any lock, so a request does not queue
+    /// behind a vault's send because its body names that vault.
+    Unrouted,
 }
 
-/// The class of a request. Unknown routes and methods are `Write`, as they were: the table lists
-/// what is FREE, so a route nobody classified keeps the lock it always had.
+/// The class of a request. A route the router answers is a `Read` or a `Write`; anything else is
+/// `Unrouted`, and the router would answer it 404 anyway.
 ///
 /// The reads that WRITE (`proposals`, `ledger`, `ledger.csv` settle a mined send) and the reads that
 /// run the engine (`balance`, `transactions`) take the locks they need themselves, with `try`.
@@ -2791,12 +2834,15 @@ fn lock_class(method: &Method, path: &str) -> LockClass {
     if *method == Method::Get && (GATED_READS.contains(&route) || OPEN_READS.contains(&route)) {
         return LockClass::Read;
     }
+    if *method != Method::Post
+        || !(WRITE_ROUTES.contains(&route) || is_send_path(route) || vote_path(route).is_some())
+    {
+        return LockClass::Unrouted;
+    }
     // A handler that starts running the engine on the wallet has to be listed here: nothing else
     // would stop two engine processes opening one wallet. `the_lock_class_of_each_route` holds it.
-    let wallet = *method == Method::Post
-        && (route == "/api/vault/proposals"
-            || route == "/api/vault/payroll"
-            || is_send_path(route));
+    let wallet =
+        route == "/api/vault/proposals" || route == "/api/vault/payroll" || is_send_path(route);
     LockClass::Write { wallet }
 }
 
@@ -2824,16 +2870,7 @@ fn with_the_wallet<T>(
 ) -> Result<T, Resp> {
     let vault = reg.vault_id.as_str();
     let wallet = locks.wallet_for_vault(vault);
-    let guard = match concurrency::try_acquire(&wallet) {
-        Some(guard) => Some(guard),
-        None if locks.sending(vault).is_some() => None,
-        None => match locks.wait_slot(vault) {
-            Some(_slot) => {
-                concurrency::acquire_within(&wallet, WALLET_WAIT, || locks.sending(vault).is_some())
-            }
-            None => None,
-        },
-    };
+    let guard = locks.take(vault, &wallet, WALLET_WAIT);
     let answer = match guard {
         Some(_) => Ok(read()),
         None => {
@@ -2871,6 +2908,12 @@ fn serve(
     body: &[u8],
     read_token: Option<&str>,
 ) -> Resp {
+    // A path no handler answers needs no vault, no allowance and no lock.
+    let class = lock_class(method, path);
+    if class == LockClass::Unrouted {
+        return resp(404, json!({ "error": "not found" }).to_string());
+    }
+
     // First, because there is no right vault to lock for a request that names two, or whose body
     // cannot be read by name, and because a registration refused here must not be counted against
     // its sender's allowance below (#576).
@@ -2927,19 +2970,33 @@ fn serve(
     let vault = vault.filter(|v| {
         state.contains(v) || (*method == Method::Post && route == "/api/vault" && reaches_engine)
     });
-    let (write, wallet) = match (lock_class(method, path), vault) {
+    let (write, wallet) = match (class, vault.as_deref()) {
         (LockClass::Write { wallet }, Some(v)) => (
-            Some(locks.for_vault(&v)),
-            wallet.then(|| locks.wallet_for_vault(&v)),
+            Some(locks.for_vault(v)),
+            wallet.then(|| locks.wallet_for_vault(v)),
         ),
         _ => (None, None),
     };
     // A handler that panicked would poison a lock and wedge that vault forever; taking the inner
-    // value keeps the vault serving instead. Always the write lock first, then the wallet lock:
-    // readers only ever TRY the wallet lock, so this order cannot deadlock.
-    let _write = write
-        .as_ref()
-        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+    // value keeps the vault serving instead (`try_acquire` does). Always the write lock first, then
+    // the wallet lock: readers only ever TRY the wallet lock, so this order cannot deadlock.
+    // The write lock is waited for a moment only, by a few requests at a time, and not at all while
+    // the vault is sending: whoever holds it may hold it for minutes, and a worker parked here is one
+    // fewer for everyone else. One rule with a wallet read: `VaultLocks::take`.
+    let vault_id = vault.as_deref().unwrap_or("");
+    let _write = match write.as_ref() {
+        None => None,
+        Some(m) => match locks.take(vault_id, m, VAULT_WAIT) {
+            Some(guard) => Some(guard),
+            None => {
+                return resp(
+                    503,
+                    json!({ "error": VAULT_BUSY_TEXT, "busy": "vault", "retry_after": 2 })
+                        .to_string(),
+                )
+            }
+        },
+    };
     let _wallet = wallet
         .as_ref()
         .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
@@ -3101,7 +3158,10 @@ fn main() {
             h.proposal
         );
     }
-    let server = Server::http(&addr).expect("bind");
+    // Every accepted connection inherits a read and write timeout from this listener, so one that
+    // stops sending ends instead of holding a worker (see `konclave_http::body`).
+    let listener = konclave_http::body::listen(&addr).expect("bind");
+    let server = Server::from_listener(listener, None).expect("serve");
     eprintln!(
         "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {receivers} change receiver(s) recorded, {swept} scratch dir(s) swept)",
         cfg.network
@@ -3130,7 +3190,22 @@ fn main() {
     let limits = Arc::new(admission::Limits::new());
     // A worker that ends, by a panic outside `guarded` or otherwise, ends the process with a
     // failure code so the platform restarts it, instead of the pool thinning out to an exit 0.
-    konclave_http::run_workers("konclave-helper", workers, move || loop {
+    let slots = Arc::new(konclave_http::body::BodySlots::new());
+    konclave_http::run_workers("konclave-helper", workers, move || {
+        serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+    })
+}
+
+/// One worker's loop. Returns only when the server stops handing out requests.
+fn serve_requests(
+    server: &Server,
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    limits: &admission::Limits,
+    slots: &konclave_http::body::BodySlots,
+) {
+    loop {
         // `recv` fails when the server is gone, and also when tiny_http's accept thread hits an
         // accept error and stops for good; the other workers would then wait forever, so this
         // worker ending ends the process, which is what gets the server restarted.
@@ -3164,31 +3239,40 @@ fn main() {
         // megabytes of buffering and the worker that reads them. Refusals are deliberately not
         // logged: a line per refused request would turn a flood of requests into a flood of
         // log, and would write client addresses to disk, which nothing here needs.
-        if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
+        if let Some(refused) = admission::refuse_flood(limits, &client, &path, now) {
             let _ = req.respond(http_response(refusal(refused)));
             continue;
         }
-        // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
-        // has capped since #390; the helper did not, because the rule lived in the relay's own
-        // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
-        let mut body = Vec::new();
-        match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-            konclave_http::ReadPlan::Read(limit) => {
-                // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
-                // `take` needs a sized receiver, so calling it inline resolves against the
-                // trait object itself and does not compile.
-                let reader = req.as_reader();
-                let _ = reader.take(limit).read_to_end(&mut body);
+        // A public POST with no ceiling is memory exhaustion by one request (#269), and one with
+        // no deadline holds the worker that reads it. Both rules live in `konclave-http`, so the
+        // relay, the coordinator and the bridge read a body the same way.
+        let declared = req.body_length().map(|n| n as u64);
+        let headers: Vec<(String, String)> = req
+            .headers()
+            .iter()
+            .map(|h| (h.field.as_str().to_string(), h.value.as_str().to_string()))
+            .collect();
+        let body = match konclave_http::body::read_request_body(
+            declared,
+            headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+            req.as_reader(),
+            client,
+            slots,
+        ) {
+            Ok(body) => body,
+            Err(refused) => {
+                let resp = Response::from_string(refused.json()).with_status_code(refused.status());
+                let _ = req.respond(with_cors(resp));
+                continue;
             }
-            konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
-        }
+        };
 
         let r = guarded(&method, &path, || {
             serve(
-                &state,
-                &cfg,
-                &locks,
-                &limits,
+                state,
+                cfg,
+                locks,
+                limits,
                 &client,
                 now,
                 &method,
@@ -3198,7 +3282,7 @@ fn main() {
             )
         });
         let _ = req.respond(http_response(r));
-    })
+    }
 }
 
 #[cfg(test)]
@@ -3333,6 +3417,7 @@ mod tests {
             DEVICE_LIST_UNUSABLE_TEXT,
             WALLET_BUSY_TEXT,
             WALLET_BUSY_SENDING_TEXT,
+            VAULT_BUSY_TEXT,
             CREATION_UPDATE_TEXT,
             orchestrator::helper::NOT_PERSISTED_TEXT,
             orchestrator::helper::CLEANUP_FAILED_TEXT,
@@ -4678,14 +4763,19 @@ mod tests {
                 .iter()
                 .filter(|o| o.0 == 200 && o.1.contains("\"added\":true"))
                 .collect();
-            let conflicts = outcomes.iter().filter(|o| o.0 == 409).count();
+            // Every other one is a conflict, or (only a few requests may wait for one vault) the
+            // busy answer the device retries on its next unlock.
+            let others = outcomes
+                .iter()
+                .filter(|o| o.0 == 409 || (o.0 == 503 && o.1.contains("\"busy\":\"vault\"")))
+                .count();
             assert_eq!(
                 wins.len(),
                 1,
                 "round {round}: {:?}",
                 outcomes.iter().map(|o| o.0).collect::<Vec<_>>()
             );
-            assert_eq!(conflicts, 15, "round {round}");
+            assert_eq!(others, 15, "round {round}");
             let recs = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
             assert_eq!(recs.len(), 1, "round {round}");
             assert_eq!(
@@ -5310,7 +5400,7 @@ mod tests {
         );
 
         // Alice renames HER OWN seat, signed. `target` is `old\0new`.
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let target = "alice\u{0}alicia";
         let msg = write_message("renamegate", WriteAction::Rename, target, 1, ts, "rn1");
         let sig: String = sk
@@ -5402,7 +5492,7 @@ mod tests {
         nonce: &str,
     ) -> String {
         use ed25519_dalek::Signer;
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = konclave_seal::write_message(vault, action, target, 1, ts, nonce);
         let sig: String = sk
             .sign(&msg)
@@ -5770,7 +5860,7 @@ mod tests {
             .collect();
         orchestrator::helper::upsert_device(dir, "spelling", "bb", Some((2, &pubhex))).unwrap();
         let envelope = |action: WriteAction, target: &str, nonce: &str| {
-            let ts = 1_700_000_000_000i64;
+            let ts = now_ms();
             let msg = write_message("spelling", action, target, 2, ts, nonce);
             let sig: String = bob
                 .sign(&msg)
@@ -5848,7 +5938,7 @@ mod tests {
         orchestrator::helper::upsert_device(dir, "seat2", "bb", Some((2, &pubhex))).unwrap();
 
         let vote_as = |member: &str, nonce: &str| {
-            let ts = 1_700_000_000_000i64;
+            let ts = now_ms();
             let msg = write_message("seat2", WriteAction::Approve, "p1", 2, ts, nonce);
             let sig: String = bob
                 .sign(&msg)
@@ -5970,7 +6060,7 @@ mod tests {
         );
 
         // And a properly signed one is accepted.
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = write_message("votegate", WriteAction::Approve, "p1", 1, ts, "n1");
         let sig: String = {
             use ed25519_dalek::Signer;
@@ -6002,6 +6092,134 @@ mod tests {
             body.as_bytes(),
         );
         assert_eq!(again.status, 401, "a replayed signed vote is refused");
+    }
+
+    /// A signed vote is good once, near the moment it was signed, and is never handed back out. An
+    /// answer that carried the signed write let another member send it again, so it carries none; a
+    /// used nonce stays used for as long as its write could still be fresh, however many writes come
+    /// after it; and a write signed too long ago, or too far ahead, is refused.
+    #[test]
+    fn a_signed_vote_is_not_served_and_cannot_be_sent_again_later() {
+        use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
+        let st = HelperState::new();
+        seed(&st, "replayvote");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ =
+            orchestrator::helper::claim_members(dir, "replayvote", &["alice".into(), "bob".into()]);
+        let now = now_unix();
+        let mut p = HelperProposal {
+            id: "p1".into(),
+            vault_id: "replayvote".into(),
+            kind: "payment".into(),
+            to: "u1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            title: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "pending".into(),
+            approvals: vec![],
+            refusals: vec![],
+            votes: vec![],
+            threshold: 2,
+            total: 2,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        p.recompute_with(now, &orchestrator::helper::VoteBasis::default().as_basis());
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+
+        let sk =
+            ed25519_dalek::SigningKey::from_bytes(&write_key_seed_from_share(b"alice's share"));
+        let pubhex: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, "replayvote", "aa", Some((1, &pubhex))).unwrap();
+
+        let signed = |ts: i64, nonce: &str| {
+            use ed25519_dalek::Signer;
+            let msg = write_message("replayvote", WriteAction::Approve, "p1", 1, ts, nonce);
+            let sig: String = sk
+                .sign(&msg)
+                .to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!(
+                r#"{{"vault":"replayvote","member":"alice","seat":1,"ts":{ts},"nonce":"{nonce}","sig":"{sig}"}}"#
+            )
+        };
+        let approve = |body: &str| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/approve",
+                body.as_bytes(),
+            )
+        };
+        let now_ms = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+
+        let body = signed(now_ms, "victim-nonce");
+        let ok = approve(&body);
+        assert_eq!(ok.status, 200, "a fresh signed vote passes: {}", ok.body);
+        assert!(
+            !ok.body.contains("victim-nonce") && !ok.body.contains(r#""sig""#),
+            "the answer to a vote carries the signed write: {}",
+            ok.body
+        );
+        let read = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/proposals?vault=replayvote",
+            b"",
+        );
+        assert_eq!(read.status, 200, "{}", read.body);
+        assert!(
+            read.body.contains(r#""approvals_counted":1"#),
+            "{}",
+            read.body
+        );
+        assert!(
+            !read.body.contains("victim-nonce")
+                && !read.body.contains(r#""sig""#)
+                && !read.body.contains(r#""proof""#),
+            "the proposals answer carries the signed write: {}",
+            read.body
+        );
+
+        // Many writes later, the same signed vote is still a used one.
+        for i in 0..2_001 {
+            orchestrator::helper::burn_write_nonce(dir, "replayvote", &format!("later-{i}"))
+                .unwrap();
+        }
+        assert_eq!(
+            approve(&body).status,
+            401,
+            "a signed vote is accepted again once later writes pushed its nonce out"
+        );
+
+        // Signed too long ago, or too far ahead: refused, and the member is told to check the clock.
+        for (ts, nonce) in [
+            (now_ms - 11 * 60 * 1000, "too-old"),
+            (now_ms + 11 * 60 * 1000, "too-far-ahead"),
+        ] {
+            let r = approve(&signed(ts, nonce));
+            assert_eq!(r.status, 401, "{nonce}: {}", r.body);
+            assert!(r.body.contains("clock"), "{nonce}: {}", r.body);
+        }
     }
 
     /// #481. TLS covers the wire, but the browser's own extensions and any TLS-terminating proxy
@@ -6883,6 +7101,140 @@ mod tests {
 
     // A real testnet Orchard-capable unified address (payment_plan accepts it on "test").
     const TESTNET_ORCHARD_UA: &str = "utest1snsykvxrx7csenfxks3g7w865hhkmhxpdkfu3t4wrmes697vac86vw3a3nu3eylqdmp3l9svg65s86tu0djwcdfxa65fkvgz4qpnlqkr";
+
+    /// One worker, and a client that announces a body larger than tiny_http buffers and then sends
+    /// one byte. The body's deadline frees that worker, and `/api/health` answers.
+    #[test]
+    fn a_body_that_stops_arriving_does_not_hold_the_only_worker() {
+        use std::io::{Read as _, Write as _};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("konclave-hs-slowbody-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let mut stalled = std::net::TcpStream::connect(addr).unwrap();
+        stalled
+            .write_all(
+                b"POST /api/vault/propose HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n{",
+            )
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        let mut got = [0u8; 64];
+        let n = c.read(&mut got).unwrap_or(0);
+        let got = String::from_utf8_lossy(&got[..n]);
+        assert!(got.starts_with("HTTP/1.1 200"), "got {got:?}");
+        assert!(t.elapsed() < Duration::from_secs(3));
+        drop(stalled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A body framed by a transfer encoding is refused before any of it is read, so a chunk-size
+    /// line that never ends costs the coordinator nothing. Every route, before it is served.
+    #[test]
+    fn a_chunked_body_is_refused_before_it_is_read() {
+        use std::io::{Read as _, Write as _};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("konclave-hs-chunked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(500))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let ask = |head: &'static str, tail: Vec<u8>| {
+            let mut c = std::net::TcpStream::connect(addr).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut w = c.try_clone().unwrap();
+            let sender = std::thread::spawn(move || {
+                let _ = w.write_all(head.as_bytes());
+                let _ = w.write_all(&tail);
+            });
+            let mut got = [0u8; 64];
+            let n = c.read(&mut got).unwrap_or(0);
+            drop(c);
+            let _ = sender.join();
+            String::from_utf8_lossy(&got[..n]).into_owned()
+        };
+        let got = ask(
+            "POST /api/vault/proposals HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"5\r\nhello\r\n0\r\n\r\n".to_vec(),
+        );
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let got = ask(
+            "POST /api/health HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n",
+            vec![b'f'; 8 << 20],
+        );
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A declared length past the ceiling is refused unread. The request is then dropped with its
+    /// body undrained, and the server must neither try to take that length into memory nor go on
+    /// reading the connection as if the next request started inside the body.
+    #[test]
+    fn a_huge_declared_body_does_not_end_the_coordinator() {
+        use std::io::{Read as _, Write as _};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("konclave-hs-hugebody-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(500))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let ask = |raw: &[u8]| {
+            let mut c = std::net::TcpStream::connect(addr).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let _ = c.write_all(raw);
+            let mut got = [0u8; 64];
+            let n = c.read(&mut got).unwrap_or(0);
+            String::from_utf8_lossy(&got[..n]).into_owned()
+        };
+        for path in ["/api/vault/proposals", "/api/health", "/nowhere"] {
+            let raw = format!(
+                "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Length: 9223372036854775807\r\n\r\n{{"
+            );
+            let _ = ask(raw.as_bytes());
+        }
+        let got = ask(b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(got.starts_with("HTTP/1.1 200"), "got {got:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn cfg_at(dir: &std::path::Path) -> HelperConfig {
         let mut c = cfg();
@@ -8368,7 +8720,7 @@ mod tests {
         nonce: &str,
     ) -> String {
         use ed25519_dalek::Signer;
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = konclave_seal::write_message(vault, action, target, seat, ts, nonce);
         let sig: String = sk
             .sign(&msg)
@@ -9343,13 +9695,83 @@ mod tests {
             (Method::Post, "/api/vault/proposals/p1/send", true),
             (Method::Post, "/api/vault/proposals/p1/approve", false),
             (Method::Post, "/api/vault/proposals/p1/refuse", false),
-            (Method::Get, "/api/vault/something-new", false),
-            (Method::Head, "/api/vault/proposals", false),
         ] {
             assert_eq!(
                 lock_class(&method, path),
                 Write { wallet },
                 "{method:?} {path}"
+            );
+        }
+        for (method, path) in [
+            (Method::Get, "/api/vault/something-new"),
+            (Method::Head, "/api/vault/proposals"),
+            (Method::Put, "/api/vault/proposals"),
+            (Method::Post, "/api/vault/something-new"),
+            (Method::Post, "/api/vault/proposals/p1/nothing"),
+            (Method::Post, "/api/vault/proposals/p1"),
+            (Method::Post, "/api/health"),
+            (Method::Post, "/api/vault/send"),
+        ] {
+            assert_eq!(
+                lock_class(&method, path),
+                LockClass::Unrouted,
+                "{method:?} {path}"
+            );
+        }
+    }
+
+    /// The lock table now decides what is routed, so it is a second place the routes are named. Every
+    /// arm of the router must be in it (read from the source, so a new arm cannot be missed), and every
+    /// write it lists must be one the router answers.
+    #[test]
+    fn every_routed_path_is_in_the_lock_table() {
+        let src = include_str!("main.rs");
+        let start = src.find("\nfn handle_request(").expect("handle_request");
+        let end = start + src[start..].find("\n}\n").expect("end of handle_request");
+        let router = &src[start..end];
+        let mut arms = 0;
+        for (method, tag) in [
+            (Method::Get, "(Method::Get, \""),
+            (Method::Post, "(Method::Post, \""),
+        ] {
+            for piece in router.split(tag).skip(1) {
+                let path = &piece[..piece.find('"').unwrap()];
+                arms += 1;
+                assert_ne!(
+                    lock_class(&method, path),
+                    LockClass::Unrouted,
+                    "{method:?} {path} is routed but the lock table answers it 404"
+                );
+            }
+        }
+        assert!(arms >= 16, "the router scan found only {arms} arms");
+        assert_ne!(
+            lock_class(&Method::Get, "/api/vault/ufvk"),
+            LockClass::Unrouted
+        );
+
+        let st = HelperState::new();
+        seed(&st, "routedw");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        for route in WRITE_ROUTES.iter().copied().chain([
+            "/api/vault/proposals/p1/approve",
+            "/api/vault/proposals/p1/refuse",
+        ]) {
+            let r = handle_request(
+                &st,
+                &c,
+                &locks,
+                &Method::Post,
+                route,
+                br#"{"vault":"routedw"}"#,
+                None,
+            );
+            assert!(
+                !(r.status == 404 && r.body.contains("\"not found\"")),
+                "{route} is a listed write and the router does not route it: {} {}",
+                r.status,
+                r.body
             );
         }
     }
@@ -9393,6 +9815,169 @@ mod tests {
         assert_eq!(got, Some(200), "health waited behind a vault's lock");
     }
 
+    /// Serve one request on another thread while the test holds `vault`'s write lock, and give back
+    /// its answer if it comes within `within`. The lock is released after the wait either way, so a
+    /// request that would have waited for it still ends and the scope joins.
+    fn serve_while_vault_is_held(
+        vault: &str,
+        method: Method,
+        path: &str,
+        body: &str,
+        within: Duration,
+    ) -> Option<(u16, String)> {
+        let locks = concurrency::VaultLocks::new();
+        serve_while_held_in(&locks, vault, method, path, body, within)
+    }
+
+    /// As `serve_while_vault_is_held`, with `locks` the caller has already marked (a send going on,
+    /// waiting places taken).
+    fn serve_while_held_in(
+        locks: &concurrency::VaultLocks,
+        vault: &str,
+        method: Method,
+        path: &str,
+        body: &str,
+        within: Duration,
+    ) -> Option<(u16, String)> {
+        let st = HelperState::new();
+        seed(&st, vault);
+        let c = cfg();
+        let limits = admission::Limits::new();
+        let write = locks.for_vault(vault);
+        let held = write.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    locks,
+                    &limits,
+                    &CLIENT,
+                    T0,
+                    &method,
+                    path,
+                    body.as_bytes(),
+                    None,
+                );
+                let _ = tx.send((r.status, r.body));
+            });
+            let got = rx.recv_timeout(within).ok();
+            drop(held);
+            got
+        })
+    }
+
+    /// A path no handler answers is a 404 before any lock: it must not wait behind a vault's send
+    /// because its body names that vault.
+    #[test]
+    fn an_unrouted_request_naming_a_busy_vault_is_answered_at_once() {
+        for (method, path, body) in [
+            (Method::Post, "/api/vault/nowhere", r#"{"vault":"busyv"}"#),
+            (Method::Get, "/api/vault/nowhere?vault=busyv", ""),
+            (Method::Head, "/api/vault/proposals?vault=busyv", ""),
+            (
+                Method::Post,
+                "/api/vault/proposals/p1/nothing",
+                r#"{"vault":"busyv"}"#,
+            ),
+        ] {
+            let got = serve_while_vault_is_held(
+                "busyv",
+                method.clone(),
+                path,
+                body,
+                Duration::from_secs(1),
+            );
+            assert_eq!(
+                got.as_ref().map(|g| g.0),
+                Some(404),
+                "{method:?} {path} waited for the vault's lock: {got:?}"
+            );
+        }
+    }
+
+    /// A write to a vault whose lock is held waits a moment, then answers the busy contract the
+    /// screens retry on (`busy: vault`), instead of holding a worker for as long as the lock is held.
+    #[test]
+    fn a_write_to_a_held_vault_gives_up_with_the_busy_answer() {
+        for path in [
+            "/api/vault/proposals/p1/approve",
+            "/api/vault/proposals/p1/send",
+            "/api/vault/members/rename",
+        ] {
+            let started = std::time::Instant::now();
+            let got = serve_while_vault_is_held(
+                "busyw",
+                Method::Post,
+                path,
+                r#"{"vault":"busyw","member":"m"}"#,
+                Duration::from_secs(6),
+            );
+            let Some((status, body)) = got else {
+                panic!("POST {path} was still waiting for the vault's lock after 6 s");
+            };
+            assert_eq!(status, 503, "POST {path}: {body}");
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(v["busy"], "vault", "POST {path}: {body}");
+            assert!(
+                started.elapsed() >= Duration::from_millis(1_500),
+                "POST {path} gave up without waiting a moment"
+            );
+        }
+    }
+
+    /// A write to a vault that is sending a payment does not wait for it: the send holds the lock for
+    /// as long as the quorum takes, and a worker parked behind it is one fewer for every vault.
+    #[test]
+    fn a_write_to_a_vault_that_is_sending_answers_busy_at_once() {
+        let locks = concurrency::VaultLocks::new();
+        let _sending = locks.mark_sending("sendw", "p0");
+        let started = std::time::Instant::now();
+        let got = serve_while_held_in(
+            &locks,
+            "sendw",
+            Method::Post,
+            "/api/vault/proposals/p1/approve",
+            r#"{"vault":"sendw","member":"m"}"#,
+            Duration::from_secs(6),
+        );
+        let (status, body) = got.expect("the write was still waiting after 6 s");
+        assert_eq!(status, 503, "{body}");
+        assert!(
+            started.elapsed() < Duration::from_millis(1_000),
+            "the write waited {:?} for a vault that is sending",
+            started.elapsed()
+        );
+    }
+
+    /// The writes waiting for one vault are few: once its waiting places are taken, the next is
+    /// answered at once, so requests naming one vault cannot park every worker.
+    #[test]
+    fn a_write_finds_no_waiting_place_and_answers_busy_at_once() {
+        let locks = concurrency::VaultLocks::new();
+        let _a = locks.wait_slot("fullw").expect("a first place");
+        let _b = locks.wait_slot("fullw").expect("a second place");
+        let started = std::time::Instant::now();
+        let got = serve_while_held_in(
+            &locks,
+            "fullw",
+            Method::Post,
+            "/api/vault/proposals/p1/approve",
+            r#"{"vault":"fullw","member":"m"}"#,
+            Duration::from_secs(6),
+        );
+        let (status, body) = got.expect("the write was still waiting after 6 s");
+        assert_eq!(status, 503, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["busy"], "vault", "{body}");
+        assert!(
+            started.elapsed() < Duration::from_millis(1_000),
+            "the write waited {:?} with no place to wait in",
+            started.elapsed()
+        );
+    }
+
     /// The lock table is DERIVED from the gate's list, but the router is a third place a read is
     /// named. Every route the table calls a free read must be one the router actually answers (not
     /// the 404 of an unrouted path): a route renamed in the router and not in the lists would fall
@@ -9425,10 +10010,11 @@ mod tests {
                 r.body
             );
         }
-        // And the other way: a GET the router does not answer is not free.
+        // And the other way: a GET the router does not answer is not a free read; it is a 404 before
+        // any lock.
         assert_eq!(
             lock_class(&Method::Get, "/api/vault/nothing-routes-here"),
-            LockClass::Write { wallet: false }
+            LockClass::Unrouted
         );
     }
 
@@ -10204,7 +10790,7 @@ mod tests {
 
     /// The goal of S3 against a REAL write that runs the engine (a proposal's funding check): many
     /// reads of the vault answer while it runs, the engine is opened once, and a second write still
-    /// queues behind the first, as it always did.
+    /// queues behind the first, for at most `VAULT_WAIT`.
     #[cfg(unix)]
     #[test]
     fn reads_answer_while_a_real_write_runs_the_engine() {
@@ -10288,8 +10874,12 @@ mod tests {
             let (created, _) = write.join().unwrap();
             assert_eq!(created.status, 200, "{}", created.body);
             let (voted, waited) = second_write.join().unwrap();
+            // It queues, and when the first write holds the vault past `VAULT_WAIT` it answers the
+            // busy contract instead of waiting on (the screens send it again).
             assert!(
-                voted.status == 200 || voted.status == 409,
+                voted.status == 200
+                    || voted.status == 409
+                    || (voted.status == 503 && voted.body.contains(r#""busy":"vault""#)),
                 "{} {}",
                 voted.status,
                 voted.body

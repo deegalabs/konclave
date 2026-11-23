@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.24.0] 2026-11-23
+
 ## [0.23.0] 2026-11-23
 
 ### Security

@@ -2202,8 +2202,11 @@ fn handle_secured_uncached(
 /// Bind **127.0.0.1** only and serve requests serially (single local user).
 pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     let addr = format!("127.0.0.1:{port}");
-    let server =
-        tiny_http::Server::http(&addr).map_err(|e| std::io::Error::other(e.to_string()))?;
+    // A read and write timeout on every accepted connection, and a deadline on each body below:
+    // the loop is serial, so one connection that stops sending would otherwise stop the bridge.
+    let listener = konclave_http::body::listen(&addr)?;
+    let server = tiny_http::Server::from_listener(listener, None)
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     eprintln!(
         "konclave serve → http://{addr}  (web: {}, db: {})",
         cfg.web_dir.display(),
@@ -2216,7 +2219,6 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
 
 /// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.
 fn serve_on(server: &tiny_http::Server, cfg: &Config) {
-    use std::io::Read as _;
     let session_token = new_session_token();
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
@@ -2245,11 +2247,27 @@ fn serve_on(server: &tiny_http::Server, cfg: &Config) {
         });
         let mut too_large = req.body_length().is_some_and(|n| n as u64 > MAX_BODY);
         let mut body = Vec::new();
+        let mut too_slow = false;
         if !too_large && !upgrade {
-            let _ = req.as_reader().take(MAX_BODY + 1).read_to_end(&mut body);
+            match konclave_http::body::read_body(
+                req.as_reader(),
+                MAX_BODY + 1,
+                konclave_http::body::BODY_DEADLINE,
+            ) {
+                Ok(read) => body = read,
+                Err(konclave_http::body::BodyError::TooSlow) => too_slow = true,
+                Err(konclave_http::body::BodyError::Io(_)) => {}
+            }
             too_large = body.len() as u64 > MAX_BODY;
         }
-        let resp = if upgrade {
+        let resp = if too_slow {
+            let mut refused = Response::json(
+                408,
+                &serde_json::json!({ "error": "the request body took too long to arrive" }),
+            );
+            no_store_for_api(&url, &mut refused);
+            refused
+        } else if upgrade {
             let mut refused = Response::json(
                 400,
                 &serde_json::json!({ "error": "upgrade not supported" }),
@@ -2445,6 +2463,36 @@ mod tests {
             head.push(byte[0]);
         }
         String::from_utf8_lossy(&head).to_ascii_lowercase()
+    }
+
+    /// The bridge serves one request at a time, so a connection that announced a body and then
+    /// stopped sending held the whole bridge. It now ends at the socket timeout and the next
+    /// request is answered.
+    #[test]
+    fn a_body_that_stops_arriving_does_not_stop_the_bridge() {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tiny_http::Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || serve_on(&server, &cfg_with(tmp_db(), None)));
+        let mut stalled = std::net::TcpStream::connect(addr).unwrap();
+        stalled
+            .write_all(b"POST /api/x HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 4096\r\n\r\n{")
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut got = [0u8; 32];
+        let n = c.read(&mut got).unwrap_or(0);
+        assert!(n > 0 && got.starts_with(b"HTTP/1.1 "), "no answer");
+        assert!(t.elapsed() < Duration::from_secs(3));
+        drop(stalled);
     }
 
     /// A chunked body announces no length, so the size limit has to hold while reading it: over
