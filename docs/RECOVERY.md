@@ -467,8 +467,8 @@ machine, the other a database id a rebuild re-mints.
 > clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced
 > it precisely so a leaked backup would reveal nothing, including which vault it belongs to. Konclave
 > checks a v1 file before importing it. `scripts/open-export.mjs` reports part of what it would refuse
-> (the file's shape, the vault id, the seat and the quorum); whether the key in the backup is the one
-> for its seat of the vault, it does not check, and the app does when it imports.
+> (the file's shape, the vault id, the seat and the quorum); whether the key in the backup matches the
+> public keys the backup carries for its seat, it does not check, and the app does when it imports.
 
 ## Open work
 
