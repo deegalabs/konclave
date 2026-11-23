@@ -45,14 +45,36 @@ history to tidy it is how context gets lost.
 ### Security
 
 - **A protected vault's saved people and recent addresses open only once the vault is unlocked on
-  this device.** An unfinished payroll in a protected vault is kept while the vault stays unlocked,
-  and a reload or a lock clears it, so finish or propose it in one sitting. A list of saved people
-  that cannot be opened is said so on the People screen instead of showing as empty, and a backup
-  says what it left out and why. The details follow in a later entry.
-- **Diagnostics no longer include a vault's private signing details.** What the app writes to the
-  browser's console when a payment is sent names the payment and how its send went, and no secret
-  or signing detail of the vault; a vault is named there by the first 8 characters of its id. The
-  details follow in a later entry.
+  this device.** Until this release, a protected vault's saved people (names, addresses and default
+  memos), the addresses recently paid from it and an unfinished payroll (its names, addresses,
+  amounts and memos) were kept in the browser's storage as plain text, while the vault's share and
+  secret were sealed under the passphrase. Anyone who could read that browser's storage on the
+  device (another person using the same browser profile, an extension or program with access to it,
+  or a copy of the profile's files) could read them without the passphrase. It never gave access to
+  the share, to the vault's books on the coordinator or to its funds, and nothing was sent anywhere.
+  The saved people and recent addresses are now sealed under a key derived from the vault's secret, which the vault's members hold
+  and which this device opens only when the vault is unlocked. An unfinished payroll is kept in
+  memory only while the vault stays unlocked, so a reload or a lock clears it: finish or propose it
+  in one sitting. A list of saved people that cannot be opened is said so on the People screen
+  instead of showing as empty, and a backup says what it left out and why. A list written before
+  this version is sealed the next time the vault is unlocked on the device (see Known limits). An
+  open vault is unchanged. Live in the web app since 23 November 2026, published on 23 November 2026;
+  exposed from 30 August 2026, when the first protected vaults were created, to 23 November 2026.
+- **The app no longer writes a vault's signing room or full id to the browser's console.** When a
+  payment was sent, the app wrote to the browser's console the name of the vault's signing room. On
+  a protected vault that name is derived from the vault's secret, so that someone who knows only the
+  vault's id cannot find the room. Two messages written when something failed (a passkey that did
+  not open the vault, a governance action that could not be signed) wrote the vault's full id, which
+  lets anyone read the vault's quorum and receive address from the coordinator, and the books of a
+  vault that has no read key. Anyone who read that console output (a member sharing it while
+  reporting a problem, or a person or extension with access to the browser) could find the vault's
+  signing room on the relay, see when its ceremonies run and try to disrupt them (#400). On a vault
+  whose seats have all registered their device key, the request that crosses the room is sealed to
+  the devices, so the payment was not exposed. On a vault created before 8 November 2026 with a seat
+  that had not registered, the request crossed unsealed, and whoever found the room could also read
+  what the payment paid. Nothing could be signed through it. The app's console messages now name the
+  payment and how its send went, and a vault only by the first 8 characters of its id. Live in the
+  web app since 23 November 2026, published on 23 November 2026; exposed from 30 August 2026 to 23 November 2026.
 
 ### Changed
 
@@ -107,6 +129,14 @@ history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **What a protected vault saved on a device before this version stays in plain text until the
+  vault is next unlocked there,** and the browser may keep older copies in its own files after
+  that. The sealed lists open with the vault's secret, which every member of the vault holds, so a
+  member who can read this browser's storage can still read them. The vault's record on the device
+  still keeps its id, its name, its members' names, its quorum and its receive address in the
+  clear, and so do when its balance and its proposals were last read, how many proposals were open
+  and when the newest was made, what the "What changed" view last showed, and this device's record
+  of which transactions it signed.
 - **A screen still open in another tab can name a protected vault before that tab asks for its
   passphrase.** When you switch, in one tab, to a protected vault that is not unlocked on this
   device, a screen another tab of the same browser still shows can make a read that names the

@@ -141,7 +141,7 @@ railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* --exclude=*/w
   | grep -E '^[A-Za-z0-9+/=]+$' | base64 -d | tar xzf - -C <local-backup-dir>
 ```
 
-The backup leaves out each vault's `send-work` directory: it is working space for a send in progress and holds nothing to restore.
+The backup leaves out each vault's `send-work` directory: it is working space for a send in progress, holds nothing to restore, and has no place in a copy that leaves the server.
 
 **Verified 2026-09-06** by taking exactly this backup of the live volume: 8 vaults, every one with
 its UFVK, address, quorum, network and birthday. Worth recording what the run showed, because the

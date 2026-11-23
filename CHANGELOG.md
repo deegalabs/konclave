@@ -65,9 +65,10 @@ explicitly accepted.
 
 ### Security
 
-- **The coordinator shares a smaller copy of each transaction with the vault's devices** (the shared
-  `orchestrator` crate; the coordinator's entry is in
-  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)). The details follow in a later entry.
+- **The copy of a transaction the coordinator shares for signing no longer carries what finishes
+  it,** so whoever could read an unsealed signing request can no longer put the signed transaction
+  together and broadcast it themselves (the shared `orchestrator` crate; the coordinator's entry is
+  in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)).
 - **An approval counts once per member, and only if it was signed once the vault requires signatures
   (#575).** An approval used to be a name: one recorded under a member's exact name while a vault
   still took unsigned actions went on counting as theirs after the vault required signatures, and two
@@ -75,7 +76,29 @@ explicitly accepted.
   coordinator counts seats (a vote recorded without a signature no longer counts on a payment still
   open once signatures are required). An approval given before a vault required signatures has to be given
   again.
-- **A send keeps less of its work on the coordinator, the local bridge and the command line** (the shared `orchestrator` crate; the coordinator's entry is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)). The details follow in a later entry.
+- **A send's working files no longer touch the coordinator's volume, and no longer stay on the
+  local bridge or the command line.** On the hosted coordinator, the proven and signed transaction of each
+  send were written to its volume while the send ran; since 27 August 2026 they were removed when
+  the send ended, whatever the outcome, and before that date they stayed. A backup or copy of the
+  volume taken while a send was running, or a send interrupted before the coordinator restarted,
+  held them. Whoever can read that volume or such a backup also holds each vault's viewing key and
+  its proposals there, so these files showed no payment that reader could not already read. On the
+  local bridge and the command line, a send left the proven transaction, the signatures and the
+  signed transaction on the member's machine, and named where the signed one was; after a practice
+  run, that file was a fully signed transaction that anyone with access to the machine could have
+  broadcast, although the member had chosen not to. They are now kept in private temporary storage,
+  readable only by the account that runs the send on Linux and macOS, and removed when the step
+  ends, on every outcome; the coordinator also removes, when it starts, any that an interrupted send
+  left, and the recovery backup leaves out each vault's send working directory. It never gave access
+  to a share, and nothing could be broadcast but a transaction the quorum had signed. The
+  coordinator's entry is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). Live on
+  the hosted coordinator since 23 November 2026, and in the local bridge and the command line from this
+  release, published on 23 November 2026; the files were kept on the coordinator's volume from
+  31 July 2026 to 23 November 2026. On the member's machine, this release stops writing them, but it
+  does not remove what an earlier version left in the directory the ceremony config names as
+  `work_dir`: `tx2-proven.pczt`, `sig-*.raw` and `tx3-signed.pczt`, and `net-tx2-proven.pczt` and
+  `net-tx3-signed.pczt` from `konclave net-send`, a practice run's signed transaction among them.
+  Nothing in this release reads them: delete them once no send from an earlier version is running.
 
 ### Added
 
