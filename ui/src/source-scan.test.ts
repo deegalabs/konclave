@@ -134,6 +134,7 @@ describe('stripComments', () => {
       'wasm-write-actions.test.ts': 'the WASM binary and Rust source',
       'wasm-bridge.test.ts': 'the WASM binary and test vectors',
       'room-auth.test.ts': 'the WASM binary',
+      'share-import-check.test.ts': 'the WASM binary',
       'background-signer.test.ts': 'the WASM binary',
       'background-session.test.ts': 'the WASM binary',
       'device-key.test.ts': 'the WASM binary',

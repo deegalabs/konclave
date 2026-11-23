@@ -12,6 +12,7 @@
 import { balanceParts, reservedZatOf } from './balance-parts'
 import { readFeeEstimator } from './fee-estimate'
 import { isOpen } from './desk'
+import { vaultKey } from './vault-local'
 import { readSecretFor } from './session'
 import type { Proposal } from './api'
 
@@ -43,7 +44,7 @@ export type VaultStatus = {
   proposalsAt: number | null
 }
 
-export const statusKey = (vault: string) => `konclave.status.${vault}`
+export const statusKey = (vault: string) => vaultKey('status', vault)
 const key = statusKey
 /** A private vault's amounts, in this tab only. */
 const memory = new Map<string, Amounts>()

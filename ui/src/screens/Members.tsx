@@ -6,7 +6,8 @@ import { PageHeader, PageFooter } from '../page'
 import { Identicon, memberSeed } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { useVaultReadable } from '../vault-readable'
-import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
+import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, vaultRefusalText, type Vault } from '../api'
+import { getSelectedVault, pinnedAnswer } from '../shown-vault'
 import { listVaults, type Governance } from '../storage'
 
 /** What the screen shows for a roster: still reading, could not read (the coordinator did not
@@ -31,6 +32,8 @@ export default function Members() {
   // self-declared name. A device may edit ONLY its own seat's name (public coordination data, never
   // a share); the rename migrates that member's past votes so it never spawns a "ghost" approver.
   const [myNewName, setMyNewName] = useState('')
+  // The vault this screen opened on, pinned once: the selection is shared by every tab of the browser.
+  const [pinned] = useState(() => getSelectedVault())
   const [saving, setSaving] = useState(false)
   const [renameErr, setRenameErr] = useState<string | null>(null)
   // Read from the on-device record but not shown: the governance nudge it used to gate was
@@ -58,7 +61,7 @@ export default function Members() {
       const ok = await health()
       if (!on) return
       if (ok) {
-        const v = await getVault()
+        const v = pinnedAnswer(pinned, await getVault())
         if (!on) return
         if (v) {
           setVault(v)
@@ -86,7 +89,7 @@ export default function Members() {
     // in the roster and your stored name is not, just ADOPT it locally - no server rename.
     if (!meInRoster && rosterNames.includes(next)) {
       setSaving(true); setRenameErr(null)
-      const res = await adoptSelfName(next)
+      const res = await adoptSelfName(pinned ?? vault?.id ?? null, next)
       if ('ok' in res) { setMe(next); setMyNewName(''); toast.ok(t('toast.nameSaved')) }
       else setRenameErr(res.error)
       setSaving(false)
@@ -94,9 +97,9 @@ export default function Members() {
     }
     if (!me || next === me) return
     setSaving(true); setRenameErr(null)
-    const res = await renameSelf(me, next)
+    const res = await renameSelf(pinned ?? vault?.id ?? null, me, next)
     if ('members' in res) {
-      const v = await getVault()
+      const v = pinnedAnswer(pinned, await getVault())
       if (v) setVault(v)
       setMe(next); setMyNewName('')
       toast.ok(t('toast.nameSaved'))
@@ -189,7 +192,7 @@ export default function Members() {
             >
               {saving ? '…' : t('members.yourNameSave')}
             </button>
-            {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {humanError(t, renameErr)}</div>}
+            {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {vaultRefusalText(t, renameErr) ?? humanError(t, renameErr)}</div>}
           </div>
         )}
 

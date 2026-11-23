@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { participation } from './participation'
 import type { Proposal } from './api'
+import { withStances } from './test-stances'
 
-const p = (o: Partial<Proposal> & { id: string }): Proposal => ({
+const p = (o: Partial<Proposal> & { id: string }): Proposal => withStances({
   vault_id: 'v', kind: 'payment', state: 'confirmed', proposer: 'dan',
   value_zat: 1, value_zec: '0.00000001', is_public: false,
   approvals: [], refusals: [], approvals_count: 0, created_at: 0, ...o,

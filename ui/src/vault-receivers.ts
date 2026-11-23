@@ -8,6 +8,7 @@ import { getUfvk } from './helper'
 import { decodeBundle } from './signing'
 import { receiversFingerprint } from './format'
 import { listVaults, loadVault, recordReceiversRefused, recordVerifiedReceivers, replaceRefusedReceivers, type VaultLoaded } from './storage'
+import { StorageError } from './storage-errors'
 import { ensureWasm } from './wasm-ready'
 import { addressText } from './approved-payment'
 import { uaIsExactly, vaultReceivers } from './wasm-pkg/konclave_wasm.js'
@@ -51,7 +52,7 @@ export async function adoptVaultReceivers(vaultId: string, share: VaultLoaded): 
   return { state: 'verified', address: kept }
 }
 
-export type RepairVerdict = ReceiversVerdict | { state: 'notConfirmed' } | { state: 'wrongPassphrase' } | { state: 'unreadable' }
+export type RepairVerdict = ReceiversVerdict | { state: 'notConfirmed' } | { state: 'wrongPassphrase' } | { state: 'wrongSeat' } | { state: 'unreadable' }
 
 // As the alphabet reads it: spacing, and the letters it maps onto its digits, do not change a code.
 const code = (text: string) => text.toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0')
@@ -68,7 +69,9 @@ export async function repairVaultReceivers(vaultId: string, passphrase: string, 
   let share: VaultLoaded
   try {
     share = await loadVault(vaultId, passphrase)
-  } catch {
+  } catch (e) {
+    // The share opened and is not this seat's (#965): the passphrase is not what to retype.
+    if (e instanceof StorageError && e.code === 'wrong-seat') return { state: 'wrongSeat' }
     return { state: 'wrongPassphrase' }
   }
   await ensureWasm()

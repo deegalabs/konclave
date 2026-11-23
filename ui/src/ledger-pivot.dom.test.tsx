@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withStances } from './test-stances'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -21,13 +22,13 @@ vi.mock('./api', async (orig) => ({
 
 const { default: Ledger } = await import('./screens/Ledger')
 
-const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2 }
+const base = withStances({ vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2 })
 // 1.50000001 ZEC: a figure that four decimals would print as 1.5000, so the exact format is visible.
-const rent = { ...base, id: 'p1', kind: 'payment', state: 'confirmed', memo: 'October rent', to_address: 'u1rent', value_zat: 150000001, value_zec: '1.50000001', created_at: 1759300000 }
-const pending = { ...base, id: 'p2', kind: 'payment', state: 'awaiting', memo: '', to_address: 'u1open', value_zat: 25000000, value_zec: '0.25', created_at: 1760000000 }
-const payroll = { ...base, id: 'p3', kind: 'payroll', state: 'sent', memo: 'Payroll October', value_zat: 200000000, value_zec: '2', created_at: 1759500000 }
-const payroll2 = { ...base, id: 'p5', kind: 'payroll', state: 'awaiting', memo: 'Payroll November', value_zat: 30000000, value_zec: '0.3', created_at: 1759600000 }
-const refused = { ...base, id: 'p6', kind: 'payroll', state: 'refused', memo: 'Payroll refused', value_zat: 90000000, value_zec: '0.9', created_at: 1759700000 }
+const rent = withStances({ ...base, id: 'p1', kind: 'payment', state: 'confirmed', memo: 'October rent', to_address: 'u1rent', value_zat: 150000001, value_zec: '1.50000001', created_at: 1759300000 })
+const pending = withStances({ ...base, id: 'p2', kind: 'payment', state: 'awaiting', memo: '', to_address: 'u1open', value_zat: 25000000, value_zec: '0.25', created_at: 1760000000 })
+const payroll = withStances({ ...base, id: 'p3', kind: 'payroll', state: 'sent', memo: 'Payroll October', value_zat: 200000000, value_zec: '2', created_at: 1759500000 })
+const payroll2 = withStances({ ...base, id: 'p5', kind: 'payroll', state: 'awaiting', memo: 'Payroll November', value_zat: 30000000, value_zec: '0.3', created_at: 1759600000 })
+const refused = withStances({ ...base, id: 'p6', kind: 'payroll', state: 'refused', memo: 'Payroll refused', value_zat: 90000000, value_zec: '0.9', created_at: 1759700000 })
 const line = (label: string, address: string, value_zat: number) => ({ label, address, value_zat, value_zec: '', memo: '', is_public: false })
 const lines: Record<string, ReturnType<typeof line>[]> = {
   p3: [line('Alice', 'u1alice', 120000000), line('Bob', 'u1bob', 80000000)],

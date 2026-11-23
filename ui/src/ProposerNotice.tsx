@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ACTING_KEYS, type ActingAs } from './api'
 import { useI18n } from './i18n'
-import { openFailKey, unlockOnDevice } from './unlock'
+import { unlockFailKey, unlockOnDevice } from './unlock'
 
 /** What a proposing screen says when it cannot name the proposer, and the roster warning beside the
  *  name when this device's own list disagrees. When the reason is "locked" it also offers the unlock,
@@ -23,7 +23,7 @@ export function ProposerNotice({ acting, differs, vaultId, onUnlocked }: {
     setBusy(true); setErr('')
     try {
       const r = await unlockOnDevice(vaultId, 'net', pass)
-      if (!r.ok) { setErr(t(openFailKey(r.wrong))); return }
+      if (!r.ok) { setErr(t(unlockFailKey(r))); return }
       setPass('')
       onUnlocked()
     } finally { setBusy(false) }

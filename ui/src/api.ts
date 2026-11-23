@@ -5,13 +5,14 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import { COORDINATOR_CODE_KEYS, SEAT_REQUIRED } from './conclude-registration'
 import { SETTLED } from './ledger-state'
 import { rememberBalance, rememberProposals } from './vault-status'
 import { recordRead, classifyRead, lastReadFailure, type ReadFailureInfo } from './read-failure'
 import type { TFn } from './i18n'
 import type { EpochEnding, EpochReason, TooLarge } from './send-outcome'
 import {
-  helperConfigured,
+  NET_AT_LOAD,
   helperHealth,
   getVault as netGetVault,
   vaultBalance as netVaultBalance,
@@ -21,10 +22,10 @@ import {
   createProposal as netCreateProposal,
   createPayroll as netCreatePayroll,
   lastHelperPostFailure,
+  type HelperPostFailure,
   TOO_MANY_ACTIONS,
   voteProposal as netVote,
   listMembers as netListMembers,
-  setMembers as netSetMembers,
   renameMember as netRenameMember,
   listTransactions as netListTransactions,
   type WalletTx,
@@ -32,7 +33,8 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished, beneficiariesKey } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished } from './storage'
+import { readLocal, updateLocal, REFUSE } from './vault-local'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -40,6 +42,7 @@ import { decodeBundle } from './signing'
 import { addressText } from './approved-payment'
 import { mustCompareCode, protocolOfRecord, verifiedAddress } from './creation-protocol'
 import { PAYROLL_TITLE_MAX } from './proposal-name'
+import type { Stance } from './stance'
 
 export type Member = { name: string; pubkey: string }
 
@@ -95,9 +98,16 @@ export type Proposal = {
   expiry_unix?: number
   created_at?: number
   txid?: string
+  /** Every recorded name, for the record only: who COUNTS is in `stances` (#575). */
   approvals: string[]
   refusals: string[]
-  approvals_count: number
+  /** The approvals the coordinator counts (seats, signed once the vault requires it), never a name
+   *  count; null when the coordinator is older than the count and did not say (#575): shown as a dash. */
+  approvals_count: number | null
+  /** Each seat's stance and whether it counts. Read through `stance.ts`. */
+  /** null when the coordinator is older than #575 and did not say: nobody is shown as pending and no
+   *  vote is offered (a vote cannot be told from a first one), never an empty list. */
+  stances: Stance[] | null
   /** How many outputs it pays: 1 for a payment, the line count for a payroll (#1017). What the fee
    *  estimate takes. Absent or null means it could not be read, and a reader must treat it as
    *  unknown (`proposalCostZat` answers null), never as 1. */
@@ -134,7 +144,7 @@ const BASE: string = import.meta.env.VITE_API_BASE ?? ''
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
 // the local bridge, so the same polished app operates the browser-born vault.
-const NET = helperConfigured()
+const NET = NET_AT_LOAD
 /** True when the app operates a browser-native vault via the hosted helper. Screens use it to
  *  open the signing panel (the share lives on this device) instead of a server-side ceremony. */
 export const IS_NET = NET
@@ -163,7 +173,10 @@ export function mapNetProposal(p: NetProposal): Proposal {
     txid: p.txid ?? undefined,
     approvals: p.approvals,
     refusals: p.refusals,
-    approvals_count: p.approvals.length,
+    // #575: the coordinator's count of seats, not the length of a list of names. A coordinator older
+    // than the field says nothing, and the app shows a dash rather than a 0 or a count of names.
+    approvals_count: p.approvals_counted ?? null,
+    stances: p.stances ?? null,
     destinations: p.kind === 'payroll' ? (p.lines?.length ? p.lines.length : undefined) : 1,
   }
 }
@@ -177,18 +190,16 @@ function postHeaders(): Record<string, string> {
   return { 'Content-Type': 'application/json', 'X-Konclave-Session': SESSION }
 }
 
-// Which vault the UI is currently inside. Persisted so a reload stays in the same
-// vault; sent as ?vault=<id> so the bridge scopes data per vault (not always the first).
-const VAULT_KEY = 'konclave.selectedVault'
-export function setSelectedVault(id: string): void {
-  try { localStorage.setItem(VAULT_KEY, id) } catch { /* storage unavailable */ }
+// Which vault the UI is inside, and the guard a screen asks before it acts: `shown-vault.ts`.
+export { setSelectedVault, getSelectedVault, clearSelectedVault, shownVault, vaultQuery } from './shown-vault'
+import { getSelectedVault, refusalError, refusalFromError, refusalKey, shownVault, vaultQuery } from './shown-vault'
+const refusedVault = (s: { gone?: true }): CreateResult => ({ ok: false, error: refusalError(s) })
+/** The sentence for a refused write that names no payment (a person, a vote, a name); null for any other error. */
+export function vaultRefusalText(t: TFn, error: string | undefined): string | null {
+  const r = refusalFromError(error)
+  return r ? t(refusalKey(r, 'settings')) : null
 }
-export function getSelectedVault(): string | null {
-  try { return localStorage.getItem(VAULT_KEY) } catch { return null }
-}
-export function clearSelectedVault(): void {
-  try { localStorage.removeItem(VAULT_KEY) } catch { /* storage unavailable */ }
-}
+
 /** Append `?vault=<selected>` to a path when a vault is selected. */
 function withVault(path: string): string {
   const id = getSelectedVault()
@@ -206,7 +217,8 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
+    // Not kept by the browser's cache: the bridge's reads carry the vault in the URL.
+    const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal, cache: 'no-store' })
     if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'bridge'); return null }
     const data = (await res.json()) as T
     recordRead(path, null)
@@ -268,9 +280,11 @@ export async function backfillAddress(id: string, address: string): Promise<bool
   }
 }
 
-export async function getVault(): Promise<Vault | null> {
+export async function getVault(forId?: string): Promise<Vault | null> {
   if (NET) {
-    const id = getSelectedVault()
+    // The vault a caller decided about, when it names one: the selection is shared between tabs and
+    // can move between a caller's check and this read.
+    const id = forId ?? getSelectedVault()
     if (!id) return null
     // The device's own record, read once and FIRST: it carries the vault's name, its roster, its
     // address, and the creation protocol the vault was made with, which the read below names (never
@@ -484,7 +498,7 @@ export async function writeProof(
     // Still non-fatal - an unsigned write is refused by a migrated vault and accepted by an open
     // one, which is the right shape - but no longer INVISIBLE. A silent catch here cost a live
     // vault an afternoon, because the failure was indistinguishable from a locked device.
-    console.error('[konclave] could not sign a governance write', { action, vaultId, error: e })
+    console.error('[konclave] could not sign a governance write', { action, vault: vaultId.slice(0, 8), error: e instanceof Error ? e.name : 'error' })
     return undefined
   }
 }
@@ -539,10 +553,26 @@ async function proposeProof(vaultId: string, who: { seat: number; name: string }
   return { proof: await writeProof(vaultId, 'propose', who.name) }
 }
 
-export async function createProposal(input: NewProposal): Promise<CreateResult> {
+/** What a refused payment or payroll proposal reads as, from the coordinator's failure. ONE reading for
+ *  both callers (#575): the second caller missing a branch is how a refusal ends up untranslated. */
+export function proposalFailure(f: HelperPostFailure | null): CreateResult & { ok: false } {
+  if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+  // #575: two seats share the proposer's name and the proposal did not say which seat it is.
+  if (f?.status === 400 && f.code === SEAT_REQUIRED) return { ok: false, error: 'seat required' }
+  // #821: too large to sign. The two counts travel with it, since the message is made of them.
+  if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
+  // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
+  // it recognises and shows the rest verbatim, which is still better than a wrong translation.
+  if (f?.error) return { ok: false, error: f.error }
+  return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+}
+
+export async function createProposal(vaultId: string, input: NewProposal): Promise<CreateResult> {
+  // Before any await: the vault the screen showed, or nothing is sent. `id` is the only one used below.
+  const shown = shownVault(vaultId)
+  if (!shown.ok) return refusedVault(shown)
+  const id = shown.id
   if (NET) {
-    const id = getSelectedVault()
-    if (!id) return { ok: false, error: 'no vault' }
     const zat = parseZecToZat(input.value_zec)
     if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
     // The name and the proof come from one reading of the seat, taken now. The screen's name is only
@@ -570,17 +600,10 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     // This is the SAME defect #509 fixed for the vote, in the other caller: `postJson` collapses
     // every failure to `null` and the caller invents a reason. The machinery #509 built to stop
     // that is right here and was simply not used. One rule, two callers, one of them fixed.
-    const f = lastHelperPostFailure()
-    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
-    // #821: too large to sign. The two counts travel with it, since the message is made of them.
-    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
-    // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
-    // it recognises and shows the rest verbatim, which is still better than a wrong translation.
-    if (f?.error) return { ok: false, error: f.error }
-    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+    return proposalFailure(lastHelperPostFailure())
   }
   try {
-    const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
+    const res = await fetch(`${BASE}${vaultQuery('/api/proposals', id)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify(input),
@@ -674,6 +697,8 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   // #821. Before every rule that reads text: the counts are the message, and its detail must never be
   // mistaken for another refusal.
   if (tooLarge) return tooLargeText(t, tooLarge)
+  const refused = refusalFromError(error)
+  if (refused) return t(refusalKey(refused, 'payment'))
   // #591: this device could not say who it proposes as; the reason is the message.
   if (error === 'proposer unresolved' && detail && detail in ACTING_KEYS) return t(ACTING_KEYS[detail as keyof typeof ACTING_KEYS])
   if ((error ?? '').toLowerCase() === TOO_MANY_ACTIONS) return t('error.tooLarge')
@@ -719,6 +744,7 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))
     return t('error.notYourSeat')
   if (has('not a member of this vault')) return t('error.notAMember')
+  if (e === 'seat required') return t(COORDINATOR_CODE_KEYS[SEAT_REQUIRED])
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
   // The coordinator's own wordings, matched because they are what it actually sends. Before this,
@@ -737,6 +763,9 @@ export function humanError(t: TFn, error?: string, detail?: string, tooLarge?: T
   if (e === 'invalid amount') return t('error.invalidAmount')
   if (e === 'proposal rejected') return t('error.proposalRejected')
   if (e === 'no vault') return t('error.noVault')
+  if (e === 'storage locked') return t('error.storageLocked')
+  if (e === 'storage unreadable') return t('error.storageUnreadable')
+  if (e === 'storage failed') return t('error.storageFailed')
   if (e === 'no destination') return t('error.noDestination')
   if (e === 'empty payroll' || has('payroll has no lines')) return t('error.emptyPayroll')
 
@@ -760,25 +789,19 @@ export async function readTransactions(): Promise<WalletTx[] | null | WalletBusy
 }
 
 
-/** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
-export async function setVaultMembers(names: string[]): Promise<string[] | null> {
-  if (!NET) return null
-  const id = getSelectedVault()
-  if (!id) return null
-  return netSetMembers(id, names)
-}
-
 /** Rename THIS device's own seat (`old` -> `next`) on the selected /net vault. The helper migrates
  *  the name across every proposal's votes (no ghost approver), and we mirror the change into the
  *  on-device record so "you" keeps pointing at the right seat. Returns the new roster or an error
  *  reason. A device may only rename the seat it holds - never another member's. */
 export async function renameSelf(
+  shown: string | null,
   old: string,
   next: string,
 ): Promise<{ members: string[] } | { error: string }> {
   if (!NET) return { error: 'not available' }
-  const id = getSelectedVault()
-  if (!id) return { error: 'no vault selected' }
+  const sv = shownVault(shown)
+  if (!sv.ok) return { error: refusalError(sv) }
+  const id = sv.id
   // Signed like every other governance write (#288). This was the one the app never signed: the
   // coordinator has required it since #454, so on a vault with signed actions turned on a rename
   // answered 401 every time. The target is `old\0new`, which is what the coordinator verifies.
@@ -812,10 +835,11 @@ export async function renameSelf(
  *  this device (its record kept the old name) - so the device is "stuck" (the server rejects renaming
  *  a name it no longer has). Just points the on-device record + session share at the name that is
  *  already in the roster. No network call, no vote migration (the server side already happened). */
-export async function adoptSelfName(name: string): Promise<{ ok: true } | { error: string }> {
+export async function adoptSelfName(shown: string | null, name: string): Promise<{ ok: true } | { error: string }> {
   if (!NET) return { error: 'not available' }
-  const id = getSelectedVault()
-  if (!id) return { error: 'no vault selected' }
+  const sv = shownVault(shown)
+  if (!sv.ok) return { error: refusalError(sv) }
+  const id = sv.id
   const nm = name.trim()
   if (!nm) return { error: 'empty name' }
   try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent */ }
@@ -905,13 +929,15 @@ export async function previewPayroll(csv: string): Promise<PayrollPreview | null
 
 /** Create a payroll proposal (N outputs, one envelope). */
 export async function createPayroll(
+  vaultId: string,
   proposer: string,
   lines: NewPayrollLine[],
   description?: string,
 ): Promise<CreateResult> {
+  const shown = shownVault(vaultId)
+  if (!shown.ok) return refusedVault(shown)
+  const id = shown.id
   if (NET) {
-    const id = getSelectedVault()
-    if (!id) return { ok: false, error: 'no vault' }
     const mapped: { label?: string; to: string; amount_zat: number; memo?: string }[] = []
     for (const l of lines) {
       const zat = parseZecToZat(l.value_zec)
@@ -926,15 +952,10 @@ export async function createPayroll(
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
     // the payroll went on reporting every failure as a bad address, a refused seat included.
-    const f = lastHelperPostFailure()
-    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
-    // #821: too large to sign. The two counts travel with it, since the message is made of them.
-    if (f?.tooLarge) return { ok: false, error: f.error ?? TOO_MANY_ACTIONS, tooLarge: f.tooLarge }
-    if (f?.error) return { ok: false, error: f.error }
-    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
+    return proposalFailure(lastHelperPostFailure())
   }
   try {
-    const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
+    const res = await fetch(`${BASE}${vaultQuery('/api/payroll', id)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify({ proposer, description, lines }),
@@ -965,10 +986,11 @@ export async function createVaultDkg(
   }
 }
 
-/** Verify the passphrase ("palavra do cofre") for the currently selected vault. */
-export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wrong: boolean }> {
+/** Verify the passphrase ("palavra do cofre") of the vault NAMED by the caller (the one being unlocked,
+ *  which is not always the selected one): the bridge is told that id, never the selection. */
+export async function unlockVault(vaultId: string, passphrase: string): Promise<{ ok: boolean; wrong: boolean }> {
   try {
-    const res = await fetch(`${BASE}${withVault('/api/vault/unlock')}`, {
+    const res = await fetch(`${BASE}${vaultQuery('/api/vault/unlock', vaultId)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify({ passphrase }),
@@ -980,13 +1002,15 @@ export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wr
   }
 }
 
-/** Delete the selected vault from THIS device. Locked vaults require the passphrase. */
+/** Delete the vault a screen showed from THIS device. Locked vaults require the passphrase. The id is
+ *  the caller's (checked by `shownVault`), never the selection, which could name another vault. */
 export async function deleteVault(
+  vaultId: string,
   passphrase?: string,
   confirmName?: string,
 ): Promise<{ ok: boolean; wrong: boolean }> {
   try {
-    const res = await fetch(`${BASE}${withVault('/api/vault/delete')}`, {
+    const res = await fetch(`${BASE}${vaultQuery('/api/vault/delete', vaultId)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify({ passphrase, confirm_name: confirmName }),
@@ -1006,30 +1030,34 @@ export type Beneficiary = { id: string; name: string; address: string; memo: str
 // lives ON THIS DEVICE (localStorage keyed by vault id) instead of the blind helper - which does not
 // implement /api/beneficiaries (the 404s in #136). This keeps the console clean, works offline, and
 // stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
-function benefKey(): string | null {
-  const id = getSelectedVault()
-  return id ? beneficiariesKey(id) : null
+// Through vault-local: sealed on a protected vault's device, in the clear on an open one.
+/** The change an add makes: a list gets one more, nothing yet starts one, anything else is REFUSED
+ *  (never turned into a list, which would overwrite what it was). */
+export function appendPerson(cur: unknown, b: Beneficiary): unknown {
+  return cur === undefined ? [b] : Array.isArray(cur) ? [...cur, b] : REFUSE
 }
-function netBenefList(): Beneficiary[] {
-  const k = benefKey()
-  if (!k) return []
-  try { return JSON.parse(localStorage.getItem(k) ?? '[]') as Beneficiary[] } catch { return [] }
-}
-function netBenefSave(list: Beneficiary[]): void {
-  const k = benefKey()
-  if (!k) return
-  try { localStorage.setItem(k, JSON.stringify(list)) } catch { /* storage blocked/full */ }
+export function withoutPerson(cur: unknown, id: string): unknown {
+  return cur === undefined ? [] : Array.isArray(cur) ? (cur as Beneficiary[]).filter((b) => b.id !== id) : REFUSE
 }
 
-export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
-  if (NET) return netBenefList()
-  const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
+export async function getBeneficiaries(shown: string | null): Promise<Beneficiary[] | null> {
+  if (NET) {
+    const id = shown
+    if (!id) return []
+    const r = await readLocal(id, 'benef')
+    // Locked or unreadable is "unavailable", never an empty list a caller could add to and overwrite.
+    return r.s === 'absent' ? [] : r.s === 'ok' && Array.isArray(r.value) ? (r.value as Beneficiary[]) : null
+  }
+  const r = await getJson<{ beneficiaries: Beneficiary[] }>(shown ? vaultQuery('/api/beneficiaries', shown) : '/api/beneficiaries')
   return r?.beneficiaries ?? null
 }
 
 export async function addBeneficiary(
-  name: string, address: string, memo?: string,
+  shown: string | null, name: string, address: string, memo?: string,
 ): Promise<{ ok: true; beneficiary: Beneficiary } | { ok: false; error: string; detail?: string }> {
+  // Before anything is read or sent: the vault the screen showed, or nothing is written.
+  const sv = shownVault(shown)
+  if (!sv.ok) return refusedVault(sv) as { ok: false; error: string }
   if (NET) {
     const addr = address.trim()
     if (!name.trim() || !addr) return { ok: false, error: 'invalidAddress' }
@@ -1041,11 +1069,12 @@ export async function addBeneficiary(
       memo: memo?.trim() ?? '',
       is_public: classifyAddress(addr) === 'transparent',
     }
-    netBenefSave([...netBenefList(), b])
-    return { ok: true, beneficiary: b }
+    const w = await updateLocal(sv.id, 'benef', (cur) => appendPerson(cur, b))
+    if (w === 'written') return { ok: true, beneficiary: b }
+    return { ok: false, error: w === 'locked' ? 'storage locked' : w === 'unreadable' ? 'storage unreadable' : 'storage failed' }
   }
   try {
-    const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
+    const res = await fetch(`${BASE}${vaultQuery('/api/beneficiaries', sv.id)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify({ name, address, memo }),
@@ -1058,16 +1087,17 @@ export async function addBeneficiary(
   }
 }
 
-export async function deleteBeneficiary(id: string): Promise<boolean> {
+export async function deleteBeneficiary(shown: string | null, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const sv = shownVault(shown)
+  if (!sv.ok) return { ok: false, error: refusalError(sv) }
   if (NET) {
-    netBenefSave(netBenefList().filter((b) => b.id !== id))
-    return true
+    return (await updateLocal(sv.id, 'benef', (cur) => withoutPerson(cur, id))) === 'written' ? { ok: true } : { ok: false, error: 'not removed' }
   }
   try {
-    const res = await fetch(`${BASE}/api/beneficiaries/${encodeURIComponent(id)}/delete`, { method: 'POST' })
-    return res.ok
+    const res = await fetch(`${BASE}${vaultQuery(`/api/beneficiaries/${encodeURIComponent(id)}/delete`, sv.id)}`, { method: 'POST' })
+    return res.ok ? { ok: true } : { ok: false, error: 'not removed' }
   } catch {
-    return false
+    return { ok: false, error: 'not removed' }
   }
 }
 
@@ -1122,6 +1152,16 @@ export async function getBookWithLines(): Promise<Book | null> {
     if (d?.lines && d.lines.length > 0) linesById[r.id] = d.lines
   }
   return { history, linesById }
+}
+
+/** This device's seat on `vaultId` (the selected vault when omitted), from its unlocked share; undefined
+ *  while it is locked or holds no share here. Screens read a member's stance by this seat (#575), and
+ *  fall back to the name, unique on the roster, while it is unknown. */
+export function mySeat(vaultId?: string): number | undefined {
+  const vid = vaultId ?? getSelectedVault()
+  const share = vid ? getUnlockedShare(vid) : undefined
+  if (!share) return undefined
+  try { return decodeBundle(share).seat } catch { return undefined }
 }
 
 /** Proposal detail including payroll lines (empty for a single payment). */
@@ -1196,11 +1236,14 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
 }
 
 /** Why the coordinator did not take a vote, as the code `humanError` words. */
-export function voteFailure(f: { status: number; error?: string } | null): string {
+export function voteFailure(f: { status: number; error?: string; code?: string } | null): string {
   // Not every failure is a conflict, and saying so when it is not sends the member looking for a
   // vote that does not exist. A 401 here means this device could not prove it holds the seat:
   // it is locked, or it never registered a write key for its seat on this vault (#288).
   if (f?.status === 401) return 'write not authorized'
+  // 400 seat_required (#575): two seats of this vault share the name, and a vote with no proof of
+  // its seat cannot say which. Unlocking the vault on this device supplies the proof.
+  if (f?.status === 400 && f.code === SEAT_REQUIRED) return 'seat required'
   // A 403 is a refusal WITH a reason: the name is not on the roster, or it is not the seat that
   // signed (#568). Calling it a conflicting vote sent the member looking for a vote that does
   // not exist.
@@ -1213,13 +1256,16 @@ export function voteFailure(f: { status: number; error?: string } | null): strin
 
 /** Approve or refuse a proposal on behalf of `member`. */
 export async function voteProposal(
+  shown: string | null,
   id: string,
   member: string,
   approve: boolean,
 ): Promise<CreateResult> {
+  // Before anything is signed or sent: the vault the screen showed, or no vote is cast.
+  const sv = shownVault(shown)
+  if (!sv.ok) return refusedVault(sv)
   if (NET) {
-    const vid = getSelectedVault()
-    if (!vid) return { ok: false, error: 'no vault' }
+    const vid = sv.id
     // #288: sign the vote when this device holds its share unlocked. Absent (locked, or a vault
     // whose share is not on this device) the vote goes unsigned, which the helper still accepts
     // while the vault has no registered write key. So a member is never blocked by this arriving;
@@ -1234,7 +1280,7 @@ export async function voteProposal(
     return { ok: false, error: voteFailure(lastHelperPostFailure()) }
   }
   try {
-    const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {
+    const res = await fetch(`${BASE}${vaultQuery(`/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, sv.id)}`, {
       method: 'POST',
       headers: postHeaders(),
       body: JSON.stringify({ member }),

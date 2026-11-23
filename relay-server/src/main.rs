@@ -787,6 +787,9 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     if json {
         resp.add_header(header("Content-Type", "application/json; charset=utf-8"));
     }
+    // Every answer goes through here, so none is kept by the browser's HTTP cache: a room is read
+    // under a URL that names it, and a stored copy would outlive the session.
+    resp.add_header(header("Cache-Control", "no-store"));
     resp
 }
 
@@ -824,45 +827,48 @@ fn main() {
     );
     eprintln!("konclave relay serving with {workers} worker(s)");
 
-    let mut pool = Vec::with_capacity(workers);
-    for _ in 0..workers {
-        let (server, state) = (Arc::clone(&server), Arc::clone(&state));
-        pool.push(std::thread::spawn(move || loop {
-            let Ok(mut req) = server.recv() else { return };
-            let method = req.method().clone();
-            let url = req.url().to_string();
-            let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
-            let addr = client_ip(&req);
+    // A worker that ends, by a panic or otherwise, ends the process with a failure code so the
+    // platform restarts it, instead of the pool thinning out to an exit 0.
+    konclave_http::run_workers("konclave relay", workers, move || loop {
+        let Ok(mut req) = server.recv() else { return };
+        let method = req.method().clone();
+        let url = req.url().to_string();
+        let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
+        let addr = client_ip(&req);
 
-            if method == Method::Options {
-                let _ = req.respond(with_cors(Response::empty(204), false));
-                continue;
-            }
+        if method == Method::Options {
+            let _ = req.respond(with_cors(Response::empty(204), false));
+            continue;
+        }
 
-            let (status, body) = if path.starts_with("/api/relay/") {
-                let mut buf = Vec::new();
-                // Read with a hard ceiling - including when there is NO Content-Length, which used
-                // to be read unbounded (#390). `take` caps a dribbling or chunked body.
-                match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-                    konclave_http::ReadPlan::Read(limit) => {
-                        let _ = req.as_reader().take(limit).read_to_end(&mut buf);
-                    }
-                    konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+        let (status, body) = if path.starts_with("/api/relay/") {
+            let mut buf = Vec::new();
+            // Read with a hard ceiling - including when there is NO Content-Length, which used
+            // to be read unbounded (#390). `take` caps a dribbling or chunked body.
+            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
+                konclave_http::ReadPlan::Read(limit) => {
+                    let _ = req.as_reader().take(limit).read_to_end(&mut buf);
                 }
-                state.handle(&method, &path, &url, &buf, now_unix(), &addr)
-            } else if path == "/" || path == "/health" {
-                (200, state.health_json(now_unix()))
-            } else {
-                (404, r#"{"error":"not found"}"#.to_string())
-            };
+                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+            }
+            // A handler that panics answers this request with a 500 and leaves the worker, the
+            // process and every other room standing; only a failure outside it ends the worker.
+            konclave_http::guard(|| state.handle(&method, &path, &url, &buf, now_unix(), &addr))
+                .unwrap_or_else(|| {
+                    (
+                        500,
+                        r#"{"error":"the relay failed on this request"}"#.to_string(),
+                    )
+                })
+        } else if path == "/" || path == "/health" {
+            (200, state.health_json(now_unix()))
+        } else {
+            (404, r#"{"error":"not found"}"#.to_string())
+        };
 
-            let resp = Response::from_string(body).with_status_code(status);
-            let _ = req.respond(with_cors(resp, true));
-        }));
-    }
-    for w in pool {
-        let _ = w.join();
-    }
+        let resp = Response::from_string(body).with_status_code(status);
+        let _ = req.respond(with_cors(resp, true));
+    })
 }
 
 #[cfg(test)]
@@ -889,6 +895,22 @@ mod tests {
         assert_ne!(d, "0000000000000000", "the build script digested nothing");
     }
     use super::*;
+
+    /// No answer of the relay may be kept by the browser's HTTP cache: a room's messages are read
+    /// under a URL that names the room, and a legacy vault's signing request can cross unsealed.
+    #[test]
+    fn no_answer_may_be_kept_by_the_browser_cache() {
+        fn cache_of<R: Read>(r: &Response<R>) -> Option<String> {
+            r.headers()
+                .iter()
+                .find(|h| h.field.equiv("Cache-Control"))
+                .map(|h| h.value.as_str().to_string())
+        }
+        let preflight = with_cors(Response::empty(204), false);
+        let answer = with_cors(Response::from_string("{}"), true);
+        assert_eq!(cache_of(&preflight).as_deref(), Some("no-store"));
+        assert_eq!(cache_of(&answer).as_deref(), Some("no-store"));
+    }
 
     #[test]
     fn the_limiter_blocks_past_max_then_resets_next_window() {

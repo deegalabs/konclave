@@ -19,8 +19,9 @@ import {
 } from '../api'
 import { useProposer } from '../use-proposer'
 import { ProposerNotice } from '../ProposerNotice'
-import { draftKey } from '../payroll-draft'
+import { clearPayrollDraft, draftKeptIn, readPayrollDraft, savePayrollDraft } from '../payroll-draft'
 import { RecipientCombobox } from '../RecipientCombobox'
+import { pinnedAnswer } from '../shown-vault'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
 import { useVaultBalance } from '../useVaultBalance'
@@ -186,6 +187,8 @@ export default function NewPayroll() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  // A protected vault's draft is in memory only: the mark says it is kept for this session, not "on this device".
+  const [kept, setKept] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
   const [pendingFrom, setPendingFrom] = useState<Proposal | null>(null)
@@ -232,7 +235,9 @@ export default function NewPayroll() {
   const [loaded, setLoaded] = useState(false)
 
   // The draft belongs to the vault this screen opened in; with none selected nothing is kept.
-  const [draftAt] = useState(() => { const id = getSelectedVault(); return id ? draftKey(id) : null })
+  const [draftVault] = useState(() => getSelectedVault())
+  // The restore is an asynchronous read now: nothing is written back until it has finished (and had its say).
+  const [restored, setRestored] = useState(false)
   // Locked behind the overlay: `Layout` decides the lock after this screen mounted and clears the
   // vault's draft then, so the screen must neither hold what it restored nor write it back. Outside
   // `Layout` there is no overlay, and nothing is locked.
@@ -241,33 +246,48 @@ export default function NewPayroll() {
     if (!locked) return
     setRows([emptyRow()]); setCompetencia(''); setDescription(''); setCopiedFrom(null); setPendingFrom(null)
   }, [locked, setRows])
-  // Restore the local draft.
+  // The form as it is right now, for the one question the late restore asks: has the member done anything?
+  const formNow = useRef({ competencia, description, rows, copiedFrom })
+  formNow.current = { competencia, description, rows, copiedFrom }
+  // Restore the local draft. The read is asynchronous, so the member may have acted before it lands (typed,
+  // added a line, imported, started from a payroll): the restore then applies to NOTHING, because it would
+  // replace their work with an older draft, and what they did is what the autosave keeps from here. A form
+  // still untouched gets the draft, as before. (Waiting for the restore instead would put a pause in front
+  // of every first keystroke for the sake of a draft the member may not even have.)
   useEffect(() => {
-    if (locked) return
-    const raw = draftAt ? localStorage.getItem(draftAt) : null
-    if (raw) {
-      try {
-        const d = JSON.parse(raw)
-        setCompetencia(d.competencia ?? '')
-        setDescription(d.description ?? '')
-        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows.map(({ k: _k, ...r }: Row) => r)) // a stored identity is never trusted
-        if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
-      } catch { /* ignore corrupt draft */ }
-    }
-  }, [draftAt, locked, setRows])
+    if (locked) { setRestored(false); return }
+    let on = true
+    void (async () => {
+      const d = draftVault ? ((await readPayrollDraft(draftVault)) as Record<string, unknown> | null) : null
+      if (!on) return
+      const f = formNow.current
+      const untouched = f.competencia === '' && f.description === '' && f.copiedFrom === null
+        && JSON.stringify(f.rows.map(({ k: _k, ...r }) => r)) === JSON.stringify([emptyRow()])
+      if (d && typeof d === 'object' && untouched) {
+        try {
+          setCompetencia(typeof d.competencia === 'string' ? d.competencia : '')
+          setDescription(typeof d.description === 'string' ? d.description : '')
+          if (Array.isArray(d.rows) && d.rows.length) setRows((d.rows as Row[]).map(({ k: _k, ...r }) => r)) // a stored identity is never trusted
+          if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
+        } catch { /* ignore corrupt draft */ }
+      }
+      setRestored(true)
+    })()
+    return () => { on = false }
+  }, [draftVault, locked, setRows])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
-    if (!draftAt || locked) return
-    localStorage.setItem(draftAt, JSON.stringify({ competencia, description, rows: rows.map(({ k: _k, ...r }) => r), copiedFrom }))
-    setSaved(true)
-  }, [competencia, description, rows, copiedFrom, draftAt, locked])
+    if (!draftVault || locked || !restored) return
+    void savePayrollDraft(draftVault, { competencia, description, rows: rows.map(({ k: _k, ...r }) => r), copiedFrom }).then((w) => { setSaved(w === 'written'); setKept(draftKeptIn(draftVault) === 'memory') })
+  }, [competencia, description, rows, copiedFrom, draftVault, locked, restored])
 
   useEffect(() => {
     let on = true
     void (async () => {
       if (await health()) {
-        const [bs, led, v] = await Promise.all([getBeneficiaries(), getLedger(), getVault()])
+        const [bs, led, got] = await Promise.all([getBeneficiaries(draftVault), getLedger(), getVault()])
+        const v = pinnedAnswer(draftVault, got)
         if (!on) return
         void getProposals().then((ps) => { if (on) setOpenProps(ps) })
         if (bs) setBenefs(bs)
@@ -312,7 +332,7 @@ export default function NewPayroll() {
     void getProposals().then((ps) => { if (ps) setOpenProps(ps) })
   }, 12_000)
 
-  const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
+  const reloadBenefs = () => { void getBeneficiaries(draftVault).then((b) => { if (b) setBenefs(b) }) }
 
   async function importCsv() {
     setError(null)
@@ -399,13 +419,14 @@ export default function NewPayroll() {
     if (titleIssue === 'chars') { setError(t('payroll.errTitleChars')); return }
     setBusy(true)
     const res = await createPayroll(
+      vaultRef?.id ?? '',
       proposer ?? '', // what the screen showed; the name sent is the seat's, read at send time
       validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: amountTyped(r.value), memo: r.memo || undefined })),
       desc,
     )
     setBusy(false)
     if (res.ok) {
-      if (draftAt) localStorage.removeItem(draftAt)
+      if (draftVault) clearPayrollDraft(draftVault)
       // We navigate away, so the confirmation has to travel with the reader.
       toast.ok(t('toast.payrollSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
@@ -421,7 +442,7 @@ export default function NewPayroll() {
       <main className="page pay">
         <PageHeader
           title={t('payroll.title')}
-          subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
+          subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t(kept ? 'payroll.draftKeptTitle' : 'payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
         />
 
         {!loaded ? <><SkeletonForm fields={2} inline /><SkeletonRows n={2} compact status={false} /></> : (<>
@@ -532,6 +553,7 @@ export default function NewPayroll() {
                   <div className="plr-to" onBlur={() => { if (r.check) updateRow(r.k, {}) }}>
                     <RecipientCombobox
                       compact
+                      vaultId={draftVault ?? vaultRef?.id ?? null}
                       invalid={!!issue}
                       describedBy={note ? `plr-issue-${i}` : undefined}
                       benefs={benefs}

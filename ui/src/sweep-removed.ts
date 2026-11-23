@@ -19,17 +19,14 @@
 //   - the keys are listed BEFORE anything is read, the bridge is read first and the records last, and
 //     the records are read once more just before clearing, so a vault created or imported meanwhile
 //     (in this tab or another) is never cleared.
-// The prefixes are taken from the functions that build each key, not spelled again here.
+// The prefixes are taken from the registry of per-vault keys, not spelled again here.
 import { IS_NET, getVaults } from './api'
-import { prfKey } from './prf-store'
-import { draftKey } from './payroll-draft'
-import { recentPayeesKey } from './recent-payees'
 import { clearVaultTraces } from './remove-vault'
-import { seenKey } from './seen-store'
-import { beneficiariesKey, readVaults } from './storage'
-import { statusKey } from './vault-status'
+import { readVaults } from './storage'
+import { ALL_VAULT_KEY_FNS } from './vault-local'
 
-const TRACES: ReadonlyArray<(id: string) => string> = [beneficiariesKey, draftKey, recentPayeesKey, seenKey, statusKey, prfKey]
+// The one list of per-vault keys is vault-local's registry, not a copy of it here.
+const TRACES: ReadonlyArray<(id: string) => string> = ALL_VAULT_KEY_FNS
 
 /** The vault ids that some per-vault key in `keys` belongs to. */
 export function tracedVaultIds(keys: readonly string[]): Set<string> {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withStances } from './test-stances'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -20,13 +21,13 @@ vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage'
 const { default: Proposals } = await import('./screens/Proposals')
 
 const now = Math.floor(Date.now() / 1000)
-const base = { vault_id: 'v', proposer: 'Alice', is_public: false, refusals: [], kind: 'payment', to_address: 'u1x', value_zat: 100000000, value_zec: '1', created_at: now - 1000 }
-const far = { ...base, id: 'a', state: 'awaiting', memo: 'Far deadline', approvals: ['Alice'], approvals_count: 1, expiry_unix: now + 5 * 86400 }
-const near = { ...base, id: 'b', state: 'awaiting', memo: 'Near deadline', approvals: ['Alice'], approvals_count: 1, expiry_unix: now + 86400 }
-const voted = { ...base, id: 'c', state: 'awaiting', memo: 'Bob already voted', approvals: ['Bob'], approvals_count: 1, expiry_unix: now + 2 * 86400 }
-const ready = { ...base, id: 'r', state: 'ready', memo: 'Ready rent', approvals: ['Alice', 'Bob'], approvals_count: 2, expiry_unix: now + 3 * 86400 }
-const sent = { ...base, id: 's', state: 'sent', memo: 'Sent rent', approvals: ['Alice', 'Bob'], approvals_count: 2, txid: 'f'.repeat(64) }
-const closed = { ...base, id: 'x', state: 'rejected', memo: 'Refused chairs', approvals: [], approvals_count: 0 }
+const base = withStances({ vault_id: 'v', proposer: 'Alice', is_public: false, refusals: [], kind: 'payment', to_address: 'u1x', value_zat: 100000000, value_zec: '1', created_at: now - 1000 })
+const far = withStances({ ...base, id: 'a', state: 'awaiting', memo: 'Far deadline', approvals: ['Alice'], approvals_count: 1, expiry_unix: now + 5 * 86400 })
+const near = withStances({ ...base, id: 'b', state: 'awaiting', memo: 'Near deadline', approvals: ['Alice'], approvals_count: 1, expiry_unix: now + 86400 })
+const voted = withStances({ ...base, id: 'c', state: 'awaiting', memo: 'Bob already voted', approvals: ['Bob'], approvals_count: 1, expiry_unix: now + 2 * 86400 })
+const ready = withStances({ ...base, id: 'r', state: 'ready', memo: 'Ready rent', approvals: ['Alice', 'Bob'], approvals_count: 2, expiry_unix: now + 3 * 86400 })
+const sent = withStances({ ...base, id: 's', state: 'sent', memo: 'Sent rent', approvals: ['Alice', 'Bob'], approvals_count: 2, txid: 'f'.repeat(64) })
+const closed = withStances({ ...base, id: 'x', state: 'rejected', memo: 'Refused chairs', approvals: [], approvals_count: 0 })
 
 const mount = () => render(<MemoryRouter><I18nProvider><Proposals /></I18nProvider></MemoryRouter>)
 const titlesUnder = (heading: string) => {
@@ -164,5 +165,32 @@ describe('the proposals list (#292)', () => {
     expect(document.querySelectorAll('.read-state').length).toBe(1) // the compact line alone
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByText('Far deadline')).toBeTruthy() // what was read still holds
+  })
+})
+
+// #575: where the coordinator did not give the count, the row draws no bars (a bar would claim a number).
+describe('the proposals list with an approval count the coordinator did not give', () => {
+  beforeEach(() => {
+    localStorage.setItem('konclave.locale', 'en')
+    listVaults.mockResolvedValue([{ id: 'v', myName: 'Bob' }])
+    getVault.mockResolvedValue({ id: 'v', name: 'Caixa', threshold: 2, total: 3, members: 3, member_list: [], group_pubkey: 'v', orchard_address: 'u1x' })
+    readTransactions.mockResolvedValue([])
+  })
+  afterEach(() => { cleanup(); localStorage.clear() })
+
+  const unknown = { ...base, id: 'u', state: 'awaiting', memo: 'Count unknown', approvals: ['Alice'], approvals_count: null, stances: null, expiry_unix: now + 4 * 86400 }
+
+  it('draws bars for a known count', async () => {
+    getProposals.mockResolvedValue([far])
+    mount()
+    await screen.findByText('Far deadline')
+    expect(document.querySelectorAll('.prog').length).toBe(1)
+  })
+
+  it('draws none for an unknown one', async () => {
+    getProposals.mockResolvedValue([unknown])
+    mount()
+    await screen.findByText('Count unknown')
+    expect(document.querySelectorAll('.prog').length).toBe(0)
   })
 })

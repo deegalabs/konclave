@@ -122,6 +122,8 @@ Before `railway up`, with no send in flight:
 1. Take a FULL backup of the volume, wallets included. Prefer a platform snapshot of the volume
    (Railway: the service's volume backups), which keeps the data on the platform. The ops backup in
    [docs/RECOVERY.md](../../docs/RECOVERY.md) D excludes `wallet/` on purpose and is NOT enough here.
+   If you take a copy instead, record the sha256 of every file under each `wallet/` as you take it,
+   and keep that list apart from the copy, where whoever can write the copy cannot write the list.
 2. Write down the sha256 of the four binaries that were running, so the old image can be rebuilt.
 
 To go back after the new engine has run: redeploy the old binaries AND restore every `wallet/` from
@@ -129,18 +131,25 @@ that backup, together. Restoring only the binaries leaves every migrated vault u
 Without the backup, the only way back is rebuilding each wallet from its birthday (RECOVERY.md B),
 with every balance offline until the rescan finishes.
 
+Restore a `wallet/` only from a backup this coordinator's own volume produced: a platform snapshot
+of the volume, or a copy whose sha256 for every file under `wallet/` was recorded when it was taken
+and matches before it is put back. Never restore a wallet database, or its `-wal` or `-journal`,
+that came from anywhere else, and never restore a `-wal` without the database it was taken with.
+SQLite before 3.54.0 can return stale memory when it opens a database with a `-wal` someone else
+wrote (RUSTSEC-2026-0459).
+
 The move to the stable NU7 crate line (`zcash_client_sqlite` 0.23.0) works the same way. Only
 `zcash-devtool wallet upgrade` migrates a wallet, and the coordinator runs it before the first sync
-or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the new
-`konclave-signer` opens a wallet with `WalletDb::for_path` and does not migrate it, and the new
+or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the
+new `konclave-signer` opens a wallet with `WalletDb::for_path` and does not migrate it, and the new
 devtool's `sync` fails on an unmigrated wallet until `upgrade` has run. The signer and the devtool
-ship as ONE set. Before the deploy, copy `/data/vaults/*/wallet` (the ops backup excludes it) and keep
-the copy until the first reads and one send have gone through: going back after the first read is
-not proven safe outside the wallet shape that was tried (one Orchard/Ironwood note, where the
-previous signer and devtool still worked; the migrations that rewrite rows were not exercised). The
-pins named in this file (`pczt 0.9.3`, `zcash_client_backend 0.24.0`) describe the engine deployed
-today; the records for the new line arrive with the follow-up change to `engine/versions.lock` and
-are not part of the crate move.
+ship as ONE set. Before the deploy, copy `/data/vaults/*/wallet` (the ops backup excludes it),
+record the sha256 of every file in it as above, and keep the copy until the first reads and one send
+have gone through: going back after the first read is not proven safe outside the wallet shape that
+was tried (one Orchard/Ironwood note, where the previous signer and devtool still worked; the
+migrations that rewrite rows were not exercised). The pins named in this file (`pczt 0.9.3`,
+`zcash_client_backend 0.24.0`) describe the engine deployed today; the records for the new line
+arrive with the follow-up change to `engine/versions.lock` and are not part of the crate move.
 
 Validate locally before deploying:
 
@@ -204,7 +213,7 @@ deployment values.
 |---|---|---|
 | `KONCLAVE_HELPER_ADDR` | `0.0.0.0:4780` | bind address (the CMD wires Railway's `$PORT` in) |
 | `KONCLAVE_NETWORK` | `main` | `main` or `test` (drives address validation + derivation) |
-| `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
+| `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | the light-client server(s) for the view-only wallets: one `host:port`, or a comma-separated list of them (`zec.rocks:443,eu.zec.rocks:443,na.zec.rocks:443,zcash.mysideoftheweb.com:9067`); `testnet.zec.rocks:443` for testnet. Each entry must be `host:port` only (no scheme, path or spaces) or the coordinator refuses to start, naming the entry; an empty value is refused too. In a list, each entry must also be a public DNS name: an onion name, `localhost` or an IP address is refused, because the list is checked over https by name (a single server may still be one of those). **One value behaves as before** (no probe, nothing else changes). **With a list**, a background thread asks every server which chain and height it reports every 60 seconds, with `curl` over HTTP/2 (so `curl` must stay in the image; if it is missing every server reads as failed and the coordinator stays on the first), never inside a request. When it has to move, it prefers the first server not more than 3 blocks behind the highest height a server in use reported (counted only while three or more servers agreed), so the vaults' wallets are not left ahead of their new server. It keeps the server it is on while that one answers on the right chain and within 20 blocks of the median height of the answers, and moves only when it stops answering, or falls out of that band while at least three others agree. A send broadcasts through the server it has been using and, only if that attempt is stopped at its deadline or fails before the engine starts sending (the server cannot be reached), through the next server within 3 blocks of the median, with the same signed bytes, within 180 seconds in all. A new vault's wallet gets an explicit birthday only when three servers agree: the lowest height any eligible server reports (but at most 1,000 blocks below the median), minus 100, so a minority of servers reporting too high cannot make a wallet skip blocks the lowest honest server reports (a majority still can: see the next sentence). List servers run by different operators: three hosts of one operator count as three (the example above has three `zec.rocks` hosts, one operator, and `mysideoftheweb` is what keeps a second operator in it). `light_servers` on `/api/health` reports each server's chain as `main`, `test` or `other`. `/api/health` carries `light_servers` (`host`, `ok`, `chain`, `height_lag`), read from the last probe and never probing; the boot log names each server. Rolling back is setting one value |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/data/vaults` | per-vault view-only wallets + send scratch (per the Dockerfile) |
 | `KONCLAVE_SEND_MAX_POLLS` | `300` | how long a send waits for the devices' signatures, in polls (one a second when the relay answers at once, longer when it does not): from `120` to `600`. Below 120, zero or anything that is not a whole number is `300`; above 600, however large, is `600`. The operator's setting. The devices keep their consent for ten minutes, and 600 polls take ten minutes at best, so keep it well below that. The boot log prints the value in use and says when it did not take the one given |

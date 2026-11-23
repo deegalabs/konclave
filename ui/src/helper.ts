@@ -23,6 +23,7 @@ import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
 import type { SendReply, TooLarge } from './send-outcome'
+import type { Stance } from './stance'
 
 // The env is read one key at a time, never as an object (#605, src/env-reads.test.ts).
 
@@ -99,6 +100,10 @@ export function helperBase(): string {
 export function helperConfigured(): boolean {
   return helperBase() !== ''
 }
+
+/** The coordination mode, read ONCE when the app loads. The guard on a write (`shown-vault.ts`) and
+ *  the paths of `api.ts` follow this one reading, so they cannot disagree about which mode they are in. */
+export const NET_AT_LOAD: boolean = helperConfigured()
 
 // ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
@@ -183,11 +188,14 @@ async function fetchRetryingBusy(
  *  per-route memory for the screens that ask for it (read-failure.ts), as every read always did. */
 type ReadResult<T> = { ok: T } | { failure: ReadFailure | null; saturated?: boolean }
 
+// Every read asks the browser not to store the answer (`cache: 'no-store'`), as the coordinator
+// also says: a private read lives under a URL with the vault id, and a stored copy would outlive
+// the session, the lock and a removal of the vault from the device.
 async function readJsonResult<T>(path: string): Promise<ReadResult<T>> {
   const base = helperBase()
   if (!base) return { failure: null }
   try {
-    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path), cache: 'no-store' })
     if (res.status === 503) {
       // A saturated coordinator is read like a busy wallet: the screen keeps what it shows.
       const kind = busyOf(res.status, await res.json().catch(() => null))
@@ -303,7 +311,7 @@ async function getText(path: string): Promise<string | null> {
   const base = helperBase()
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path), cache: 'no-store' })
     if (!res.ok) return null
     return await res.text()
   } catch {
@@ -346,7 +354,7 @@ export async function coordinatorCreationMin(): Promise<number | null> {
   if (!base) return null
   try {
     // A coordinator that hangs must not hold a creation up: no answer in time is no minimum.
-    const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(4000) })
+    const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(4000), cache: 'no-store' })
     if (!res.ok) return null
     const h = (await res.json()) as { client?: { creation?: unknown } } | null
     const c = h?.client?.creation
@@ -392,8 +400,13 @@ export type Proposal = {
   lines?: { label?: string; to: string; amount_zat: number; memo?: string | null }[]
   proposer: string
   state: string // pending | ready | sent | refused | expired
+  /** Every recorded name, for the record. Who counts is `stances` / `approvals_counted` (#575). */
   approvals: string[]
   refusals: string[]
+  /** Seats whose approval counts (#575). Absent from a coordinator older than the field. */
+  approvals_counted?: number
+  refusals_counted?: number
+  stances?: Stance[]
   threshold: number
   total: number
   created_at_unix: number

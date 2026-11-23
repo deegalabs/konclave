@@ -93,12 +93,17 @@ describe('real wasm, real storage, stub only the answer', () => {
     expect(c.complete).toBe(false)
   })
   it('S7 corrupted share: bundle not json', async () => {
-    const s = await reset({ sealedShare: new Uint8Array([1, 2, 3]) } as never); h.answer = { ufvk: U.K }
+    // The device cannot open such a share any more (#965, below), so what the two readers do with one
+    // is shown on a loaded vault whose bundle was damaged in memory.
+    const s = { ...(await reset()), sealedShare: new Uint8Array([1, 2, 3]) }; h.answer = { ufvk: U.K }
     await expect(adoptVaultReceivers(GK, s)).rejects.toThrow()
     expect(await checkedViewingKey(GK, s)).toBe(null)
     await updateVaultMeta(GK, { cp: undefined } as never)
     await saveVault(GK, data({ cp: undefined, sealedShare: new Uint8Array([1, 2, 3]) } as never), 'river stone maple lantern')
-    expect((await buildVaultBackup(GK, 'river stone maple lantern', 'V')).complete).toBe(false) // an incomplete export beats none
+    // A share that is not a share of this seat no longer opens at all (#965), so there is nothing to back up:
+    // it used to export the garbage as an incomplete backup, which restored a seat that could not sign.
+    await expect(loadVault(GK, 'river stone maple lantern')).rejects.toMatchObject({ code: 'wrong-seat' })
+    await expect(buildVaultBackup(GK, 'river stone maple lantern', 'V')).rejects.toMatchObject({ code: 'wrong-seat' })
   })
   it('S8 other writers: meta, change, passphrase change, import', async () => {
     const s = await reset(); h.answer = { ufvk: U.K }; await adoptVaultReceivers(GK, s); const v = await rec()

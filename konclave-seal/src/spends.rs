@@ -4,6 +4,11 @@
 
 use ff::PrimeField;
 
+/// The exit status of `konclave-signer inject` when it checked a signature and refused it. Every
+/// other failure exits 1. The signer exits with it and the coordinator reads it, so it lives here,
+/// once, where both are compiled from.
+pub const INJECT_EXIT_SIGNATURE_REJECTED: i32 = 3;
+
 /// Every spend `(action_index, alpha)` in one Orchard-shaped bundle (Orchard or Ironwood) that
 /// still AWAITS a signature, or a refusal if any spend still carries a dummy spending key.
 ///

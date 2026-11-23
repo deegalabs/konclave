@@ -17,8 +17,9 @@ import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor } from '../session'
-import { buildVaultBackup } from '../build-backup'
-import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
+import { buildVaultBackup, incompleteNotices } from '../build-backup'
+import { getVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
+import { getSelectedVault, pinnedAnswer, refusalKey, shownVault } from '../shown-vault'
 import { listVaults, type Governance, type VaultPublic } from '../storage'
 import { removeVaultFromDevice, clearVaultTraces } from '../remove-vault'
 import { RemoveVaultDialog, type RemoveResult } from '../remove-vault-dialog'
@@ -67,6 +68,12 @@ export default function Settings() {
   // by one. Worse, the danger zone renders `removeNoLocal` meanwhile, which asserts this device
   // holds nothing of the vault. That is not slowness, it is a wrong answer shown confidently, so
   // the fix is to say "loading" rather than to say the wrong thing faster.
+  // The vault this screen opened on, pinned once. The selection is shared by every tab of the browser
+  // and changes under us; what this screen shows and acts on is this one, and every action asks
+  // `shownVault` whether it is still the selected one before it does anything.
+  const [pinned] = useState(() => getSelectedVault())
+  // The first answer was about another vault and was dropped: nothing is known of THIS one.
+  const [foreign, setForeign] = useState(false)
   const [settled, setSettled] = useState(false)
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
@@ -86,7 +93,11 @@ export default function Settings() {
       // Never a stand-in: a fabricated fingerprint would be compared out of band as if it were real.
       let identity: string | null = null
       if (ok) {
-        const v = await getVault()
+        // An answer about another vault than the pinned one is no answer: the selection moved while
+        // we waited, and this screen must not turn into the other vault.
+        const got = await getVault()
+        const v = pinnedAnswer(pinned, got)
+        if (on && got && !v) setForeign(true)
         if (on && v) setVault(v)
         // Governance is public vault metadata kept on-device (browser-native). Match by id; older
         // vaults without the field read as 'open' (the historical behavior).
@@ -111,11 +122,12 @@ export default function Settings() {
     })()
       .finally(() => { if (on) setSettled(true) })
     return () => { on = false }
-  }, [])
+  }, [pinned])
 
   // #468: the passkey shortcut, enrolled from here. `S` only - signing still asks for the
   // passphrase, which is the separation the whole thing exists for.
-  const vaultId = getSelectedVault()
+  // `pinned` is the vault; without one (the local bridge picks its own) it is the one the bridge answered for.
+  const shownId = pinned ?? vault?.id ?? null
   // The record's RAW name, not the card's display fallback (vault-username.ts).
   const passVault = localRec ? { name: localRec.name, id: localRec.id } : null
   const [hasPasskey, setHasPasskey] = useState(false)
@@ -125,25 +137,28 @@ export default function Settings() {
   // enrolment, and never blocking it: the shortcut is per device by design, so a synced passkey is
   // the case it does not rely on, and the member is owed that sentence before they do.
   const [pkSynced, setPkSynced] = useState(false)
-  useEffect(() => { setHasPasskey(!!(vaultId && loadPrfWrap(vaultId))) }, [vaultId])
+  useEffect(() => { setHasPasskey(!!(shownId && loadPrfWrap(shownId))) }, [shownId])
   // Offered only when this device can actually do it: a vault selected, `S` in the session, and a
   // browser with WebAuthn. Advertising a control that cannot work is worse than not offering it.
-  const canEnrol = !!vaultId && !!readSecretFor(vaultId) && typeof navigator !== 'undefined' && !!navigator.credentials
+  const canEnrol = !!shownId && !!readSecretFor(shownId) && typeof navigator !== 'undefined' && !!navigator.credentials
 
   async function addPasskey() {
-    if (!vaultId) return
-    const s = readSecretFor(vaultId)
+    if (!shownId) return
+    const shown = shownVault(shownId)
+    if (!shown.ok) { setPkErr(t(refusalKey(shown, 'settings'))); return }
+    const id = shown.id // the only id used below
+    const s = readSecretFor(id)
     if (!s) { setPkErr(t('settings.passkeyNeedUnlock')); return }
     setPkBusy(true); setPkErr(null); setPkSynced(false)
     try {
       const label = vault?.name || t('settings.vault')
-      const r = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
+      const r = await enrolPrf(navigator.credentials, id, s, location.hostname, label)
       // `enrolPrf` returns a denial rather than a wrap on ANY failure, cancellation included.
       // Nothing is stored, and the passphrase is untouched - a shortcut that fails must cost
       // nothing. What it must NOT do is fail namelessly: #538 was two days of guessing because
       // this screen said the same sentence whichever of them had happened.
       if (typeof r === 'string') { setPkErr(t(DENIAL_COPY[r])); return }
-      savePrfWrap(vaultId, r)
+      savePrfWrap(id, r)
       setHasPasskey(true)
       // Only a BE we read as SET earns the notice. Null (nothing readable) is unknown, not a reason
       // to alarm anyone, and the always-shown access note below already says the rule.
@@ -155,8 +170,10 @@ export default function Settings() {
 
   /** Forget the wrap on THIS device. The vault is untouched: the passphrase still opens it. */
   function dropPasskey() {
-    if (!vaultId) return
-    clearPrfWrap(vaultId)
+    if (!shownId) return
+    const shown = shownVault(shownId)
+    if (!shown.ok) { setPkErr(t(refusalKey(shown, 'settings'))); return }
+    clearPrfWrap(shown.id)
     setHasPasskey(false)
     setPkErr(null)
     setPkSynced(false)
@@ -191,11 +208,14 @@ export default function Settings() {
   }
 
   async function doRotate() {
-    if (!vaultId) return
+    if (!shownId) return
+    const shown = shownVault(shownId)
+    if (!shown.ok) { setRotErr(t(refusalKey(shown, 'settings'))); return }
+    const id = shown.id // the only id used below
     if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); setRotAt('new2'); return }
     setRotBusy(true); setRotErr(null)
     try {
-      await changePassphrase(vaultId, rotOld, rotNew)
+      await changePassphrase(id, rotOld, rotNew)
       if (!mounted.current) { toast.ok(t('rotate.done')); return }
       setRotDone(true)
       setRotOld(''); setRotNew(''); setRotNew2('')
@@ -217,8 +237,10 @@ export default function Settings() {
 
   async function runExport(): Promise<{ json: string; name: string; complete: boolean } | null> {
     setXpErr(null)
-    const id = getSelectedVault()
-    if (!id) { setXpErr(t('export.errNoVault')); return null }
+    if (!shownId) { setXpErr(t('export.errNoVault')); return null }
+    const shown = shownVault(shownId)
+    if (!shown.ok) { setXpErr(t(refusalKey(shown, 'settings'))); return null }
+    const id = shown.id // the only id used below
     if (xpPass.length < 1) { setXpErr(t('export.errPass')); return null }
     try {
       // The viewing key and the scan floor ride in the export so it can REBUILD the vault, not just
@@ -226,7 +248,8 @@ export default function Settings() {
       // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
       const b = await buildVaultBackup(id, xpPass, vault?.name)
       // A file that restores the seat and not the vault is still worth having, and has to say so.
-      if (!b.complete) setXpErr(t('vaults.resumeBackupIncomplete'))
+      const said = incompleteNotices(b).map((k) => t(k))
+      if (said.length) setXpErr(said.join(' '))
       return { json: b.json, name: b.name, complete: b.complete }
     } catch (e) {
       setXpErr(t(storageErrorKey(e, 'export.errGeneric')))
@@ -270,9 +293,12 @@ export default function Settings() {
   // to sign. On the local bridge the orchestrator owns the record and deletes it, and checks the name.
   async function removeFromDevice(typed: string): Promise<RemoveResult> {
     if (!vault) return 'fail'
-    if (IS_NET) return (await removeVaultFromDevice(vault.id)) ? 'ok' : 'fail'
-    const res = await deleteVault(undefined, typed.trim())
-    if (res.ok) { clearVaultTraces(vault.id); return 'ok' }
+    const shown = shownVault(shownId)
+    if (!shown.ok) return shown.gone ? 'gone' : 'changed'
+    const id = shown.id // the only id used below
+    if (IS_NET) return (await removeVaultFromDevice(id)) ? 'ok' : 'fail'
+    const res = await deleteVault(id, undefined, typed.trim())
+    if (res.ok) { clearVaultTraces(id); return 'ok' }
     return res.wrong ? 'wrong' : 'fail'
   }
 
@@ -543,6 +569,10 @@ export default function Settings() {
           /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
              vault" is a guess, and it is the alarming one - so the row waits instead. */
           <Skeleton width={180} height={38} radius={10} />
+        ) : foreign ? (
+          /* The answer was about another vault and was dropped, so what this device keeps of THIS one
+             is unknown, and "it keeps nothing" would be false. */
+          <p className="set-danger-note">{t(refusalKey({}, 'settings'))}</p>
         ) : IS_NET && !hasLocal ? (
           /* Nothing of this vault is on this device - it is read through the helper. There is no
              share to give up, so the honest thing is to say so rather than offer a dead button. */

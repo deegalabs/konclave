@@ -12,7 +12,7 @@ let n = 0
 const at = (d: number) => 1_700_000_000 + d * 86_400
 const pay = (to: string, zat: number, day: number, state = 'confirmed', o: Partial<Proposal> = {}): Proposal => ({
   id: `p${n++}`, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat: zat, value_zec: '',
-  to_address: to, is_public: false, created_at: at(day), approvals: [], refusals: [], approvals_count: 0, ...o,
+  to_address: to, is_public: false, created_at: at(day), approvals: [], refusals: [], approvals_count: 0, stances: [], ...o,
 })
 const roll = (zat: number, day: number, state = 'confirmed', id = `r${n++}`): Proposal =>
   pay('', zat, day, state, { id, kind: 'payroll', to_address: undefined })

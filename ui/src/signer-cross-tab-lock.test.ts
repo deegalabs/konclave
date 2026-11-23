@@ -135,7 +135,7 @@ describe('one place asks the browser for the signer lock (#285)', () => {
   it('only background-signer.ts calls the Web Locks API, tests aside', { timeout: 30_000 }, async () => {
     const { readdirSync, readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
-    const { stripComments } = await import('./source-scan')
+    const { stripComments, codeOf } = await import('./source-scan')
     const here = fileURLToPath(new URL('.', import.meta.url))
     const callers: string[] = []
     const walk = (dir: string) => {
@@ -148,6 +148,11 @@ describe('one place asks the browser for the signer lock (#285)', () => {
       }
     }
     walk(here.replace(/\/$/, ''))
-    expect(callers).toEqual(['background-signer.ts'])
+    // The one other Web Lock is the device storage's write order (vault-local.ts, one lock per stored key).
+    // It is named apart from the signer's, so it can never hold or wait on a signer lock.
+    expect(callers).toEqual(['background-signer.ts', 'vault-local.ts'])
+    const local = codeOf('vault-local.ts')
+    expect(local).toMatch(/locks\.request\(`konclave-local:/)
+    expect(local).not.toMatch(/konclave-sign/)
   })
 })

@@ -22,7 +22,7 @@ vi.mock('./fee-estimate', async (orig) => ({
 
 const p = (id: string, state: string, created_at: number, value_zat = 1000, over: Partial<Proposal> = {}): Proposal => ({
   id, vault_id: 'v', kind: 'payment', state, proposer: 'ana', value_zat, value_zec: '0', is_public: false,
-  approvals: [], refusals: [], approvals_count: 0, created_at, destinations: 1, ...over,
+  approvals: [], refusals: [], approvals_count: 0, stances: [], created_at, destinations: 1, ...over,
 })
 const stored = (v: string) => JSON.parse(localStorage.getItem(`konclave.status.${v}`) ?? 'null')
 const nowSec = () => Math.floor(Date.now() / 1000)

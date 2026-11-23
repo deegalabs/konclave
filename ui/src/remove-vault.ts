@@ -12,7 +12,8 @@
 // Kept on purpose: the signed record (`signed-record.ts`), the device's memory of what it already
 // signed. It holds hashes and expiries only, and it is what refuses a second transaction for a
 // payment this device signed, should the vault come back from a backup.
-import { forgetVault, beneficiariesKey } from './storage'
+import { forgetVault } from './storage'
+import { ALL_VAULT_KEY_FNS } from './vault-local'
 import { getSelectedVault, clearSelectedVault } from './api'
 import { clearUnlockedShare, clearReadSecret } from './session'
 import { clearPrfWrap } from './prf-store'
@@ -39,7 +40,8 @@ export function clearVaultTraces(id: string): void {
   clearUnlockedShare(id)
   clearReadSecret(id)
   clearPrfWrap(id)
-  try { localStorage.removeItem(beneficiariesKey(id)) } catch { /* storage unavailable */ }
+  // Every key of the registry (the payee book and what a value that would not open was moved to included).
+  for (const keyOf of ALL_VAULT_KEY_FNS) { try { localStorage.removeItem(keyOf(id)) } catch { /* storage unavailable */ } }
   clearRecentPayees(id)
   noteSeatRegistered(id) // forgets a refused seat
   forgetStatus(id)

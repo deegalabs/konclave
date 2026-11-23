@@ -1,7 +1,7 @@
 // Whether leaving the screen now would lose a vault creation. Until a member saves, its part of the
 // key exists only in the page (nothing unsaved is ever persisted), so from the invite until the
 // creation finished, closing or reloading must ask first. A stopped creation has nothing to lose.
-export type CreationPhase = 'idle' | 'roster' | 'confirm' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
+export type CreationPhase = 'idle' | 'roster' | 'confirm' | 'dkg' | 'done' | 'error' | 'restored'
 
 export function creationBusy(phase: CreationPhase, finished: boolean, stopped: boolean, saved = false): boolean {
   if (stopped || finished) return false

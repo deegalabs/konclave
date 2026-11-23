@@ -104,7 +104,8 @@ describe('the rest of what a device says', () => {
     expect(code).toMatch(/compareErr && \(\s*<p[^>]*role="alert">\{compareErr\}/)
   })
   it('Settings says when a backup is incomplete', () => {
-    expect(codeOf('./screens/Settings.tsx')).toMatch(/if \(!b\.complete\) setXpErr\(t\('vaults\.resumeBackupIncomplete'\)\)/)
+    // The rule: an incomplete backup keeps its warning, through the one reader every screen uses.
+    expect(codeOf('./screens/Settings.tsx')).toMatch(/incompleteNotices\(b\)[^\n]*\n\s*if \(said\.length\) setXpErr\(said\.join/)
     expect(codeOf('./screens/Settings.tsx')).toMatch(/xpErr && <div[^>]*role="alert">\{xpErr\}/)
   })
 })

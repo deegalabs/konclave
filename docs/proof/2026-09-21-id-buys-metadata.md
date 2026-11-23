@@ -57,6 +57,12 @@ same class as the published one and grants no viewing power, and `Layout.tsx` re
 it decides whether to show the unlock - so gating that route would make a locked vault answer `null`,
 skip the unlock decision, and land the member on a blank screen.
 
+*Update (2026-11-22, a note on this record, which is kept as it was written): for a protected vault
+the device holds a record of, once the #1108 change is deployed, `Layout` no longer reads the vault
+before it decides the lock (it is not deployed as of this note); see
+CLAUDE.md §11. The route stays open for the other cases, and the first sentence above still stands
+for them.*
+
 ## What this does NOT show
 
 That a vault **mid-payment** is indistinguishable from an idle one. That is the same check run while

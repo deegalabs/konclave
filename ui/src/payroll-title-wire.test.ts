@@ -40,7 +40,7 @@ describe('a payroll carries its own name on the web path (#296)', () => {
 
   it("sends the screen's name as `title`, and not as any line's memo", async () => {
     sent.length = 0
-    const res = await createPayroll('alice', [{ address: 'u1x', value_zec: '0.01' }], 'Payroll · April 2026')
+    const res = await createPayroll('a'.repeat(64), 'alice', [{ address: 'u1x', value_zec: '0.01' }], 'Payroll · April 2026')
     expect(res.ok).toBe(true)
     const body = sent.at(-1) as { title?: string; memo?: string; lines: { memo?: string }[] }
     expect(body.title).toBe('Payroll · April 2026')
@@ -50,7 +50,7 @@ describe('a payroll carries its own name on the web path (#296)', () => {
 
   it('sends no title key when the screen has none', async () => {
     sent.length = 0
-    await createPayroll('alice', [{ address: 'u1x', value_zec: '0.01' }])
+    await createPayroll('a'.repeat(64), 'alice', [{ address: 'u1x', value_zec: '0.01' }])
     expect(sent.at(-1)).not.toHaveProperty('title')
   })
 

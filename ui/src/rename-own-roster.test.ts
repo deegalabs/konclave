@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 
 // A member's own rename is this device's own fact: its list follows, by seat and never by name.
 const h = vi.hoisted(() => ({ meta: vi.fn(async () => {}), rename: vi.fn(async () => ({ members: ['Ana', 'Nova'] })) }))
-vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), renameMember: h.rename, helperConfigured: () => true }))
+vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), renameMember: h.rename, helperConfigured: () => true, NET_AT_LOAD: true }))
 vi.mock('./storage', async (orig) => ({
   ...(await orig<typeof import('./storage')>()),
   updateVaultMeta: h.meta,
@@ -16,6 +16,6 @@ const api = await import('./api')
 
 it('the seat that renamed takes the new name on this device\'s list', async () => {
   api.setSelectedVault('ab'.repeat(32))
-  await api.renameSelf('Bia', 'Nova').catch(() => {})
+  await api.renameSelf(api.getSelectedVault(), 'Bia', 'Nova').catch(() => {})
   expect(h.meta).toHaveBeenCalledWith('ab'.repeat(32), { roster: ['Ana', 'Nova'] })
 })

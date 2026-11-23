@@ -137,9 +137,11 @@ touched by a deploy after that carries it in both places. **Take `keys.toml` any
 backup should not depend on knowing which those are.
 
 ```
-railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* --exclude=*/wallet.unpersisted-* . | base64 -w0' \
+railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* --exclude=*/wallet.unpersisted-* --exclude=*/send-work . | base64 -w0' \
   | grep -E '^[A-Za-z0-9+/=]+$' | base64 -d | tar xzf - -C <local-backup-dir>
 ```
+
+The backup leaves out each vault's `send-work` directory: it is working space for a send in progress and holds nothing to restore.
 
 **Verified 2026-09-06** by taking exactly this backup of the live volume: 8 vaults, every one with
 its UFVK, address, quorum, network and birthday. Worth recording what the run showed, because the
@@ -243,7 +245,8 @@ unlocked; that is the one thing that no longer happens.)
    freeze the wrong key again. Build the replacement ON YOUR OWN MACHINE from a copy of the file (the
    coordinator's image has no `jq`), with the one record changed, and check it there. `jq . new` is NOT a
    check: it passes an empty file, `[]`, `{}` and `null`, and `[]` or a record with no seat or write key
-   OPENS the vault to unsigned writes. Use `jq -e 'type == "array" and length > 0 and all(.[]; (.comms |
+   OPENS the vault to unsigned writes, and on an open vault approvals recorded without a signature
+   count again (#575). Use `jq -e 'type == "array" and length > 0 and all(.[]; (.comms |
    type == "string") and (.seat | type == "number") and (.write | type == "string"))' new` (when every
    record holds a seat) and `diff <(jq -S . old) <(jq -S . new)`, which must show only that record. Put it
    on the volume under a temporary name in the same directory, give it the owner and mode the
@@ -463,7 +466,9 @@ machine, the other a database id a rebuild re-mints.
 > **A v1 export** (no `version` field, or `version: 1`) is a different shape: the metadata is in the
 > clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced
 > it precisely so a leaked backup would reveal nothing, including which vault it belongs to. Konclave
-> checks a v1 file before importing it, and `scripts/open-export.mjs` reports what it would refuse.
+> checks a v1 file before importing it. `scripts/open-export.mjs` reports part of what it would refuse
+> (the file's shape, the vault id, the seat and the quorum); whether the key in the backup matches the
+> public keys the backup carries for its seat, it does not check, and the app does when it imports.
 
 ## Open work
 

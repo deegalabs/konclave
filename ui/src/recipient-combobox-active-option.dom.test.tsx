@@ -17,7 +17,7 @@ describe('RecipientCombobox active option', () => {
   it('arrow keys move aria-activedescendant to the highlighted option, and closing clears it', () => {
     localStorage.setItem('konclave.locale', 'en')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    render(<I18nProvider><RecipientCombobox benefs={benefs as any} address="" name={null} onChange={() => {}} /></I18nProvider>)
+    render(<I18nProvider><RecipientCombobox vaultId={null} benefs={benefs as any} address="" name={null} onChange={() => {}} /></I18nProvider>)
     const input = screen.getByRole('combobox')
     expect(input.getAttribute('aria-activedescendant')).toBeNull()
     fireEvent.focus(input)
@@ -54,9 +54,9 @@ describe('two comboboxes on one screen (a payroll has one per row)', () => {
     localStorage.setItem('konclave.locale', 'en')
     render(<I18nProvider><>
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <RecipientCombobox benefs={benefs as any} address="" name={null} onChange={() => {}} />
+      <RecipientCombobox vaultId={null} benefs={benefs as any} address="" name={null} onChange={() => {}} />
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <RecipientCombobox benefs={benefs as any} address="" name={null} onChange={() => {}} />
+      <RecipientCombobox vaultId={null} benefs={benefs as any} address="" name={null} onChange={() => {}} />
     </></I18nProvider>)
     for (const input of screen.getAllByRole('combobox')) fireEvent.focus(input)
     const ids = [...document.querySelectorAll('[role="listbox"], [role="option"]')].map((e) => e.id)

@@ -95,8 +95,9 @@ production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on ma
 
 **Still roadmap after #388 (§6.15)**
 - ~~**Write auth (#288)**~~ **Done 2026-09-28:** every vote, proposal, payroll, rename and send is
-  signed and checked, on each vault from the first time a member unlocks it; what is open is #575
-  (narrowed, 2026-10-04) and #577; #576 is closed and live since 2026-10-04. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
+  signed and checked, on each vault from the first time a member unlocks it; #575 is fixed in release
+  0.23.0 (approvals are counted by seat, and one recorded before the vault required signatures no
+  longer counts); what is open is #577; #576 is closed and live since 2026-10-04. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
   ceremony-DoS vector is #400 (#399 closed 2026-09-15).
 - **Upgrading the legacy/open vaults in place (#406):** no auto-migration yet.
 - **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), closed

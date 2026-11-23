@@ -85,7 +85,7 @@ describe('the repair form', () => {
     expect((screen.getByText(en('set.repairGo')) as HTMLButtonElement).disabled).toBe(false)
   })
   it('each outcome has its own words, and the screen re-reads the record', async () => {
-    for (const [state, key] of [['refused', 'set.repairRefused'], ['unavailable', 'set.repairWaiting'], ['notConfirmed', 'set.repairWrong'], ['wrongPassphrase', 'set.repairWrong'], ['unreadable', 'set.repairUnreadable']] as const) {
+    for (const [state, key] of [['refused', 'set.repairRefused'], ['unavailable', 'set.repairWaiting'], ['notConfirmed', 'set.repairWrong'], ['wrongPassphrase', 'set.repairWrong'], ['unreadable', 'set.repairUnreadable'], ['wrongSeat', 'vaults.openWrongSeat']] as const) {
       cleanup()
       repair.mockResolvedValue({ state })
       const onDone = vi.fn()

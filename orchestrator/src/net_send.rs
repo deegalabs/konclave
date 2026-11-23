@@ -292,39 +292,119 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
 }
 
 /// The most candidate answers one poll looks at. Each is verified by trial-injecting it, a
-/// subprocess, so the work of one poll is bounded here.
+/// subprocess, so the work of one poll is bounded here. Only a message that decodes and covers the
+/// request counts; such messages posted by another room writer still use the cap and delay the real
+/// answer, and the relay's room can drop old messages under a flood. Authenticating room writes is
+/// what removes that, not this number.
 pub const MAX_CANDIDATES_PER_POLL: usize = 16;
+
+/// What verifying one candidate answer found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// The signatures verify against the request: this is the devices' answer.
+    Valid,
+    /// The check ran and the signatures do not verify: noise, passed over.
+    Invalid,
+    /// The check itself did not run (the signer could not start, an I/O failure). Says nothing
+    /// about the candidate.
+    CouldNotRun,
+}
+
+impl From<bool> for Verdict {
+    fn from(ok: bool) -> Verdict {
+        if ok {
+            Verdict::Valid
+        } else {
+            Verdict::Invalid
+        }
+    }
+}
+
+/// How many polls one candidate whose check did not run is read again before it is passed over.
+/// A transient fault (the signer could not start once) clears within that; a fault that repeats on
+/// one message must not hold the cursor and hide every answer behind it.
+pub const MAX_RETRIES_PER_CANDIDATE: u8 = 3;
+
+/// What [`collect_response_retrying`] remembers between polls: the candidate whose check did not
+/// run, and how many more polls it may be read again.
+#[derive(Debug, Default)]
+pub struct Retries {
+    held: Option<(u64, u8)>,
+}
+
+/// One poll, with no memory between polls: a candidate whose check did not run is read again on the
+/// next call. The send uses [`collect_response_retrying`], which also bounds how often.
+pub fn collect_response<T: Transport, V: Into<Verdict>>(
+    client: &RelayClient<T>,
+    req: &SignRequest,
+    since: u64,
+    verify: impl Fn(&SpendSigs) -> V,
+) -> Result<(Option<SpendSigs>, u64), String> {
+    collect_response_retrying(client, req, since, verify, &mut Retries::default())
+}
 
 /// Look for the devices' signing response after `since`. Returns `(Some(sigs), next)` once a
 /// valid response has arrived - decoded into the inject-ready `(action_index, sig)` pairs - or
 /// `(None, next)` while still waiting. A message that does not decode, does not cover the request
 /// exactly or does not verify is passed over as noise, so only a verified response is accepted and a
 /// partial or tampered reply can't slip through to a broadcast.
+///
+/// The cap of a poll counts only the candidates that cost a check (they decode and cover the
+/// request); the rest cost nothing and do not use it up. A candidate whose check did not run is not
+/// judged: `next` stops just before it so the next poll reads it again, at most
+/// [`MAX_RETRIES_PER_CANDIDATE`] more times, after which it is passed over.
 /// The caller owns the retry loop and its delay, keeping this synchronous and testable.
-pub fn collect_response<T: Transport>(
+pub fn collect_response_retrying<T: Transport, V: Into<Verdict>>(
     client: &RelayClient<T>,
     req: &SignRequest,
     since: u64,
-    verify: impl Fn(&SpendSigs) -> bool,
+    verify: impl Fn(&SpendSigs) -> V,
+    retries: &mut Retries,
 ) -> Result<(Option<SpendSigs>, u64), String> {
     let (candidates, next) = client.matching(
         since,
-        |d| d.contains(RESPONSE_KIND),
+        |d| decode_covering(d, req).is_some(),
         MAX_CANDIDATES_PER_POLL,
     )?;
     // Look at every candidate of the poll, in order, and take the first that is real. Pass over one
-    // that does not decode, does not cover the request exactly, or does not VERIFY, and go on to the
-    // next (#391). Only a real, verified response is accepted; a bad one is noise, never fatal.
+    // that does not VERIFY and go on to the next (#391). Only a real, verified response is accepted;
+    // a bad one is noise, never fatal.
     for msg in candidates {
-        let accepted = serde_json::from_str::<SignResponse>(&msg.data)
-            .ok()
-            .and_then(|resp| resp.into_sigs(req).ok())
-            .filter(|sigs| verify(sigs));
-        if accepted.is_some() {
-            return Ok((accepted, next));
+        let Some(sigs) = decode_covering(&msg.data, req) else {
+            continue;
+        };
+        match verify(&sigs).into() {
+            Verdict::Valid => {
+                retries.held = None;
+                return Ok((Some(sigs), next));
+            }
+            Verdict::Invalid => {}
+            Verdict::CouldNotRun => {
+                let left = match retries.held {
+                    Some((seq, left)) if seq == msg.seq => left,
+                    _ => MAX_RETRIES_PER_CANDIDATE,
+                };
+                // Held only for a message strictly after `since` (a relay that answered otherwise is
+                // not trusted to number its messages), so the cursor never moves backwards.
+                if left > 0 && msg.seq > since {
+                    retries.held = Some((msg.seq, left - 1));
+                    return Ok((None, msg.seq - 1));
+                }
+                retries.held = None;
+            }
         }
     }
     Ok((None, next))
+}
+
+/// A message that decodes as an answer covering `req` exactly, or `None`. Costs no subprocess.
+fn decode_covering(data: &str, req: &SignRequest) -> Option<SpendSigs> {
+    if !data.contains(RESPONSE_KIND) {
+        return None;
+    }
+    serde_json::from_str::<SignResponse>(data)
+        .ok()
+        .and_then(|resp| resp.into_sigs(req).ok())
 }
 
 #[cfg(test)]
@@ -710,6 +790,137 @@ mod tests {
             41,
             "all 40 junk messages and then the real one were each looked at once: {per_poll:?}"
         );
+    }
+
+    /// The cap bounds what costs a trial inject. A message that carries the answer's kind but does
+    /// not decode, or does not cover the request, costs nothing to pass over, so it must not use up
+    /// the cap: a run of them ahead of the devices' answer must not push that answer to a later poll.
+    #[test]
+    fn messages_that_cost_nothing_to_pass_over_do_not_use_up_the_cap() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state.clone(), "other_writer");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let since = publish_request(&helper, &req).unwrap();
+
+        let undecodable = format!("{{\"kind\":\"{RESPONSE_KIND}\",\"x\":1}}");
+        let mut short = response_for(&req);
+        short.sigs.clear();
+        let uncovering = serde_json::to_string(&short).unwrap();
+        for i in 0..(MAX_CANDIDATES_PER_POLL + 4) {
+            let m = if i % 2 == 0 {
+                &undecodable
+            } else {
+                &uncovering
+            };
+            other_writer.post(m).unwrap();
+        }
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let checked = std::cell::Cell::new(0usize);
+        let (got, _) = collect_response(&helper, &req, since, |sigs| {
+            checked.set(checked.get() + 1);
+            sigs.iter().all(|(_, sig)| *sig == [0xabu8; 64])
+        })
+        .unwrap();
+        assert!(
+            got.is_some(),
+            "one poll reaches the answer behind messages that cost nothing"
+        );
+        assert_eq!(checked.get(), 1, "only the real answer cost a check");
+    }
+
+    /// A check that did not run says nothing about the candidate. The answer it was looking at is
+    /// read again on the next poll, not passed over: otherwise one failed start of the signer, at the
+    /// moment the devices' answer is read, loses that answer and the send times out.
+    #[test]
+    fn an_answer_whose_check_did_not_run_is_read_again() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let mut since = publish_request(&helper, &req).unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let calls = std::cell::Cell::new(0usize);
+        let verify = |_: &SpendSigs| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                Verdict::CouldNotRun
+            } else {
+                Verdict::Valid
+            }
+        };
+        let mut found = None;
+        for _ in 0..3 {
+            let (got, next) = collect_response(&helper, &req, since, verify).unwrap();
+            since = next;
+            if got.is_some() {
+                found = got;
+                break;
+            }
+        }
+        assert!(
+            found.is_some(),
+            "the answer was read again after a check that did not run"
+        );
+        assert_eq!(calls.get(), 2);
+    }
+
+    /// A candidate whose check never runs is not read forever: after a few polls it is passed over,
+    /// so a fault that repeats on one message cannot hold the cursor and hide what follows it.
+    #[test]
+    fn a_candidate_whose_check_never_runs_is_passed_over_after_a_few_polls() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state.clone(), "other_writer");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let mut since = publish_request(&helper, &req).unwrap();
+        let mut odd = response_for(&req);
+        for s in &mut odd.sigs {
+            s.sig = "cd".repeat(64);
+        }
+        other_writer
+            .post(&serde_json::to_string(&odd).unwrap())
+            .unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let verify = |sigs: &SpendSigs| {
+            if sigs.iter().all(|(_, sig)| *sig == [0xabu8; 64]) {
+                Verdict::Valid
+            } else {
+                Verdict::CouldNotRun
+            }
+        };
+        let mut retries = Retries::default();
+        let mut found = None;
+        for _ in 0..(MAX_RETRIES_PER_CANDIDATE as usize + 2) {
+            let (got, next) =
+                collect_response_retrying(&helper, &req, since, verify, &mut retries).unwrap();
+            since = next;
+            if got.is_some() {
+                found = got;
+                break;
+            }
+        }
+        assert!(
+            found.is_some(),
+            "the real answer behind a stuck candidate was reached"
+        );
+    }
+
+    /// How often a candidate whose check did not run is read again is a number somebody chose.
+    #[test]
+    fn a_candidate_is_read_again_the_chosen_number_of_times() {
+        assert_eq!(MAX_RETRIES_PER_CANDIDATE, 3);
     }
 
     /// The number of candidates one poll looks at is a number somebody chose, and a test says it, so

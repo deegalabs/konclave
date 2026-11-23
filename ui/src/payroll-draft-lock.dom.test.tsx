@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { I18nProvider } from './i18n'
@@ -60,17 +60,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); localStorage.clear() })
 
 describe('a locked vault keeps no payroll draft, on screen or on disk (G)', () => {
-  it('empties the fields behind the overlay, and an edit while locked writes nothing', async () => {
+  it('the screen is not mounted behind the overlay, the draft is removed, and nothing of it is on the page', async () => {
     mount()
     await screen.findByText(en('lock.prompt'))
     await waitFor(() => expect(localStorage.getItem(draftKey(ID))).toBeNull())
-    await waitFor(() => {
-      const v = values()
-      for (const secret of ['March secret period', 'bonus round', '0.4242', 'secret memo']) expect(v).not.toContain(secret)
-    })
-    fireEvent.change(screen.getByPlaceholderText(en('payroll.competencePlaceholder')), { target: { value: 'typed while locked' } })
-    await new Promise((r) => setTimeout(r, 50))
-    expect(localStorage.getItem(draftKey(ID))).toBeNull()
-    expect(JSON.stringify(Object.entries(localStorage))).not.toContain('typed while locked')
+    // #1108: `Layout` mounts no screen while locked, so there is no field to restore the draft into
+    // (it used to be restored at mount, kept, and written back on the next edit).
+    expect(screen.queryByPlaceholderText(en('payroll.competencePlaceholder'))).toBeNull()
+    expect(document.body.textContent).not.toContain('March secret period')
+    for (const secret of ['March secret period', 'bonus round', '0.4242', 'secret memo']) expect(values()).not.toContain(secret)
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain('secret memo')
   })
 })

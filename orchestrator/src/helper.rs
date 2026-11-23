@@ -12,8 +12,8 @@ use zcash_protocol::consensus::NetworkType;
 
 use crate::address::{validate_recipient_on, AddressError};
 use crate::send::{SendConfig, SpendPlan};
-use crate::tools::{run, run_text_all, ToolError};
-use crate::write_auth::{members_counted, same_member};
+use crate::tools::{run_text_all, ToolError};
+use crate::write_auth::{counted, reconcile_votes, same_member, Basis, Stance, Vote};
 
 /// What a hosted blind helper needs to operate vaults. All of it is public tooling and view-only
 /// material: there is no share and no seed anywhere in here, by construction.
@@ -23,8 +23,9 @@ pub struct HelperConfig {
     pub zcash_sign: PathBuf,
     /// `zcash-devtool` binary (view-only wallet init/sync, PCZT).
     pub devtool: PathBuf,
-    /// lightwalletd endpoint, e.g. "testnet.zec.rocks:443".
-    pub lightwalletd: String,
+    /// The lightwalletd servers (`KONCLAVE_LIGHTWALLETD`, one or a comma-separated list), parsed once.
+    /// An operation takes [`crate::lightclient::Servers::current`] once and uses it throughout.
+    pub servers: crate::lightclient::Servers,
     /// "main" or "test".
     pub network: String,
     /// `konclave-signer` binary (extracts the sighash the devices sign; injects their
@@ -134,7 +135,7 @@ pub fn send_config_for(
     SendConfig {
         devtool: cfg.devtool.clone(),
         wallet_dir: reg.wallet_dir.clone(),
-        lightwalletd: cfg.lightwalletd.clone(),
+        lightwalletd: cfg.servers.current(),
         account: reg.account.clone(),
         konclave_signer: cfg.konclave_signer.clone(),
         // Ceremony fields: unused on the Architecture-B path (browsers sign). Kept empty.
@@ -156,6 +157,7 @@ pub fn send_config_for(
         network: cfg.network.clone(),
         zip2009_permitted: permission.0,
         zip2009_from: permission.1,
+        servers: Some(cfg.servers.clone()),
     }
 }
 
@@ -348,7 +350,7 @@ fn fresh_wallet(cfg: &HelperConfig, reg: &VaultRegistration) -> Result<(), ToolE
     bring_current(
         &cfg.devtool,
         &reg.wallet_dir,
-        &cfg.lightwalletd,
+        &cfg.servers.current(),
         &cfg.vaults_dir,
         &reg.vault_id,
         Freshness::IfStale,
@@ -509,8 +511,15 @@ pub struct HelperProposal {
     pub proposer: String,
     /// `pending` | `ready` | `sent` | `refused` | `expired`.
     pub state: String,
+    /// Every recorded name, as written (#575): kept on disk so a binary that knows only names reads the
+    /// record whole, and so a rollback loses nothing. Who COUNTS is decided from `votes`.
     pub approvals: Vec<String>,
     pub refusals: Vec<String>,
+    /// One entry per seat (#575): its stance, the roster's spelling of its name, and the signed write
+    /// that recorded it when there was one. Absent from records older than the field, which are read
+    /// through [`reconcile_votes`] (names become unsigned votes).
+    #[serde(default)]
+    pub votes: Vec<Vote>,
     /// Quorum inherited from the vault at creation (not spoofable per-proposal). See the money-gate
     /// note above: this only drives the `ready` display; the ceremony enforces the real threshold.
     pub threshold: u16,
@@ -581,45 +590,53 @@ impl HelperProposal {
     /// the quorum unreachable (`total - refusals < threshold`), derived on every call, so a withdrawn
     /// refusal moves a proposal back out of it (#369); `expired` past the deadline.
     ///
-    /// Votes are counted as MEMBERS of `roster`, the vault's current member list, not as strings
-    /// (#575): see [`members_counted`]. The roster is a parameter rather than something this reads,
-    /// so no caller can count without it. A vault with no roster counts every entry, as before.
+    /// Votes are counted as SEATS (#575), against an open basis built from `roster`: see
+    /// [`recompute_with`](Self::recompute_with), which production paths call with the vault's real basis.
+    #[cfg(test)]
     pub fn recompute(&mut self, now: u64, roster: &[String]) {
+        self.recompute_with(now, &open_basis(roster));
+    }
+
+    /// [`recompute`](Self::recompute) against the vault's real basis (#575): its roster, whether it
+    /// requires signatures, whether it ever took an unsigned write. The count is
+    /// [`write_auth::counted`](crate::write_auth::counted) over the seats' votes and the decision is
+    /// [`crate::proposal::decide`], the one quorum rule both lifecycles read.
+    ///
+    /// ORDER, kept by `decide`: refusal before expiry (#328), and refusal is derived on every call, so
+    /// a withdrawn refusal moves a proposal back out of it (#369).
+    pub fn recompute_with(&mut self, now: u64, basis: &Basis) {
+        // Read the votes first, also for a payment already sent: its record must still say who
+        // approved it (a record older than votes has only names).
+        self.votes = reconcile_votes(&self.votes, &self.approvals, &self.refusals, basis.roster);
         if self.state == "sent" {
             return;
         }
-        let approvals = members_counted(&self.approvals, roster);
-        let refusals = members_counted(&self.refusals, roster);
-        // ORDER MATTERS, and it is not chronological: refusal is evaluated BEFORE expiry.
-        //
-        // A refusal is a DECISION the group made; an expiry is a deadline nobody met. When both
-        // hold of the same proposal, the record must report the decision - otherwise the ledger
-        // says "nobody got round to it" about a payment that was actually voted down, and the
-        // governance trail lies about what happened.
-        //
-        // This was a LIVE defect, not a hypothetical: while the web path sent `expiry_unix: 0` the
-        // expiry branch never fired and the bug slept; #328 started sending a real 72h deadline and
-        // woke it. Do not "tidy" these two branches back into time order.
-        //
-        // Withdrawal still works (#369): `refused` is derived from the refusal count on every call,
-        // so if a member takes their refusal back this branch stops matching and an open proposal
-        // past its deadline correctly falls through to `expired` below.
-        if self.total > 0
-            && self.threshold > 0
-            && (self.total as usize).saturating_sub(refusals) < self.threshold as usize
-        {
-            self.state = "refused".into();
-            return;
+        // Read by the record's own basis: a payment refused before any vote was signed stays refused.
+        let basis = self.reading_basis(basis);
+        let c = counted(&self.votes, &basis, self.total);
+        let expired = self.expiry_unix != 0 && now >= self.expiry_unix;
+        use crate::proposal::{decide, Decision};
+        self.state = match decide(c.approvals, c.refusals, self.threshold, self.total, expired) {
+            Decision::Refused => "refused",
+            Decision::Expired => "expired",
+            Decision::Ready => "ready",
+            Decision::Pending => "pending",
         }
-        if self.expiry_unix != 0 && now >= self.expiry_unix {
-            self.state = "expired".into();
-            return;
+        .into();
+    }
+
+    /// Each seat's stance and the counts, as the answer carries them (#575): read through the same
+    /// rule as the count, so the two cannot disagree. Call after [`recompute_with`](Self::recompute_with).
+    pub fn view(&self, basis: &Basis) -> ProposalView {
+        let basis = self.reading_basis(basis);
+        let basis = &basis;
+        let c = counted(&self.votes, basis, self.total);
+        ProposalView {
+            proposal: self.clone(),
+            approvals_counted: c.approvals,
+            refusals_counted: c.refusals,
+            stances: crate::write_auth::stances(&self.votes, basis, self.total),
         }
-        self.state = if self.threshold > 0 && approvals >= self.threshold as usize {
-            "ready".into()
-        } else {
-            "pending".into()
-        };
     }
 
     /// Record a vote (dedup across both lists), then recompute. Returns false only when the
@@ -633,21 +650,185 @@ impl HelperProposal {
     /// holding the vault id, left the group with a proposal it could not revive. Accepting a vote
     /// here lets a member withdraw a refusal, and `recompute` moves the proposal back out of
     /// `refused` on its own. The refusal is still recorded; it just stops being a one-way door.
+    #[cfg(test)]
     pub fn vote(&mut self, member: &str, approve: bool, now: u64, roster: &[String]) -> bool {
+        let seat = crate::write_auth::unsigned_seat(roster, member, None).unwrap_or(0);
+        let name = crate::write_auth::seat_holder(roster, seat)
+            .unwrap_or(member)
+            .to_string();
+        self.cast(
+            Vote {
+                seat,
+                name,
+                approve,
+                proof: None,
+                carried: false,
+            },
+            now,
+            &open_basis(roster),
+        )
+    }
+
+    /// Record one seat's vote (#575), replacing that seat's earlier one, then recompute against
+    /// `basis`. The seat is the member: two seats under one name are two votes, and an entry under
+    /// another spelling of a name no longer survives its seat's own vote. Returns false only when the
+    /// proposal is genuinely finished (`sent`, or `expired`).
+    pub fn cast(&mut self, v: Vote, now: u64, basis: &Basis) -> bool {
         if self.state == "sent" || self.state == "expired" {
             return false;
         }
-        // By member, not by exact string (#575): otherwise an entry recorded for this member under
-        // another spelling outlives what they say now.
-        self.approvals.retain(|m| !same_member(m, member));
-        self.refusals.retain(|m| !same_member(m, member));
-        if approve {
-            self.approvals.push(member.to_string());
-        } else {
-            self.refusals.push(member.to_string());
+        self.votes = reconcile_votes(&self.votes, &self.approvals, &self.refusals, basis.roster);
+        // A refused payment read as history ends its history PER SEAT (ADR-0011 amendment
+        // 2026-11-13): the first signed vote keeps every other seat's unsigned refusal counting, so a
+        // vote cannot reopen what the group refused, and each seat withdraws only its own (#369).
+        if v.signed() && self.state == "refused" && !self.votes.iter().any(Vote::signed) {
+            for e in self.votes.iter_mut() {
+                if !e.approve && !e.signed() && e.seat != v.seat {
+                    e.carried = true;
+                }
+            }
         }
-        self.recompute(now, roster);
+        let earlier: Vec<Vote> = self
+            .votes
+            .iter()
+            .filter(|e| {
+                if v.seat == 0 {
+                    e.seat == 0 && same_member(&e.name, &v.name)
+                } else {
+                    e.seat == v.seat
+                }
+            })
+            .cloned()
+            .collect();
+        self.votes.retain(|e| !earlier.contains(e));
+        // The name lists move in lockstep: one entry out per earlier vote of this seat.
+        for e in &earlier {
+            let list = if e.approve {
+                &mut self.approvals
+            } else {
+                &mut self.refusals
+            };
+            if let Some(i) = list.iter().position(|n| same_member(n, &e.name)) {
+                list.remove(i);
+            }
+        }
+        if v.approve {
+            self.approvals.push(v.name.clone());
+        } else {
+            self.refusals.push(v.name.clone());
+        }
+        self.votes.push(v);
+        self.recompute_with(now, basis);
         true
+    }
+}
+
+impl HelperProposal {
+    /// The basis this proposal's votes are READ by (#575). A record that was SENT or REFUSED with no
+    /// signed vote was decided before its vault required signatures: it is history, read as recorded,
+    /// so the book keeps who approved a payment and a refused payment is not reopened (#328). Any other
+    /// proposal is read by the vault's basis, so an unsigned vote on a vault that requires signatures
+    /// counts for nothing. A signed vote on a refused record (#369, a withdrawal) ends its history.
+    pub fn reading_basis<'a>(&self, basis: &Basis<'a>) -> Basis<'a> {
+        let decided = self.state == "sent" || self.state == "refused";
+        if decided && !self.votes.iter().any(Vote::signed) {
+            Basis {
+                roster: basis.roster,
+                requires_signatures: false,
+                every_write_signed: basis.every_write_signed,
+            }
+        } else {
+            *basis
+        }
+    }
+}
+
+/// A proposal as an answer carries it (#575): the record, plus the counts and each seat's stance,
+/// so a reader never counts or matches names itself.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ProposalView {
+    #[serde(flatten)]
+    pub proposal: HelperProposal,
+    pub approvals_counted: usize,
+    pub refusals_counted: usize,
+    pub stances: Vec<Stance>,
+}
+
+impl ProposalView {
+    /// The answer to a write (a create or a vote): only the seats that voted. A write is open to
+    /// whoever may write, which on a vault whose reads are gated is more than who may read the member
+    /// list; the names of seats that voted are already in the record the answer carries.
+    pub fn voted_only(mut self) -> Self {
+        self.stances.retain(|s| s.stance != "none");
+        self
+    }
+}
+
+/// What the count needs about a vault, owned (#575). Built in ONE place, [`vote_basis`].
+#[derive(Debug, Clone, Default)]
+pub struct VoteBasis {
+    pub roster: Vec<String>,
+    pub requires_signatures: bool,
+    pub every_write_signed: bool,
+}
+
+impl VoteBasis {
+    pub fn as_basis(&self) -> Basis<'_> {
+        Basis {
+            roster: &self.roster,
+            requires_signatures: self.requires_signatures,
+            every_write_signed: self.every_write_signed,
+        }
+    }
+}
+
+/// A basis for a vault that still takes unsigned writes, with `roster`. Used where no registration
+/// exists (tests, and vaults older than registrations).
+#[cfg(test)]
+fn open_basis(roster: &[String]) -> Basis<'_> {
+    Basis {
+        roster,
+        requires_signatures: false,
+        every_write_signed: false,
+    }
+}
+
+/// The ONE construction of a vault's [`VoteBasis`] (#575), from its roster and its write gate. A gate
+/// that cannot be read, or a closed one, counts as requiring signatures (fail closed), and so does a
+/// registration that is there and cannot be read. A vault with no registration keeps the open count
+/// it always had. A protocol-3 vault never took an unsigned write.
+pub fn vote_basis(vaults_dir: &Path, vault: &str) -> VoteBasis {
+    match stored_registration(vaults_dir, vault) {
+        StoredRegistration::Loaded(reg) => vote_basis_for(vaults_dir, &reg),
+        // Something is there and cannot be read: not a vault without a registration. Fail closed.
+        StoredRegistration::Unreadable => VoteBasis {
+            roster: load_members(vaults_dir, vault),
+            requires_signatures: true,
+            every_write_signed: false,
+        },
+        StoredRegistration::Absent => {
+            // No registration on disk. Fail closed: if any device registered a write key,
+            // or the device registry cannot be read, the vault requires signatures.
+            let requires_signatures = match load_device_records(vaults_dir, vault) {
+                Ok(recs) => recs.iter().any(|r| r.seat.is_some() && r.write.is_some()),
+                Err(_) => true,
+            };
+            VoteBasis {
+                roster: load_members(vaults_dir, vault),
+                requires_signatures,
+                every_write_signed: false,
+            }
+        }
+    }
+}
+
+/// [`vote_basis`] from a registration the caller already holds: the same one the write gate reads,
+/// so the count and the gate cannot disagree about the vault.
+pub fn vote_basis_for(vaults_dir: &Path, reg: &VaultRegistration) -> VoteBasis {
+    VoteBasis {
+        roster: load_members(vaults_dir, &reg.vault_id),
+        requires_signatures: !matches!(write_gate(vaults_dir, reg), WriteGate::Open),
+        every_write_signed: holds_pinned_forms(reg.cp),
     }
 }
 
@@ -766,7 +947,7 @@ fn save_proposal_with(
 pub fn load_proposal(vaults_dir: &Path, vault: &str, id: &str, now: u64) -> Option<HelperProposal> {
     let json = std::fs::read_to_string(proposal_path(vaults_dir, vault, id)).ok()?;
     let mut p: HelperProposal = serde_json::from_str(&json).ok()?;
-    p.recompute(now, &load_members(vaults_dir, vault));
+    p.recompute_with(now, &vote_basis(vaults_dir, vault).as_basis());
     Some(p)
 }
 
@@ -776,13 +957,13 @@ pub fn list_proposals(vaults_dir: &Path, vault: &str, now: u64) -> Vec<HelperPro
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
-    let roster = load_members(vaults_dir, vault);
+    let basis = vote_basis(vaults_dir, vault);
     let mut out: Vec<HelperProposal> = entries
         .flatten()
         .filter_map(|e| std::fs::read_to_string(e.path()).ok())
         .filter_map(|j| serde_json::from_str::<HelperProposal>(&j).ok())
         .map(|mut p| {
-            p.recompute(now, &roster);
+            p.recompute_with(now, &basis.as_basis());
             p
         })
         .collect();
@@ -2337,6 +2518,13 @@ pub fn rename_member(
     // When another seat's name differs from this one only at the edges, an entry under either
     // could be either seat's. Identical names are renamed together below, so they are one name.
     let twin = names.iter().any(|n| same_member(n, old) && n != old);
+    // The seats being renamed (#575): their recorded votes take the new name with them.
+    let renamed: Vec<u16> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| *n == old)
+        .filter_map(|(i, _)| u16::try_from(i + 1).ok())
+        .collect();
     for n in names.iter_mut() {
         if n == old {
             *n = new.to_string();
@@ -2348,6 +2536,9 @@ pub fn rename_member(
     // stay coherent (no orphaned approval under the old name, no duplicate row for the new one).
     for mut p in proposals {
         let before = p.clone();
+        for v in p.votes.iter_mut().filter(|v| renamed.contains(&v.seat)) {
+            v.name = new.to_string();
+        }
         if p.state == "sent" || p.state == "expired" {
             // A sent or expired payment is a record of what happened: the name moves, exactly as
             // it always did, and nothing is merged or removed.
@@ -2370,7 +2561,8 @@ pub fn rename_member(
             for r in p.refusals.iter_mut().filter(|r| *r == old) {
                 *r = new.to_string();
             }
-            p.recompute(now, &names);
+            restore_seat_entries(&mut p, &renamed, new);
+            p.recompute_with(now, &vote_basis(vaults_dir, vault).as_basis());
         } else {
             if same_member(&p.proposer, old) {
                 p.proposer = new.to_string();
@@ -2378,13 +2570,40 @@ pub fn rename_member(
             carry_votes(&mut p.approvals, old, new);
             carry_votes(&mut p.refusals, old, new);
             // Counted against the roster as it now reads, with the votes now under the new name.
-            p.recompute(now, &names);
+            restore_seat_entries(&mut p, &renamed, new);
+            p.recompute_with(now, &vote_basis(vaults_dir, vault).as_basis());
         }
         if p != before {
             save_proposal(vaults_dir, &p)?;
         }
     }
     Ok(names)
+}
+
+/// After a rename, every SIGNED vote of a renamed seat keeps one entry under the new name in the list
+/// of its stance (#575): `carry_votes` merges a member's spellings into one entry, which would leave
+/// two seats sharing the renamed name with one entry and drop the other seat's proven vote. An
+/// unsigned or legacy entry under a shared name could be either seat's, and is left to the rules above
+/// (it may be dropped, and its seat votes again).
+fn restore_seat_entries(p: &mut HelperProposal, renamed: &[u16], new: &str) {
+    for approve in [true, false] {
+        let want = p
+            .votes
+            .iter()
+            .filter(|v| {
+                v.approve == approve && (v.signed() || v.carried) && renamed.contains(&v.seat)
+            })
+            .count();
+        let list = if approve {
+            &mut p.approvals
+        } else {
+            &mut p.refusals
+        };
+        let have = list.iter().filter(|n| *n == new).count();
+        for _ in have..want {
+            list.push(new.to_string());
+        }
+    }
 }
 
 /// One list of votes on a payment not yet decided by the clock or the chain, after `old` is renamed
@@ -2415,10 +2634,27 @@ fn csv_field(s: &str) -> String {
     }
 }
 
+/// Who approved a payment, by the one count (#575): the approving votes that count under the basis
+/// the proposal is read by ([`HelperProposal::reading_basis`]). A name on no seat, or an approval
+/// recorded without a signature on a vault that requires them, is not an approver.
+fn approvers_of(p: &HelperProposal, basis: &Basis) -> Vec<String> {
+    if p.votes.is_empty() {
+        // A record not read through `load_proposal` (or older than votes): its names, as before.
+        return p.approvals.clone();
+    }
+    // The same rows the screen reads (last entry per seat, the seat-0 cap), so the two never differ.
+    p.view(basis)
+        .stances
+        .into_iter()
+        .filter(|s| s.counted && s.stance == "approved")
+        .map(|s| s.name)
+        .collect()
+}
+
 /// Render sent proposals as an accounting ledger CSV (the vault's confirmed, governed payments).
 /// One row per proposal: date, amount (zat and ZEC), destination, memo, proposer, approvers, txid.
 /// Direct (non-proposal) sends are not here; they live in the ceremony trail.
-pub fn ledger_csv(sent: &[HelperProposal]) -> String {
+pub fn ledger_csv(sent: &[HelperProposal], basis: &Basis) -> String {
     let mut out =
         String::from("created_at_unix,amount_zat,amount_zec,to,memo,proposer,approvals,txid\n");
     for p in sent {
@@ -2434,7 +2670,7 @@ pub fn ledger_csv(sent: &[HelperProposal]) -> String {
             csv_field(&p.to),
             csv_field(p.memo.as_deref().unwrap_or("")),
             csv_field(&p.proposer),
-            csv_field(&p.approvals.join(" ")),
+            csv_field(&approvers_of(p, basis).join(" ")),
             csv_field(p.txid.as_deref().unwrap_or("")),
         ];
         out.push_str(&row.join(","));
@@ -2939,23 +3175,22 @@ fn build_view_wallet(
     name: &str,
     ufvk: &str,
 ) -> Result<String, ToolError> {
-    run(
+    let mut args: Vec<&str> = vec![
+        "wallet", "-w", wallet_dir, "init-fvk", "--name", name, "--fvk", ufvk,
+    ];
+    // The one place a probe's height reaches a stored value: the birthday, from the MEDIAN of several
+    // agreeing answers (never the highest, which any one server can choose). With fewer, the engine
+    // asks the one server, as it always did.
+    let birthday = cfg.servers.birthday().map(|b| b.to_string());
+    if let Some(b) = &birthday {
+        args.extend_from_slice(&["--birthday", b.as_str()]);
+    }
+    crate::lightclient::run(
         &cfg.devtool,
-        &[
-            "wallet",
-            "-w",
-            wallet_dir,
-            "init-fvk",
-            "--name",
-            name,
-            "--fvk",
-            ufvk,
-            "-s",
-            cfg.lightwalletd.as_str(),
-            "--connection",
-            "direct",
-        ],
+        &args,
+        cfg.servers.current().as_str(),
         None,
+        crate::lightclient::Call::Short,
     )?;
     let listed = run_text_all(
         &cfg.devtool,
@@ -4359,7 +4594,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool,
-            lightwalletd: "zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("zec.rocks:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir,
@@ -4368,6 +4603,54 @@ mod tests {
             fee_switch: Default::default(),
             clock: || FIXED_NOW,
         }
+    }
+
+    /// The viewing key's wallet is built with an explicit birthday only when several servers agree on
+    /// the chain's height; otherwise the engine is left to its default (one server, as before).
+    #[cfg(unix)]
+    #[test]
+    fn the_wallet_birthday_is_explicit_only_when_three_servers_agree() {
+        use crate::lightclient::{Info, Observed, Servers};
+        let answer = |h: u64| {
+            Observed::Answered(Info {
+                version: "v".into(),
+                chain: "main".into(),
+                branch: "77190ad9".into(),
+                height: h,
+                subversion: String::new(),
+            })
+        };
+        let dir = tmp("birthday-arg");
+        std::fs::create_dir_all(&dir).unwrap();
+        let argv = dir.join("argv");
+        let fake = dir.join("devtool");
+        crate::test_exec::write_script(
+            &fake,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\n", argv.display()),
+        );
+        let run = |servers: Servers| {
+            let _ = std::fs::remove_file(&argv);
+            let mut cfg = balance_cfg(fake.clone(), dir.clone());
+            cfg.servers = servers;
+            let _ = build_view_wallet(&cfg, "/w", "n", "uview1x");
+            std::fs::read_to_string(&argv).unwrap()
+        };
+        // One server: no probe, no flag.
+        let one = Servers::parse("a:443", "main");
+        assert!(!run(one).contains("--birthday"));
+        // Three agree: the lowest answer minus a hundred.
+        let three = Servers::parse("a:443,b:443,c:443", "main");
+        three.record(vec![answer(5000), answer(5002), answer(5001)]);
+        let got = run(three);
+        assert!(got.contains("--birthday 4900"), "{got}");
+        // Only two answered: the engine's default.
+        let two = Servers::parse("a:443,b:443,c:443", "main");
+        two.record(vec![answer(5000), answer(5002), Observed::Failed]);
+        assert!(!run(two).contains("--birthday"));
+        // Not probed at all: the engine's default.
+        let none = Servers::parse("a:443,b:443,c:443", "main");
+        assert!(!run(none).contains("--birthday"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[cfg(unix)]
@@ -5085,6 +5368,7 @@ mod tests {
             state: "pending".into(),
             approvals: vec!["alice".into()],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 3,
             created_at_unix: 100,
@@ -5320,7 +5604,7 @@ mod tests {
         let cfg = HelperConfig {
             zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
-            lightwalletd: "testnet.zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("testnet.zec.rocks:443", "test"),
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
@@ -5336,7 +5620,7 @@ mod tests {
         HelperConfig {
             zcash_sign: PathBuf::from("/bin/zcash-sign"),
             devtool: PathBuf::from("/bin/zcash-devtool"),
-            lightwalletd: "zec.rocks:443".into(),
+            servers: crate::lightclient::Servers::parse("zec.rocks:443", "main"),
             network: network.into(),
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
@@ -5547,6 +5831,16 @@ mod tests {
             payment_plan(MAIN_ORCHARD_UA, 50_000, None, NetworkType::Main),
             Ok(SpendPlan::Payment { .. })
         ));
+    }
+
+    /// A send takes the server once and starts on it, and carries the list so a broadcast can fail over.
+    #[test]
+    fn a_send_starts_on_the_server_it_took_and_carries_the_list() {
+        let mut cfg = send_cfg("main");
+        cfg.servers = crate::lightclient::Servers::parse("b:443,c:443", "main");
+        let sc = send_config_for(&cfg, &reg("abcd"), "/tmp/w".into());
+        assert_eq!(sc.lightwalletd, "b:443");
+        assert_eq!(sc.servers.as_ref().unwrap().list(), ["b:443", "c:443"]);
     }
 
     #[test]
@@ -5797,6 +6091,119 @@ mod tests {
             vec!["Michael".to_string(), "Daniel".to_string()]
         );
         assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A signed vote on `p1` for `seat`, as the coordinator records one after the write gate.
+    fn signed_vote(seat: u16, name: &str, approve: bool) -> Vote {
+        Vote {
+            seat,
+            name: name.into(),
+            approve,
+            proof: Some(crate::write_auth::VoteProof {
+                action: if approve { "approve" } else { "refuse" }.into(),
+                target: "p1".into(),
+                ts: 1,
+                nonce: format!("n{seat}{approve}"),
+                sig: "00".into(),
+            }),
+            carried: false,
+        }
+    }
+
+    /// #575 fail closed: a vault with no readable registration whose device registry cannot be read
+    /// counts as requiring signatures, so an unsigned vote cannot be counted on it. An absent registry
+    /// is not unreadable: that vault keeps the open count it always had.
+    #[test]
+    fn an_unreadable_device_registry_without_a_registration_requires_signatures() {
+        let dir = rename_dir("575-basis-unreadable");
+        save_members(&dir, "v", &["alice".into(), "bob".into()]).unwrap();
+        assert!(
+            load_registration(&dir, "v").is_none(),
+            "precondition: no registration"
+        );
+
+        let open = vote_basis(&dir, "v");
+        assert!(
+            !open.requires_signatures,
+            "no registry at all keeps the open count"
+        );
+
+        std::fs::write(device_keys_path(&dir, "v"), b"{ not a list").unwrap();
+        assert!(
+            load_device_records(&dir, "v").is_err(),
+            "precondition: registry unreadable"
+        );
+        let basis = vote_basis(&dir, "v");
+        assert!(
+            basis.requires_signatures,
+            "an unreadable registry fails closed"
+        );
+        assert!(!basis.every_write_signed);
+        assert_eq!(basis.roster, vec!["alice".to_string(), "bob".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #575 fail closed: a `registration.json` that is there and cannot be read is not a missing one.
+    /// The count requires signatures even with no write key in the device registry.
+    #[test]
+    fn an_unreadable_registration_requires_signatures() {
+        let dir = rename_dir("575-basis-badreg");
+        save_members(&dir, "v", &["alice".into(), "bob".into()]).unwrap();
+        std::fs::write(registration_path(&dir, "v"), b"{ half").unwrap();
+        assert!(matches!(
+            stored_registration(&dir, "v"),
+            StoredRegistration::Unreadable
+        ));
+        assert!(load_device_records(&dir, "v").unwrap().is_empty());
+        assert!(vote_basis(&dir, "v").requires_signatures);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Security round 5 (R5-A): two seats under one identical name, both refused unsigned on a 3-of-3
+    /// that had reached `refused` before the vault required signatures. A signed vote carries their
+    /// refusals; a rename then merges the two "bob" entries into one; seat 2 withdraws. Seat 1's carried
+    /// refusal must survive, so the payment stays refused. Without the rename keeping carried entries
+    /// it was dropped and the payment reopened.
+    #[test]
+    fn a_rename_keeps_a_carried_refusal_through_a_withdrawal() {
+        let dir = rename_dir("r5a-carried");
+        save_members(&dir, "v", &["bob".into(), "bob".into(), "carol".into()]).unwrap();
+        upsert_device(&dir, "v", "cc", Some((3, &"ab".repeat(32)))).unwrap(); // signatures required
+        let mut p = mk_prop("v", "p1");
+        (p.threshold, p.total) = (3, 3);
+        p.proposer = "carol".into();
+        p.approvals = vec!["carol".into()];
+        p.refusals = vec!["bob".into(), "bob".into()];
+        p.state = "refused".into();
+        save_proposal(&dir, &p).unwrap();
+
+        let now = 200;
+        let mut got = load_proposal(&dir, "v", "p1", now).unwrap();
+        assert_eq!(got.state, "refused", "history");
+        let basis = vote_basis(&dir, "v");
+        assert!(basis.requires_signatures);
+        assert!(got.cast(signed_vote(3, "carol", true), now, &basis.as_basis()));
+        assert_eq!(
+            got.state, "refused",
+            "carol's signed vote carries both refusals"
+        );
+        save_proposal(&dir, &got).unwrap();
+
+        rename_member(&dir, "v", "bob", "robert", now).unwrap();
+        let mut got = load_proposal(&dir, "v", "p1", now).unwrap();
+        assert_eq!(got.state, "refused", "after the rename");
+        let basis = vote_basis(&dir, "v");
+        assert!(got.cast(signed_vote(2, "robert", true), now, &basis.as_basis()));
+        save_proposal(&dir, &got).unwrap();
+
+        let got = load_proposal(&dir, "v", "p1", now).unwrap();
+        assert_eq!(
+            got.state, "refused",
+            "seat 1's carried refusal survives: {:?}",
+            got.votes
+        );
+        assert_eq!(got.refusals, vec!["robert".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -6061,7 +6468,7 @@ mod tests {
         p.proposer = "alice".into();
         p.approvals = vec!["alice".into(), "bob".into()];
         p.txid = Some("deadbeef".into());
-        let csv = ledger_csv(std::slice::from_ref(&p));
+        let csv = ledger_csv(std::slice::from_ref(&p), &open_basis(&[]));
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].starts_with("created_at_unix,amount_zat,amount_zec"));
         assert!(lines[1].contains(",150000000,1.50000000,"));
@@ -6071,7 +6478,7 @@ mod tests {
         // A memo trying to inject a quote is doubled, not broken out.
         let mut q = mk_prop("v", "p2");
         q.memo = Some("a\"b".into());
-        assert!(ledger_csv(std::slice::from_ref(&q)).contains("\"a\"\"b\""));
+        assert!(ledger_csv(std::slice::from_ref(&q), &open_basis(&[])).contains("\"a\"\"b\""));
     }
 
     #[test]
@@ -6179,6 +6586,7 @@ mod tests {
             state: "ready".into(),
             approvals: vec![],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 3,
             created_at_unix: 1_000,
@@ -6538,7 +6946,7 @@ mod change_receiver_tests {
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
-            lightwalletd: "unused:443".into(),
+            servers: crate::lightclient::Servers::parse("unused:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
@@ -6611,7 +7019,7 @@ mod change_receiver_tests {
         let cfg = HelperConfig {
             zcash_sign: sign,
             devtool,
-            lightwalletd: "unused:443".into(),
+            servers: crate::lightclient::Servers::parse("unused:443", "main"),
             network: "main".into(),
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),

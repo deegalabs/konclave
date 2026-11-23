@@ -16,11 +16,9 @@ import {
 import { quorumIsPossible, DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
 import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
-import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, type RelayMsg } from '../net'
+import { RelaySession, newInviteCode, parseInvite, joinParam, deriveRoom, pinIsLongEnough, pinProblem, pinLengthNote, generateRoomPin, formatRoomPin, spokenRoomPin, ephemeralTag, b64, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
-import { seatHolder } from '../signing-seats'
-import { signRejoin, rejoinIsProven } from '../room-auth'
 import { parseSignRequest, unsealSignRequest } from '../net-sign'
 import { deriveReadKey, deriveSeatProofKey, generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
@@ -95,11 +93,6 @@ type Msg =
   // #388: the creator seals the per-vault access secret S to each seat over the ceremony's enc
   // channel (same encPub/aad as r2), so every member persists the same S with their share.
   | { type: 'vsec'; to: number; box: string; sig?: string }
-  // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
-  // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
-  // `sig` proves the announcement came from that seat's share-holder (#392/#424). Optional on the
-  // wire so a device on an older build still seats - it simply counts as unproven.
-  | { type: 'rejoin'; seat: number; sig?: string }
   // signing (Marco 4): all public material - the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt?: string }
@@ -295,9 +288,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [signOk, setSignOk] = useState(false)
   // What this device is about to sign, read on-device from the proven PCZT (describeOutputs).
   const [signWhat, setSignWhat] = useState<SignPreview | null>(null)
-  // Signing-after-restore: how many devices (by declared seat) have rejoined the signing session.
-  const [signSeatCount, setSignSeatCount] = useState(0)
-  const [signRoomInput, setSignRoomInput] = useState('')
 
   // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
@@ -328,17 +318,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const [restoreBusy, setRestoreBusy] = useState('')
   const [restoreErr, setRestoreErr] = useState('')
   const [restoredRoster, setRestoredRoster] = useState<string[]>([])
-  // Restored secret material, kept only in memory (never surfaced to JSON logs). Present after a
-  // restore; `beginSign` wires it into a signing-only relay session (the device re-announces its
-  // original seat via `rejoin`, then signs with these bytes - no DKG redo).
-  const restoredRef = useRef<{
-    keyPackage: Uint8Array
-    pubkeys: Uint8Array
-    groupVk: Uint8Array
-    seat: number
-    n: number
-    t: number
-  } | null>(null)
 
   // --- mutable ceremony state (refs so the poll callback always sees the latest) ---
   const sessionRef = useRef<RelaySession | null>(null)
@@ -347,15 +326,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // key a secret is sealed to lives in it, not here.
   const ceremonyRef = useRef<DkgCeremony | null>(null)
 
-  // This device's signing material, from the live DKG session OR from a restored vault. Signing
-  // after restore reads the same bytes the DKG produced (KeyPackage, group key, pubkeys), so a
-  // reloaded device signs with no ceremony redo. Ref-only, so it is stable across renders.
+  // This device's signing material, from the live DKG session OR from a restored vault: the
+  // bytes the DKG produced (KeyPackage, group key, pubkeys). Ref-only, so it is stable across renders.
   const signingMaterial = useCallback(() => {
     const d = dkgRef.current
     if (d) return { keyPackage: d.keyPackage(), groupVk: d.groupVk(), pubkeys: d.pubkeys() }
-    const r = restoredRef.current
-    if (r) return { keyPackage: r.keyPackage, groupVk: r.groupVk, pubkeys: r.pubkeys }
-    throw new Error('no signing material: no live DKG session and no restored vault')
+    throw new Error('no signing material: no live DKG session')
   }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   // #388: this device is the vault creator (mints S), and the per-vault access secret S once it has
@@ -584,7 +560,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (parsed.type === 'config' || parsed.type === 'hello' || parsed.type === 'commit' || parsed.type === 'reveal'
         || parsed.type === 'r1' || parsed.type === 'r2' || parsed.type === 'done') {
         const cer = ceremonyRef.current
-        if (!cer) return true // a signing session runs no ceremony
+        if (!cer) return true // no ceremony yet: nothing to apply
         const r = cer.apply(msg.from, parsed)
         if (!r.applied) return false
         if (parsed.type === 'config' && cer.config && !configRef.current) {
@@ -617,42 +593,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           setHasSecret(true)
         }
         return r.applied
-      }
-
-      // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
-      if (parsed.type === 'rejoin') {
-        // A vault being created has no seats to rejoin: its seats are the ceremony's alone.
-        if (ceremonyRef.current) return true
-        // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat, so a rejoin
-        // that names an OCCUPIED seat evicts its holder. Only the seat's own share-holder may do
-        // that (#392): the announcement is signed with the share and bound to seat+vault+tag, so a
-        // captured one cannot be replayed under another tag. An UNPROVEN rejoin may still take an
-        // EMPTY seat (an older build, and #399 covers that residual) but never evicts - which is
-        // the A4 seat-hijack this path was still open to after #401 closed it for the background
-        // signer (#424).
-        // `signingMaterial()` THROWS when there is neither a live DKG nor a restored vault - a
-        // rejoin can arrive before either exists. Not being able to verify is not the same as
-        // verifying: it counts as unproven, which is the safe side (it can seat an empty seat,
-        // never evict).
-        let proven = false
-        try {
-          proven = rejoinIsProven(signingMaterial(), parsed.seat, msg.from, parsed.sig)
-        } catch {
-          proven = false // no material yet: cannot verify, so not proven
-        }
-        const heldBy = seatHolder(seatByTagRef.current, msg.from, parsed.seat)
-        if (heldBy !== undefined) {
-          if (!proven) return true // occupied + unproven -> never evict
-          seatByTagRef.current.delete(heldBy) // proven takeover: the share-holder, reloaded
-        }
-        seatByTagRef.current.set(msg.from, parsed.seat)
-        seatTableRef.current = [...seatByTagRef.current.entries()].map(([tag, seat]) => ({
-          tag,
-          encPub: new Uint8Array(),
-          id: identifierBytes(seat),
-        }))
-        setSignSeatCount(new Set(seatByTagRef.current.values()).size)
-        return true
       }
 
       // ---- signing over the relay (Marco 4): all bytes below are public. The ceremony state and
@@ -845,44 +785,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     [addLog, advance, onMessage, pe, tt],
   )
 
-  // Signing after restore: a restored device joins a SIGNING-only relay room. No DKG runs (the vault
-  // already exists); each device announces its ORIGINAL seat so the seating matches the KeyPackages.
-  const beginSign = useCallback(
-    async (code: string) => {
-      const r = restoredRef.current
-      if (!r) return
-      if (startGuardRef.current) return
-      startGuardRef.current = true
-      try {
-        await ensureWasm()
-        myTagRef.current = ephemeralTag()
-        configRef.current = { n: r.n, t: r.t }
-        mySeatRef.current = r.seat
-        part3DoneRef.current = true // the vault exists; never run DKG in this session
-        startedDkgRef.current = true
-        seatByTagRef.current = new Map([[myTagRef.current, r.seat]])
-        seatTableRef.current = [
-          { tag: myTagRef.current, encPub: new Uint8Array(), id: identifierBytes(r.seat) },
-        ]
-        setSignSeatCount(1)
-        setRoom(code)
-        setPhase('signsession')
-        const sess = new RelaySession(code, myTagRef.current, onMessage, (p) => setPeers(p))
-        sessionRef.current = sess
-        sess.start()
-        // Signed, so peers can tell a real reload from an outsider claiming the seat (#424).
-        const sig = signRejoin(r.keyPackage, r.seat, hex(r.groupVk), myTagRef.current)
-        await sess.send(JSON.stringify({ type: 'rejoin', seat: r.seat, sig } satisfies Msg))
-        addLog(tt('net.log.joined'))
-        void advance()
-      } catch (e) {
-        setError(String(e))
-        setPhase('error')
-      }
-    },
-    [addLog, advance, onMessage, tt],
-  )
-
 
   // Proposals: /net only lists them (to sign the ready ones); proposing/voting is in the PWA.
   const loadProposals = useCallback(async () => {
@@ -1003,13 +905,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   }, [backup])
 
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
-  // WITHOUT redoing the DKG. The secret material is held in memory (restoredRef) for a future
-  // signing-after-restore step; the live relay/ceremony refs are left untouched.
+  // WITHOUT redoing the DKG. Only the public identity is kept here: no share stays in this component,
+  // and the live relay/ceremony refs are left untouched.
   // Bring a decrypted vault into the 'restored' phase (no DKG redo). Shared by the passphrase path
   // (doRestore) and the access-gate path (a share already unlocked at /unlock, held in session.ts).
   const applyLoaded = useCallback((v: VaultLoaded) => {
     const share = decodeBundle(v)
-    restoredRef.current = share
     setGroupVk(hex(v.groupKey))
     setRestoredRoster(v.roster)
     if (share.n) setN(share.n)
@@ -1519,29 +1420,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
           {tt('net.restore.openVault')}
         </button>
 
-        <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{tt('net.restore.signTitle')}</h3>
-          <p>{tt('net.restore.signLead')}</p>
-          <button className="net-btn primary" onClick={() => void beginSign(newRoomCode())}>
-            {tt('net.restore.startSession')}
-          </button>
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-            <input
-              className="net-input"
-              placeholder={tt('net.restore.sessionCodePlaceholder')}
-              value={signRoomInput}
-              onChange={(e) => setSignRoomInput(e.target.value.trim())}
-            />
-            <button
-              className="net-btn"
-              disabled={signRoomInput.length < 4}
-              onClick={() => void beginSign(signRoomInput)}
-            >
-              {tt('net.restore.join')}
-            </button>
-          </div>
-        </div>
-
         <button className="net-btn" style={{ marginTop: 16 }} onClick={() => setPhase('idle')}>
           {L.backBtn}
         </button>
@@ -1560,8 +1438,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     : !backup && hostedState === 'registering' ? tt('net.restore.registering')
     : ''
 
-  // Shared signing controls, used by the just-created vault ('done') and by a restored device that
-  // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
+  // Shared signing controls, used by the just-created vault ('done').
   const renderSign = () => (
     <div className="net-sign">
       {signPhase === 'none' && !signWhat && (
@@ -1631,7 +1508,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                     <div className="net-trail-row">
                       <span className="net-trail-label">{tt('net.restore.approvals')}</span>
                       <code>
-                        {p.approvals.length}/{p.threshold || '?'}
+                        {/* The coordinator's count (#575); an older one reports none. */}
+                        {p.approvals_counted ?? '—'}/{p.threshold || '?'}
                       </code>
                     </div>
                     <div className="net-trail-row" style={{ marginTop: 4 }}>
@@ -1833,7 +1711,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       {role === 'join' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.joining.title')}</h1>
-          <div className="net-code">{formatInvite(room)}</div>
         </>
       )}
       {phase === 'confirm' && code && (
@@ -1844,9 +1721,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
       <div className="net-status">
         <span className="net-pill">{tt('net.status.connected', { peers })}</span>
-        {phase !== 'signsession' && (
-          <span className="net-pill">{tt('net.status.announced', { count: rosterCount, total })}</span>
-        )}
+        <span className="net-pill">{tt('net.status.announced', { count: rosterCount, total })}</span>
         <span className="net-pill">{tt('net.status.quorum', { quorum, total })}</span>
       </div>
 
@@ -1986,23 +1861,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             )}
           </div>
 
-          {renderSign()}
-        </div>
-      )}
-
-      {phase === 'signsession' && (
-        <div className="net-done">
-          <h1 className="net-h1">{tt('net.signsession.title')}</h1>
-          <p className="net-lead">
-            {tt('net.signsession.lead')}
-          </p>
-          <div className="net-vk">{fp ?? '…'}</div>
-          <p className="net-tip">{tt('net.signsession.codeLabel')}:</p>
-          <div className="net-code net-code-static">{room} <CopyButton value={room} label={tt('net.restore.copySessionCode')} /></div>
-          <p className="net-tip" style={{ marginTop: 12 }}>{tt('net.signsession.members')}: {signSeatCount} / {quorum}</p>
-          {signSeatCount < quorum && (
-            <p className="net-lead">{tt('net.signsession.waiting')}</p>
-          )}
           {renderSign()}
         </div>
       )}

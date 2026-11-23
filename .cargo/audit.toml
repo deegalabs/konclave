@@ -1,0 +1,26 @@
+# Read by `cargo audit` from the directory it runs in, whatever lock `--file` names: the workflow
+# (.github/workflows/advisories.yml) runs both of its scans from the repository root, so this file
+# applies to the root Cargo.lock and to relay-server/Cargo.lock. Cargo itself does not read it.
+#
+# An entry here says why the advisory does not apply to Konclave, and when to look again. Nothing is
+# ignored because it is inconvenient: a fix that is available is taken instead.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0459 (CVE-2026-119375): SQLite before 3.54.0, bundled by libsqlite3-sys before
+  # 0.39.0, can return stale memory when it opens a database together with a `-wal` file of another
+  # page size that a less trusted party wrote. Konclave opens only databases its own processes
+  # created: the local bridge's store (orchestrator/src/store.rs, at the path its own user passes)
+  # and the coordinator's view-only wallets under its own volume, which zcash-devtool creates,
+  # migrates and syncs and konclave-signer reads (zcash_client_sqlite). No route writes or names a
+  # database file, and no path opens one a member, a peer or the network supplies. It does not apply
+  # except on restore: rolling the engine back restores every `wallet/` from a full backup
+  # (deploy/helper/README.md), which must be our own, checked before it is opened. zcash-devtool is
+  # built from its own lock and carries the same bundled SQLite; this scan does not cover it. The fix
+  # needs libsqlite3-sys 0.39 (rusqlite 0.41), which no semver-compatible update reaches:
+  # zcash_client_sqlite 0.23.0 (the newest release) and schemerz-rusqlite 0.371 require rusqlite
+  # 0.37, and `links = "sqlite3"` allows one copy per workspace. Look again when zcash_client_sqlite
+  # moves to rusqlite 0.41 or later AND the bundled SQLCipher the orchestrator uses carries SQLite
+  # 3.54.0 or later (libsqlite3-sys 0.39 still bundles SQLCipher on SQLite 3.53.4).
+  "RUSTSEC-2026-0459",
+]

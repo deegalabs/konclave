@@ -153,9 +153,6 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .net-code:hover { border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); }
-/* A code shown beside its own copy button: the code itself is not a control (#313). */
-.net-code.net-code-static { cursor: default; }
-.net-code.net-code-static:hover { border-color: var(--line-strong); }
 
 .net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .net-pill {

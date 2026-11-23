@@ -4,7 +4,7 @@
 // list. Replaces the old "select + Manage payees button + raw address input" trio. WAI-ARIA combobox.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, type Beneficiary } from './api'
+import { addBeneficiary, addressRefusal, classifyAddress, shortAddr, vaultRefusalText, type Beneficiary } from './api'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
 import { recentPayees, pushRecentPayee } from './recent-payees'
@@ -21,8 +21,10 @@ export function pastedLabelKey(k: ReturnType<typeof classifyAddress>): string {
 }
 
 export function RecipientCombobox({
-  benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact, invalid, describedBy,
+  vaultId, benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact, invalid, describedBy,
 }: {
+  /** The vault the screen shows: the payees read and written here are this vault's, whatever another tab opens. */
+  vaultId: string | null
   benefs: Beneficiary[]
   address: string
   name: string | null
@@ -50,6 +52,14 @@ export function RecipientCombobox({
   const [saveName, setSaveName] = useState('')
   const [savingRaw, setSavingRaw] = useState(false)
   const [saveRawErr, setSaveRawErr] = useState<string | null>(null)
+  // The recent addresses are an asynchronous read (sealed on a protected vault's device): loaded when the
+  // field opens, and again after a pick, never read during render.
+  const [recent, setRecent] = useState<string[]>([])
+  useEffect(() => {
+    let on = true
+    void recentPayees(vaultId).then((r) => { if (on) setRecent(r) })
+    return () => { on = false }
+  }, [open, vaultId])
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -65,12 +75,12 @@ export function RecipientCombobox({
     if (qIsAddr) return { pasted: q.trim(), recents: [] as Beneficiary[], saved: [] as Beneficiary[] }
     const ql = q.trim().toLowerCase()
     const match = (b: Beneficiary) => !ql || b.name.toLowerCase().includes(ql)
-    const rec = recentPayees()
+    const rec = recent
     const recents = rec.map((a) => benefs.find((b) => b.address === a)).filter((b): b is Beneficiary => !!b && match(b)).slice(0, 3)
     const recentIds = new Set(recents.map((b) => b.id))
     const saved = benefs.filter((b) => match(b) && !recentIds.has(b.id))
     return { pasted: null as string | null, recents, saved }
-  }, [q, qIsAddr, benefs])
+  }, [q, qIsAddr, benefs, recent])
 
   // Flat option list (for keyboard nav): each entry is a Beneficiary or the pasted address or add.
   const flat = useMemo(() => {
@@ -95,7 +105,7 @@ export function RecipientCombobox({
   useEffect(() => { if (autoFocus) inputRef.current?.focus() }, [autoFocus])
 
   function pick(r: Recipient) {
-    pushRecentPayee(r.address)
+    void pushRecentPayee(vaultId, r.address)
     onChange(r)
     setQ(''); setOpen(false); setAdding(false)
     setSavePrompt(false); setSaveName(''); setSaveRawErr(null)
@@ -114,14 +124,14 @@ export function RecipientCombobox({
     if (!nm || !ad) { setSaveErr(t('rec.errFill')); return }
     if (classifyAddress(ad) === 'unknown') { setSaveErr(t('rec.errAddr')); return }
     setSaving(true)
-    const res = await addBeneficiary(nm, ad, newMemo.trim() || undefined)
+    const res = await addBeneficiary(vaultId, nm, ad, newMemo.trim() || undefined)
     setSaving(false)
     if (res.ok) {
       onReloadBenefs?.()
       pick({ address: res.beneficiary.address, name: res.beneficiary.name, memo: res.beneficiary.memo || undefined })
       setNewAddr(''); setNewMemo('')
     } else {
-      setSaveErr(t('rec.errSave'))
+      setSaveErr(vaultRefusalText(t, res.error) ?? t('rec.errSave'))
     }
   }
 
@@ -132,13 +142,13 @@ export function RecipientCombobox({
     if (!nm) { setSaveRawErr(t('rec.errName')); return }
     if (classifyAddress(ad) === 'unknown') { setSaveRawErr(t('rec.errAddr')); return }
     setSavingRaw(true)
-    const res = await addBeneficiary(nm, ad, undefined)
+    const res = await addBeneficiary(vaultId, nm, ad, undefined)
     setSavingRaw(false)
     if (res.ok) {
       onReloadBenefs?.()
       pick({ address: res.beneficiary.address, name: res.beneficiary.name, memo: res.beneficiary.memo || undefined })
     } else {
-      setSaveRawErr(t('rec.errSave'))
+      setSaveRawErr(vaultRefusalText(t, res.error) ?? t('rec.errSave'))
     }
   }
 

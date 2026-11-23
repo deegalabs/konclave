@@ -25,7 +25,7 @@ export type VaultSrc = 'net' | 'local'
  * make, and on a vault whose passphrase is the only key to a share, that is a cruel thing to get
  * backwards.
  */
-export type UnlockResult = { ok: true } | { ok: false; wrong: boolean }
+export type UnlockResult = { ok: true } | { ok: false; wrong: boolean; notThisSeat?: boolean }
 
 /** The side of the app `unlockWith` touches, named so a test can drive it without a browser - the
  *  same shape `prf-wrap.ts` uses for `Authenticator`, and for the same reason. */
@@ -45,8 +45,16 @@ export function isWrongPassphrase(e: unknown): boolean {
 
 /** The sentence a screen shows when a vault did not open: the one decision. On a local vault the
  *  fallback names the bridge; on a device vault nothing is offline, so it must not say so. */
-export function openFailKey(wrong: boolean, src: VaultSrc = 'net'): string {
+export function openFailKey(wrong: boolean, src: VaultSrc = 'net', notThisSeat = false): string {
+  if (notThisSeat) return 'vaults.openWrongSeat'
   return wrong ? 'vaults.unlockWrong' : src === 'net' ? 'vaults.openFailed' : 'vaults.unlockFail'
+}
+
+/** The sentence for a failed `UnlockResult`, read whole: a screen that passed `r.wrong` alone dropped
+ *  `notThisSeat` and told the member to retry a passphrase that may be right (#965). Screens holding a
+ *  result call this; `openFailKey` stays for a caught error, which carries no seat flag. */
+export function unlockFailKey(r: Extract<UnlockResult, { ok: false }>, src: VaultSrc = 'net'): string {
+  return openFailKey(r.wrong, src, r.notThisSeat === true)
 }
 
 /**
@@ -93,7 +101,7 @@ export async function unlockWith(
       })
       return { ok: true }
     }
-    const r = await deps.unlockVault(pass)
+    const r = await deps.unlockVault(id, pass)
     if (r.ok) {
       deps.markVaultUnlocked(id)
       return { ok: true }
@@ -106,7 +114,9 @@ export async function unlockWith(
     // Only the seal refusing to open is the passphrase. Storage missing, a quota, a corrupt field
     // are not something retyping fixes, and saying "wrong passphrase" for them sends the member
     // down the wrong road.
-    return { ok: false, wrong: isWrongPassphrase(e) }
+    // The saved share is not this seat's (#965): its own sentence, not "wrong passphrase" and not a
+    // generic failure, since neither retyping nor retrying helps.
+    return { ok: false, wrong: isWrongPassphrase(e), ...(e instanceof StorageError && e.code === 'wrong-seat' ? { notThisSeat: true } : {}) }
   }
 }
 

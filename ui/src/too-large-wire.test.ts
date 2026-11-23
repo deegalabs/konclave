@@ -47,7 +47,7 @@ describe('the counts reach the screen on every path', () => {
 
   it('a payment refused at creation', async () => {
     answer = { status: 422, body: refusal('payment') }
-    const res = await createProposal({ proposer: 'alice', to_address: 'u1x', value_zec: '0.01' })
+    const res = await createProposal('a'.repeat(64), { proposer: 'alice', to_address: 'u1x', value_zec: '0.01' })
     expect(res).toEqual({ ok: false, error: 'too many actions', tooLarge: { actions: 7, max: 6, plan: 'payment' } })
     if (res.ok) throw new Error('unreachable')
     expect(humanError(t, res.error, res.detail, res.tooLarge)).toBe(counted('error.tooLargePayment'))
@@ -55,7 +55,7 @@ describe('the counts reach the screen on every path', () => {
 
   it('a payroll refused at creation', async () => {
     answer = { status: 422, body: refusal('payroll') }
-    const res = await createPayroll('alice', [{ address: 'u1x', value_zec: '0.01' }])
+    const res = await createPayroll('a'.repeat(64), 'alice', [{ address: 'u1x', value_zec: '0.01' }])
     expect(res).toEqual({ ok: false, error: 'too many actions', tooLarge: { actions: 7, max: 6, plan: 'payroll' } })
     if (res.ok) throw new Error('unreachable')
     expect(humanError(t, res.error, res.detail, res.tooLarge)).toBe(counted('error.tooLargePayroll'))
@@ -71,7 +71,7 @@ describe('the counts reach the screen on every path', () => {
 
   it('an answer without its counts is not dressed up as one', async () => {
     answer = { status: 422, body: { error: 'too many actions' } }
-    const res = await createProposal({ proposer: 'alice', to_address: 'u1x', value_zec: '0.01' })
+    const res = await createProposal('a'.repeat(64), { proposer: 'alice', to_address: 'u1x', value_zec: '0.01' })
     expect(res).toEqual({ ok: false, error: 'too many actions' })
     if (res.ok) throw new Error('unreachable')
     expect(humanError(t, res.error, res.detail, res.tooLarge)).toBe(en['error.tooLarge'])

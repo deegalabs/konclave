@@ -105,8 +105,10 @@ export async function relayPoll(
 ): Promise<{ messages: RelayMsg[]; next: number; peers: number } | null> {
   try {
     const qs = `since=${since}&from=${encodeURIComponent(from)}`
+    // Not kept by the browser's cache, as the relay also says: the URL names the room.
     const res = await fetch(`${relayBase()}/api/relay/${encodeURIComponent(room)}?${qs}`, {
       method: 'GET',
+      cache: 'no-store',
     })
     if (!res.ok) return null
     return (await res.json()) as { messages: RelayMsg[]; next: number; peers: number }
@@ -174,6 +176,16 @@ export class RelaySession {
           this.peers = r.peers
           this.onPeers?.(r.peers)
         }
+        // The relay numbers a room from 1 when it creates it, so a room that went away (a restarted
+        // relay, a room idle past its life) and came back answers a `next` below this device's
+        // cursor. Read it again from its start; what it holds now is new, not history.
+        if (r.next < this.since) {
+          this.since = 0
+          if (!this.firstPoll) {
+            if (!this.stopped) this.timer = setTimeout(tick, 0)
+            return
+          }
+        }
         const historical = this.firstPoll
         for (const m of r.messages) {
           if (m.seq > this.since) this.since = m.seq
@@ -203,16 +215,6 @@ export class RelaySession {
       this.timer = null
     }
   }
-}
-
-/** A short, human-friendly room code (the "invite code" a guest types on their device). */
-export function newRoomCode(): string {
-  // Ambiguity-free alphabet (no 0/O/1/I). Not a secret - the security is in the crypto that
-  // rides the room, not in the room's name. 8 chars is easy to read aloud / paste.
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = new Uint8Array(8)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
 }
 
 // Crockford base32 (no I/L/O/U): unambiguous when read aloud, typed or scanned. The same alphabet

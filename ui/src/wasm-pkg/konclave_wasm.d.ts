@@ -227,6 +227,14 @@ export class TestVault {
 export function approvalDecision(signed: string, sighash: string): string;
 
 /**
+ * Does this saved key package belong to this seat of this vault, against the group's public
+ * package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
+ * `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+ * every import and every unlock; the rule is `recovery::check_share_bundle`.
+ */
+export function checkShareBundle(key_package: Uint8Array, pubkeys: Uint8Array, seat: number, group_key: Uint8Array, t: number): void;
+
+/**
  * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
  * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
  * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
@@ -503,7 +511,6 @@ export interface InitOutput {
     readonly vaultReceivers: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
-    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -527,6 +534,21 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
+    readonly selftest: () => [number, number];
+    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
+    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
+    readonly checkShareBundle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
+    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
+    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
+    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_deltaCount: (a: number) => number;
+    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
     readonly estimatedFeeZat: (a: number) => number;
@@ -539,19 +561,6 @@ export interface InitOutput {
     readonly readPayment: (a: number, b: number) => [number, number, number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly upgradeHeight: () => number;
-    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
-    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
-    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
-    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
-    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
-    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_deltaCount: (a: number) => number;
-    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

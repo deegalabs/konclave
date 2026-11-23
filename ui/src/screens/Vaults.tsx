@@ -19,14 +19,14 @@ import { storageErrorKey } from '../storage-errors'
 import { CodeFirst } from './CodeFirst'
 import { resumable, isCurrentFlow, sameCoordinator, verifiedAddress, mustCompareCode } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
-import { buildVaultBackup, type VaultBackup } from '../build-backup'
+import { buildVaultBackup, incompleteNotices, type VaultBackup } from '../build-backup'
 import { downloadText } from '../download'
 import { unlockedHere } from '../session'
 import { loadPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
 import type { PrfOpenDenial } from '../prf-wrap'
-import { unlockOnDevice, importAndUnlock, openFailKey, isWrongPassphrase } from '../unlock'
+import { unlockOnDevice, importAndUnlock, openFailKey, unlockFailKey, isWrongPassphrase } from '../unlock'
 import { Identicon, memberSeed } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
@@ -181,7 +181,7 @@ export default function Vaults() {
       setResumeBusy(id)
       const u = await unlockOnDevice(id, 'net', resumePass).catch(() => ({ ok: false as const, wrong: true }))
       if (!u.ok) {
-        setResumeMsg((m) => ({ ...m, [id]: t(openFailKey(u.wrong)) }))
+        setResumeMsg((m) => ({ ...m, [id]: t(unlockFailKey(u)) }))
         setResumePass('')
         setResumeBusy(null)
         return
@@ -282,6 +282,7 @@ export default function Vaults() {
       setReload((x) => x + 1)
       resetImport()
       toast.ok(t('toast.vaultImported', { name: meta.name || t('vaults.networkedVault') }))
+      if (meta.peopleSaved === false) toast.warn(t('toast.peopleNotSaved'))
     } catch (e) {
       setImpErr(t(storageErrorKey(e, 'import.errGeneric')))
     } finally {
@@ -328,7 +329,7 @@ export default function Vaults() {
         await openUnlocked(unlocking, used)
         return
       }
-      setUnlockErr(t(openFailKey(r.wrong, src)))
+      setUnlockErr(t(unlockFailKey(r, src)))
     } catch (e) {
       setUnlockErr(t(openFailKey(isWrongPassphrase(e), src)))
     } finally {
@@ -525,7 +526,7 @@ export default function Vaults() {
                     {resumeDone[v.id] ? (
                       <div style={{ marginTop: 8 }}>
                         <p>{t('vaults.resumeBackupTitle')}</p>
-                        {!resumeDone[v.id]!.complete && <p>{t('vaults.resumeBackupIncomplete')}</p>}
+                        {incompleteNotices(resumeDone[v.id]!).map((k) => <p key={k}>{t(k)}</p>)}
                         <button type="button" className="cv-stop" style={{ marginRight: 8 }}
                           onClick={() => setResumeDownloadFailed(!downloadText(resumeDone[v.id]!.name, resumeDone[v.id]!.json))}>
                           {t('vaults.resumeBackupDownload')}

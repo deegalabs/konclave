@@ -4,6 +4,8 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, SentenceWithSecret, SECRET_MARK, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
+import { getSelectedVault } from '../shown-vault'
+import { approvalsShown, countedNames, stancesKnown, uncountedNames } from '../stance'
 import { getBalance, getBeneficiaries, getLedger, ledgerReadFailure, getVault, shortAddr, type Beneficiary, type Proposal, type PayrollLine } from '../api'
 import { readPayrollLines } from '../payroll-lines'
 import { proposalName } from '../proposal-name'
@@ -37,6 +39,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const { begin, end } = useLoading()
   const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
+  // The vault this screen opened on, pinned once: the registry it reads is this vault's.
+  const [pinned] = useState(() => getSelectedVault())
   const { revealed } = useReveal()
   // A book that could not be read is said as such, never left on the skeleton (#320). `attempt`
   // counts the retries asked for and re-runs the read; `failed` counts the ones that failed again.
@@ -112,7 +116,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     if (!showPivot) { pivotTried.current = new Set(); return }
     // The registry once per opening, not on every re-read of the book.
     let on = true
-    void getBeneficiaries().then((b) => { if (on && b) setBenefs(b) })
+    void getBeneficiaries(pinned).then((b) => { if (on && b) setBenefs(b) })
     return () => { on = false }
   }, [showPivot])
   useEffect(() => {
@@ -201,7 +205,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           dateISO: iso(p.created_at),
           document: proposalName(p, p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
           state: t('state.' + p.state), settled: SETTLED(p.state), open: isOpen(p),
-          proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '',
+          proposer: p.proposer, approvers: stancesKnown(p) ? countedNames(p, 'approved').join(', ') : '—', txid: p.txid ?? '',
           kind: p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'),
           beneficiary: it.label, address: it.address, memo: it.memo, value_zat: it.value_zat, unread: it.unread,
         }
@@ -221,7 +225,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       const balance = parts && reserved !== null
         ? { totalZec: Number(zatToZec(parts.totalZat)), reservedZec: Number(zatToZec(reserved)), confirmingZec: Number(zatToZec(parts.confirmingZat)), overCommitted: parts.overCommitted }
         : undefined
-      const registry = benefs.length ? benefs : (await getBeneficiaries()) ?? []
+      const registry = benefs.length ? benefs : (await getBeneficiaries(pinned)) ?? []
       return { ...head, items, balance, registry }
   }
 
@@ -380,10 +384,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             )}
             {filtered.map((p) => {
               const isPayroll = p.kind === 'payroll'
-              const selfOnly = p.approvals.length === 1 && p.approvals[0] === p.proposer
+              // Who COUNTS, from the coordinator (#575); what it recorded and does not count, apart.
+              const approvers = countedNames(p, 'approved')
+              const uncounted = uncountedNames(p, 'approved')
+              const selfOnly = approvers.length === 1 && approvers[0]?.trim() === p.proposer.trim()
               const who = t('ledger.whoProposed', { proposer: p.proposer })
-                + (p.approvals.length ? t('ledger.whoApproved', { who: p.approvals.join(', ') }) : '')
-                + ' · ' + t('ledger.approvalsOf', { count: p.approvals.length, total: threshold })
+                + (approvers.length ? t('ledger.whoApproved', { who: approvers.join(', ') }) : '')
+                + (uncounted.length ? t('ledger.whoUncounted', { who: uncounted.join(', ') }) : '')
+                + ' · ' + t('ledger.approvalsOf', { count: approvalsShown(p), total: threshold })
                 + (selfOnly ? ' · ' + t('ledger.selfApproved') : '')
               const settledRow = SETTLED(p.state)
               const closedRow = CLOSED(p)

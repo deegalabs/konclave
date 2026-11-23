@@ -9,10 +9,15 @@ import { StorageError } from './storage-errors'
 import { en } from './i18n/en'
 import { codeOf } from './source-scan'
 
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 const STRONG = 'correct horse battery staple'
 const id = '09'.repeat(32)
 const data: VaultData = {
-  groupKey: new Uint8Array(32).fill(9), address: 'u1x', roster: ['A'], sealedShare: new Uint8Array(32).fill(1),
+  groupKey: new Uint8Array(32).fill(9), address: 'u1x', roster: ['A'], sealedShare: new TextEncoder().encode(JSON.stringify({ kp: 'x', pubkeys: 'y', seat: 1, n: 3, t: 2 })),
 }
 const code = (p: Promise<unknown>) => p.then(() => 'accepted', (e: StorageError) => e.code)
 

@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The coordinator shares a smaller copy of each transaction with the vault's devices.** What a
+  device shows and checks (the payment, the fee and what it signs) is unchanged. The details follow
+  in a later entry.
+
 - **The coordinator builds a vault's payments from fewer of its notes.** Same change as the root
   changelog's Security entry of 0.22.0; details follow in a later entry. The hosted coordinator has
   run this since 2026-11-18 (e5e581ee).
@@ -54,6 +58,21 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   limit in total, so many addresses together could keep creating vaults until its volume was full.
   That put the service at risk for every vault; no funds and no vault's books were exposed by it.
   The hosted coordinator has run this since 2026-11-14 19:18 UTC (56db642f).
+
+- **An approval counts once per member, and only if it was signed once the vault requires signatures
+  (#575).** Until now an approval was a name. While a vault still took unsigned actions, anyone holding
+  its id could record an approval under a member's exact name, and it went on counting as that
+  member's after the vault required signatures; on a 2-of-2 a payment could read as approved by both
+  when one had approved. Two members with the same name counted as one. Each vote now records the
+  seat that cast it and, when it was signed, the signed action itself; the coordinator counts seats,
+  and a vote recorded without a signature, approval or refusal, stops counting on a payment still open
+  once the vault requires signatures (ADR-0011, amendment of 2026-11-13). A payment already sent or
+  refused is read as it was recorded. The answers about a proposal carry the counts and each seat's
+  stance, for the app to show the coordinator's count instead of counting names.
+  A proposal under a name on no seat is refused. An approval given before a vault required signatures
+  has to be given again, signed. Records stay readable by an older coordinator: the names are kept as
+  before, beside the votes.
+
 - **The first read key of a vault was accepted from anyone who knew its id, from 2026-08-30 until
   2026-11-08 00:06 UTC
   ([GHSA-42h7-6fcj-554w](https://github.com/deegalabs/konclave/security/advisories/GHSA-42h7-6fcj-554w)).**
@@ -107,8 +126,26 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
   hosted coordinator has run this since 2026-10-24.
 
+- **A payment or payroll keeps less of its work on the coordinator.** The details follow in a later entry.
+
 ### Added
 
+- **`/api/health` lists the light-client servers (`light_servers`).** Each entry is `{host, ok, chain, height_lag}` (`chain` is `main`, `test` or `other`):
+  `ok` is true when the last background check found the server on the configured chain and, once three or more
+  answered, within 20 blocks of the median of the answers (when no answer is that close, as in an even split, every server on
+  the right chain counts as ok), false when it did not answer or fell outside that, and `null` before any check has run
+  (always, with a single configured server, which is not checked). `height_lag` is how many blocks it is behind that
+  median. The route serves the cache the background check fills and never starts a check itself; the hosts are public
+  and nothing in the entry concerns a vault. The boot log lists each server.
+- **The coordinator can use several light-client servers.** `KONCLAVE_LIGHTWALLETD` takes one server or a
+  comma-separated list (one value behaves as before: no probe, nothing else changes). With a list, a background
+  check asks each server every 60 seconds which chain and height it reports, never inside a request, and the
+  coordinator keeps the server it is on while that one answers and stays near the others, and moves only when it
+  stops answering or falls well behind and at least three others agree. A new vault's wallet starts from the lowest
+  height the servers report (never far below the middle of the answers), and only when three of them agree.
+  An entry that is not `host:port` (a scheme, a path, a space) stops the coordinator at boot and is named in the error,
+  and so does, in a list, an onion name, `localhost` or an IP address (the list is checked over https by name; one
+  server alone may still be any of those). When it moves, it prefers a server not behind the one it was using.
 - **Each seat reports which network fees its device accepts (#847).** `POST /api/vault/devicekey` takes an
   optional `fee_from` (a block height, or absent) and keeps it on the seat's record; a registration
   without it clears that seat's report, and the newest registration of a seat speaks. A malformed
@@ -203,6 +240,23 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A coordinator that lost its request workers now stops with a failure code, so the platform can restart it.** A
+  worker that failed ended alone, and when none were left the coordinator exited with code 0, which a
+  restart-on-failure policy does not restart. Now the first worker to end takes the process with it, with code 70, and
+  the log says so. Requests in flight on the other workers end too: a send that had reached its broadcast wrote its
+  record to the volume first, and is reported as held when the coordinator starts again; a send still collecting its
+  signatures had broadcast nothing and is signed again. A request whose handler fails was already answered with a 500
+  and cost only its own answer, and still is.
+
+- **The coordinator's answers are not kept by the browser's cache.** Every answer now says so, so a
+  read made under a vault's address does not stay in the browser after the session ends.
+- **A send no longer fails because one light-client server stops answering.** The broadcast goes to the server the send
+  has been using; if that server cannot be reached, or the attempt does not answer within its time limit, the same
+  signed transaction goes to the next configured server that is within 3 blocks of the median, within three minutes in
+  all. A failure after the transaction was handed to a server is reported as it is and not tried elsewhere. When no server takes it after a time-out, the answer says the
+  transaction may have reached the network and not to send it again before checking, and the attempt record stays, as
+  it does for any broadcast error.
+
 - **A payment or payroll too large to be signed was refused only after the quorum approved it
   (#821).** Its signing request did not fit the relay's 128 KiB message, so the send died as a relay
   failure after everyone had voted. Creating one is now refused with a `422` `too many actions`,
@@ -239,6 +293,22 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **A copy the browser stored before this change was deployed stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
+
+- **Who holds a seat is not proven on vaults created before 8 November 2026 (#577).** A vote is bound
+  to the seat that signed it, but on an older vault the first device to register a seat's key holds it,
+  and that device's votes count as the seat's. Vaults created since prove each seat with its share.
+- **A payment refused before its vault required signatures stays refused,** even if a refusal on it
+  was not the member's own. A member can lift only their own refusal, and the app does not offer it
+  on a refused payment; the remedy is a new proposal.
+- **On a vault whose reads are protected but which still takes unsigned actions,** a proposal under a
+  name is refused when the name is on no seat, which tells a caller holding the vault id whether a
+  name is a member's.
+- **Going back to an older coordinator counts names again.** The record keeps the names beside the
+  votes, so nothing is lost, but an older binary counts the names, with the limits this entry removes.
+- **Restoring a vault without its device registry opens it to unsigned actions again,** and unsigned
+  approvals count again (`docs/RECOVERY.md`).
 - **The lower fee ZIP 2009 allows is in use on the hosted coordinator since 2026-11-19 (#847).** The
   operator set `KONCLAVE_FEE_MARGINAL_MAX=per-vault` after a send at the lower fee on staging (block
   3,590,417). Even so, a vault pays it only when every seat has reported that its device accepts it. A seat's report is

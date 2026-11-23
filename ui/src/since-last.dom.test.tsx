@@ -26,7 +26,7 @@ const A = 'a'.repeat(64)
 const B = 'b'.repeat(64)
 const p = (id: string, state: string, over: Partial<Proposal> = {}): Proposal => ({
   id, vault_id: A, kind: 'payment', state, proposer: 'Bia', memo: `Rent ${id}`, value_zat: 150000000, value_zec: '1.5',
-  is_public: false, approvals: [], refusals: [], approvals_count: 0, ...over,
+  is_public: false, approvals: [], refusals: [], approvals_count: 0, stances: [], ...over,
 })
 const mount = () => render(
   <MemoryRouter initialEntries={['/activity']}>

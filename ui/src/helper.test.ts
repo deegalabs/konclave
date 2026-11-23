@@ -138,3 +138,44 @@ describe('coordination mode (runtime choice)', () => {
     expect(spy).toHaveBeenCalledOnce()
   })
 })
+
+describe('reads are never kept by the browser cache', () => {
+  // Every GET to the coordinator asks the browser not to store the answer, whatever the server
+  // sends: a private read lives under a URL with the vault id, and a stored copy would outlive the
+  // session, the lock and a removal of the vault from the device.
+  it('the JSON reads and the ledger text read pass cache: no-store', async () => {
+    setCoordMode('custom', 'https://coordinator.invalid')
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const { getUfvk, fetchLedgerCsv } = await import('./helper')
+    await getVault('00')
+    await getUfvk('00').catch(() => null)
+    await fetchLedgerCsv('00')
+    await helperHealth()
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(4)
+    for (const [, init] of spy.mock.calls) {
+      expect((init as RequestInit | undefined)?.cache).toBe('no-store')
+    }
+  })
+})
+
+describe('the relay and the local bridge reads are never kept by the browser cache', () => {
+  it('relayPoll passes cache: no-store', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"messages":[],"next":0,"peers":0}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const { relayPoll } = await import('./net')
+    await relayPoll('room', 0, 'me')
+    expect(spy).toHaveBeenCalledOnce()
+    expect((spy.mock.calls[0]![1] as RequestInit | undefined)?.cache).toBe('no-store')
+    spy.mockRestore()
+  })
+
+  it('the bridge JSON read asks for no-store (its module picks the bridge or the coordinator at load)', async () => {
+    const { codeOf } = await import('./source-scan')
+    const src = codeOf('./api.ts')
+    const body = src.slice(src.indexOf('async function getJson<T>('), src.indexOf('async function getJson<T>(') + 600)
+    expect(body).toContain("cache: 'no-store'")
+  })
+})

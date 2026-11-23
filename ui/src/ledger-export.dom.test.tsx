@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withStances } from './test-stances'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
@@ -31,10 +32,10 @@ const { default: Ledger } = await import('./screens/Ledger')
 
 const TX1 = 'a'.repeat(64)
 const TX3 = 'b'.repeat(64)
-const base = { vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2 }
-const rent = { ...base, id: 'p1', kind: 'payment', state: 'confirmed', memo: 'October rent', to_address: 'u1rent', value_zat: 150000000, value_zec: '1.5', created_at: 1759300000, txid: TX1 }
-const pending = { ...base, id: 'p2', kind: 'payment', state: 'awaiting', memo: '', to_address: 'u1open', value_zat: 25000000, value_zec: '0.25', created_at: 1760000000, approvals: ['Alice'], approvals_count: 1 }
-const payroll = { ...base, id: 'p3', kind: 'payroll', state: 'sent', memo: 'Payroll October', value_zat: 200000000, value_zec: '2', created_at: 1759500000, txid: TX3 }
+const base = withStances({ vault_id: 'v', proposer: 'Alice', is_public: false, approvals: ['Alice', 'Bob'], refusals: [], approvals_count: 2 })
+const rent = withStances({ ...base, id: 'p1', kind: 'payment', state: 'confirmed', memo: 'October rent', to_address: 'u1rent', value_zat: 150000000, value_zec: '1.5', created_at: 1759300000, txid: TX1 })
+const pending = withStances({ ...base, id: 'p2', kind: 'payment', state: 'awaiting', memo: '', to_address: 'u1open', value_zat: 25000000, value_zec: '0.25', created_at: 1760000000, approvals: ['Alice'], approvals_count: 1 })
+const payroll = withStances({ ...base, id: 'p3', kind: 'payroll', state: 'sent', memo: 'Payroll October', value_zat: 200000000, value_zec: '2', created_at: 1759500000, txid: TX3 })
 const lines = [
   { label: 'Alice', address: 'u1alice', value_zat: 120000000, value_zec: '1.2', memo: 'Alice Oct', is_public: false },
   { label: 'Bob', address: 'u1bob', value_zat: 80000000, value_zec: '0.8', memo: '', is_public: false },
@@ -111,7 +112,7 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(screen.getByRole('button', { name: en('ledger.exportXlsx') }).getAttribute('title')).toBe(en('ledger.xlsxIncludes'))
   })
   it("marks each row open by the screen's own rule, so a refused proposal is neither settled nor open", async () => {
-    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused office chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    const refused = withStances({ ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused office chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 })
     getLedger.mockResolvedValue([pending, refused, rent])
     mount()
     await screen.findByText('Refused office chairs')
@@ -132,6 +133,14 @@ describe('the Ledger screen exports what it shows (#302)', () => {
       ['Alice', 'Alice, Bob'],
       ['Alice', 'Alice, Bob'], // the confirmed rent
     ])
+  })
+  it('hands the export a dash, not an empty cell, for approvers a coordinator did not say (#575)', async () => {
+    const old = { ...rent, approvals_count: null, stances: null } as unknown as typeof rent
+    getLedger.mockResolvedValue([old])
+    mount()
+    await screen.findByText('October rent')
+    await clickExport()
+    expect(exported().items.map((i) => i.approvers)).toEqual(['—'])
   })
   it('narrows the book to a chosen period, by creation date, and the export follows', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -164,7 +173,7 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     }
   })
   it('shows a closed proposal as closed: its own state, no outflow sign, and a filter of its own', async () => {
-    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    const refused = withStances({ ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 })
     getLedger.mockResolvedValue([pending, refused, rent])
     mount()
     const cell = await screen.findByText('Refused chairs')

@@ -78,6 +78,8 @@ path = "src/main.rs"
 test-seed = []
 
 [dev-dependencies]
+# The version of `rand_core` that `pczt`'s roles take their randomness from, for a test in pczt.rs.
+rand_core_10 = { package = "rand_core", version = "0.10" }
 reddsa = { version = "0.5.2", features = ["frost"] }
 rand = "0.8"
 # The chain crates' own numbers, for tests/chain_crates_drift.rs (the epoch table and ZIP 317 constants

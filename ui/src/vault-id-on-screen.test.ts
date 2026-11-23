@@ -11,7 +11,7 @@ describe('the /net page prints no whole vault id (#659)', () => {
     // Every vault-key line shows the fingerprint and nothing else (no fallback to the id).
     const vk = [...src.matchAll(/<div className="net-vk">([^<]*)<\/div>/g)].map((m) => m[1])
     const fpLines = vk.filter((c) => c === "{fp ?? '…'}")
-    expect(fpLines).toHaveLength(3)
+    expect(fpLines).toHaveLength(2) // the done screen and the restored screen (the /net signing session went in 0.23.0)
     for (const c of vk) expect(c, c).not.toMatch(/groupVk/)
     expect(src).toMatch(/\{shortAddr\(v\.id, 6, 4\)\}/)
   })

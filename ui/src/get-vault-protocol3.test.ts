@@ -6,7 +6,7 @@ vi.setConfig({ testTimeout: 60_000 })
 const mem = new Map<string, string>()
 vi.stubGlobal('localStorage', { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) })
 const GK = 'ab'.repeat(32), SERVED = 'u1servedaddress', CHG = 'u1servedchange'
-vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), helperConfigured: () => true,
+vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), helperConfigured: () => true, NET_AT_LOAD: true,
   getVault: async () => ({ vault_id: GK, address: SERVED, change_receiver: CHG, threshold: 2, total: 3, state: 'pinned', name: 'x' }),
   listMembers: async () => ['Ana', 'Zed', 'Caio'] }))
 const { saveVault, listVaults, recordVerifiedReceivers, recordReceiversRefused, updateVaultMeta } = await import('./storage')

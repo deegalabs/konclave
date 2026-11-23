@@ -11,9 +11,10 @@ import { useOutletContext } from 'react-router-dom'
 import { IS_NET, getSelectedVault, getVault, isVaultUnlocked } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
+import { readVaults } from './storage'
 import type { VaultLockContext } from './Layout'
 
-/** `needsUnlock` for a vault as the app holds it now: the inputs `Layout` and the Dashboard gather. */
+/** `needsUnlock` for a vault as the app holds it now: the inputs `Layout` gathers once the vault has answered. */
 export async function lockedNow(v: { id: string; locked?: boolean } | null): Promise<boolean> {
   if (!v) return false // no vault answered: the screen's own read says so, not a lock
   return needsUnlock({
@@ -22,6 +23,38 @@ export async function lockedNow(v: { id: string; locked?: boolean } | null): Pro
     securedLocally: await securedLocally(v.id),
     hasAccessSecret: !!readSecretFor(v.id),
   })
+}
+
+/**
+ * The same rule from this device's own record, with no request (#1108). On the web a vault this device
+ * holds a record of is decided here, so an app that is opened and not unlocked names the vault to
+ * nobody: the lock needs only `secured` (is there a sealed S), the session, and the S in memory.
+ *
+ * `undefined` when this is not the browser-native app, or the device holds no record of `id`: the
+ * bridge/helper path decides, as before.
+ *
+ * A storage that cannot be read answers LOCKED, which is not what `securedLocally` does (it answers
+ * "no record", so a failing read opens). Here not knowing cannot be allowed to name the vault, and it
+ * cannot loop: leaving the overlay goes to /vaults, which reads the same storage and says so (#320).
+ */
+export async function localLockNow(id: string): Promise<{ locked: boolean; name: string } | undefined> {
+  if (!IS_NET) return undefined
+  let rec: Awaited<ReturnType<typeof readVaults>>[number] | undefined
+  try {
+    rec = (await readVaults()).find((v) => v.id === id)
+  } catch {
+    return { locked: true, name: '' }
+  }
+  if (!rec) return undefined
+  return {
+    locked: needsUnlock({
+      bridgeLocked: undefined,
+      unlockedThisSession: isVaultUnlocked(id),
+      securedLocally: !!rec.secured,
+      hasAccessSecret: !!readSecretFor(id),
+    }),
+    name: rec.name ?? '',
+  }
 }
 
 /**

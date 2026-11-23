@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// The bridge has the browser's IndexedDB: an empty vault list, not a broken one.
+import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -56,7 +58,7 @@ beforeEach(() => {
   getVault.mockResolvedValue({ id: 'v', name: 'Caixa', threshold: 2, total: 2, members: 2, member_list: [{ name: 'Alice' }, { name: 'Bob' }], group_pubkey: 'v', orchard_address: KNOWN })
   readBalance.mockResolvedValue({ configured: true, total_zat: ONE_ZEC, spendable_zat: ONE_ZEC, total_zec: '1', spendable_zec: '1' })
 })
-afterEach(() => { cleanup(); localStorage.clear() })
+afterEach(async () => { cleanup(); await new Promise((r) => setTimeout(r, 80)); localStorage.clear() }) // a pick's async write lands first
 
 describe('F: a copied line paying an address the registry does not hold', () => {
   it('keeps Propose closed until the line is confirmed, and asks again when its address changes', async () => {

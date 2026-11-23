@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { rankDesk, bandOf, isOpen, expiredByClock, stampKey } from './desk'
 import type { Proposal } from './api'
+import { withStances } from './test-stances'
 
 // A proposal with only the fields the desk reads. Everything else is filler.
 function p(o: Partial<Proposal> & { id: string }): Proposal {
-  return {
+  return withStances({
     vault_id: 'v',
     kind: 'payment',
     state: 'awaiting',
@@ -16,7 +17,7 @@ function p(o: Partial<Proposal> & { id: string }): Proposal {
     refusals: [],
     approvals_count: 0,
     ...o,
-  } as Proposal
+  } as Proposal)
 }
 
 const ids = (d: ReturnType<typeof rankDesk>) => d.items.map((i) => i.p.id)

@@ -206,6 +206,10 @@ struct ProposalDto {
     /// is what the fee estimate takes (#1017). `None` when it cannot be read: a consumer must
     /// treat that as unknown, never as 1.
     destinations: Option<usize>,
+    /// Each member's stance, in the shape the coordinator answers with (#575), so the app reads one
+    /// shape and never compares names. The bridge is the device and records names only: no roster
+    /// here, so a row per member who voted, every one counted.
+    stances: Vec<crate::write_auth::Stance>,
 }
 
 impl ProposalDto {
@@ -246,11 +250,25 @@ impl ProposalDto {
             txid: p.txid,
             created_at: p.created_at,
             approvals_count: p.approvals.len(),
+            stances: bridge_stances(&p.approvals, &p.refusals),
             approvals: p.approvals,
             refusals: p.refusals,
             destinations,
         }
     }
+}
+
+/// The bridge's votes read through the ONE stance rule (#575): open (the bridge is loopback and IS
+/// the device, ADR-0011 amendment), with no roster.
+fn bridge_stances(approvals: &[String], refusals: &[String]) -> Vec<crate::write_auth::Stance> {
+    use crate::write_auth::{reconcile_votes, stances, Basis};
+    let votes = reconcile_votes(&[], approvals, refusals, &[]);
+    let basis = Basis {
+        roster: &[],
+        requires_signatures: false,
+        every_write_signed: false,
+    };
+    stances(&votes, &basis, u16::MAX)
 }
 
 #[derive(Serialize)]
@@ -1815,7 +1833,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
         return Response::json(
             200,
             &serde_json::json!({
-                "dry_run": true, "sighash": outcome.sighash, "signed_pczt": outcome.signed_pczt
+                "dry_run": true, "sighash": outcome.sighash
             }),
         );
     }
@@ -2095,6 +2113,41 @@ pub fn handle_secured(
     origin: Option<&str>,
     csrf_token: Option<&str>,
 ) -> Response {
+    let mut resp = handle_secured_uncached(
+        cfg,
+        session_token,
+        method,
+        raw_path,
+        body,
+        host,
+        origin,
+        csrf_token,
+    );
+    no_store_for_api(raw_path, &mut resp);
+    resp
+}
+
+/// No API answer is kept by the browser's HTTP cache: the reads carry the vault in the URL, and a
+/// stored copy would outlive the session. The static page and its assets keep their caching. Every
+/// answer the bridge sends goes through here (`handle_secured`, and the size refusal in `serve`).
+fn no_store_for_api(raw_path: &str, resp: &mut Response) {
+    if raw_path.starts_with("/api/") {
+        resp.headers
+            .push(("Cache-Control".into(), "no-store".into()));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_secured_uncached(
+    cfg: &Config,
+    session_token: &str,
+    method: &str,
+    raw_path: &str,
+    body: &[u8],
+    host: Option<&str>,
+    origin: Option<&str>,
+    csrf_token: Option<&str>,
+) -> Response {
     if !host_is_local(host) {
         return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
     }
@@ -2151,12 +2204,20 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     let addr = format!("127.0.0.1:{port}");
     let server =
         tiny_http::Server::http(&addr).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let session_token = new_session_token();
     eprintln!(
         "konclave serve → http://{addr}  (web: {}, db: {})",
         cfg.web_dir.display(),
         cfg.db_path
     );
+    // The loop never ends on purpose; if it does, by a panic or otherwise, the process exits with
+    // the same failure code as the public servers' workers.
+    konclave_http::run_in_place("konclave serve", || serve_on(&server, &cfg))
+}
+
+/// The bridge's request loop, apart from binding, so a test can drive it on a port of its own.
+fn serve_on(server: &tiny_http::Server, cfg: &Config) {
+    use std::io::Read as _;
+    let session_token = new_session_token();
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
@@ -2171,19 +2232,38 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
                 token = Some(h.value.as_str().to_string());
             }
         }
-        // Bounded body (L4): reject an over-large payload up front by Content-Length - a local
-        // daemon must not buffer an unbounded Vec. 2 MiB is generous for a payroll. Over → 413.
-        const MAX_BODY: usize = 2 * 1024 * 1024;
-        let too_large = req.body_length().map(|n| n > MAX_BODY).unwrap_or(false);
+        // Bounded body (L4): the handler never receives more than 2 MiB (the shared ceiling of
+        // konclave-http), generous for a payroll. Over → 413, whether the request announces its
+        // length or not: an announced length over the limit is refused before this loop reads it,
+        // and any other body is read through a reader that stops one byte past the limit, so a
+        // chunked body is held to it too (#1088).
+        use konclave_http::MAX_BODY;
+        // A protocol upgrade hands the reader the raw connection, and the bridge has no use for
+        // one: refused before anything is read.
+        let upgrade = req.headers().iter().any(|h| {
+            h.field.equiv("Connection") && h.value.as_str().to_ascii_lowercase().contains("upgrade")
+        });
+        let mut too_large = req.body_length().is_some_and(|n| n as u64 > MAX_BODY);
         let mut body = Vec::new();
-        if !too_large {
-            let _ = req.as_reader().read_to_end(&mut body);
+        if !too_large && !upgrade {
+            let _ = req.as_reader().take(MAX_BODY + 1).read_to_end(&mut body);
+            too_large = body.len() as u64 > MAX_BODY;
         }
-        let resp = if too_large {
-            Response::json(413, &serde_json::json!({ "error": "payload too large" }))
+        let resp = if upgrade {
+            let mut refused = Response::json(
+                400,
+                &serde_json::json!({ "error": "upgrade not supported" }),
+            );
+            no_store_for_api(&url, &mut refused);
+            refused
+        } else if too_large {
+            let mut refused =
+                Response::json(413, &serde_json::json!({ "error": "payload too large" }));
+            no_store_for_api(&url, &mut refused);
+            refused
         } else {
             handle_secured(
-                &cfg,
+                cfg,
                 &session_token,
                 &method,
                 &url,
@@ -2209,7 +2289,6 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         }
         let _ = req.respond(response);
     }
-    Ok(())
 }
 
 /// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
@@ -2307,6 +2386,172 @@ mod tests {
         );
     }
     use super::*;
+
+    /// No API answer of the local bridge may be kept by the browser's HTTP cache, a refusal
+    /// included; the page itself is not affected.
+    #[test]
+    fn no_api_answer_may_be_kept_by_the_browser_cache() {
+        let cfg = cfg_with(tmp_db(), None);
+        let cache = |r: &Response| {
+            r.headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("Cache-Control"))
+                .map(|(_, v)| v.clone())
+        };
+        let ok = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("127.0.0.1:8787"),
+            None,
+            None,
+        );
+        let refused = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("evil.example"),
+            None,
+            None,
+        );
+        assert_eq!(cache(&ok).as_deref(), Some("no-store"));
+        assert_eq!(cache(&refused).as_deref(), Some("no-store"));
+    }
+
+    /// Starts the bridge's real request loop on a port of its own, writes `request` (in pieces, so a
+    /// body can stream), and returns the head of the answer, lowercased.
+    fn bridge_answer_head(pieces: &[&[u8]]) -> String {
+        use std::io::{Read, Write};
+        let server = tiny_http::Server::http("127.0.0.1:0").expect("bind");
+        let addr = server.server_addr().to_ip().expect("ip address");
+        std::thread::spawn(move || serve_on(&server, &cfg_with(tmp_db(), None)));
+        let mut conn = std::net::TcpStream::connect(addr).expect("connect");
+        conn.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .expect("timeout");
+        for piece in pieces {
+            // The server may answer and stop reading before the last piece; that is not a failure.
+            if conn.write_all(piece).is_err() {
+                break;
+            }
+        }
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            conn.read_exact(&mut byte).expect("read the answer head");
+            head.push(byte[0]);
+        }
+        String::from_utf8_lossy(&head).to_ascii_lowercase()
+    }
+
+    /// A chunked body announces no length, so the size limit has to hold while reading it: over
+    /// 2 MiB is refused with `413` like a body that announces its length.
+    #[test]
+    fn a_chunked_body_over_the_limit_is_refused() {
+        let chunk = vec![b'a'; 64 * 1024];
+        let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
+        framed.extend_from_slice(&chunk);
+        framed.extend_from_slice(b"\r\n");
+        let mut pieces: Vec<&[u8]> = vec![
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        ];
+        // 33 chunks of 64 KiB: 2 MiB and one chunk more.
+        for _ in 0..33 {
+            pieces.push(&framed);
+        }
+        pieces.push(b"0\r\n\r\n");
+        let head = bridge_answer_head(&pieces);
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
+
+    /// A chunked body of `size` bytes, framed in 64 KiB chunks, posted to an API route.
+    fn chunked_post(size: usize) -> Vec<u8> {
+        let mut out =
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+                .to_vec();
+        let mut left = size;
+        while left > 0 {
+            let n = left.min(64 * 1024);
+            out.extend_from_slice(format!("{n:x}\r\n").as_bytes());
+            out.extend(std::iter::repeat_n(b'a', n));
+            out.extend_from_slice(b"\r\n");
+            left -= n;
+        }
+        out.extend_from_slice(b"0\r\n\r\n");
+        out
+    }
+
+    /// The limit is inclusive: a chunked body of exactly 2 MiB reaches the handler, one byte more
+    /// is refused.
+    #[test]
+    fn a_chunked_body_is_held_to_the_limit_at_its_edge() {
+        let max = konclave_http::MAX_BODY as usize;
+        let at = bridge_answer_head(&[&chunked_post(max)]);
+        assert!(at.starts_with("http/1.1 403"), "exactly the limit: {at}");
+        let over = bridge_answer_head(&[&chunked_post(max + 1)]);
+        assert!(over.starts_with("http/1.1 413"), "one byte over: {over}");
+    }
+
+    /// The bound holds while the body is still arriving: a chunked body that has passed the limit
+    /// and never ends is refused once the limit is crossed, not read until the sender stops.
+    #[test]
+    fn an_unfinished_chunked_body_over_the_limit_is_refused_while_it_streams() {
+        let max = konclave_http::MAX_BODY as usize;
+        let mut request = chunked_post(max + 64 * 1024);
+        // Drop the final chunk: the connection stays open and the body never ends.
+        request.truncate(request.len() - b"0\r\n\r\n".len());
+        let head = bridge_answer_head(&[&request]);
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+    }
+
+    /// The bound does not refuse a chunked body under the limit: it reaches the handler.
+    #[test]
+    fn a_chunked_body_under_the_limit_reaches_the_handler() {
+        let head = bridge_answer_head(&[
+            b"POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"2\r\n{}\r\n0\r\n\r\n",
+        ]);
+        // 403 is the session-token check in handle_secured: the size and upgrade checks let it through.
+        assert!(head.starts_with("http/1.1 403"), "{head}");
+    }
+
+    /// The bridge has no use for a protocol upgrade, and such a request hands the reader the raw
+    /// connection: it is refused before anything is read, rather than held open.
+    #[test]
+    fn an_upgrade_request_is_refused_without_reading() {
+        let head = bridge_answer_head(&[
+            b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+        ]);
+        assert!(head.starts_with("http/1.1 400"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
+
+    /// A browser asks for an upgrade with several tokens in one header (`keep-alive, Upgrade`), and
+    /// tiny_http hands over the raw connection whenever the header contains the word.
+    #[test]
+    fn an_upgrade_among_other_connection_tokens_is_refused() {
+        let head = bridge_answer_head(&[
+            b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n",
+        ]);
+        assert!(head.starts_with("http/1.1 400"), "{head}");
+    }
+
+    /// The size refusal is answered in `serve` before any handler runs, so it is checked through
+    /// the real loop: an API request announcing more than 2 MiB gets `413` and `no-store`.
+    #[test]
+    fn the_size_refusal_is_not_kept_by_the_browser_cache() {
+        let request = format!(
+            "POST /api/proposals HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n",
+            3 * 1024 * 1024
+        );
+        let head = bridge_answer_head(&[request.as_bytes()]);
+        assert!(head.starts_with("http/1.1 413"), "{head}");
+        assert!(head.contains("\r\ncache-control: no-store\r\n"), "{head}");
+    }
 
     struct FakeWallet {
         result: Result<Balance, String>,
@@ -3410,6 +3655,14 @@ mod tests {
         let j = body_json(&r);
         assert_eq!(j["proposal"]["state"], "ready");
         assert_eq!(j["proposal"]["approvals_count"], 2);
+        // #575: the stance rows the app reads, the same shape the coordinator answers with.
+        let rows = j["proposal"]["stances"].as_array().expect("stances");
+        let approved: Vec<&str> = rows
+            .iter()
+            .filter(|s| s["stance"] == "approved" && s["counted"] == true)
+            .map(|s| s["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(approved, vec!["Ana", "Bruno"]);
     }
 
     #[test]

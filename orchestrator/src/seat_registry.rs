@@ -926,7 +926,7 @@ mod tests {
             let cfg = HelperConfig {
                 zcash_sign: sign,
                 devtool,
-                lightwalletd: "unused:443".into(),
+                servers: crate::lightclient::Servers::parse("unused:443", "main"),
                 network: "main".into(),
                 konclave_signer: PathBuf::from("/unused"),
                 vaults_dir: dir.join("vaults"),

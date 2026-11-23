@@ -56,6 +56,93 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.23.0] 2026-11-23
+
+> **Services deployed when this was cut (2026-11-23):** coordinator `fcd2abbb`, relay `68c687b62bc3d547`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The coordinator shares a smaller copy of each transaction with the vault's devices** (the shared
+  `orchestrator` crate; the coordinator's entry is in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)). The details follow in a later entry.
+- **An approval counts once per member, and only if it was signed once the vault requires signatures
+  (#575).** An approval used to be a name: one recorded under a member's exact name while a vault
+  still took unsigned actions went on counting as theirs after the vault required signatures, and two
+  members with the same name counted as one. Votes now record their seat and their signature; the
+  coordinator counts seats (a vote recorded without a signature no longer counts on a payment still
+  open once signatures are required). An approval given before a vault required signatures has to be given
+  again.
+- **A send keeps less of its work on the coordinator, the local bridge and the command line** (the shared `orchestrator` crate; the coordinator's entry is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md)). The details follow in a later entry.
+
+### Added
+
+- **The coordinator's health answer lists the light-client servers it uses** and, for each, whether the last check found it
+  answering on the right chain and how many blocks it is from the middle of the others. It reports what the last
+  background check found and never checks on request. The boot log names each server.
+- **The coordinator can be given several light-client servers** and keeps working when one stops answering: it uses
+  the one it is on while that one answers and stays near the others, and moves to another only when it stops
+  answering or falls well behind and at least three others agree. One configured server behaves as before.
+
+### Fixed
+
+- **The browser core can say whether a saved key belongs to a seat of a vault.** One check in the
+  signing core compares a device's saved key with the vault's public keys (the seat, the vault key,
+  the quorum and the public share recorded for the seat). The app uses it to refuse a backup, or a
+  saved copy, that is not the seat's own; see the app's changelog.
+- **The local bridge's API answers are not kept by the browser's cache.**
+- **A body sent to the local bridge in chunks is held to the same 2 MiB limit as one that announces its length**
+  (#1088). The limit read only the announced length, so a chunked body reached the bridge's handler whatever its
+  size; now a larger one is refused with `413`. A request asking to upgrade the connection is refused, since the
+  bridge has no use for one.
+- **A send no longer fails because one light-client server stops answering.** When the server a send is broadcast through
+  cannot be reached, or does not answer within its time limit, the coordinator sends the same signed transaction through
+  the next server it has that is close to the others, within three minutes in all. A failure after the transaction was
+  handed to a server is reported as it is and not tried elsewhere. If no server takes it after a time-out, the message says the transaction may have reached
+  the network and not to send it again before checking, since a server that timed out may have received it.
+- **The coordinator reads the devices' signing answer more reliably while it waits for it.** How it
+  sorts the messages in the signing room was tightened, and an answer whose check could not run for a
+  moment is read again a few times instead of being dropped. The signer now tells a refused
+  signature apart from a check that could not run by its exit status, and the coordinator asks the
+  signer whether it does before reading its exits that way.
+- **A light-client server that stops answering no longer holds a vault.** Every call the coordinator and the local
+  bridge make to that server (the broadcast, registering a vault's viewing key, reading the chain's tip, and the sync
+  as before) now stops at a deadline, and the caller reports the failure. On the hosted coordinator a broadcast that is
+  stopped keeps its attempt on record, as any broadcast error does there, so nothing signs again because of it.
+- **A coordinator or relay that lost its request workers now stops with a failure code, so the platform can restart
+  it.** Each server answers requests on a fixed set of worker threads. A worker that failed ended alone, the server
+  went on with fewer, and when none were left it exited as if it had been stopped on purpose (code 0), which a
+  restart-on-failure policy does not restart. Now the first worker to end takes the process with it, with code 70,
+  and the log says which server stopped. Requests in flight on the other workers end too: a send that had reached
+  its broadcast wrote its record to the volume first, and the coordinator reports it as held when it starts again; a
+  send still collecting its signatures had broadcast nothing and is signed again. The local bridge exits the same way
+  when its loop ends. A request whose handler fails at the relay is now answered with a 500 and costs only its own answer, as
+  it already was at the coordinator.
+
+### Known limits
+
+- **The automatic check of Rust dependencies against published security advisories does not cover
+  the two tools the coordinator runs that are built from other projects.** It checks the root lock
+  (the coordinator, the signer, the browser's signing module and the desktop shell) and the relay's
+  own lock, not the lock under `engine/patches/` that `zcash-devtool` is built from, nor the one
+  `zcash-sign` is built with in the Zcash Foundation's `frost-tools`. Open advisories against the
+  `zcash-devtool` lock are being triaged before it is added.
+- **A coordinator taken back to a version before this release counts names again.** Each proposal
+  keeps the names beside the votes, so an older coordinator reads every record, but it counts the
+  names, with the limits the change to counting approvals (Security, above) removes. A proposal it
+  writes keeps only the names, so if it is still open after the update, its members vote again.
+- **A vault created before 8 November 2026 and restored on a coordinator without its device
+  registry takes unsigned actions again,** and approvals recorded without a signature count again,
+  until its members unlock and register. A vault created since then does not open: it refuses
+  votes, proposals and sends instead. Whoever runs the coordinator restores the registry with the
+  vault, from the backup (`docs/RECOVERY.md`, D and G), and tells the members when none exists.
+- **Who holds a seat is not proven on vaults created before 8 November 2026 (#577).** An approval
+  counts once per seat, but on an older vault the first device to register a seat's key holds that
+  seat, and its approvals and refusals count as the seat's. A vault created since then proves each
+  seat with its share.
+
 ## [0.22.0] 2026-11-20
 
 > **Services deployed when this was cut (2026-11-20):** coordinator `e5e581ee`, relay `68c687b62bc3d547`.

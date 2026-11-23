@@ -137,7 +137,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(coord.verifyWithRandomizer(otherAlpha, sig)).toBe(false)
   })
 
-  it('a restored share signs again (signing after restore), via the same path /net uses', () => {
+  it('a restored share signs again (signing after restore), with the same material the background signer uses', () => {
     // Persistence saves each device's material as a bundle (KeyPackage, pubkeys, group key);
     // a reload restores it. Prove that the RESTORED bytes alone - no live DkgSession - run the
     // exact ceremony /net runs today (the randomizer path, under the PCZT alpha) and verify. This

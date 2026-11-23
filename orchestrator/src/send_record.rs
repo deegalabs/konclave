@@ -906,6 +906,7 @@ mod tests {
             state: state.into(),
             approvals: vec!["alice".into(), "bob".into()],
             refusals: vec![],
+            votes: vec![],
             threshold: 2,
             total: 3,
             created_at_unix: 1_000,
@@ -1977,11 +1978,14 @@ mod tests {
             found.sort();
             found
         };
-        // `send.rs`: the signed-transaction broadcast that `send_proposal` and the operator's command
-        // line share, and the local bridge's own path (not the hosted coordinator, see CHANGELOG).
-        // This file names the call only inside this test, assembled from parts.
-        let call = ["pczt", "::send("].concat();
-        assert_eq!(scan(&call), vec![("send.rs".to_string(), 2)]);
+        // `send.rs`: ONE call into the failover broadcast, which both paths (`send_proposal` and the
+        // operator's command line, local bridge included) go through. `lightclient.rs`: the one
+        // single-attempt call, made by that broadcast alone. This file names the calls only inside
+        // this test, assembled from parts.
+        let call = ["lightclient", "::broadcast("].concat();
+        assert_eq!(scan(&call), vec![("send.rs".to_string(), 1)]);
+        let call = ["pczt", "::send_on("].concat();
+        assert_eq!(scan(&call), vec![("lightclient.rs".to_string(), 1)]);
         // `send.rs`: the definition, the operator wrapper and the test that pins the bytes it hands
         // the tool. `send_record.rs`: the live step `send_with` calls after the record exists.
         let call = ["broadcast", "_signed("].concat();

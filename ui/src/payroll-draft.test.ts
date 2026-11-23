@@ -23,10 +23,12 @@ describe('the payroll draft belongs to one vault', () => {
     expect(localStorage.getItem(LEGACY_DRAFT_KEY)).toBeNull()
   })
 
-  it('the screen reads and writes only the keyed draft', () => {
+  it('the screen reaches the draft only through payroll-draft, and touches no storage itself', () => {
     const src = codeOf('screens/NewPayroll.tsx')
     expect(src).not.toMatch(/konclave\.folha\.rascunho/)
-    expect(src).toMatch(/draftKey\(/)
+    expect(src).not.toMatch(/localStorage|sessionStorage/)
+    expect(src).toMatch(/readPayrollDraft\(/)
+    expect(src).toMatch(/savePayrollDraft\(/)
   })
 
   it('is cleared on lock and on every removal path', () => {
@@ -35,7 +37,7 @@ describe('the payroll draft belongs to one vault', () => {
     expect(store.slice(store.indexOf('export async function deleteVault'))).toMatch(/clearPayrollDraft\(id\)/)
     // The local bridge deletes the record itself; Settings then clears what the browser kept for the
     // vault through one function (#813), and the draft is part of it.
-    expect(codeOf('screens/Settings.tsx')).toMatch(/clearVaultTraces\(vault\.id\)/)
+    expect(codeOf('screens/Settings.tsx')).toMatch(/clearVaultTraces\(id\)/)
     const traces = codeOf('remove-vault.ts')
     expect(traces.slice(traces.indexOf('export function clearVaultTraces'))).toMatch(/clearPayrollDraft\(id\)/)
   })

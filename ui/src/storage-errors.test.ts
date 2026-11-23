@@ -1,10 +1,15 @@
 import 'fake-indexeddb/auto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { saveVault, exportVault, importVault, parseVaultExport, deleteVault, type VaultData } from './storage'
 import { StorageError, storageErrorKey } from './storage-errors'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 import { codeOf } from './source-scan'
+
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
 
 // #586: the import and export dialogs showed `e.message` from storage.ts, English literals, on the
 // screen of a member restoring the one copy of their seat. The storage layer now refuses with a
@@ -13,7 +18,7 @@ const GK7 = '07'.repeat(32)
 const data: VaultData = {
   name: 'Test vault', governance: 'quorum', myName: 'Alice', creatorName: 'Alice',
   groupKey: new Uint8Array(32).fill(7), address: 'u1examplevaultaddress', roster: ['Alice', 'Bob', 'Carol'],
-  sealedShare: new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1)),
+  sealedShare: new TextEncoder().encode(JSON.stringify({ kp: 'x', pubkeys: 'y', seat: 1, n: 3, t: 2 })),
 }
 const pass = 'correct horse battery staple'
 

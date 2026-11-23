@@ -3,7 +3,7 @@
 // A local comparison: the states of the proposals, by id, as they were when the member last
 // said "seen" on this device, against the list read now. Nothing is asked of the coordinator
 // beyond the list it already serves, and nothing is written anywhere but this device.
-import { bandOf, expiredByClock } from './desk'
+import { expiredByClock, personalBand } from './desk'
 import type { Proposal } from './api'
 
 /** The proposals' states by id, as last seen on this device. */
@@ -21,7 +21,7 @@ const stateOf = (p: Proposal) => (expiredByClock(p) ? 'expired' : p.state)
 function kindOf(from: string | null, to: string, p: Proposal, me: string | null): ChangeKind {
   // New since the last look and still open: for you when it waits on your vote. One that was created
   // and closed between two looks is named by how it ended, below.
-  if (from === null && (to === 'awaiting' || to === 'ready')) return to === 'awaiting' && me !== null && bandOf(p, me) === 'vote' ? 'arrived' : 'new'
+  if (from === null && (to === 'awaiting' || to === 'ready')) return to === 'awaiting' && personalBand(p, me) === 'vote' ? 'arrived' : 'new'
   // Ready names the state, not who signs: who may sign is the vault's rule, not this screen's.
   if (to === 'ready') return 'ready'
   if (to === 'sent') return 'sent'

@@ -12,6 +12,11 @@ import {
   warnsAboutEviction, storagePersistence, replaceRefusedReceivers, recordReceiversRefused, recordVerifiedReceivers,
 } from './storage'
 
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 // Covers the on-device share persistence (Marco 5): the encrypted IndexedDB round-trip that
 // `storage.ts` performs. fake-indexeddb provides IndexedDB; Node's WebCrypto provides
 // AES-GCM/PBKDF2 (crypto.subtle). The point is that a saved share comes back only with the
@@ -19,7 +24,8 @@ import {
 
 // A vault's id is its group key (07 x 32 for the shared test key): an export whose two differ is refused.
 const GK7 = '07'.repeat(32)
-const share = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))
+// A device-bundle shape with a stand-in key (the real check is mocked here, and the shape is what an import still reads).
+const share = new TextEncoder().encode(JSON.stringify({ kp: 'x', pubkeys: 'y', seat: 1, n: 3, t: 2 }))
 const groupKey = new Uint8Array(32).fill(7)
 const data: VaultData = {
   name: 'Test vault', governance: 'quorum', myName: 'Alice', creatorName: 'Alice',

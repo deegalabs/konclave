@@ -103,7 +103,7 @@ describe('acting as the seat this device holds (#591)', () => {
 
   it('a payment from seat 2 goes out as the served seat 2 and the proof names the same seat', async () => {
     unlockSeat(2)
-    const res = await createProposal(pay) // the screen's own name ("Alice") is not what is sent
+    const res = await createProposal(VAULT, pay) // the screen's own name ("Alice") is not what is sent
     expect(res.ok).toBe(true)
     expect(posts.at(-1)!.body.proposer).toBe('Bia')
     expect(signed.at(-1)).toEqual({ action: 'propose', target: 'Bia', seat: 2 })
@@ -111,15 +111,15 @@ describe('acting as the seat this device holds (#591)', () => {
 
   it('a payroll from seat 2 goes out as the served seat 2 and the proof names the same seat', async () => {
     unlockSeat(2)
-    const res = await createPayroll('Alice', lines)
+    const res = await createPayroll(VAULT, 'Alice', lines)
     expect(res.ok).toBe(true)
     expect(posts.at(-1)!.body.proposer).toBe('Bia')
     expect(signed.at(-1)).toEqual({ action: 'propose', target: 'Bia', seat: 2 })
   })
 
   it('locked: no proposal is sent, and the reason is named', async () => {
-    const a = await createProposal(pay)
-    const b = await createPayroll('Alice', lines)
+    const a = await createProposal(VAULT, pay)
+    const b = await createPayroll(VAULT, 'Alice', lines)
     expect(posts).toHaveLength(0)
     expect(a).toMatchObject({ ok: false, error: 'proposer unresolved', detail: 'locked' })
     expect(b).toMatchObject({ ok: false, error: 'proposer unresolved', detail: 'locked' })
@@ -128,8 +128,8 @@ describe('acting as the seat this device holds (#591)', () => {
   it('list unread: refused, never "member 2" and never this device\'s roster', async () => {
     unlockSeat(2, 'Bia', ['Ana', 'Bia'])
     served = null
-    const a = await createProposal(pay)
-    const b = await createPayroll('Bia', lines)
+    const a = await createProposal(VAULT, pay)
+    const b = await createPayroll(VAULT, 'Bia', lines)
     expect(posts).toHaveLength(0)
     expect(a).toMatchObject({ ok: false, detail: 'list-unread' })
     expect(b).toMatchObject({ ok: false, detail: 'list-unread' })
@@ -138,7 +138,7 @@ describe('acting as the seat this device holds (#591)', () => {
   it('an unnamed seat is refused before anything is sent', async () => {
     unlockSeat(2)
     served = ['Ana', '']
-    expect(await createProposal(pay)).toMatchObject({ ok: false, detail: 'no-seat-name' })
+    expect(await createProposal(VAULT, pay)).toMatchObject({ ok: false, detail: 'no-seat-name' })
     expect(posts).toHaveLength(0)
   })
 
@@ -146,7 +146,7 @@ describe('acting as the seat this device holds (#591)', () => {
   // or re-unlocks). A write then goes out under a name this seat does not hold, and an unsigned one
   // is accepted by a vault without signed actions: it is refused instead.
   it('a device whose seat changed after the name was read sends nothing, payment and payroll', async () => {
-    for (const make of [() => createProposal(pay), () => createPayroll('Alice', lines)]) {
+    for (const make of [() => createProposal(VAULT, pay), () => createPayroll(VAULT, 'Alice', lines)]) {
       unlockSeat(2)
       onMembersRead = () => unlockSeat(1)
       const res = await make()

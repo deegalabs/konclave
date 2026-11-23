@@ -18,7 +18,7 @@ import CopyButton from '../CopyButton'
 import { useToast } from '../toast'
 import { fmtZecExact, zatToZec } from '../format'
 import { useVaultSigner } from '../VaultSigner'
-import { openFailKey, unlockOnDevice } from '../unlock'
+import { unlockFailKey, unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
 import { alreadySent, applyPlan, panelStep, resolvedStep, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
 import { errorCode, getBalance, writeProof } from '../api'
@@ -660,9 +660,11 @@ export default function SigningPanel() {
       // a locked device, which the helper still accepts while the vault has no write keys.
       proof: await writeProof(vault.group_pubkey, 'send', active!.id),
     }
-    // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. No
-    // secret is logged (the group key and the proposal id are public vault material).
-    console.info('[konclave] send: start', { proposal: args.proposalId, room: args.room, phase: bg.phase })
+    // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. Only
+    // the proposal id and the signer's phase are logged. The signing room of a protected vault comes
+    // from its access secret S, so the vault id alone does not give it, and it stays out of the console
+    // (console-no-vault-secrets.test.ts scans every source file for it).
+    console.info('[konclave] send: start', { proposal: args.proposalId, phase: bg.phase })
     setConfirming(null)
     let asked = false
     setSending(true)
@@ -747,7 +749,7 @@ export default function SigningPanel() {
       // loadVault -> setUnlockedShare -> markVaultUnlocked; #467 folded the first two together and
       // missed this one, which is how one rule ends up with three implementations.
       const r = await unlockOnDevice(vault.id, 'net', pass)
-      if (!r.ok) { setUnlockErr(t(openFailKey(r.wrong))); return }
+      if (!r.ok) { setUnlockErr(t(unlockFailKey(r))); return }
       setPass('')
       reseat() // the signer re-runs now that the share is in session
     } finally {

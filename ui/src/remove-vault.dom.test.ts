@@ -19,6 +19,7 @@ import { setSelectedVault, getSelectedVault } from './api'
 import { setReadSecret, readSecretFor } from './session'
 import { savePrfWrap } from './prf-store'
 import { pushRecentPayee, recentPayees } from './recent-payees'
+import { savePayrollDraft, readPayrollDraft } from './payroll-draft'
 import { writeSeen } from './seen-store'
 
 const A = 'aa'.repeat(32)
@@ -34,7 +35,7 @@ function seedLocal(id: string) {
   localStorage.setItem(`konclave.folha.rascunho.${id}`, '{"lines":[]}')
   localStorage.setItem(`konclave.signed.${id}`, '[]')
   setSelectedVault(id)
-  pushRecentPayee(`u1recent${id.slice(0, 4)}`)
+  localStorage.setItem(`konclave.recentPayees.${id}`, JSON.stringify([`u1recent${id.slice(0, 4)}`]))
   setReadSecret(id, new Uint8Array(32).fill(9))
   localStorage.setItem(`konclave.status.${id}`, JSON.stringify({ openCount: 0, proposalsAt: 1 }))
   writeSeen(id, { at: 1, states: { p1: 'awaiting' } })
@@ -49,35 +50,41 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     await saveVault(B, data('b', 0xbb), 'passphrase one two')
     seedLocal(B)
     seedLocal(A) // A is the selected vault
+    await new Promise((r) => setTimeout(r, 50)) // the unlock's migration has gone by: a protected vault's draft is in memory
+    expect(await savePayrollDraft(B, { competencia: 'B in memory' })).toBe('written')
+    expect(await savePayrollDraft(A, { competencia: 'A in memory' })).toBe('written')
     expect(await removeVaultFromDevice(A)).toBe(true)
+    expect(await readPayrollDraft(A)).toBeNull()
+    expect(await readPayrollDraft(B)).toEqual({ competencia: 'B in memory' }) // removing A leaves B's draft
 
     expect((await listVaults()).map((v) => v.id)).toEqual([B])
     expect(keysWith(A)).toEqual([`konclave.signed.${A}`])
     expect(getSelectedVault()).toBeNull()
     expect(readSecretFor(A)).toBeUndefined()
 
-    // The other vault keeps all of its own.
+    // The other vault keeps all of its own (its draft is not among them: it holds S in this session,
+    // so the clear draft that seeding left is deleted on the spot, by design).
     expect(keysWith(B).sort()).toEqual([
-      `konclave.benef.${B}`, `konclave.folha.rascunho.${B}`, `konclave.prf.${B}`, `konclave.recentPayees.${B}`, `konclave.seen.${B}`, `konclave.signed.${B}`, `konclave.status.${B}`,
+      `konclave.benef.${B}`, `konclave.prf.${B}`, `konclave.recentPayees.${B}`, `konclave.seen.${B}`, `konclave.signed.${B}`, `konclave.status.${B}`,
     ].sort())
     expect(readSecretFor(B)).toBeDefined()
   })
 
-  it('the recent addresses belong to a vault: one vault never offers another vault\'s payees', () => {
+  it('the recent addresses belong to a vault: one vault never offers another vault\'s payees', async () => {
     setSelectedVault(A)
-    pushRecentPayee('u1fora')
+    await pushRecentPayee(getSelectedVault(), 'u1fora')
     setSelectedVault(B)
-    expect(recentPayees()).toEqual([])
-    pushRecentPayee('u1forb')
-    expect(recentPayees()).toEqual(['u1forb'])
+    expect(await recentPayees(getSelectedVault())).toEqual([])
+    await pushRecentPayee(getSelectedVault(), 'u1forb')
+    expect(await recentPayees(getSelectedVault())).toEqual(['u1forb'])
     setSelectedVault(A)
-    expect(recentPayees()).toEqual(['u1fora'])
+    expect(await recentPayees(getSelectedVault())).toEqual(['u1fora'])
   })
 
-  it('drops the unkeyed recent list of earlier versions, whose vault cannot be known', () => {
+  it('drops the unkeyed recent list of earlier versions, whose vault cannot be known', async () => {
     localStorage.setItem('konclave.recentPayees', JSON.stringify(['u1legacy']))
     setSelectedVault(A)
-    expect(recentPayees()).toEqual([])
+    expect(await recentPayees(getSelectedVault())).toEqual([])
     expect(localStorage.getItem('konclave.recentPayees')).toBeNull()
   })
 
@@ -137,9 +144,10 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
     expect(keysWith(A)).toEqual([`konclave.signed.${A}`])
     expect(getSelectedVault()).toBeNull()
     expect(readSecretFor(A)).toBeUndefined()
-    expect(keysWith(B)).toHaveLength(7)
+    // Not counting the draft: B holds S here, and a protected vault's draft is memory-only (a seeded plain one is deleted, whenever the migration runs).
+    expect(keysWith(B).filter((k) => !k.includes('rascunho'))).toHaveLength(6)
     const settings = codeOf('screens/Settings.tsx')
-    expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(vault\.id\)/)
+    expect(settings).toMatch(/res\.ok\) \{ clearVaultTraces\(id\)/)
     // No screen clears a part of a vault's leftovers on its own: that is how the two lists drifted.
     for (const part of ['clearPayrollDraft', 'clearRecentPayees']) expect(settings, part).not.toMatch(new RegExp(`\\b${part}\\(`))
   })
@@ -151,19 +159,17 @@ describe('removing a vault takes everything this device keeps for it (#813)', ()
 // test proves it goes; or it is kept on purpose, with the reason.
 type Fate = 'device' | 'cleared' | 'kept'
 const STORAGE_WRITES: Record<string, Record<string, Fate>> = {
-  'api.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */, k: 'cleared' /* the payee book */ },
+  'shown-vault.ts': { VAULT_KEY: 'cleared' /* the selection, when it is this vault */ },
   'helper.ts': { MODE_KEY: 'device' },
   'i18n/index.tsx': { LOCALE_KEY: 'device' },
   'net.ts': { RELAY_MODE_KEY: 'device' },
   'prf-store.ts': { 'KEY(vaultId)': 'cleared' },
   'price.ts': { KEY_ENABLED: 'device', KEY_CACHE: 'device' },
-  'recent-payees.ts': { 'recentPayeesKey(id)': 'cleared' },
   'service-url.ts': { 'STORAGE_KEY[kind]': 'device' /* the member's own coordinator and relay address (#1067) */ },
   'seen-store.ts': { 'seenKey(id)': 'cleared' /* what "What changed" last showed for this vault */ },
-  'screens/NewPayroll.tsx': { draftAt: 'cleared' /* the payroll draft */ },
   'signed-record.ts': { k: 'kept' /* what this device signed: hashes and expiries, refuses a second tx */ },
-  'storage.ts': { 'beneficiariesKey(id)': 'cleared' },
   'theme.ts': { KEY: 'device' },
+  'vault-local.ts': { q: 'cleared' /* a value that would not open, or came so in a backup: kept aside */, k: 'cleared' /* the payee book, sealed or not */ },
   'vault-status.ts': { 'key(vault)': 'cleared' /* what the vault list last showed for this vault */ },
 }
 

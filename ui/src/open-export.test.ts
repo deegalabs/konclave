@@ -10,6 +10,11 @@ import { openExport, examine, reportLines } from '../../scripts/open-export.mjs'
 import { saveVault, loadVault, exportVault, importVault, parseVaultExport, type VaultData } from './storage'
 import { decodeBundle } from './signing'
 
+// These tests are about how a vault is sealed and moved, and keep a stand-in for the share (a few
+// bytes, not a real key package). The share check (`share-check.ts`, #965) has its own real-wasm
+// tests in share-import-check.test.ts, so here it is let through.
+vi.mock('./share-check', () => ({ assertShareIsThisSeats: async () => {} }))
+
 // `scripts/open-export.mjs` is what docs/RECOVERY.md hands a member whose laptop is dead: it opens a
 // backup with nothing but Node and says whether the backup is complete. It had no test, and it was
 // wrong about every backup in two ways.
@@ -205,5 +210,20 @@ describe('the offline checker reads a real backup the way the app wrote it', () 
     // with the rest of the file.
     const r = await checked('oe-disagree', 2, 4, 2)
     expect(r.problems.join(' ')).toMatch(/4 members.*roster lists 3/)
+  })
+
+  it('applies the whole-number rule the app applies to a share\'s seat and quorum (#965)', () => {
+    const hexOf = (o: unknown) => Array.from(new TextEncoder().encode(JSON.stringify(o)), (x) => x.toString(16).padStart(2, '0')).join('')
+    const withFields = (fields: Record<string, unknown>) =>
+      examine({ id: 'ab'.repeat(32), groupKey: 'ab'.repeat(32), roster: ROSTER, share: hexOf({ kp: 'x', pubkeys: 'y', ...fields }) }, false).problems.join(' ')
+    expect(withFields({ seat: 1, n: 3, t: 2 })).toBe('')
+    for (const bad of [{ seat: '1', n: 3, t: 2 }, { seat: 1, n: 3, t: 2.5 }, { n: 3, t: 2 }, { seat: 1, n: 3 }, { seat: 65537, n: 3, t: 2 }]) {
+      expect(withFields(bad), JSON.stringify(bad)).toMatch(/seat or quorum[\s\S]*refuses to\s+import/)
+    }
+  })
+
+  it('says once that it does not check the share against its seat, which needs the app (#965)', async () => {
+    const r = await checked('oe-says-limit', 1, 3, 2)
+    expect(r.report.match(/does not check the share against its seat/g)).toHaveLength(1)
   })
 })

@@ -329,28 +329,75 @@ struct EphemeralFile {
     path: PathBuf,
 }
 
+/// Unsealed shares and specs are `konclave-<16 hex>.tmp`; a tool's output ([`PrivateOutPath`]) is
+/// `konclave-out-<16 hex>.tmp`. The boot sweep takes only the second: a share file belongs to a
+/// running local bridge or CLI that the sweep must never pull out from under it.
+const EPHEMERAL_PREFIX: &str = "konclave-";
+const OUT_PREFIX: &str = "konclave-out-";
+const EPHEMERAL_SUFFIX: &str = ".tmp";
+
+/// The private directory: tmpfs (never touches disk) when available, else the temp dir.
+fn private_dir() -> PathBuf {
+    if Path::new("/dev/shm").is_dir() {
+        PathBuf::from("/dev/shm")
+    } else {
+        std::env::temp_dir()
+    }
+}
+
 impl EphemeralFile {
     fn create(contents: &[u8]) -> Result<EphemeralFile, SecretError> {
-        // Prefer tmpfs (never touches disk) when available.
-        let dir = if Path::new("/dev/shm").is_dir() {
-            PathBuf::from("/dev/shm")
-        } else {
-            std::env::temp_dir()
-        };
+        Self::create_in(&private_dir(), EPHEMERAL_PREFIX, contents)
+    }
+
+    /// Create a fresh file in `dir` (0600, `create_new`: a path that already exists is refused, never
+    /// reused). The guard exists only once the file is OURS, so a refusal removes nothing.
+    fn create_in(dir: &Path, prefix: &str, contents: &[u8]) -> Result<EphemeralFile, SecretError> {
         let mut suffix = [0u8; 8];
         random(&mut suffix)?;
         let name = format!(
-            "konclave-{}.tmp",
+            "{prefix}{}{EPHEMERAL_SUFFIX}",
             suffix
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect::<String>()
         );
         let path = dir.join(name);
-
         write_private(&path, contents).map_err(|e| SecretError::Io(e.to_string()))?;
         Ok(EphemeralFile { path })
     }
+}
+
+/// Remove what an earlier process of ours left in the private directory (an orphaned tool's output, a
+/// signer output its owner never got to delete). Call it at boot, when no operation of this process
+/// is in flight. Only regular files named exactly `konclave-out-<16 hex>.tmp`: nothing else is
+/// touched, shares and specs included.
+/// Returns how many were removed.
+pub fn sweep_private_leftovers() -> usize {
+    sweep_private_dir(&private_dir())
+}
+
+fn sweep_private_dir(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut n = 0;
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(hex) = name
+            .strip_prefix(OUT_PREFIX)
+            .and_then(|r| r.strip_suffix(EPHEMERAL_SUFFIX))
+        else {
+            continue;
+        };
+        let is_ours = hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit());
+        let is_file = e.file_type().map(|t| t.is_file()).unwrap_or(false);
+        if is_ours && is_file && std::fs::remove_file(e.path()).is_ok() {
+            n += 1;
+        }
+    }
+    n
 }
 
 impl Drop for EphemeralFile {
@@ -368,7 +415,14 @@ fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         .write(true)
         .mode(0o600)
         .open(path)?;
-    f.write_all(contents)
+    // The file is ours (`create_new`): if the write fails part-way (a full tmpfs), what was written
+    // goes now, since no guard exists yet to remove it.
+    if let Err(e) = f.write_all(contents) {
+        drop(f);
+        let _ = std::fs::remove_file(path);
+        return Err(e);
+    }
+    Ok(())
 }
 
 #[cfg(not(unix))]
@@ -408,6 +462,28 @@ pub fn with_private_file<T>(
     let result = op(&file.path);
     // `file` drops here, removing the plaintext.
     Ok(result)
+}
+
+/// A private place for a tool to WRITE its output (tmpfs when `/dev/shm` exists, else the temp dir).
+/// The file is created here empty and 0600 (so the tool's truncating write keeps the mode and nobody
+/// can plant the path first) and removed when the guard drops - on success, on an error return and
+/// on panic.
+pub struct PrivateOutPath {
+    file: EphemeralFile,
+}
+
+impl PrivateOutPath {
+    /// A fresh, empty, private file in private temporary storage.
+    pub fn new() -> Result<PrivateOutPath, SecretError> {
+        Ok(PrivateOutPath {
+            file: EphemeralFile::create_in(&private_dir(), OUT_PREFIX, b"")?,
+        })
+    }
+
+    /// The path the tool should write to (valid until this guard drops).
+    pub fn path(&self) -> &Path {
+        &self.file.path
+    }
 }
 
 /// An unsealed secret materialized as a short-lived 0600 file, removed when dropped.
@@ -602,6 +678,74 @@ mod tests {
             "the spec must live on tmpfs or the temp dir, never in the vault's work dir"
         );
         let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_out_path_is_created_0600_and_removed_on_drop() {
+        use std::os::unix::fs::PermissionsExt;
+        let out = PrivateOutPath::new().unwrap();
+        let p = out.path().to_path_buf();
+        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        // A tool's truncating write keeps the mode.
+        std::fs::write(&p, b"built").unwrap();
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        drop(out);
+        assert!(!p.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_path_is_refused_not_reused_and_not_removed() {
+        let planted = std::env::temp_dir().join(format!("konclave-plant-{}", std::process::id()));
+        std::fs::write(&planted, b"theirs").unwrap();
+        struct Rm(PathBuf);
+        impl Drop for Rm {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _rm = Rm(planted.clone());
+        assert!(write_private(&planted, b"x").is_err());
+        assert_eq!(std::fs::read(&planted).unwrap(), b"theirs");
+    }
+
+    #[test]
+    fn the_boot_sweep_removes_only_our_files() {
+        let dir = std::env::temp_dir().join(format!("konclave-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _c = Cleanup(dir.clone());
+        let ours = dir.join("konclave-out-0123456789abcdef.tmp");
+        let others = [
+            // The name a share or a spec has: a running bridge may be using it.
+            "konclave-0123456789abcdef.tmp",
+            "konclave-out-0123456789abcdeg.tmp",
+            "konclave-out-0123.tmp",
+            "konclave-out-0123456789abcdef.txt",
+            "other-out-0123456789abcdef.tmp",
+        ];
+        std::fs::write(&ours, b"x").unwrap();
+        for o in others {
+            std::fs::write(dir.join(o), b"x").unwrap();
+        }
+        std::fs::create_dir(dir.join("konclave-out-fedcba9876543210.tmp")).unwrap();
+        assert_eq!(sweep_private_dir(&dir), 1);
+        assert!(!ours.exists());
+        for o in others {
+            assert!(dir.join(o).exists(), "{o} was removed");
+        }
+        assert!(dir.join("konclave-out-fedcba9876543210.tmp").is_dir());
+        assert_eq!(sweep_private_dir(&dir.join("missing")), 0);
     }
 
     #[test]

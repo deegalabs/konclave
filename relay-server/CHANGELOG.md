@@ -82,6 +82,15 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Changed
 
+- **The relay image builds from a lock file, with `--locked`.** The relay is now its own cargo workspace with its
+  own `Cargo.lock`, the one CI tests, and the image copies it and refuses to resolve other versions; before, each
+  build took the newest compatible `tiny_http`, `serde` and `serde_json`, so two builds of one source could differ
+  and report the same digest. The digest now also covers the lock and the build script. This is pinning and a drift
+  check, not an attestation: the base images are still floating tags, the toolchain and the Dockerfile are outside the
+  digest, and the digest is a fast hash, not a signature. Build it with
+  `cargo build --manifest-path relay-server/Cargo.toml`. The digest changes with this entry although the relay's code
+  does not, so the first deploy recorded after it redeploys the relay too.
+
 - **The relay can be told how many proxies in front of it to trust** (`KONCLAVE_TRUSTED_PROXY_HOPS`,
   a whole number from 0 to 8; `DEPLOY.md`). Unset, which is how the hosted relay runs, nothing
   changes. A value it does not understand stops the relay at boot, and the boot log and `/health`
@@ -92,7 +101,21 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   largest payment it lets a vault propose from this number, so the two can no longer drift apart.
   The hosted relay has run this since 2026-11-06.
 
+### Fixed
+
+- **A relay that lost its request workers now stops with a failure code, so the platform can restart it.** A worker
+  that failed ended alone, and when none were left the relay exited with code 0, which a restart-on-failure policy
+  does not restart. Now the first worker to end takes the process with it, with code 70. Rooms are in memory, so they
+  are lost on that restart as on any other. A request whose handler fails is now answered with a 500 and costs
+  only its own answer, so only a failure outside a request's handler reaches that rule.
+
+- **The relay's answers are not kept by the browser's cache.** Every answer now says so, so a room's messages do
+  not stay in the browser after the session ends.
+
 ### Known limits
+
+- **A copy the browser stored before this change was deployed stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
 
 - **The address the relay counts a request under is only as good as the forwarding header and the
   setting.** Unset, `KONCLAVE_TRUSTED_PROXY_HOPS` keeps the first hop of `X-Forwarded-For`, which is

@@ -45,8 +45,8 @@ describe('room-auth (#392) — a rejoin is bound to its seat, vault, and tag', (
 // The whole decision, not half of it. #424 was not a missing primitive - `verifyRejoin` existed and
 // was correct - it was one of the two ceremony drivers never calling it. Sharing only the primitive
 // leaves each caller free to pass the group key or the tag in the wrong place, so the composed
-// check is what both now use, and this is what pins it.
-describe('rejoinIsProven — the check both ceremony drivers share (#424)', () => {
+// check is what a caller uses, and this is what pins it.
+describe('rejoinIsProven — the check the background signer uses (#424)', () => {
   it('accepts the seat-holder\'s own signed rejoin', () => {
     const { s0, groupVk, pubkeys } = dkg2of3()
     const sig = signRejoin(s0.keyPackage(), 1, bytesToHex(groupVk), 'tag-a')

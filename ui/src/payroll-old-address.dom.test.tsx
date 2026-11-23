@@ -11,7 +11,7 @@ import { I18nProvider } from './i18n'
 
 const ZS = 'zs1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'
 const mount = (compact: boolean) => render(
-  <I18nProvider><RecipientCombobox compact={compact} benefs={[]} address={ZS} name={null} onChange={() => {}} /></I18nProvider>,
+  <I18nProvider><RecipientCombobox vaultId={null} compact={compact} benefs={[]} address={ZS} name={null} onChange={() => {}} /></I18nProvider>,
 )
 afterEach(cleanup)
 
@@ -27,7 +27,7 @@ describe('the picker leaves a refused address to the screen', () => {
   })
   it('and carries the row\'s state onto its input', () => {
     cleanup()
-    render(<I18nProvider><RecipientCombobox compact invalid describedBy="plr-issue-0" benefs={[]} address={ZS} name={null} onChange={() => {}} /></I18nProvider>)
+    render(<I18nProvider><RecipientCombobox vaultId={null} compact invalid describedBy="plr-issue-0" benefs={[]} address={ZS} name={null} onChange={() => {}} /></I18nProvider>)
     const input = screen.getByRole('combobox')
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(input.getAttribute('aria-describedby')).toBe('plr-issue-0')
