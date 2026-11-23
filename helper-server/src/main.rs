@@ -49,7 +49,7 @@ use orchestrator::send_record::{
 };
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, unsigned_seat, SeatError, SignedWrite,
-    Vote, VoteProof, WriteAction, WriteAuth,
+    Vote, VoteProof, WriteAction, WriteAuth, WriteRefusal,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -1157,7 +1157,7 @@ fn gate_write_checked(
         sig,
     };
     let seen = |n: &str| orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, vault, n);
-    match authorize_write(&write_keys, vault, action, target, &w, seen) {
+    match authorize_write(&write_keys, vault, action, target, &w, now_ms(), seen) {
         WriteAuth::Authorized { seat } => {
             let recorded = match acts_as {
                 None => None,
@@ -1206,10 +1206,12 @@ fn gate_write_checked(
                 "vault {}: refused a write ({why:?})",
                 orchestrator::helper::short_id(vault)
             );
-            Err(resp(
-                401,
-                json!({ "error": "signature required" }).to_string(),
-            ))
+            let error = if why == WriteRefusal::Stale {
+                STALE_WRITE_TEXT
+            } else {
+                "signature required"
+            };
+            Err(resp(401, json!({ "error": error }).to_string()))
         }
     }
 }
@@ -1701,6 +1703,18 @@ fn sent_proposals(cfg: &HelperConfig, vault: &str) -> Vec<HelperProposal> {
 }
 
 /// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
+/// A signed write whose time is too far from the coordinator's. Almost always a device clock.
+const STALE_WRITE_TEXT: &str =
+    "this action was signed at a time too far from now; check this device's clock and date, then try again";
+
+/// The coordinator's clock in ms, the unit a signed write carries.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -5388,7 +5402,7 @@ mod tests {
         );
 
         // Alice renames HER OWN seat, signed. `target` is `old\0new`.
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let target = "alice\u{0}alicia";
         let msg = write_message("renamegate", WriteAction::Rename, target, 1, ts, "rn1");
         let sig: String = sk
@@ -5480,7 +5494,7 @@ mod tests {
         nonce: &str,
     ) -> String {
         use ed25519_dalek::Signer;
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = konclave_seal::write_message(vault, action, target, 1, ts, nonce);
         let sig: String = sk
             .sign(&msg)
@@ -5848,7 +5862,7 @@ mod tests {
             .collect();
         orchestrator::helper::upsert_device(dir, "spelling", "bb", Some((2, &pubhex))).unwrap();
         let envelope = |action: WriteAction, target: &str, nonce: &str| {
-            let ts = 1_700_000_000_000i64;
+            let ts = now_ms();
             let msg = write_message("spelling", action, target, 2, ts, nonce);
             let sig: String = bob
                 .sign(&msg)
@@ -5926,7 +5940,7 @@ mod tests {
         orchestrator::helper::upsert_device(dir, "seat2", "bb", Some((2, &pubhex))).unwrap();
 
         let vote_as = |member: &str, nonce: &str| {
-            let ts = 1_700_000_000_000i64;
+            let ts = now_ms();
             let msg = write_message("seat2", WriteAction::Approve, "p1", 2, ts, nonce);
             let sig: String = bob
                 .sign(&msg)
@@ -6048,7 +6062,7 @@ mod tests {
         );
 
         // And a properly signed one is accepted.
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = write_message("votegate", WriteAction::Approve, "p1", 1, ts, "n1");
         let sig: String = {
             use ed25519_dalek::Signer;
@@ -6080,6 +6094,134 @@ mod tests {
             body.as_bytes(),
         );
         assert_eq!(again.status, 401, "a replayed signed vote is refused");
+    }
+
+    /// A signed vote is good once, near the moment it was signed, and is never handed back out. An
+    /// answer that carried the signed write let another member send it again, so it carries none; a
+    /// used nonce stays used for as long as its write could still be fresh, however many writes come
+    /// after it; and a write signed too long ago, or too far ahead, is refused.
+    #[test]
+    fn a_signed_vote_is_not_served_and_cannot_be_sent_again_later() {
+        use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
+        let st = HelperState::new();
+        seed(&st, "replayvote");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ =
+            orchestrator::helper::claim_members(dir, "replayvote", &["alice".into(), "bob".into()]);
+        let now = now_unix();
+        let mut p = HelperProposal {
+            id: "p1".into(),
+            vault_id: "replayvote".into(),
+            kind: "payment".into(),
+            to: "u1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            title: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "pending".into(),
+            approvals: vec![],
+            refusals: vec![],
+            votes: vec![],
+            threshold: 2,
+            total: 2,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        p.recompute_with(now, &orchestrator::helper::VoteBasis::default().as_basis());
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+
+        let sk =
+            ed25519_dalek::SigningKey::from_bytes(&write_key_seed_from_share(b"alice's share"));
+        let pubhex: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, "replayvote", "aa", Some((1, &pubhex))).unwrap();
+
+        let signed = |ts: i64, nonce: &str| {
+            use ed25519_dalek::Signer;
+            let msg = write_message("replayvote", WriteAction::Approve, "p1", 1, ts, nonce);
+            let sig: String = sk
+                .sign(&msg)
+                .to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!(
+                r#"{{"vault":"replayvote","member":"alice","seat":1,"ts":{ts},"nonce":"{nonce}","sig":"{sig}"}}"#
+            )
+        };
+        let approve = |body: &str| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/approve",
+                body.as_bytes(),
+            )
+        };
+        let now_ms = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+
+        let body = signed(now_ms, "victim-nonce");
+        let ok = approve(&body);
+        assert_eq!(ok.status, 200, "a fresh signed vote passes: {}", ok.body);
+        assert!(
+            !ok.body.contains("victim-nonce") && !ok.body.contains(r#""sig""#),
+            "the answer to a vote carries the signed write: {}",
+            ok.body
+        );
+        let read = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/proposals?vault=replayvote",
+            b"",
+        );
+        assert_eq!(read.status, 200, "{}", read.body);
+        assert!(
+            read.body.contains(r#""approvals_counted":1"#),
+            "{}",
+            read.body
+        );
+        assert!(
+            !read.body.contains("victim-nonce")
+                && !read.body.contains(r#""sig""#)
+                && !read.body.contains(r#""proof""#),
+            "the proposals answer carries the signed write: {}",
+            read.body
+        );
+
+        // Many writes later, the same signed vote is still a used one.
+        for i in 0..2_001 {
+            orchestrator::helper::burn_write_nonce(dir, "replayvote", &format!("later-{i}"))
+                .unwrap();
+        }
+        assert_eq!(
+            approve(&body).status,
+            401,
+            "a signed vote is accepted again once later writes pushed its nonce out"
+        );
+
+        // Signed too long ago, or too far ahead: refused, and the member is told to check the clock.
+        for (ts, nonce) in [
+            (now_ms - 11 * 60 * 1000, "too-old"),
+            (now_ms + 11 * 60 * 1000, "too-far-ahead"),
+        ] {
+            let r = approve(&signed(ts, nonce));
+            assert_eq!(r.status, 401, "{nonce}: {}", r.body);
+            assert!(r.body.contains("clock"), "{nonce}: {}", r.body);
+        }
     }
 
     /// #481. TLS covers the wire, but the browser's own extensions and any TLS-terminating proxy
@@ -8532,7 +8674,7 @@ mod tests {
         nonce: &str,
     ) -> String {
         use ed25519_dalek::Signer;
-        let ts = 1_700_000_000_000i64;
+        let ts = now_ms();
         let msg = konclave_seal::write_message(vault, action, target, seat, ts, nonce);
         let sig: String = sk
             .sign(&msg)

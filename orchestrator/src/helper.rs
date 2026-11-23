@@ -631,8 +631,14 @@ impl HelperProposal {
         let basis = self.reading_basis(basis);
         let basis = &basis;
         let c = counted(&self.votes, basis, self.total);
+        // Counted with the proofs, served without them. The signed writes stay in the record on
+        // disk; an answer that carried them handed any reader a write it could send again.
+        let mut proposal = self.clone();
+        for v in &mut proposal.votes {
+            v.proof = None;
+        }
         ProposalView {
-            proposal: self.clone(),
+            proposal,
             approvals_counted: c.approvals,
             refusals_counted: c.refusals,
             stances: crate::write_auth::stances(&self.votes, basis, self.total),
@@ -2157,42 +2163,80 @@ fn write_nonces_path(vaults_dir: &Path, vault: &str) -> PathBuf {
 /// deliberate: the helper serves requests from a worker pool, so an in-memory set would be per
 /// worker and a replay could simply land on a different one.
 pub fn write_nonce_seen(vaults_dir: &Path, vault: &str, nonce: &str) -> bool {
-    load_write_nonces(vaults_dir, vault)
+    load_write_nonces(vaults_dir, vault, now_ms())
         .iter()
-        .any(|n| n == nonce)
+        .any(|n| n.nonce == nonce)
 }
 
-fn load_write_nonces(vaults_dir: &Path, vault: &str) -> Vec<String> {
-    std::fs::read_to_string(write_nonces_path(vaults_dir, vault))
+/// A nonce this vault accepted, and when (ms on the coordinator's clock).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct UsedNonce {
+    nonce: String,
+    at_ms: i64,
+}
+
+/// The nonce file as it is now, or as it was: a bare list of nonces, kept by count.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NonceFile {
+    Timed(Vec<UsedNonce>),
+    Bare(Vec<String>),
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+/// The used nonces. A file in the older bare format has no times, so its nonces count as accepted
+/// at `now_ms`: each is then kept for the whole retention period, never less.
+fn load_write_nonces(vaults_dir: &Path, vault: &str, now_ms: i64) -> Vec<UsedNonce> {
+    match std::fs::read_to_string(write_nonces_path(vaults_dir, vault))
         .ok()
-        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
-        .unwrap_or_default()
+        .and_then(|j| serde_json::from_str::<NonceFile>(&j).ok())
+    {
+        Some(NonceFile::Timed(v)) => v,
+        Some(NonceFile::Bare(v)) => v
+            .into_iter()
+            .map(|nonce| UsedNonce {
+                nonce,
+                at_ms: now_ms,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
 }
 
 /// Record `nonce` as used. Best-effort by design: the caller has already verified the signature,
 /// and a write that succeeds but fails to burn its nonce is a replay window, not a lost vote - so
-/// it must never fail the vote itself. Bounded, so a vault cannot be grown without limit by an
-/// attacker who can reach the endpoint: the oldest entries fall off.
+/// it must never fail the vote itself.
+///
+/// Kept by TIME, not by count: a nonce stays for [`NONCE_RETENTION_MS`](crate::write_auth::NONCE_RETENTION_MS),
+/// past the last moment its write could pass the freshness check, and only then falls off. A cap by
+/// count let a member push someone else's used nonce out with writes of their own and send that
+/// write again. The file stays bounded by the rate writes can be made in that period.
 pub fn burn_write_nonce(vaults_dir: &Path, vault: &str, nonce: &str) -> Result<(), ToolError> {
-    burn_write_nonce_with(vaults_dir, vault, nonce, write_synced)
+    burn_write_nonce_with(vaults_dir, vault, nonce, now_ms(), write_synced)
 }
 
 fn burn_write_nonce_with(
     vaults_dir: &Path,
     vault: &str,
     nonce: &str,
+    now_ms: i64,
     write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
 ) -> Result<(), ToolError> {
-    const KEEP: usize = 2_000;
-    let mut nonces = load_write_nonces(vaults_dir, vault);
-    if nonces.iter().any(|n| n == nonce) {
+    let mut nonces = load_write_nonces(vaults_dir, vault, now_ms);
+    if nonces.iter().any(|n| n.nonce == nonce) {
         return Ok(());
     }
-    nonces.push(nonce.to_string());
-    if nonces.len() > KEEP {
-        let drop = nonces.len() - KEEP;
-        nonces.drain(0..drop);
-    }
+    nonces.retain(|n| now_ms.saturating_sub(n.at_ms) <= crate::write_auth::NONCE_RETENTION_MS);
+    nonces.push(UsedNonce {
+        nonce: nonce.to_string(),
+        at_ms: now_ms,
+    });
     let path = write_nonces_path(vaults_dir, vault);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
@@ -6676,12 +6720,61 @@ mod tests {
     }
 
     #[test]
+    fn a_used_nonce_stays_used_however_many_come_after_it() {
+        let (dir, v) = fresh_vault("nonces-many");
+        let t0 = 1_800_000_000_000i64;
+        burn_write_nonce_with(&dir, &v, "first", t0, write_synced).unwrap();
+        for i in 0..2_500 {
+            burn_write_nonce_with(&dir, &v, &format!("n{i}"), t0 + 1, |p, b| {
+                std::fs::write(p, b)
+            })
+            .unwrap();
+        }
+        assert!(write_nonce_seen(&dir, &v, "first"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_used_nonce_falls_off_only_after_the_retention_period() {
+        use crate::write_auth::NONCE_RETENTION_MS;
+        let (dir, v) = fresh_vault("nonces-age");
+        let t0 = 1_800_000_000_000i64;
+        burn_write_nonce_with(&dir, &v, "old", t0, write_synced).unwrap();
+        burn_write_nonce_with(&dir, &v, "a", t0 + NONCE_RETENTION_MS, write_synced).unwrap();
+        assert!(
+            write_nonce_seen(&dir, &v, "old"),
+            "kept for the whole period"
+        );
+        burn_write_nonce_with(&dir, &v, "b", t0 + NONCE_RETENTION_MS + 1, write_synced).unwrap();
+        assert!(!write_nonce_seen(&dir, &v, "old"), "dropped after it");
+        assert!(write_nonce_seen(&dir, &v, "a") && write_nonce_seen(&dir, &v, "b"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_nonce_file_in_the_older_format_is_read_and_kept_from_now() {
+        use crate::write_auth::NONCE_RETENTION_MS;
+        let (dir, v) = fresh_vault("nonces-bare");
+        std::fs::write(write_nonces_path(&dir, &v), r#"["x1","x2"]"#).unwrap();
+        assert!(write_nonce_seen(&dir, &v, "x1"));
+        let t = 1_800_000_000_000i64;
+        burn_write_nonce_with(&dir, &v, "y", t, write_synced).unwrap();
+        burn_write_nonce_with(&dir, &v, "z", t + NONCE_RETENTION_MS, write_synced).unwrap();
+        assert!(write_nonce_seen(&dir, &v, "x1") && write_nonce_seen(&dir, &v, "x2"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn a_cut_write_of_the_nonce_list_leaves_the_old_list() {
         let (dir, v) = fresh_vault("nonces");
         burn_write_nonce(&dir, &v, "n1").unwrap();
-        let r = burn_write_nonce_with(&dir, &v, "n2", cut_write);
+        let r = burn_write_nonce_with(&dir, &v, "n2", now_ms(), cut_write);
         assert!(r.is_err());
-        assert_eq!(load_write_nonces(&dir, &v), vec!["n1".to_string()]);
+        let left: Vec<String> = load_write_nonces(&dir, &v, now_ms())
+            .into_iter()
+            .map(|n| n.nonce)
+            .collect();
+        assert_eq!(left, vec!["n1".to_string()]);
         assert!(no_stray_tmp(&dir.join(&v)));
         std::fs::remove_dir_all(&dir).ok();
     }
