@@ -120,12 +120,12 @@ pub struct VaultLocks {
     waiting: Mutex<HashMap<String, usize>>,
 }
 
-/// The most wallet reads that may wait for one vault's wallet at a time. A reader waits only for
-/// another reader (seconds), so a few waiting is enough, and the bound is what keeps a flood from
-/// parking the worker pool.
+/// The most requests that may wait for one vault at a time, wallet reads and writes together. A
+/// waiter waits seconds at most (never for a send), so a few waiting is enough, and the bound is what
+/// keeps a flood naming one vault from parking the worker pool.
 const MAX_WAITING_PER_VAULT: usize = 2;
 
-/// A place in the (short) queue for a vault's wallet; released when dropped.
+/// A place in the (short) queue for a vault; released when dropped.
 pub struct WaitSlot<'a> {
     locks: &'a VaultLocks,
     vault: String,
@@ -223,7 +223,8 @@ impl VaultLocks {
             .clone()
     }
 
-    /// A place among the (at most two) wallet reads waiting for `vault`, or `None` if they are taken.
+    /// A place among the (at most two) requests waiting for `vault`, wallet reads and writes alike, or
+    /// `None` if they are taken.
     pub fn wait_slot(&self, vault: &str) -> Option<WaitSlot<'_>> {
         let mut map = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
         let n = map.entry(vault.to_string()).or_insert(0);

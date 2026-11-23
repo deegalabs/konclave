@@ -1702,7 +1702,6 @@ fn sent_proposals(cfg: &HelperConfig, vault: &str) -> Vec<HelperProposal> {
         .collect()
 }
 
-/// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
 /// A signed write whose time is too far from the coordinator's. Almost always a device clock.
 const STALE_WRITE_TEXT: &str =
     "this action was signed at a time too far from now; check this device's clock and date, then try again";
@@ -1715,6 +1714,7 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2859,6 +2859,23 @@ const WALLET_BUSY_TEXT: &str = "this vault's wallet is busy for a moment; try ag
 /// vault (`VaultLocks::wait_slot`), so a flood cannot park the pool.
 const WALLET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Take a vault's write lock: now if it is free; otherwise only from one of the vault's few waiting
+/// places, for at most [`VAULT_WAIT`], and never while the vault is sending a payment.
+fn take_vault_lock<'a>(
+    locks: &concurrency::VaultLocks,
+    vault: &str,
+    lock: &'a std::sync::Mutex<()>,
+) -> Option<std::sync::MutexGuard<'a, ()>> {
+    if let Some(guard) = concurrency::try_acquire(lock) {
+        return Some(guard);
+    }
+    if locks.sending(vault).is_some() {
+        return None;
+    }
+    let _slot = locks.wait_slot(vault)?;
+    concurrency::acquire_within(lock, VAULT_WAIT, || locks.sending(vault).is_some())
+}
+
 /// Run `read` with the vault's wallet. Free: now. Held while a send is marked: 503 `busy` at once.
 /// Held by anything else, including a send that has not yet passed its checks (its funding check
 /// runs the engine before it is marked): a bounded wait, then 503 `busy`. The read gate has already
@@ -2979,21 +2996,23 @@ fn serve(
     let vault = vault.filter(|v| {
         state.contains(v) || (*method == Method::Post && route == "/api/vault" && reaches_engine)
     });
-    let (write, wallet) = match (class, vault) {
+    let (write, wallet) = match (class, vault.as_deref()) {
         (LockClass::Write { wallet }, Some(v)) => (
-            Some(locks.for_vault(&v)),
-            wallet.then(|| locks.wallet_for_vault(&v)),
+            Some(locks.for_vault(v)),
+            wallet.then(|| locks.wallet_for_vault(v)),
         ),
         _ => (None, None),
     };
     // A handler that panicked would poison a lock and wedge that vault forever; taking the inner
     // value keeps the vault serving instead (`try_acquire` does). Always the write lock first, then
     // the wallet lock: readers only ever TRY the wallet lock, so this order cannot deadlock.
-    // The write lock is waited for a moment only: whoever holds it may hold it for minutes (a send),
-    // and a worker parked here is one fewer for everyone else.
+    // The write lock is waited for a moment only, by a few requests at a time, and not at all while
+    // the vault is sending: whoever holds it may hold it for minutes, and a worker parked here is one
+    // fewer for everyone else. The same waiting places and the same give-up as a wallet read.
+    let vault_id = vault.as_deref().unwrap_or("");
     let _write = match write.as_ref() {
         None => None,
-        Some(m) => match concurrency::acquire_within(m, VAULT_WAIT, || false) {
+        Some(m) => match take_vault_lock(locks, vault_id, m) {
             Some(guard) => Some(guard),
             None => {
                 return resp(
@@ -4770,14 +4789,19 @@ mod tests {
                 .iter()
                 .filter(|o| o.0 == 200 && o.1.contains("\"added\":true"))
                 .collect();
-            let conflicts = outcomes.iter().filter(|o| o.0 == 409).count();
+            // Every other one is a conflict, or (only a few requests may wait for one vault) the
+            // busy answer the device retries on its next unlock.
+            let others = outcomes
+                .iter()
+                .filter(|o| o.0 == 409 || (o.0 == 503 && o.1.contains("\"busy\":\"vault\"")))
+                .count();
             assert_eq!(
                 wins.len(),
                 1,
                 "round {round}: {:?}",
                 outcomes.iter().map(|o| o.0).collect::<Vec<_>>()
             );
-            assert_eq!(conflicts, 15, "round {round}");
+            assert_eq!(others, 15, "round {round}");
             let recs = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
             assert_eq!(recs.len(), 1, "round {round}");
             assert_eq!(
@@ -9828,10 +9852,23 @@ mod tests {
         body: &str,
         within: Duration,
     ) -> Option<(u16, String)> {
+        let locks = concurrency::VaultLocks::new();
+        serve_while_held_in(&locks, vault, method, path, body, within)
+    }
+
+    /// As `serve_while_vault_is_held`, with `locks` the caller has already marked (a send going on,
+    /// waiting places taken).
+    fn serve_while_held_in(
+        locks: &concurrency::VaultLocks,
+        vault: &str,
+        method: Method,
+        path: &str,
+        body: &str,
+        within: Duration,
+    ) -> Option<(u16, String)> {
         let st = HelperState::new();
         seed(&st, vault);
         let c = cfg();
-        let locks = concurrency::VaultLocks::new();
         let limits = admission::Limits::new();
         let write = locks.for_vault(vault);
         let held = write.lock().unwrap();
@@ -9841,7 +9878,7 @@ mod tests {
                 let r = serve(
                     &st,
                     &c,
-                    &locks,
+                    locks,
                     &limits,
                     &CLIENT,
                     T0,
@@ -9915,6 +9952,57 @@ mod tests {
                 "POST {path} gave up without waiting a moment"
             );
         }
+    }
+
+    /// A write to a vault that is sending a payment does not wait for it: the send holds the lock for
+    /// as long as the quorum takes, and a worker parked behind it is one fewer for every vault.
+    #[test]
+    fn a_write_to_a_vault_that_is_sending_answers_busy_at_once() {
+        let locks = concurrency::VaultLocks::new();
+        let _sending = locks.mark_sending("sendw", "p0");
+        let started = std::time::Instant::now();
+        let got = serve_while_held_in(
+            &locks,
+            "sendw",
+            Method::Post,
+            "/api/vault/proposals/p1/approve",
+            r#"{"vault":"sendw","member":"m"}"#,
+            Duration::from_secs(6),
+        );
+        let (status, body) = got.expect("the write was still waiting after 6 s");
+        assert_eq!(status, 503, "{body}");
+        assert!(
+            started.elapsed() < Duration::from_millis(1_000),
+            "the write waited {:?} for a vault that is sending",
+            started.elapsed()
+        );
+    }
+
+    /// The writes waiting for one vault are few: once its waiting places are taken, the next is
+    /// answered at once, so requests naming one vault cannot park every worker.
+    #[test]
+    fn a_write_finds_no_waiting_place_and_answers_busy_at_once() {
+        let locks = concurrency::VaultLocks::new();
+        let _a = locks.wait_slot("fullw").expect("a first place");
+        let _b = locks.wait_slot("fullw").expect("a second place");
+        let started = std::time::Instant::now();
+        let got = serve_while_held_in(
+            &locks,
+            "fullw",
+            Method::Post,
+            "/api/vault/proposals/p1/approve",
+            r#"{"vault":"fullw","member":"m"}"#,
+            Duration::from_secs(6),
+        );
+        let (status, body) = got.expect("the write was still waiting after 6 s");
+        assert_eq!(status, 503, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["busy"], "vault", "{body}");
+        assert!(
+            started.elapsed() < Duration::from_millis(1_000),
+            "the write waited {:?} with no place to wait in",
+            started.elapsed()
+        );
     }
 
     /// The lock table is DERIVED from the gate's list, but the router is a third place a read is
