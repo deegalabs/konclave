@@ -40,6 +40,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+Production runs commit 4852aea7 (the merge commit of v0.23.0) since 2026-11-23 at about 18:25 UTC, so every
+entry in this section is live from then at the latest.
+
 ### Security
 
 - **The coordinator shares a smaller copy of each transaction with the vault's devices.** What a
