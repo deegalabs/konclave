@@ -10,8 +10,7 @@ use std::sync::Arc;
 /// If the limit is reached, it returns EOF.
 ///
 /// Konclave patch: if the limit is not reached when the destructor is called, nothing more is read
-/// and `abandoned` is set, so the connection reads nothing more (see `client.rs`): the next request
-/// would start inside this body. Upstream read the remainder and threw it away.
+/// and `abandoned` is set, so the connection reads nothing more (see `client.rs`).
 pub struct EqualReader<R>
 where
     R: Read,

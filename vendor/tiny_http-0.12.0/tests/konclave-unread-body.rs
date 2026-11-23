@@ -1,9 +1,7 @@
 //! Konclave patch: a request body the handler leaves unread closes the connection.
 //!
-//! Whatever is left of a body is not a request. If the connection kept reading, the next request
-//! would start inside that body, so bytes a client put in its body would be served as a request of
-//! their own. Each test hides a whole request inside a body, leaves the body unread, and checks the
-//! hidden request is never served.
+//! Whatever is left of a body is not a request, so the connection reads nothing more. Each test puts
+//! a whole request inside a body, leaves the body unread, and checks only the first one is served.
 
 extern crate tiny_http;
 

@@ -1,9 +1,7 @@
 //! Konclave patch: the head of a request has a ceiling.
 //!
-//! Upstream read a request line or a header line until its end, however long, and kept every header
-//! however many, so one connection could hold as much memory as it cared to send. Each line now has
-//! a ceiling, and so do the number of headers and their total size. Past any of them the server
-//! answers 400 and closes, as it already did for a malformed header.
+//! Each line of the head has a ceiling, and so do the number of headers and their total size. Past
+//! any of them the server answers 400 and closes, as for a malformed header.
 
 extern crate tiny_http;
 

@@ -929,8 +929,7 @@ mod tests {
     }
 
     /// One worker, and a client that announces a body larger than tiny_http buffers and then sends
-    /// one byte. Before the body deadline, that worker waited on it for as long as the connection
-    /// stayed open, and `/health` never answered.
+    /// one byte. The body's deadline frees that worker, and `/health` answers.
     #[test]
     fn a_body_that_stops_arriving_does_not_hold_the_only_worker() {
         use std::io::Write as _;

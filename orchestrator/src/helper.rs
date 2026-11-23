@@ -632,7 +632,7 @@ impl HelperProposal {
         let basis = &basis;
         let c = counted(&self.votes, basis, self.total);
         // Counted with the proofs, served without them. The signed writes stay in the record on
-        // disk; an answer that carried them handed any reader a write it could send again.
+        // disk; an answer carries only who voted and how, never a member's signed write.
         let mut proposal = self.clone();
         for v in &mut proposal.votes {
             v.proof = None;
@@ -2214,9 +2214,9 @@ fn load_write_nonces(vaults_dir: &Path, vault: &str, now_ms: i64) -> Vec<UsedNon
 /// it must never fail the vote itself.
 ///
 /// Kept by TIME, not by count: a nonce stays for [`NONCE_RETENTION_MS`](crate::write_auth::NONCE_RETENTION_MS),
-/// past the last moment its write could pass the freshness check, and only then falls off. A cap by
-/// count let a member push someone else's used nonce out with writes of their own and send that
-/// write again. The file stays bounded by the rate writes can be made in that period.
+/// past the last moment its write could pass the freshness check, and only then falls off, so no
+/// number of later writes removes it early. The file stays bounded by the rate writes can be made
+/// in that period.
 pub fn burn_write_nonce(vaults_dir: &Path, vault: &str, nonce: &str) -> Result<(), ToolError> {
     burn_write_nonce_with(vaults_dir, vault, nonce, now_ms(), write_synced)
 }
