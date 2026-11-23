@@ -22,6 +22,7 @@
 //! through `orchestrator` would have dragged the whole engine-facing crate into it, so this crate
 //! carries no dependencies at all and stays something either server can take without argument.
 
+pub mod body;
 mod workers;
 pub use workers::{guard, run_in_place, run_workers, WORKER_ENDED_EXIT};
 
