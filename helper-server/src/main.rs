@@ -2859,23 +2859,6 @@ const WALLET_BUSY_TEXT: &str = "this vault's wallet is busy for a moment; try ag
 /// vault (`VaultLocks::wait_slot`), so a flood cannot park the pool.
 const WALLET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Take a vault's write lock: now if it is free; otherwise only from one of the vault's few waiting
-/// places, for at most [`VAULT_WAIT`], and never while the vault is sending a payment.
-fn take_vault_lock<'a>(
-    locks: &concurrency::VaultLocks,
-    vault: &str,
-    lock: &'a std::sync::Mutex<()>,
-) -> Option<std::sync::MutexGuard<'a, ()>> {
-    if let Some(guard) = concurrency::try_acquire(lock) {
-        return Some(guard);
-    }
-    if locks.sending(vault).is_some() {
-        return None;
-    }
-    let _slot = locks.wait_slot(vault)?;
-    concurrency::acquire_within(lock, VAULT_WAIT, || locks.sending(vault).is_some())
-}
-
 /// Run `read` with the vault's wallet. Free: now. Held while a send is marked: 503 `busy` at once.
 /// Held by anything else, including a send that has not yet passed its checks (its funding check
 /// runs the engine before it is marked): a bounded wait, then 503 `busy`. The read gate has already
@@ -2887,16 +2870,7 @@ fn with_the_wallet<T>(
 ) -> Result<T, Resp> {
     let vault = reg.vault_id.as_str();
     let wallet = locks.wallet_for_vault(vault);
-    let guard = match concurrency::try_acquire(&wallet) {
-        Some(guard) => Some(guard),
-        None if locks.sending(vault).is_some() => None,
-        None => match locks.wait_slot(vault) {
-            Some(_slot) => {
-                concurrency::acquire_within(&wallet, WALLET_WAIT, || locks.sending(vault).is_some())
-            }
-            None => None,
-        },
-    };
+    let guard = locks.take(vault, &wallet, WALLET_WAIT);
     let answer = match guard {
         Some(_) => Ok(read()),
         None => {
@@ -3008,11 +2982,11 @@ fn serve(
     // the wallet lock: readers only ever TRY the wallet lock, so this order cannot deadlock.
     // The write lock is waited for a moment only, by a few requests at a time, and not at all while
     // the vault is sending: whoever holds it may hold it for minutes, and a worker parked here is one
-    // fewer for everyone else. The same waiting places and the same give-up as a wallet read.
+    // fewer for everyone else. One rule with a wallet read: `VaultLocks::take`.
     let vault_id = vault.as_deref().unwrap_or("");
     let _write = match write.as_ref() {
         None => None,
-        Some(m) => match take_vault_lock(locks, vault_id, m) {
+        Some(m) => match locks.take(vault_id, m, VAULT_WAIT) {
             Some(guard) => Some(guard),
             None => {
                 return resp(
@@ -7129,8 +7103,7 @@ mod tests {
     const TESTNET_ORCHARD_UA: &str = "utest1snsykvxrx7csenfxks3g7w865hhkmhxpdkfu3t4wrmes697vac86vw3a3nu3eylqdmp3l9svg65s86tu0djwcdfxa65fkvgz4qpnlqkr";
 
     /// One worker, and a client that announces a body larger than tiny_http buffers and then sends
-    /// one byte. Before the body deadline that worker waited on it for as long as the connection
-    /// stayed open, and `/api/health` never answered.
+    /// one byte. The body's deadline frees that worker, and `/api/health` answers.
     #[test]
     fn a_body_that_stops_arriving_does_not_hold_the_only_worker() {
         use std::io::{Read as _, Write as _};

@@ -238,6 +238,26 @@ impl VaultLocks {
         })
     }
 
+    /// THE rule for taking one of `vault`'s locks while serving a request, for writes and wallet
+    /// reads alike: now if it is free; never while the vault is sending a payment; otherwise only
+    /// from one of the vault's few waiting places, for at most `within`, giving up when a send
+    /// starts. `None` means answer busy.
+    pub fn take<'a>(
+        &self,
+        vault: &str,
+        lock: &'a Mutex<()>,
+        within: std::time::Duration,
+    ) -> Option<MutexGuard<'a, ()>> {
+        if let Some(guard) = try_acquire(lock) {
+            return Some(guard);
+        }
+        if self.sending(vault).is_some() {
+            return None;
+        }
+        let _slot = self.wait_slot(vault)?;
+        acquire_within(lock, within, || self.sending(vault).is_some())
+    }
+
     /// Say that `proposal` is being sent from `vault` until the returned mark is dropped.
     pub fn mark_sending(&self, vault: &str, proposal: &str) -> SendingMark<'_> {
         let mut map = self.sending.lock().unwrap_or_else(|e| e.into_inner());
