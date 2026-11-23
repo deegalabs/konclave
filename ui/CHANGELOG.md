@@ -40,6 +40,89 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.23.0] 2026-11-23
+
+### Security
+
+- **A protected vault's saved people and recent addresses open only once the vault is unlocked on
+  this device.** An unfinished payroll in a protected vault is kept while the vault stays unlocked,
+  and a reload or a lock clears it, so finish or propose it in one sitting. A list of saved people
+  that cannot be opened is said so on the People screen instead of showing as empty, and a backup
+  says what it left out and why. The details follow in a later entry.
+- **Diagnostics no longer include a vault's private signing details.** What the app writes to the
+  browser's console when a payment is sent names the payment and how its send went, and no secret
+  or signing detail of the vault; a vault is named there by the first 8 characters of its id. The
+  details follow in a later entry.
+
+### Changed
+
+- **A protected vault this device holds a record of is not named before it is unlocked.** When you
+  open the app on such a vault, the app decides from that record that it must be unlocked, and asks
+  for the passphrase without sending the vault's id to the coordinator first. The screens behind the
+  unlock prompt are no longer loaded, so they make no reads of their own either, and the same holds
+  when you leave the unlock prompt and when you switch to the vault from another one in the rail.
+  After you unlock, the reads go out as before. The rail now says "Locked" under the vault's name
+  while it waits, and the app behind the prompt can no longer be reached with the keyboard. The app
+  still shows that it was opened (its liveness check and version check), and neither names a vault.
+  A vault this device holds no record of is still read through the coordinator, as before.
+- **The /net page shows less.** Joining a vault from the /net page no longer repeats
+  the invite on the waiting screen, as the main join dialog never did. The "Sign with this vault"
+  session on that page is removed: since 0.21.0 payments are signed from the proposal's signing
+  panel, and that session could no longer sign. Open the vault from the Dashboard to sign.
+- **The app shows who approved as the coordinator counts it (#575).** The approval count, the "your
+  vote" marks and the book's approvers come from the coordinator's count of members, not from the
+  names recorded on a payment. An approval given before the vault required signatures is shown apart,
+  as not counted, and the member is asked to vote again. Two members with the same name are two
+  people on the proposal screen.
+
+### Fixed
+
+- **Proposing, voting, saved people and Settings stay on the vault the screen shows.** When another
+  tab of the same browser opens a different vault, or removes this one, a payment or payroll
+  proposal, a vote, renaming your own seat, adding or removing a saved person, removing the vault
+  from this device, a passkey change, a passphrase change or a backup started from a screen that
+  still shows the first vault now does nothing and says why, instead of acting on the vault the
+  other tab opened. Settings also stays on the vault it opened on while it loads, and does not claim
+  this device keeps nothing of it.
+- **A backup whose key does not match its own seat and vault is refused, instead of being
+  restored.** Importing a vault backup now checks the saved key against the vault's public keys
+  the backup carries (the seat, the vault key, the quorum and the seat's public share), and a copy
+  already on the device is checked the same way when it is opened. A backup that holds one seat's
+  key under another seat, or another vault's key, or a key that no longer matches its public share,
+  used to import without a word and only fail later, when the seat tried to sign. It now says the
+  backup does not belong to this seat and imports nothing; a device holding such a copy says so
+  when it is unlocked. A backup of your own seat is unaffected. The check cannot tell who made a
+  file: restore only from a backup you made, under your own passphrase.
+- **The app asks the browser not to keep what it reads from the coordinator,** so a vault's reads do
+  not stay in the browser's cache after the session ends or the vault is removed from the device.
+- **The app asks the browser not to keep what it reads from the relay and from the local bridge,** as it already does
+  for the coordinator.
+- **A device keeps reading a room after the relay restarts.** A room that comes back numbers its messages from 1
+  again; a device that kept its place now reads it again from the start instead of waiting, silent, until the room
+  caught up with it.
+- **A vote or proposal under a name two members share says what to do (#575).** When the coordinator cannot tell which seat a shared name belongs to, the app now says so and asks to unlock the vault on this device, instead of a generic error.
+- **A device keeps the signing request it was given until the ceremony names one.** How a device
+  holds the coordinator's request before signing was tightened, so an approved payment is more
+  reliably signed.
+
+### Known limits
+
+- **A screen still open in another tab can name a protected vault before that tab asks for its
+  passphrase.** When you switch, in one tab, to a protected vault that is not unlocked on this
+  device, a screen another tab of the same browser still shows can make a read that names the
+  newly chosen vault to the coordinator, in the moment before that tab catches up and shows the
+  unlock prompt. Keep the app open in one tab when you switch to a protected vault you have not
+  unlocked.
+- **With a coordinator older than this release, the app does not offer a vote.** The coordinator
+  does not say who has voted, and a vote the app cannot tell from a first one could undo an approval.
+  The proposal screen says the vault's server must be updated, and the desk, the list and the ledger
+  show no per-member claim and no approval counts. Update the coordinator before the app.
+- **A read the browser stored before this version stays in its cache** until the browser clears it; the change only
+  stops new copies from being kept.
+- **A device that polls a restarted room only after it has passed the device's old place misses the
+  messages before that place.** The relay gives no sign that a room started over once it has caught up;
+  a ceremony that loses them stops or times out, as it did before.
+
 ## [0.22.0] 2026-11-20
 
 ### Security
