@@ -990,20 +990,42 @@ mod tests {
     }
 
     /// One address may send at most BODIES_PER_ADDRESS bodies at once; the next is a 429, at once.
+    /// Driven through the relay's own loop, so it fails if the loop stops taking a slot.
     #[test]
     fn an_address_past_its_body_slots_is_refused_at_once() {
-        let slots = konclave_http::body::BodySlots::new();
-        let a = ClientAddress::from_ip("203.0.113.9".parse().unwrap());
+        use std::time::{Duration, Instant};
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        let me = ClientAddress::from_ip("127.0.0.1".parse().unwrap());
         let _held: Vec<_> = (0..konclave_http::body::BODIES_PER_ADDRESS)
             .map(|_| {
                 slots
-                    .try_take(a, konclave_http::body::BODIES_PER_ADDRESS)
+                    .try_take(me, konclave_http::body::BODIES_PER_ADDRESS)
                     .unwrap()
             })
             .collect();
-        assert!(slots
-            .try_take(a, konclave_http::body::BODIES_PER_ADDRESS)
-            .is_none());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        let t = Instant::now();
+        let got = exchange(
+            addr,
+            // Longer than what the server buffers on its own, so reading it would hold a worker.
+            b"POST /api/relay/post HTTP/1.1\r\nHost: x\r\nContent-Length: 8192\r\n\r\n{",
+            Duration::from_secs(3),
+        );
+        assert!(got.starts_with("HTTP/1.1 429"), "got {got:?}");
+        assert!(
+            t.elapsed() < Duration::from_secs(1),
+            "took {:?}",
+            t.elapsed()
+        );
     }
 
     // #522. The relay is built by Railway from an uploaded directory, so there is no commit to

@@ -324,16 +324,23 @@ mod tests {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     #[test]
     fn a_body_that_never_comes_ends_at_the_socket_timeout() {
-        // A shorter timeout than production so the test does not wait 10 s; same mechanism.
+        // A shorter timeout than production so the test does not wait the production 15 s; same mechanism.
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         sockopt::set_timeouts(&l, Duration::from_millis(200)).unwrap();
         let mut c = std::net::TcpStream::connect(l.local_addr().unwrap()).unwrap();
         c.write_all(b"x").unwrap();
         let (mut s, _) = l.accept().unwrap();
-        let t = Instant::now();
-        let r = read_body(&mut s, 4096, Duration::from_secs(30));
+        // Read on another thread: without the socket timeout the read blocks for good, and the
+        // test must fail rather than hang.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_body(&mut s, 4096, Duration::from_secs(30)));
+        });
+        let r = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read did not end at the socket timeout");
         assert!(matches!(r, Err(BodyError::TooSlow)), "{r:?}");
-        assert!(t.elapsed() < Duration::from_secs(2));
+        drop(c);
     }
 
     /// One byte per call, each call slow: the per-read timeout never fires, the deadline must.
@@ -350,8 +357,9 @@ mod tests {
     fn a_dripping_body_ends_at_the_deadline() {
         let t = Instant::now();
         let r = read_body(
+            // 100 bytes: about 2 s without the deadline, so a missing deadline fails, not hangs.
             &mut Drip(Duration::from_millis(20)),
-            1 << 20,
+            100,
             Duration::from_millis(200),
         );
         assert!(matches!(r, Err(BodyError::TooSlow)));

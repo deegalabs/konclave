@@ -62,8 +62,11 @@ optional = true
 [dev-dependencies.fdlimit]
 version = "0.1"
 
-[dev-dependencies.rustc-serialize]
-version = "0.3"
+# Konclave patch: its own workspace, so its tests run with `--manifest-path` from any checkout.
+[workspace]
+
+# Konclave patch: the rustc-serialize dev-dependency is removed (it no longer compiles, E0310), with
+# the websockets example and the doctest that used it, so `cargo test` runs here and in CI.
 
 [dev-dependencies.sha1]
 version = "0.6.0"

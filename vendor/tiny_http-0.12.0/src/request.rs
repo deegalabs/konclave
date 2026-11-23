@@ -374,10 +374,9 @@ impl Request {
     /// # Example
     ///
     /// ```no_run
-    /// # extern crate rustc_serialize;
     /// # extern crate tiny_http;
-    /// # use rustc_serialize::json::Json;
     /// # use std::io::Read;
+    /// # fn parse_json(_: &str) {}
     /// # fn get_content_type(_: &tiny_http::Request) -> &'static str { "" }
     /// # fn main() {
     /// # let server = tiny_http::Server::http("0.0.0.0:0").unwrap();
@@ -386,7 +385,7 @@ impl Request {
     /// if get_content_type(&request) == "application/json" {
     ///     let mut content = String::new();
     ///     request.as_reader().read_to_string(&mut content).unwrap();
-    ///     let json: Json = content.parse().unwrap();
+    ///     parse_json(&content);
     /// }
     /// # }
     /// ```
