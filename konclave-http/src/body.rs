@@ -171,6 +171,77 @@ pub fn read_body(
     Ok(out)
 }
 
+/// Why a request's body was not read, and what to answer instead.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BodyRefusal {
+    /// The address already sends [`BODIES_PER_ADDRESS`] bodies.
+    Busy,
+    /// The body did not arrive in time.
+    TooSlow,
+    /// The connection failed while the body was read.
+    Unreadable,
+}
+
+impl BodyRefusal {
+    pub fn status(&self) -> u16 {
+        match self {
+            Self::Busy => 429,
+            Self::TooSlow => 408,
+            Self::Unreadable => 400,
+        }
+    }
+
+    pub fn json(&self) -> &'static str {
+        match self {
+            Self::Busy => r#"{"error":"too many requests in progress, try again shortly"}"#,
+            Self::TooSlow => r#"{"error":"the request body took too long to arrive"}"#,
+            Self::Unreadable => r#"{"error":"the request body could not be read"}"#,
+        }
+    }
+}
+
+/// The body of a request, read under every limit in this module and [`crate::body_read_cap`]:
+/// the one function both servers and the bridge call, so the rule exists once.
+///
+/// `declared` is the Content-Length, `headers` the request's (name, value) pairs. A body over the
+/// byte ceiling is handled as empty, as before. A body tiny_http has not already buffered takes
+/// one of `addr`'s slots for as long as it is read.
+pub fn read_request_body<'h>(
+    declared: Option<u64>,
+    headers: impl IntoIterator<Item = (&'h str, &'h str)>,
+    reader: &mut dyn Read,
+    addr: ClientAddress,
+    slots: &BodySlots,
+) -> Result<Vec<u8>, BodyRefusal> {
+    let limit = match crate::body_read_cap(declared) {
+        crate::ReadPlan::Read(limit) => limit,
+        crate::ReadPlan::Skip => return Ok(Vec::new()),
+    };
+    let (mut expects_continue, mut upgrade) = (false, false);
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("expect") {
+            expects_continue = true;
+        } else if name.eq_ignore_ascii_case("connection")
+            && value.to_ascii_lowercase().contains("upgrade")
+        {
+            upgrade = true;
+        }
+    }
+    let _slot = if body_may_block(declared, expects_continue, upgrade) {
+        Some(
+            slots
+                .try_take(addr, BODIES_PER_ADDRESS)
+                .ok_or(BodyRefusal::Busy)?,
+        )
+    } else {
+        None
+    };
+    read_body(reader, limit, BODY_DEADLINE).map_err(|e| match e {
+        BodyError::TooSlow => BodyRefusal::TooSlow,
+        BodyError::Io(_) => BodyRefusal::Unreadable,
+    })
+}
+
 /// How many bodies each address is sending right now.
 #[derive(Default)]
 pub struct BodySlots {
@@ -310,6 +381,35 @@ mod tests {
         );
         drop(s1);
         assert!(slots.try_take(a, 2).is_some());
+    }
+
+    #[test]
+    fn a_small_body_is_read_without_a_slot_and_a_large_one_takes_one() {
+        let slots = BodySlots::new();
+        let a = ClientAddress::from_ip("203.0.113.10".parse().unwrap());
+        let _held: Vec<_> = (0..BODIES_PER_ADDRESS)
+            .map(|_| slots.try_take(a, BODIES_PER_ADDRESS).unwrap())
+            .collect();
+        let small = vec![1u8; 10];
+        assert_eq!(
+            read_request_body(Some(10), [], &mut &small[..], a, &slots).unwrap(),
+            small
+        );
+        let big = vec![1u8; 2000];
+        assert_eq!(
+            read_request_body(Some(2000), [], &mut &big[..], a, &slots),
+            Err(BodyRefusal::Busy)
+        );
+        assert_eq!(
+            read_request_body(
+                Some(10),
+                [("EXPECT", "100-continue")],
+                &mut &small[..],
+                a,
+                &slots
+            ),
+            Err(BodyRefusal::Busy)
+        );
     }
 
     #[test]

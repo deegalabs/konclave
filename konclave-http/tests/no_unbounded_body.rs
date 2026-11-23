@@ -51,11 +51,31 @@ fn no_server_reads_a_request_body_unbounded() {
 #[test]
 fn both_public_servers_take_the_shared_rule() {
     // The complement: capping by hand, with a local constant, is how the two copies diverged in the
-    // first place. Both must reach for the same crate.
+    // first place. Both must reach for the same crate: the body through `read_request_body`, which
+    // applies the ceiling (`body_read_cap`), the deadline and the per-address slots, and the socket
+    // through `listen`, which is what bounds a read that gets nothing.
     for rel in PUBLIC_SERVERS {
+        let src = read(rel);
         assert!(
-            read(rel).contains("body_read_cap("),
-            "{rel} does not call body_read_cap; it must not invent its own ceiling",
+            src.contains("konclave_http::body::read_request_body("),
+            "{rel} does not read bodies through konclave_http::body::read_request_body",
+        );
+        assert!(
+            src.contains("konclave_http::body::listen(&addr)"),
+            "{rel} does not bind through konclave_http::body::listen",
+        );
+        assert!(
+            !src.contains("Server::http("),
+            "{rel} binds with Server::http, which sets no socket timeout",
         );
     }
+}
+
+#[test]
+fn the_shared_body_reader_applies_the_ceiling() {
+    let src = read("src/body.rs");
+    let f = &src[src
+        .find("pub fn read_request_body")
+        .expect("read_request_body")..];
+    assert!(f.contains("crate::body_read_cap(declared)"));
 }

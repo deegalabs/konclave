@@ -29,7 +29,7 @@
 mod admission;
 mod concurrency;
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -3101,7 +3101,10 @@ fn main() {
             h.proposal
         );
     }
-    let server = Server::http(&addr).expect("bind");
+    // Every accepted connection inherits a read and write timeout from this listener, so one that
+    // stops sending ends instead of holding a worker (see `konclave_http::body`).
+    let listener = konclave_http::body::listen(&addr).expect("bind");
+    let server = Server::from_listener(listener, None).expect("serve");
     eprintln!(
         "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {receivers} change receiver(s) recorded, {swept} scratch dir(s) swept)",
         cfg.network
@@ -3130,7 +3133,22 @@ fn main() {
     let limits = Arc::new(admission::Limits::new());
     // A worker that ends, by a panic outside `guarded` or otherwise, ends the process with a
     // failure code so the platform restarts it, instead of the pool thinning out to an exit 0.
-    konclave_http::run_workers("konclave-helper", workers, move || loop {
+    let slots = Arc::new(konclave_http::body::BodySlots::new());
+    konclave_http::run_workers("konclave-helper", workers, move || {
+        serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+    })
+}
+
+/// One worker's loop. Returns only when the server stops handing out requests.
+fn serve_requests(
+    server: &Server,
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    limits: &admission::Limits,
+    slots: &konclave_http::body::BodySlots,
+) {
+    loop {
         // `recv` fails when the server is gone, and also when tiny_http's accept thread hits an
         // accept error and stops for good; the other workers would then wait forever, so this
         // worker ending ends the process, which is what gets the server restarted.
@@ -3164,31 +3182,40 @@ fn main() {
         // megabytes of buffering and the worker that reads them. Refusals are deliberately not
         // logged: a line per refused request would turn a flood of requests into a flood of
         // log, and would write client addresses to disk, which nothing here needs.
-        if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
+        if let Some(refused) = admission::refuse_flood(limits, &client, &path, now) {
             let _ = req.respond(http_response(refusal(refused)));
             continue;
         }
-        // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
-        // has capped since #390; the helper did not, because the rule lived in the relay's own
-        // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
-        let mut body = Vec::new();
-        match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-            konclave_http::ReadPlan::Read(limit) => {
-                // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
-                // `take` needs a sized receiver, so calling it inline resolves against the
-                // trait object itself and does not compile.
-                let reader = req.as_reader();
-                let _ = reader.take(limit).read_to_end(&mut body);
+        // A public POST with no ceiling is memory exhaustion by one request (#269), and one with
+        // no deadline holds the worker that reads it. Both rules live in `konclave-http`, so the
+        // relay, the coordinator and the bridge read a body the same way.
+        let declared = req.body_length().map(|n| n as u64);
+        let headers: Vec<(String, String)> = req
+            .headers()
+            .iter()
+            .map(|h| (h.field.as_str().to_string(), h.value.as_str().to_string()))
+            .collect();
+        let body = match konclave_http::body::read_request_body(
+            declared,
+            headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+            req.as_reader(),
+            client,
+            slots,
+        ) {
+            Ok(body) => body,
+            Err(refused) => {
+                let resp = Response::from_string(refused.json()).with_status_code(refused.status());
+                let _ = req.respond(with_cors(resp));
+                continue;
             }
-            konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
-        }
+        };
 
         let r = guarded(&method, &path, || {
             serve(
-                &state,
-                &cfg,
-                &locks,
-                &limits,
+                state,
+                cfg,
+                locks,
+                limits,
                 &client,
                 now,
                 &method,
@@ -3198,7 +3225,7 @@ fn main() {
             )
         });
         let _ = req.respond(http_response(r));
-    })
+    }
 }
 
 #[cfg(test)]
@@ -6883,6 +6910,50 @@ mod tests {
 
     // A real testnet Orchard-capable unified address (payment_plan accepts it on "test").
     const TESTNET_ORCHARD_UA: &str = "utest1snsykvxrx7csenfxks3g7w865hhkmhxpdkfu3t4wrmes697vac86vw3a3nu3eylqdmp3l9svg65s86tu0djwcdfxa65fkvgz4qpnlqkr";
+
+    /// One worker, and a client that announces a body larger than tiny_http buffers and then sends
+    /// one byte. Before the body deadline that worker waited on it for as long as the connection
+    /// stayed open, and `/api/health` never answered.
+    #[test]
+    fn a_body_that_stops_arriving_does_not_hold_the_only_worker() {
+        use std::io::{Read as _, Write as _};
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("konclave-hs-slowbody-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        let mut stalled = std::net::TcpStream::connect(addr).unwrap();
+        stalled
+            .write_all(
+                b"POST /api/vault/propose HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n{",
+            )
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        let mut got = [0u8; 64];
+        let n = c.read(&mut got).unwrap_or(0);
+        let got = String::from_utf8_lossy(&got[..n]);
+        assert!(got.starts_with("HTTP/1.1 200"), "got {got:?}");
+        assert!(t.elapsed() < Duration::from_secs(3));
+        drop(stalled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn cfg_at(dir: &std::path::Path) -> HelperConfig {
         let mut c = cfg();

@@ -884,50 +884,25 @@ fn serve_requests(server: &Server, state: &RelayState, slots: &konclave_http::bo
 }
 
 /// The body of a relay request, or the status and error to answer instead.
-///
-/// A body tiny_http has not already buffered is read here, by the worker, so it takes one of the
-/// address's [`konclave_http::body::BODIES_PER_ADDRESS`] slots and must arrive within
-/// [`konclave_http::body::BODY_DEADLINE`].
 fn read_request_body(
     req: &mut tiny_http::Request,
     addr: &ClientAddress,
     slots: &konclave_http::body::BodySlots,
 ) -> Result<Vec<u8>, (u16, String)> {
-    use konclave_http::body;
     let declared = req.body_length().map(|n| n as u64);
-    let limit = match konclave_http::body_read_cap(declared) {
-        konclave_http::ReadPlan::Read(limit) => limit,
-        // Over the cap: handled as an empty body, as before.
-        konclave_http::ReadPlan::Skip => return Ok(Vec::new()),
-    };
-    let expects_continue = req.headers().iter().any(|h| h.field.equiv("Expect"));
-    let upgrade = req.headers().iter().any(|h| {
-        h.field.equiv("Connection") && h.value.as_str().to_ascii_lowercase().contains("upgrade")
-    });
-    let _slot = if body::body_may_block(declared, expects_continue, upgrade) {
-        match slots.try_take(*addr, body::BODIES_PER_ADDRESS) {
-            Some(slot) => Some(slot),
-            None => {
-                return Err((
-                    429,
-                    r#"{"error":"too many requests in progress"}"#.to_string(),
-                ))
-            }
-        }
-    } else {
-        None
-    };
-    match body::read_body(req.as_reader(), limit, body::BODY_DEADLINE) {
-        Ok(buf) => Ok(buf),
-        Err(body::BodyError::TooSlow) => Err((
-            408,
-            r#"{"error":"the request body took too long"}"#.to_string(),
-        )),
-        Err(body::BodyError::Io(_)) => Err((
-            400,
-            r#"{"error":"the request body could not be read"}"#.to_string(),
-        )),
-    }
+    let headers: Vec<(String, String)> = req
+        .headers()
+        .iter()
+        .map(|h| (h.field.as_str().to_string(), h.value.as_str().to_string()))
+        .collect();
+    konclave_http::body::read_request_body(
+        declared,
+        headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        req.as_reader(),
+        *addr,
+        slots,
+    )
+    .map_err(|r| (r.status(), r.json().to_string()))
 }
 
 #[cfg(test)]
