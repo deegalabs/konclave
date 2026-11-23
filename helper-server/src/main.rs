@@ -2017,15 +2017,8 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
 /// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) - the money gate is the
 /// FROST ceremony, not this vote. A vote on a terminal proposal is a 409.
 fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
-    let rest = path.trim_start_matches("/api/vault/proposals/");
-    let (id, action) = match rest.rsplit_once('/') {
-        Some(v) => v,
-        None => return resp(404, json!({ "error": "not found" }).to_string()),
-    };
-    let approve = match action {
-        "approve" => true,
-        "refuse" => false,
-        _ => return resp(404, json!({ "error": "not found" }).to_string()),
+    let Some((id, approve)) = vote_path(path) else {
+        return resp(404, json!({ "error": "not found" }).to_string());
     };
     #[derive(Deserialize)]
     struct Req {
@@ -2770,6 +2763,39 @@ fn is_send_path(route: &str) -> bool {
     route.starts_with("/api/vault/proposals/") && route.ends_with("/send")
 }
 
+/// The proposal and the vote of a vote's path (`/api/vault/proposals/{id}/approve|refuse`), or
+/// `None` for any other path. ONE parser: the vote handler reads the path with it and `lock_class`
+/// asks it whether a path is routed at all.
+fn vote_path(route: &str) -> Option<(&str, bool)> {
+    let rest = route.strip_prefix("/api/vault/proposals/")?;
+    match rest.rsplit_once('/')? {
+        (id, "approve") => Some((id, true)),
+        (id, "refuse") => Some((id, false)),
+        _ => None,
+    }
+}
+
+/// The writes the router answers by their exact path. The proposal routes with an id in the path
+/// are recognised by `is_send_path` and `vote_path`. `every_routed_path_is_in_the_lock_table` holds
+/// this list to the router.
+const WRITE_ROUTES: &[&str] = &[
+    "/api/vault",
+    "/api/vault/devicekey",
+    "/api/vault/members",
+    "/api/vault/members/rename",
+    "/api/vault/payroll",
+    "/api/vault/proposals",
+    "/api/vault/readkey",
+];
+
+/// How long a write waits for its vault's lock before it answers `busy: vault` (the screens retry
+/// that answer). A write that has the lock runs to its end; one that does not must not hold a
+/// worker for as long as another request holds the vault, a send for minutes.
+const VAULT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The answer of a write that did not get its vault's lock within `VAULT_WAIT`. Nothing was done.
+const VAULT_BUSY_TEXT: &str = "this vault is busy with another request; try again shortly";
+
 /// Which locks a request takes before its handler runs.
 #[derive(Debug, PartialEq, Eq)]
 enum LockClass {
@@ -2779,10 +2805,13 @@ enum LockClass {
     /// Anything that can change a vault: the write lock, and the wallet lock too for a request that
     /// runs the engine on the wallet (a proposal, a payroll, a send).
     Write { wallet: bool },
+    /// A method and path no handler answers: a 404 before any lock, so a request does not queue
+    /// behind a vault's send because its body names that vault.
+    Unrouted,
 }
 
-/// The class of a request. Unknown routes and methods are `Write`, as they were: the table lists
-/// what is FREE, so a route nobody classified keeps the lock it always had.
+/// The class of a request. A route the router answers is a `Read` or a `Write`; anything else is
+/// `Unrouted`, and the router would answer it 404 anyway.
 ///
 /// The reads that WRITE (`proposals`, `ledger`, `ledger.csv` settle a mined send) and the reads that
 /// run the engine (`balance`, `transactions`) take the locks they need themselves, with `try`.
@@ -2791,12 +2820,15 @@ fn lock_class(method: &Method, path: &str) -> LockClass {
     if *method == Method::Get && (GATED_READS.contains(&route) || OPEN_READS.contains(&route)) {
         return LockClass::Read;
     }
+    if *method != Method::Post
+        || !(WRITE_ROUTES.contains(&route) || is_send_path(route) || vote_path(route).is_some())
+    {
+        return LockClass::Unrouted;
+    }
     // A handler that starts running the engine on the wallet has to be listed here: nothing else
     // would stop two engine processes opening one wallet. `the_lock_class_of_each_route` holds it.
-    let wallet = *method == Method::Post
-        && (route == "/api/vault/proposals"
-            || route == "/api/vault/payroll"
-            || is_send_path(route));
+    let wallet =
+        route == "/api/vault/proposals" || route == "/api/vault/payroll" || is_send_path(route);
     LockClass::Write { wallet }
 }
 
@@ -2871,6 +2903,12 @@ fn serve(
     body: &[u8],
     read_token: Option<&str>,
 ) -> Resp {
+    // A path no handler answers needs no vault, no allowance and no lock.
+    let class = lock_class(method, path);
+    if class == LockClass::Unrouted {
+        return resp(404, json!({ "error": "not found" }).to_string());
+    }
+
     // First, because there is no right vault to lock for a request that names two, or whose body
     // cannot be read by name, and because a registration refused here must not be counted against
     // its sender's allowance below (#576).
@@ -2927,7 +2965,7 @@ fn serve(
     let vault = vault.filter(|v| {
         state.contains(v) || (*method == Method::Post && route == "/api/vault" && reaches_engine)
     });
-    let (write, wallet) = match (lock_class(method, path), vault) {
+    let (write, wallet) = match (class, vault) {
         (LockClass::Write { wallet }, Some(v)) => (
             Some(locks.for_vault(&v)),
             wallet.then(|| locks.wallet_for_vault(&v)),
@@ -2935,11 +2973,23 @@ fn serve(
         _ => (None, None),
     };
     // A handler that panicked would poison a lock and wedge that vault forever; taking the inner
-    // value keeps the vault serving instead. Always the write lock first, then the wallet lock:
-    // readers only ever TRY the wallet lock, so this order cannot deadlock.
-    let _write = write
-        .as_ref()
-        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+    // value keeps the vault serving instead (`try_acquire` does). Always the write lock first, then
+    // the wallet lock: readers only ever TRY the wallet lock, so this order cannot deadlock.
+    // The write lock is waited for a moment only: whoever holds it may hold it for minutes (a send),
+    // and a worker parked here is one fewer for everyone else.
+    let _write = match write.as_ref() {
+        None => None,
+        Some(m) => match concurrency::acquire_within(m, VAULT_WAIT, || false) {
+            Some(guard) => Some(guard),
+            None => {
+                return resp(
+                    503,
+                    json!({ "error": VAULT_BUSY_TEXT, "busy": "vault", "retry_after": 2 })
+                        .to_string(),
+                )
+            }
+        },
+    };
     let _wallet = wallet
         .as_ref()
         .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
@@ -3360,6 +3410,7 @@ mod tests {
             DEVICE_LIST_UNUSABLE_TEXT,
             WALLET_BUSY_TEXT,
             WALLET_BUSY_SENDING_TEXT,
+            VAULT_BUSY_TEXT,
             CREATION_UPDATE_TEXT,
             orchestrator::helper::NOT_PERSISTED_TEXT,
             orchestrator::helper::CLEANUP_FAILED_TEXT,
@@ -9456,13 +9507,83 @@ mod tests {
             (Method::Post, "/api/vault/proposals/p1/send", true),
             (Method::Post, "/api/vault/proposals/p1/approve", false),
             (Method::Post, "/api/vault/proposals/p1/refuse", false),
-            (Method::Get, "/api/vault/something-new", false),
-            (Method::Head, "/api/vault/proposals", false),
         ] {
             assert_eq!(
                 lock_class(&method, path),
                 Write { wallet },
                 "{method:?} {path}"
+            );
+        }
+        for (method, path) in [
+            (Method::Get, "/api/vault/something-new"),
+            (Method::Head, "/api/vault/proposals"),
+            (Method::Put, "/api/vault/proposals"),
+            (Method::Post, "/api/vault/something-new"),
+            (Method::Post, "/api/vault/proposals/p1/nothing"),
+            (Method::Post, "/api/vault/proposals/p1"),
+            (Method::Post, "/api/health"),
+            (Method::Post, "/api/vault/send"),
+        ] {
+            assert_eq!(
+                lock_class(&method, path),
+                LockClass::Unrouted,
+                "{method:?} {path}"
+            );
+        }
+    }
+
+    /// The lock table now decides what is routed, so it is a second place the routes are named. Every
+    /// arm of the router must be in it (read from the source, so a new arm cannot be missed), and every
+    /// write it lists must be one the router answers.
+    #[test]
+    fn every_routed_path_is_in_the_lock_table() {
+        let src = include_str!("main.rs");
+        let start = src.find("\nfn handle_request(").expect("handle_request");
+        let end = start + src[start..].find("\n}\n").expect("end of handle_request");
+        let router = &src[start..end];
+        let mut arms = 0;
+        for (method, tag) in [
+            (Method::Get, "(Method::Get, \""),
+            (Method::Post, "(Method::Post, \""),
+        ] {
+            for piece in router.split(tag).skip(1) {
+                let path = &piece[..piece.find('"').unwrap()];
+                arms += 1;
+                assert_ne!(
+                    lock_class(&method, path),
+                    LockClass::Unrouted,
+                    "{method:?} {path} is routed but the lock table answers it 404"
+                );
+            }
+        }
+        assert!(arms >= 16, "the router scan found only {arms} arms");
+        assert_ne!(
+            lock_class(&Method::Get, "/api/vault/ufvk"),
+            LockClass::Unrouted
+        );
+
+        let st = HelperState::new();
+        seed(&st, "routedw");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        for route in WRITE_ROUTES.iter().copied().chain([
+            "/api/vault/proposals/p1/approve",
+            "/api/vault/proposals/p1/refuse",
+        ]) {
+            let r = handle_request(
+                &st,
+                &c,
+                &locks,
+                &Method::Post,
+                route,
+                br#"{"vault":"routedw"}"#,
+                None,
+            );
+            assert!(
+                !(r.status == 404 && r.body.contains("\"not found\"")),
+                "{route} is a listed write and the router does not route it: {} {}",
+                r.status,
+                r.body
             );
         }
     }
@@ -9506,6 +9627,105 @@ mod tests {
         assert_eq!(got, Some(200), "health waited behind a vault's lock");
     }
 
+    /// Serve one request on another thread while the test holds `vault`'s write lock, and give back
+    /// its answer if it comes within `within`. The lock is released after the wait either way, so a
+    /// request that would have waited for it still ends and the scope joins.
+    fn serve_while_vault_is_held(
+        vault: &str,
+        method: Method,
+        path: &str,
+        body: &str,
+        within: Duration,
+    ) -> Option<(u16, String)> {
+        let st = HelperState::new();
+        seed(&st, vault);
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let write = locks.for_vault(vault);
+        let held = write.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    &CLIENT,
+                    T0,
+                    &method,
+                    path,
+                    body.as_bytes(),
+                    None,
+                );
+                let _ = tx.send((r.status, r.body));
+            });
+            let got = rx.recv_timeout(within).ok();
+            drop(held);
+            got
+        })
+    }
+
+    /// A path no handler answers is a 404 before any lock: it must not wait behind a vault's send
+    /// because its body names that vault.
+    #[test]
+    fn an_unrouted_request_naming_a_busy_vault_is_answered_at_once() {
+        for (method, path, body) in [
+            (Method::Post, "/api/vault/nowhere", r#"{"vault":"busyv"}"#),
+            (Method::Get, "/api/vault/nowhere?vault=busyv", ""),
+            (Method::Head, "/api/vault/proposals?vault=busyv", ""),
+            (
+                Method::Post,
+                "/api/vault/proposals/p1/nothing",
+                r#"{"vault":"busyv"}"#,
+            ),
+        ] {
+            let got = serve_while_vault_is_held(
+                "busyv",
+                method.clone(),
+                path,
+                body,
+                Duration::from_secs(1),
+            );
+            assert_eq!(
+                got.as_ref().map(|g| g.0),
+                Some(404),
+                "{method:?} {path} waited for the vault's lock: {got:?}"
+            );
+        }
+    }
+
+    /// A write to a vault whose lock is held waits a moment, then answers the busy contract the
+    /// screens retry on (`busy: vault`), instead of holding a worker for as long as the lock is held.
+    #[test]
+    fn a_write_to_a_held_vault_gives_up_with_the_busy_answer() {
+        for path in [
+            "/api/vault/proposals/p1/approve",
+            "/api/vault/proposals/p1/send",
+            "/api/vault/members/rename",
+        ] {
+            let started = std::time::Instant::now();
+            let got = serve_while_vault_is_held(
+                "busyw",
+                Method::Post,
+                path,
+                r#"{"vault":"busyw","member":"m"}"#,
+                Duration::from_secs(6),
+            );
+            let Some((status, body)) = got else {
+                panic!("POST {path} was still waiting for the vault's lock after 6 s");
+            };
+            assert_eq!(status, 503, "POST {path}: {body}");
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(v["busy"], "vault", "POST {path}: {body}");
+            assert!(
+                started.elapsed() >= Duration::from_millis(1_500),
+                "POST {path} gave up without waiting a moment"
+            );
+        }
+    }
+
     /// The lock table is DERIVED from the gate's list, but the router is a third place a read is
     /// named. Every route the table calls a free read must be one the router actually answers (not
     /// the 404 of an unrouted path): a route renamed in the router and not in the lists would fall
@@ -9538,10 +9758,11 @@ mod tests {
                 r.body
             );
         }
-        // And the other way: a GET the router does not answer is not free.
+        // And the other way: a GET the router does not answer is not a free read; it is a 404 before
+        // any lock.
         assert_eq!(
             lock_class(&Method::Get, "/api/vault/nothing-routes-here"),
-            LockClass::Write { wallet: false }
+            LockClass::Unrouted
         );
     }
 
@@ -10317,7 +10538,7 @@ mod tests {
 
     /// The goal of S3 against a REAL write that runs the engine (a proposal's funding check): many
     /// reads of the vault answer while it runs, the engine is opened once, and a second write still
-    /// queues behind the first, as it always did.
+    /// queues behind the first, for at most `VAULT_WAIT`.
     #[cfg(unix)]
     #[test]
     fn reads_answer_while_a_real_write_runs_the_engine() {
@@ -10401,8 +10622,12 @@ mod tests {
             let (created, _) = write.join().unwrap();
             assert_eq!(created.status, 200, "{}", created.body);
             let (voted, waited) = second_write.join().unwrap();
+            // It queues, and when the first write holds the vault past `VAULT_WAIT` it answers the
+            // busy contract instead of waiting on (the screens send it again).
             assert!(
-                voted.status == 200 || voted.status == 409,
+                voted.status == 200
+                    || voted.status == 409
+                    || (voted.status == 503 && voted.body.contains(r#""busy":"vault""#)),
                 "{} {}",
                 voted.status,
                 voted.body
