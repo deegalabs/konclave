@@ -7145,6 +7145,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A coordinator that receives no connection for longer than the socket timeout still answers
+    /// the next one: a quiet stretch never ends the server.
+    #[test]
+    fn a_quiet_coordinator_still_answers_the_next_request() {
+        use std::io::{Read as _, Write as _};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("konclave-hs-quiet-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(200))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Server::from_listener(listener, None).unwrap();
+        std::thread::spawn(move || {
+            let (state, locks) = (HelperState::new(), concurrency::VaultLocks::new());
+            let (limits, slots) = (
+                admission::Limits::new(),
+                konclave_http::body::BodySlots::new(),
+            );
+            serve_requests(&server, &state, &cfg, &locks, &limits, &slots)
+        });
+        std::thread::sleep(Duration::from_millis(700));
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        c.write_all(b"GET /api/health HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        let mut got = [0u8; 64];
+        let n = c.read(&mut got).unwrap_or(0);
+        let got = String::from_utf8_lossy(&got[..n]);
+        assert!(got.starts_with("HTTP/1.1 200"), "got {got:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A body framed by a transfer encoding is refused before any of it is read, so a chunk-size
     /// line that never ends costs the coordinator nothing. Every route, before it is served.
     #[test]

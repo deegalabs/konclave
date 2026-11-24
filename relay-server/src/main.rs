@@ -961,6 +961,31 @@ mod tests {
         drop(stalled);
     }
 
+    /// A relay that receives no connection for longer than the socket timeout still answers the
+    /// next one: a quiet stretch never ends the server.
+    #[test]
+    fn a_quiet_relay_still_answers_the_next_request() {
+        use std::time::Duration;
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(200))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        std::thread::sleep(Duration::from_millis(700));
+        let health = exchange(
+            addr,
+            b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n",
+            Duration::from_secs(3),
+        );
+        assert!(health.starts_with("HTTP/1.1 200"), "got {health:?}");
+    }
+
     /// A body framed by a transfer encoding is refused before any of it is read: a chunk-size line
     /// that never ends costs the relay nothing, and the connection is not read past it.
     #[test]

@@ -338,6 +338,20 @@ impl Server {
                         }));
                     }
 
+                    // Konclave patch: a listener with a socket timeout (which accepted sockets
+                    // inherit) returns WouldBlock or TimedOut from `accept` when no client arrives
+                    // within it; that, and an interrupted call, is not an error: keep listening.
+                    Err(ref e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        continue;
+                    }
+
                     Err(e) => {
                         log::error!("Error accepting new client: {}", e);
                         inside_messages.push(e.into());
