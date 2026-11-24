@@ -77,12 +77,15 @@ cp ~/ktarget-$REV/release/konclave-signer ~/konclave-helper-deploy/bin/
 # recorded source; do not ship a near match.
 cp <zcash-devtool with the recorded sha256> ~/konclave-helper-deploy/bin/zcash-devtool
 cp <zcash-sign with the recorded sha256>    ~/konclave-helper-deploy/bin/zcash-sign
+# Hash the folder's Dockerfile BEFORE replacing it, and record both hashes, so a drift from the
+# repository's copy is provable instead of inferred.
+sha256sum ~/konclave-helper-deploy/Dockerfile deploy/helper/Dockerfile
 cp deploy/helper/Dockerfile ~/konclave-helper-deploy/Dockerfile
 
 # Before `railway up`: COMPARE, do not just print. This fails unless both engine tools are the
-# recorded builds (today zcash-devtool 8c41afd3… and zcash-sign 27f58e7c…, full values in the lock).
+# recorded builds (today zcash-devtool 5df38d2c… and zcash-sign 27f58e7c…, full values in the lock).
 (cd ~/konclave-helper-deploy/bin && sha256sum -c - <<'EOF'
-8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153  zcash-devtool
+5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08  zcash-devtool
 27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1  zcash-sign
 EOF
 )
