@@ -17,9 +17,14 @@ path = "src/main.rs"
 
 [dependencies]
 konclave-http = { path = "../konclave-http" }
-tiny_http = "0.12"
+tiny_http = "=0.12.0" # exact: the vendored, patched copy (see the root [patch.crates-io])
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [profile.release]
 opt-level = 2
+
+# The same patch as the root workspace's (see its Cargo.toml): the vendored HTTP server, one change
+# on top of the released crate. The Dockerfile and .dockerignore admit vendor/ for it.
+[patch.crates-io]
+tiny_http = { path = "../vendor/tiny_http-0.12.0" }

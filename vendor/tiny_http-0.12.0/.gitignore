@@ -1,0 +1,3 @@
+# Konclave patch: Cargo.lock is committed, so CI runs these tests with --locked.
+target/
+.idea

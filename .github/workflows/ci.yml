@@ -176,6 +176,7 @@ jobs:
           cargo test --manifest-path relay-server/Cargo.toml --locked
           cargo test --manifest-path helper-server/Cargo.toml
           cargo test --manifest-path konclave-http/Cargo.toml
+          cargo test --manifest-path vendor/tiny_http-0.12.0/Cargo.toml --locked
           cargo test --manifest-path konclave-seal/Cargo.toml --all-features
           cargo check --manifest-path konclave-seal/Cargo.toml
           cargo check --manifest-path konclave-seal/Cargo.toml --features pczt

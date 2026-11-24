@@ -56,6 +56,19 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.24.0] 2026-11-23
+
+> **Services deployed when this was cut (2026-11-23):** coordinator `4852aea7`, relay `d44db796681d0109`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The shared server code, and the rule for the actions members sign, are stricter.** These reach
+  the coordinator and the relay. Nothing changes for members in ordinary use. The full account
+  follows once the hosted services run this.
+
 ## [0.23.0] 2026-11-23
 
 > **Services deployed when this was cut (2026-11-23):** coordinator `fcd2abbb`, relay `68c687b62bc3d547`.

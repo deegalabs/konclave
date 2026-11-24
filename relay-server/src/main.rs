@@ -811,7 +811,10 @@ fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
     let addr = format!("0.0.0.0:{port}");
-    let server = Server::http(&addr).expect("bind");
+    // Bound with a read and write timeout that every accepted connection inherits, so a connection
+    // that stops sending ends instead of holding a worker (see `konclave_http::body`).
+    let listener = konclave_http::body::listen(&addr).expect("bind");
+    let server = Server::from_listener(listener, None).expect("serve");
     let state = RelayState::default();
     eprintln!("konclave relay listening on {addr}");
 
@@ -829,7 +832,15 @@ fn main() {
 
     // A worker that ends, by a panic or otherwise, ends the process with a failure code so the
     // platform restarts it, instead of the pool thinning out to an exit 0.
-    konclave_http::run_workers("konclave relay", workers, move || loop {
+    let slots = Arc::new(konclave_http::body::BodySlots::new());
+    konclave_http::run_workers("konclave relay", workers, move || {
+        serve_requests(&server, &state, &slots)
+    })
+}
+
+/// One worker's loop. Returns only when the server stops handing out requests.
+fn serve_requests(server: &Server, state: &RelayState, slots: &konclave_http::body::BodySlots) {
+    loop {
         let Ok(mut req) = server.recv() else { return };
         let method = req.method().clone();
         let url = req.url().to_string();
@@ -842,15 +853,16 @@ fn main() {
         }
 
         let (status, body) = if path.starts_with("/api/relay/") {
-            let mut buf = Vec::new();
             // Read with a hard ceiling - including when there is NO Content-Length, which used
-            // to be read unbounded (#390). `take` caps a dribbling or chunked body.
-            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
-                konclave_http::ReadPlan::Read(limit) => {
-                    let _ = req.as_reader().take(limit).read_to_end(&mut buf);
+            // to be read unbounded (#390) - and a deadline, so a body that is slow to arrive ends.
+            let buf = match read_request_body(&mut req, &addr, slots) {
+                Ok(buf) => buf,
+                Err((status, error)) => {
+                    let resp = Response::from_string(error).with_status_code(status);
+                    let _ = req.respond(with_cors(resp, true));
+                    continue;
                 }
-                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
-            }
+            };
             // A handler that panics answers this request with a 500 and leaves the worker, the
             // process and every other room standing; only a failure outside it ends the worker.
             konclave_http::guard(|| state.handle(&method, &path, &url, &buf, now_unix(), &addr))
@@ -868,11 +880,177 @@ fn main() {
 
         let resp = Response::from_string(body).with_status_code(status);
         let _ = req.respond(with_cors(resp, true));
-    })
+    }
+}
+
+/// The body of a relay request, or the status and error to answer instead.
+fn read_request_body(
+    req: &mut tiny_http::Request,
+    addr: &ClientAddress,
+    slots: &konclave_http::body::BodySlots,
+) -> Result<Vec<u8>, (u16, String)> {
+    let declared = req.body_length().map(|n| n as u64);
+    let headers: Vec<(String, String)> = req
+        .headers()
+        .iter()
+        .map(|h| (h.field.as_str().to_string(), h.value.as_str().to_string()))
+        .collect();
+    konclave_http::body::read_request_body(
+        declared,
+        headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        req.as_reader(),
+        *addr,
+        slots,
+    )
+    .map_err(|r| (r.status(), r.json().to_string()))
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// Send `raw` on a new connection and return what comes back within `wait`.
+    fn exchange(addr: std::net::SocketAddr, raw: &[u8], wait: std::time::Duration) -> String {
+        use std::io::Write as _;
+        let mut c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(wait)).unwrap();
+        c.write_all(raw).unwrap();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = c.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            got.extend_from_slice(&buf[..n]);
+            if got.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&got).into_owned()
+    }
+
+    /// One worker, and a client that announces a body larger than tiny_http buffers and then sends
+    /// one byte. The body's deadline frees that worker, and `/health` answers.
+    #[test]
+    fn a_body_that_stops_arriving_does_not_hold_the_only_worker() {
+        use std::io::Write as _;
+        use std::time::{Duration, Instant};
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        let mut stalled = std::net::TcpStream::connect(addr).unwrap();
+        stalled
+            .write_all(b"POST /api/relay/post HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n{")
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        let health = exchange(
+            addr,
+            b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n",
+            Duration::from_secs(3),
+        );
+        assert!(health.starts_with("HTTP/1.1 200"), "got {health:?}");
+        assert!(t.elapsed() < Duration::from_secs(3));
+        drop(stalled);
+    }
+
+    /// A relay that receives no connection for longer than the socket timeout still answers the
+    /// next one: a quiet stretch never ends the server.
+    #[test]
+    fn a_quiet_relay_still_answers_the_next_request() {
+        use std::time::Duration;
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(200))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        std::thread::sleep(Duration::from_millis(700));
+        let health = exchange(
+            addr,
+            b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n",
+            Duration::from_secs(3),
+        );
+        assert!(health.starts_with("HTTP/1.1 200"), "got {health:?}");
+    }
+
+    /// A body framed by a transfer encoding is refused before any of it is read: a chunk-size line
+    /// that never ends costs the relay nothing, and the connection is not read past it.
+    #[test]
+    fn a_chunked_body_is_refused_before_it_is_read() {
+        use std::time::Duration;
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        let head = "POST /api/relay/post HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let mut small = head.as_bytes().to_vec();
+        small.extend_from_slice(b"5\r\nhello\r\n0\r\n\r\n");
+        let got = exchange(addr, &small, Duration::from_secs(3));
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+        let mut endless = head.as_bytes().to_vec();
+        endless.extend(std::iter::repeat_n(b'f', 32 * 1024));
+        let got = exchange(addr, &endless, Duration::from_secs(3));
+        assert!(got.starts_with("HTTP/1.1 411"), "got {got:?}");
+    }
+
+    /// One address may send at most BODIES_PER_ADDRESS bodies at once; the next is a 429, at once.
+    /// Driven through the relay's own loop, so it fails if the loop stops taking a slot.
+    #[test]
+    fn an_address_past_its_body_slots_is_refused_at_once() {
+        use std::time::{Duration, Instant};
+        let listener =
+            konclave_http::body::listen_with_timeout("127.0.0.1:0", Duration::from_millis(300))
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = Arc::new(Server::from_listener(listener, None).unwrap());
+        let state = Arc::new(RelayState::default());
+        let slots = Arc::new(konclave_http::body::BodySlots::new());
+        let me = ClientAddress::from_ip("127.0.0.1".parse().unwrap());
+        let _held: Vec<_> = (0..konclave_http::body::BODIES_PER_ADDRESS)
+            .map(|_| {
+                slots
+                    .try_take(me, konclave_http::body::BODIES_PER_ADDRESS)
+                    .unwrap()
+            })
+            .collect();
+        {
+            let (server, state, slots) = (server.clone(), state.clone(), slots.clone());
+            std::thread::spawn(move || serve_requests(&server, &state, &slots));
+        }
+        let t = Instant::now();
+        let got = exchange(
+            addr,
+            // Longer than what the server buffers on its own, so reading it would hold a worker.
+            b"POST /api/relay/post HTTP/1.1\r\nHost: x\r\nContent-Length: 8192\r\n\r\n{",
+            Duration::from_secs(3),
+        );
+        assert!(got.starts_with("HTTP/1.1 429"), "got {got:?}");
+        assert!(
+            t.elapsed() < Duration::from_secs(1),
+            "took {:?}",
+            t.elapsed()
+        );
+    }
 
     // #522. The relay is built by Railway from an uploaded directory, so there is no commit to
     // stamp: no GitHub connection, no RAILWAY_GIT_COMMIT_SHA, and the Dockerfile copies no `.git`.
