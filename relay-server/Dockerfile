@@ -19,10 +19,13 @@
 FROM rust:1-slim AS build
 WORKDIR /app
 
-# Only the two crates the relay needs. Copied explicitly rather than with a wildcard so that a third
+# Only the crates the relay needs. Copied explicitly rather than with a wildcard so that a third
 # dependency appearing in Cargo.toml fails the build HERE, loudly, instead of at whatever hour
-# someone is trying to ship. The list is the same list as `relay-server/Cargo.toml`'s path deps.
+# someone is trying to ship. The list is the same list as `relay-server/Cargo.toml`'s path deps,
+# plus the path of its [patch.crates-io].
 COPY konclave-http ./konclave-http
+# The vendored HTTP server, patched (relay-server/Cargo.toml's [patch.crates-io]).
+COPY vendor/tiny_http-0.12.0 ./vendor/tiny_http-0.12.0
 COPY relay-server/Cargo.toml ./relay-server/Cargo.toml
 # The relay's own lock (it is its own cargo workspace): the build uses exactly the versions CI tested,
 # and fails rather than resolving newer ones. This pins the dependencies; it does not attest

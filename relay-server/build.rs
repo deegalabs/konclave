@@ -70,9 +70,12 @@ fn main() {
         "Cargo.lock".into(),
         "build.rs".into(),
         "../konclave-http/Cargo.toml".into(),
+        "../vendor/tiny_http-0.12.0/Cargo.toml".into(),
     ];
     walk("src", &mut parts);
     walk("../konclave-http/src", &mut parts);
+    // The vendored HTTP server is patched, so it is part of what this relay is too.
+    walk("../vendor/tiny_http-0.12.0/src", &mut parts);
     parts.sort();
 
     let mut blob = Vec::new();

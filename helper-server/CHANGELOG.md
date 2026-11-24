@@ -45,6 +45,10 @@ entry in this section is live from then at the latest.
 
 ### Security
 
+- **The coordinator checks requests, and the actions members sign, more strictly.** Nothing
+  changes for members in ordinary use. The full account follows once the hosted coordinator runs
+  this.
+
 - **The copy of a transaction the coordinator shares for signing no longer carries what finishes
   it.** The copy each device receives to check and sign a payment also carried each action's
   value-commitment blinding, the bundle's binding signing key and its proof, and each spend's

@@ -66,7 +66,25 @@ pub enum WriteRefusal {
     Malformed,
     /// This nonce was already used on this vault.
     Replay,
+    /// The signed time is further than [`WRITE_FRESHNESS_MS`] from the coordinator's clock, either
+    /// way. Usually a device whose clock is wrong, so the caller says so.
+    Stale,
 }
+
+/// How far a signed write's time may be from the coordinator's clock, either way, in ms.
+///
+/// A signed write is good near the moment it was signed and not after: the nonce stops it being
+/// accepted twice while it is fresh, and this stops it being accepted at all once it is not. Ten
+/// minutes leaves room for a device clock that drifts and for the app resending a write while the
+/// vault is busy.
+pub const WRITE_FRESHNESS_MS: i64 = 10 * 60 * 1000;
+
+/// How long a used nonce is remembered, in ms from when it was accepted. A write accepted at `t` may
+/// carry a time up to [`WRITE_FRESHNESS_MS`] ahead of `t`, so it stays fresh until
+/// `t + 2 * WRITE_FRESHNESS_MS`; the nonce is kept past that, with a minute to spare.
+pub const NONCE_RETENTION_MS: i64 = 2 * WRITE_FRESHNESS_MS + 60 * 1000;
+// Accepted at t with a time up to the window ahead, a write is fresh until t + 2 windows.
+const _: () = assert!(NONCE_RETENTION_MS > 2 * WRITE_FRESHNESS_MS);
 
 /// The longest nonce a signed write may carry. The app sends a 36-character UUID; the coordinator
 /// remembers the nonces it has accepted, so their size is bounded here, before anything is signed
@@ -77,14 +95,16 @@ const _: () = assert!(MAX_NONCE_BYTES >= 36);
 
 /// Decide whether a governance write is authentic.
 ///
-/// `seen_nonce` answers whether this vault has already accepted that nonce. It is a closure so this
-/// stays I/O-free and both backends can back it with whatever they already have.
+/// `now_ms` is the caller's clock, in ms. `seen_nonce` answers whether this vault has already accepted
+/// that nonce. Both are arguments so this stays I/O-free and both backends can back them with
+/// whatever they already have.
 pub fn authorize_write(
     keys: &[WriteKey],
     vault_id: &str,
     action: WriteAction,
     target: &str,
     w: &SignedWrite,
+    now_ms: i64,
     seen_nonce: impl Fn(&str) -> bool,
 ) -> WriteAuth {
     // The migration gate first (ADR-0011 D5): a vault where no device has registered a write key
@@ -106,6 +126,9 @@ pub fn authorize_write(
     let (Some(sig_bytes), Some(pub_bytes)) = (unhex32x2(&w.sig), unhex32(&key.pubkey)) else {
         return WriteAuth::Refused(WriteRefusal::Malformed);
     };
+    if w.ts.abs_diff(now_ms) > WRITE_FRESHNESS_MS.unsigned_abs() {
+        return WriteAuth::Refused(WriteRefusal::Stale);
+    }
     if seen_nonce(&w.nonce) {
         return WriteAuth::Refused(WriteRefusal::Replay);
     }
@@ -636,7 +659,15 @@ mod tests {
         };
 
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Refuse, "prop-9", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Refuse,
+                "prop-9",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Authorized { seat: 2 }
         );
     }
@@ -647,7 +678,15 @@ mod tests {
         let keys = [alice.registered()];
         let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Authorized { seat: 1 }
         );
     }
@@ -660,7 +699,15 @@ mod tests {
         let keys = [alice.registered()];
         let w = outsider.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Refused(WriteRefusal::BadSignature)
         );
     }
@@ -675,7 +722,15 @@ mod tests {
         let mut w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         w.seat = 2;
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Refused(WriteRefusal::BadSignature)
         );
     }
@@ -687,7 +742,15 @@ mod tests {
         let keys = [alice.registered()];
         let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Refuse, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Refuse,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Refused(WriteRefusal::BadSignature)
         );
     }
@@ -698,7 +761,15 @@ mod tests {
         let keys = [alice.registered()];
         let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-2", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-2",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Refused(WriteRefusal::BadSignature),
             "another proposal"
         );
@@ -709,11 +780,55 @@ mod tests {
                 WriteAction::Approve,
                 "prop-1",
                 &w,
+                w.ts,
                 never_seen
             ),
             WriteAuth::Refused(WriteRefusal::BadSignature),
             "another vault"
         );
+    }
+
+    #[test]
+    fn a_write_signed_too_long_ago_or_too_far_ahead_is_refused() {
+        let alice = Device::new(1, 1);
+        let keys = [alice.registered()];
+        let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
+        let at = |now: i64| {
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                now,
+                never_seen,
+            )
+        };
+        let ok = WriteAuth::Authorized { seat: 1 };
+        let stale = WriteAuth::Refused(WriteRefusal::Stale);
+        assert_eq!(at(w.ts), ok);
+        assert_eq!(
+            at(w.ts + WRITE_FRESHNESS_MS),
+            ok,
+            "signed at the far edge of the past"
+        );
+        assert_eq!(
+            at(w.ts - WRITE_FRESHNESS_MS),
+            ok,
+            "signed at the far edge of the future"
+        );
+        assert_eq!(
+            at(w.ts + WRITE_FRESHNESS_MS + 1),
+            stale,
+            "signed too long ago"
+        );
+        assert_eq!(
+            at(w.ts - WRITE_FRESHNESS_MS - 1),
+            stale,
+            "signed too far ahead"
+        );
+        assert_eq!(at(i64::MAX), stale);
+        assert_eq!(at(i64::MIN), stale);
     }
 
     #[test]
@@ -723,7 +838,8 @@ mod tests {
         let keys = [alice.registered()];
         let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, |n| n == "n1"),
+            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, w.ts, |n| n
+                == "n1"),
             WriteAuth::Refused(WriteRefusal::Replay)
         );
     }
@@ -737,7 +853,15 @@ mod tests {
         let at_the_limit = "n".repeat(MAX_NONCE_BYTES);
         let w = alice.sign(V, WriteAction::Approve, "prop-1", &at_the_limit);
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Authorized { seat: 1 }
         );
         for nonce in [
@@ -747,7 +871,15 @@ mod tests {
         ] {
             let w = alice.sign(V, WriteAction::Approve, "prop-1", &nonce);
             assert_eq!(
-                authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+                authorize_write(
+                    &keys,
+                    V,
+                    WriteAction::Approve,
+                    "prop-1",
+                    &w,
+                    w.ts,
+                    never_seen
+                ),
                 WriteAuth::Refused(WriteRefusal::Malformed),
                 "a nonce of {} bytes",
                 nonce.len()
@@ -762,7 +894,15 @@ mod tests {
         let keys = [alice.registered()];
         let w = ghost.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(
+                &keys,
+                V,
+                WriteAction::Approve,
+                "prop-1",
+                &w,
+                w.ts,
+                never_seen
+            ),
             WriteAuth::Refused(WriteRefusal::UnknownSeat)
         );
     }
@@ -793,7 +933,7 @@ mod tests {
                 sig: bad.into(),
             };
             assert_eq!(
-                authorize_write(&keys, V, WriteAction::Approve, "p", &w, never_seen),
+                authorize_write(&keys, V, WriteAction::Approve, "p", &w, w.ts, never_seen),
                 WriteAuth::Refused(WriteRefusal::Malformed),
                 "sig {bad:?}"
             );
@@ -817,7 +957,7 @@ mod tests {
                 pubkey: bad.clone(),
             }];
             assert_eq!(
-                authorize_write(&keys, V, WriteAction::Approve, "p", &w, never_seen),
+                authorize_write(&keys, V, WriteAction::Approve, "p", &w, w.ts, never_seen),
                 WriteAuth::Refused(WriteRefusal::Malformed),
                 "key {bad:?}"
             );
@@ -832,7 +972,7 @@ mod tests {
         let alice = Device::new(1, 1);
         let w = alice.sign(V, WriteAction::Approve, "prop-1", "n1");
         assert_eq!(
-            authorize_write(&[], V, WriteAction::Approve, "prop-1", &w, never_seen),
+            authorize_write(&[], V, WriteAction::Approve, "prop-1", &w, w.ts, never_seen),
             WriteAuth::Open
         );
     }

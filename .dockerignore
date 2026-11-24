@@ -10,8 +10,10 @@
 
 !konclave-http
 !relay-server
+!vendor/tiny_http-0.12.0
 
 # Build output inside the admitted crates. `target/` is gitignored, so `railway up` never uploads it,
 # but a local `docker build` has no such filter and would otherwise copy gigabytes per attempt.
 konclave-http/target
 relay-server/target
+vendor/tiny_http-0.12.0/target

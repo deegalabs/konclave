@@ -45,6 +45,9 @@ is live from then at the latest.
 
 ### Security
 
+- **The relay reads requests more strictly.** Nothing changes for members. The full account follows
+  once the hosted relay runs this.
+
 - **A client could use up another client's request budget at the relay.** The relay refuses a
   sender that makes too many requests in a short window (`429`). That budget was counted under a key
   built from a string the requester supplied, and the per-address and per-sender budgets were kept

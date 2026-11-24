@@ -526,7 +526,7 @@ role   = "register: derive the Orchard address + UFVK from the group key (`gener
 # what a build of this source produced. CI rebuilds and compares on every push.
 [wasm]
 wasm_pack     = "0.13.1"
-source_digest = "897f5167fde8e7f94022e1ae7b865290ad5b9bbdf50278c4cf3ec67f5f896345"
+source_digest = "3cc6190a68f72c634442df5b44acf4f365de0f30e44b13636f2a7edc6c0dda10"
 
 [[wasm_file]]
 name   = "README.md"
