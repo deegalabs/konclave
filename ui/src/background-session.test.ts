@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init, { DkgSession, identifierBytes, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
-import { dkgProvenPczt, dkgVaultKey, fixtureVault } from './rekeyed-vault'
+import { dkgProvenPczt, dkgVaultKey, fixtureVault, VECTOR_VIEWING_KEY, VECTOR_RECEIVERS } from './rekeyed-vault'
 import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { OwnerSigning } from './owner-signing'
 import { recordSigned, type RecordStore } from './signed-record'
@@ -19,6 +19,13 @@ import { signArmed, signUnarmed } from './room-auth'
 import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
 import type { GateDecision } from './approved-payment'
+
+vi.mock('./wasm-pkg/konclave_wasm.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./wasm-pkg/konclave_wasm.js')>()
+  const { standingInForTheVectorsKey } = await import('./rekeyed-vault')
+  return { ...real, readForSigning: standingInForTheVectorsKey(real.readForSigning) }
+})
+
 
 // NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
 const NU63 = 0x37a5165b
@@ -73,13 +80,15 @@ class Bus {
 interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null; logs: string[]; withdrawn: number }
 
 let NOW = 1_700_000_000_000
-function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2, owner?: { claim: (h: string, e: number) => Promise<boolean>; record: (h: string, e: number, b: number) => Promise<void> }): Dev {
+function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2, owner?: { claim: (h: string, e: number) => Promise<boolean>; record: (h: string, e: number, b: number) => Promise<void> }, receivers?: () => string[] | null): Dev {
   const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null, logs: [], withdrawn: 0 }
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
     // #281 is asserted in signing-machine.test.ts; permissive here unless a test says otherwise.
     decideApproval: decide,
+    ourReceivers: receivers ?? (() => VECTOR_RECEIVERS),
+    viewingKey: async () => VECTOR_VIEWING_KEY,
     claim: owner?.claim ?? (() => true),
     record: owner?.record ?? (async () => {}),
     signingMaterial: mat,
@@ -178,6 +187,37 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
       expect(B.sig).toBeNull()
     })
   }
+
+  // The vault's own receivers cross the session on their way to the device's reading of the payment.
+  // A hop that dropped them (answered null) would refuse every payroll that takes a note exactly, so
+  // the session is run with a list, and the list is seen at the reading: the vault's own is asked for
+  // and the ceremony completes, one the reading cannot use refuses it, which only happens if it got
+  // there. (A list the vault's key does not derive is refused too, tested in Rust and below.)
+  it('carries the vault receivers to the reading of the payment', async () => {
+    const run2 = async (receivers: () => string[] | null) => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const open: GovernanceGate = () => true
+      const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open, () => 'match', 0, 2, undefined, receivers)
+      const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open, () => 'match', 0, 2, undefined, receivers)
+      await A.session.start()
+      await B.session.start()
+      await run([A, B], bus)
+      await quorum([A, B], bus)
+      bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+      await run([A, B], bus)
+      return { A, B }
+    }
+    let asked = 0
+    const good = await run2(() => { asked++; return VECTOR_RECEIVERS })
+    expect(asked).toBeGreaterThan(0)
+    expect(good.A.errors).toEqual([])
+    expect(good.A.sig?.ok).toBe(true)
+    const bad = await run2(() => ['not hex'])
+    // A record the reading cannot use is the device's own record not loading: its reload message.
+    expect(bad.A.errors).toEqual(['net.err.approvalUnknown'])
+    expect(bad.A.sig).toBeNull()
+  })
 
   it('BUG #356: a signature read back from the room still counts, or the quorum never closes', async () => {
     // Both members present, one has signed, and the other device joined afterwards. It learns that

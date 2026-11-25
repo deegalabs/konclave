@@ -2234,7 +2234,7 @@ fn serve_on(server: &tiny_http::Server, cfg: &Config) {
                 token = Some(h.value.as_str().to_string());
             }
         }
-        // Bounded body (L4): the handler never receives more than 2 MiB (the shared ceiling of
+        // Bounded body: the handler never receives more than 2 MiB (the shared ceiling of
         // konclave-http), generous for a payroll. Over → 413, whether the request announces its
         // length or not: an announced length over the limit is refused before this loop reads it,
         // and any other body is read through a reader that stops one byte past the limit, so a

@@ -151,7 +151,11 @@ export class BackgroundSigner {
   private readonly gate: GovernanceGate
   private readonly msgs: { seq: number; from: string; data: string }[] = []
   private readonly consumed = new Set<number>()
+  /** Never reset: a number a drain kept from before a `rearm` must not name a message after it. */
   private seq = 0
+  /** Moved on by `rearm`. A drain that comes back from an await into a later generation stops: what
+   *  it held belongs to the payment before. */
+  private gen = 0
   private pumping = false
   private rerun = false
 
@@ -179,13 +183,14 @@ export class BackgroundSigner {
     return this.machine.isDone()
   }
 
-  /** Reset for a NEXT payment. Contract: the caller moves to a FRESH signing room per payment, so
-   *  the buffered message history is dropped with the state (no cross-payment k collisions). */
+  /** Reset for a NEXT payment. The buffered history is dropped with the state, and a drain still
+   *  out on an await when this runs keeps nothing it held (`gen`), so no message of one payment is
+   *  read into the next. The room may be the same: one per vault, not one per payment. */
   rearm(): void {
+    this.gen++
     this.machine.rearm()
     this.msgs.length = 0
     this.consumed.clear()
-    this.seq = 0
   }
 
   // Idempotent fixpoint over the buffered messages, serialized against itself (mirrors NetVault's
@@ -200,16 +205,21 @@ export class BackgroundSigner {
     try {
       do {
         this.rerun = false
+        const gen = this.gen
         let progressed = true
-        while (progressed) {
+        drain: while (progressed) {
           progressed = false
           for (const m of this.msgs) {
+            if (this.gen !== gen) break drain
             if (this.consumed.has(m.seq)) continue
             // A helper sign-request (coordinator kickoff): gate on the payment's sighash.
             const req = parseSignRequest(m.data)
             if (req) {
               if (!(await this.gate({ sighash: req.sighash }))) continue // pending, not rejected
-              if (await this.machine.tryHelperRequest(m.data)) {
+              if (this.gen !== gen) break drain
+              const taken = await this.machine.tryHelperRequest(m.data)
+              if (this.gen !== gen) break drain
+              if (taken) {
                 this.consumed.add(m.seq)
                 progressed = true
               }
@@ -225,9 +235,12 @@ export class BackgroundSigner {
             // An `sreq` makes THIS device contribute its share: gate participation on the sighash.
             if (parsed.type === 'sreq' && parsed.msg) {
               if (!(await this.gate({ sighash: toHex(unb64(parsed.msg)) }))) continue // pending
+              if (this.gen !== gen) break drain
             }
             if (parsed.type && SIGN_TYPES.has(parsed.type)) {
-              if (await this.machine.handle(parsed as SignWireMsg, m.from)) {
+              const handled = await this.machine.handle(parsed as SignWireMsg, m.from)
+              if (this.gen !== gen) break drain
+              if (handled) {
                 this.consumed.add(m.seq)
                 progressed = true
               }
@@ -240,7 +253,8 @@ export class BackgroundSigner {
         // delivered rather than on what each message delivered (#399) - the commitment that reaches
         // threshold usually arrives alone, so a coordinator that waited for a proven seat has
         // nothing to wake it otherwise.
-        await this.machine.afterDrain()
+        // A drain cut short by a rearm says nothing about the next payment: the rerun reads it afresh.
+        if (this.gen === gen) await this.machine.afterDrain()
       } while (this.rerun)
     } finally {
       this.pumping = false

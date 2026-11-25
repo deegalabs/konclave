@@ -2971,12 +2971,14 @@ dependencies = [
  "konclave-seal",
  "orchard",
  "pczt",
+ "rand 0.10.3",
  "rand 0.8.7",
  "reddsa 0.5.2",
  "serde_json",
  "wasm-bindgen",
  "zcash_address",
  "zcash_note_encryption",
+ "zcash_primitives",
  "zcash_protocol",
 ]
 

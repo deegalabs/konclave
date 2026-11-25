@@ -13,6 +13,8 @@ use konclave_seal::epochs::Anchor;
 use konclave_wasm::pczt_bridge::{read_for_signing_with, Epoch, NetworkRules, MAINNET};
 use pczt::Pczt;
 
+mod support;
+
 const NU7_TESTNET: &[u8] = include_bytes!("vectors/nu7_testnet.proven.pczt");
 const NU7_BRANCH: u32 = 0x7719_0ad9;
 const ANCHOR_UNIX: i64 = 1_800_000_000;
@@ -48,8 +50,14 @@ fn the_device_reads_a_real_nu7_testnet_transaction_through_every_check() {
     assert_eq!(*pczt.global().tx_version(), 6);
     let expiry = expiry_of_vector();
     // A clock whose estimate is the vector's own target (the expiry is 120 blocks past it).
-    let got = read_for_signing_with(&testnet_rules(expiry), NU7_TESTNET, ANCHOR_UNIX + 25 * 10)
-        .expect("the device reads a real NU7 transaction");
+    let got = read_for_signing_with(
+        &testnet_rules(expiry),
+        NU7_TESTNET,
+        ANCHOR_UNIX + 25 * 10,
+        None,
+        Some(&support::fvk_in(NU7_TESTNET)),
+    )
+    .expect("the device reads a real NU7 transaction");
     assert_eq!(got.branch_id, NU7_BRANCH);
     assert_eq!(got.expiry_height, expiry);
     // The signer (pczt 0.10) holds the same value for the same transaction.
@@ -63,10 +71,31 @@ fn the_device_reads_a_real_nu7_testnet_transaction_through_every_check() {
 fn the_device_refuses_a_real_nu7_transaction_on_the_wrong_clock_or_the_wrong_table() {
     let expiry = expiry_of_vector();
     // The mainnet table: the expiry is far past anything its window allows.
-    assert!(read_for_signing_with(&MAINNET, NU7_TESTNET, 1_793_892_293 + 3_600).is_err());
+    assert!(read_for_signing_with(
+        &MAINNET,
+        NU7_TESTNET,
+        1_793_892_293 + 3_600,
+        None,
+        Some(&support::fvk_in(NU7_TESTNET))
+    )
+    .is_err());
     // The testnet table with a clock a month late: the expiry is long past by that clock.
     let rules = testnet_rules(expiry);
-    assert!(read_for_signing_with(&rules, NU7_TESTNET, ANCHOR_UNIX + 30 * 86_400).is_err());
+    assert!(read_for_signing_with(
+        &rules,
+        NU7_TESTNET,
+        ANCHOR_UNIX + 30 * 86_400,
+        None,
+        Some(&support::fvk_in(NU7_TESTNET))
+    )
+    .is_err());
     // And one before its anchor confirms nothing.
-    assert!(read_for_signing_with(&rules, NU7_TESTNET, ANCHOR_UNIX - 30 * 86_400).is_err());
+    assert!(read_for_signing_with(
+        &rules,
+        NU7_TESTNET,
+        ANCHOR_UNIX - 30 * 86_400,
+        None,
+        Some(&support::fvk_in(NU7_TESTNET))
+    )
+    .is_err());
 }

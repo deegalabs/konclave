@@ -39,6 +39,10 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ## [Unreleased]
 
+Production runs the relay built from commit 4852aea7 (the merge commit of v0.23.0,
+source_digest d44db796681d0109) since 2026-11-23 at about 18:28 UTC, so every entry in this section
+is live from then at the latest.
+
 ### Security
 
 - **The relay reads requests more strictly.** Nothing changes for members. The full account follows

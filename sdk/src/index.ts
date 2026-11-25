@@ -78,16 +78,39 @@ export {
    */
   extractRandomizers,
   /**
-   * Read what a proven PCZT pays, as a device can confirm it, as a JSON string:
+   * What a device signs on: the reading of a proven PCZT it is about to sign, as a JSON string
+   * `{"outputs", "feeZat", "actions", "sighash", "txid", "expiry", "branch"}`. It is
+   * `readPayment`'s reading (every output checked against its note commitment, the label against the
+   * receiver, each paying output opened for its memo, the fee exactly ZIP 317's) plus the checks that
+   * only the signer's side can make: the header against the network and the device's own clock, the
+   * sighash the share will cover, and the bound on the actions a payment may carry, which needs the
+   * vault's viewing key to confirm what each spend is worth.
+   *
+   * `readForSigning(pczt, receivers, ufvk, groupVk)`: `receivers` are the vault's own raw receivers
+   * as YOUR device recorded them (hex, 43 bytes each; `null` if you have none), `ufvk` is the vault's
+   * viewing key as your device holds it (or `null`), and `groupVk` is the vault's 32-byte group key
+   * as your device holds it. The key is checked against the group key and against `receivers`; none
+   * of the three may be taken from the request. It throws a refusal whose message starts with a
+   * bracketed code, among them `[viewingkey]` (no key, and a spend with a value to check),
+   * `[viewingkeywrong]` (a key that is not this vault's), `[receivers]` (your device has no
+   * recorded receivers to check it with), `[commitment]`, `[fee]`, `[expiry]`.
+   */
+  readForSigning,
+  /**
+   * Read what a proven PCZT pays, as a PREVIEW, as a JSON string:
    * `{"outputs": [{"address", "value", "recipient", "memo"}, ...], "feeZat", "actions"}`.
    * Every output is checked against its note commitment, an address label against the receiver it
    * pays, each paying output is opened for its memo, and the fee is bounded by ZIP 317. Throws on
    * a PCZT it cannot parse, and on a refusal, whose message starts with a bracketed code
-   * (`[commitment]`, `[label]`, `[undecryptable]`, `[fee]`, `[shape]`). This is what a device signs on.
+   * (`[commitment]`, `[label]`, `[undecryptable]`, `[fee]`, `[shape]`).
+   *
+   * It is not what a device signs on: it has no viewing key to check the spends with, so it counts
+   * no spend and does NOT apply the bound on how many actions a payment may carry. Sign over
+   * {@link readForSigning}.
    */
   readPayment,
   /**
-   * The `outputs` of {@link readPayment}, as a JSON array, with the same checks:
+   * The `outputs` of {@link readPayment}, as a JSON array, with the same checks (a preview, like it):
    * `[{"address": string|null, "value": number|null, "recipient": hex|null, "memo": string|null}]`
    * (zatoshis). `address:null` means the output carries no label, which says nothing about where it
    * pays: compare `recipient` with your vault's own receivers before calling it change.

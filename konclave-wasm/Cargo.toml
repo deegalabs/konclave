@@ -60,3 +60,11 @@ js-sys = "0.3"
 # The zcash crates above are released crates.io versions (no workspace [patch.crates-io], zero git
 # sources in Cargo.lock); they stay in sync with konclave-signer / the engine so the v2 PCZT parses
 # byte-exact.
+
+[dev-dependencies]
+# Fixtures for the action bound's reader tests (`tests/support`): bundles made with orchard's public
+# builder and wrapped into a PCZT, never deployed. Native test builds only; the wasm32 build does not
+# see them, which is why `zcp-builder` (sapling, transparent) can be named here at all.
+pczt = { version = "0.10.0", default-features = false, features = ["orchard", "zcp-builder"] }
+zcash_primitives = "0.31.0"
+rand10 = { package = "rand", version = "0.10", default-features = false, features = ["sys_rng"] }

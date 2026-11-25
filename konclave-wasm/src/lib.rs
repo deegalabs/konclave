@@ -63,6 +63,12 @@ pub fn frost_selftest() -> Result<String, String> {
     Ok("OK: 2-of-3 rerandomized redpallas FROST VERIFIED".into())
 }
 
+/// The fixtures the integration tests build with (`tests/support`), shared with the unit tests that
+/// need one of its helpers, so each exists once.
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
+
 // ---------- Room-message authentication (#392) — spike ----------
 //
 // Authenticate signing-room writes so an outsider who only knows the (public) room cannot hijack a
@@ -1342,8 +1348,8 @@ pub mod creation {
             return Err("invalid quorum".into());
         }
         // The one rule for "this share is this seat's of this vault" (seat, group key, quorum, the
-        // package's public share for the seat, the signing share deriving it), or the certificate
-        // says nothing about the seat.
+        // package being one vault's, the package's public share for the seat, the signing share
+        // deriving it), or the certificate says nothing about the seat.
         super::recovery::check_share_bundle(key_package, pubkeys, seat, &pkp.group_key, t)
             .map_err(|c| {
                 format!(
@@ -1978,6 +1984,23 @@ pub mod creation {
             /// `own_certificate` reads the same rule as the import and the unlock (#965).
             #[test]
             fn a_real_dkg_share_passes_the_share_check_and_a_tampered_one_gets_no_certificate() {
+                for (n, t) in [(2u16, 2u16), (5, 3)] {
+                    for (i, d) in finished(n, t).iter().enumerate() {
+                        let (kp, pk) = (d.c.key_package(), d.c.pubkeys());
+                        assert_eq!(
+                            super::super::recovery::check_share_bundle(
+                                &kp,
+                                &pk,
+                                i as u16 + 1,
+                                &d.c.group_vk(),
+                                t
+                            ),
+                            Ok(()),
+                            "{t}-of-{n}, seat {}",
+                            i + 1
+                        );
+                    }
+                }
                 let ds = finished(3, 2);
                 for (i, d) in ds.iter().enumerate() {
                     let (kp, pk) = (d.c.key_package(), d.c.pubkeys());
@@ -2663,6 +2686,10 @@ pub mod recovery {
         NotThisQuorum,
         /// The signing share does not derive the public share the package states.
         ShareDoesNotDerive,
+        /// The group's public package is not one vault's: it does not hold seats exactly 1..=n,
+        /// its quorum is not possible, or its public shares do not lie on one polynomial of
+        /// degree `t - 1` through the group key.
+        PackageInconsistent,
     }
 
     impl ShareCheck {
@@ -2673,14 +2700,25 @@ pub mod recovery {
                 ShareCheck::NotThisVault => "not-this-vault",
                 ShareCheck::NotThisQuorum => "not-this-quorum",
                 ShareCheck::ShareDoesNotDerive => "share-does-not-derive",
+                ShareCheck::PackageInconsistent => "package-inconsistent",
             }
         }
     }
 
     /// Does this saved key package belong to this seat of this vault? Checked against the group's
     /// public package at the two doors a share comes through, an import and an unlock (§6.8): the
-    /// seat's identifier, the vault's group key in both packages, the quorum, the public share the
-    /// group records for the seat, and that the signing share derives it. The one home of the rule.
+    /// seat's identifier, the vault's group key in both packages, the quorum, that the public
+    /// package is one vault's (seats 1..=n on one polynomial of degree `t - 1` through the group
+    /// key, `share_sig::verify_package_any_size`: the rule the seat certificates read, without the
+    /// cap on seats, so a vault created under a higher cap still opens; n is the package's own
+    /// count), the public share the group records for the seat, and that the signing share
+    /// derives it. The one home of the rule.
+    ///
+    /// What it cannot say, for any t: a polynomial of degree `t - 1` is fixed by t points, and the
+    /// group key and a chosen share are only two of them, so a whole package built around a share
+    /// that is not the vault's is still consistent. Nor does it know how many seats the vault has:
+    /// a package cut to its first m >= t seats is consistent too. Only a record pinned at creation
+    /// (a digest of the package) closes both; this rule does not hold one.
     pub fn check_share_bundle(
         key_package: &[u8],
         pubkeys: &[u8],
@@ -2700,6 +2738,17 @@ pub mod recovery {
             return Err(ShareCheck::NotThisVault);
         }
         if *kp.min_signers() != t {
+            return Err(ShareCheck::NotThisQuorum);
+        }
+        let n = u16::try_from(pk.verifying_shares().len())
+            .map_err(|_| ShareCheck::PackageInconsistent)?;
+        let canon =
+            crate::creation::pkp_of(pubkeys, t, n).map_err(|_| ShareCheck::PackageInconsistent)?;
+        let vault: [u8; 32] = group_key.try_into().map_err(|_| ShareCheck::Malformed)?;
+        seal::share_sig::verify_package_any_size(&canon, &vault)
+            .map_err(|_| ShareCheck::PackageInconsistent)?;
+        // A package from before frost 3.0 records no quorum; one that does must say this one.
+        if pk.min_signers().is_some_and(|m| m != t) {
             return Err(ShareCheck::NotThisQuorum);
         }
         if matches_group_share(&kp, &pk) != Some(true) {
@@ -3030,6 +3079,229 @@ pub mod recovery {
                 check_share_bundle(&kp, &pk, 0, &v.group_key, 2),
                 Err(ShareCheck::Malformed)
             );
+        }
+
+        // ---- the group's public package itself (#965): one vault's, or refused ----
+
+        use frost::{Field, Group, PallasGroup, PallasScalarField};
+        type Point = <PallasGroup as Group>::Element;
+        type Scalar = <PallasScalarField as Field>::Scalar;
+
+        fn point(share: &frost::keys::VerifyingShare) -> Point {
+            let bytes: [u8; 32] = share.serialize().unwrap().try_into().unwrap();
+            PallasGroup::deserialize(&bytes).unwrap()
+        }
+
+        fn share_of(p: Point) -> frost::keys::VerifyingShare {
+            frost::keys::VerifyingShare::deserialize(&PallasGroup::serialize(&p).unwrap()).unwrap()
+        }
+
+        /// `v` with its public package replaced by these shares and this recorded quorum.
+        fn with_package(
+            v: &Vault,
+            shares: std::collections::BTreeMap<Identifier, frost::keys::VerifyingShare>,
+            min_signers: Option<u16>,
+        ) -> Vault {
+            Vault {
+                kps: v.kps.clone(),
+                pubkeys: frost::keys::PublicKeyPackage::new(
+                    shares,
+                    *v.pubkeys.verifying_key(),
+                    min_signers,
+                ),
+                group_key: v.group_key.clone(),
+            }
+        }
+
+        /// A share that is not on the vault's polynomial, presented with a public package that
+        /// records it for its seat: everything about the seat agrees, the package does not.
+        #[test]
+        fn a_share_off_the_vaults_polynomial_is_refused_even_with_its_entry_swapped_in() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            let mut shares = v.pubkeys.verifying_shares().clone();
+            shares.insert(seat(1), public);
+            let swapped = with_package(&v, shares, Some(2));
+            assert_eq!(
+                check(&forged, &swapped, 1, &v.group_key, 2),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// A package that holds only this seat out of five cannot be checked against anything.
+        #[test]
+        fn a_package_holding_only_this_seat_is_refused() {
+            let v = vault(5, 3);
+            let mut shares = std::collections::BTreeMap::new();
+            shares.insert(seat(1), v.pubkeys.verifying_shares()[&seat(1)]);
+            let lone = with_package(&v, shares, Some(3));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &lone, 1, &v.group_key, 3),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// A package that records another quorum than the key package and the vault.
+        #[test]
+        fn a_package_recording_another_quorum_is_refused() {
+            let v = vault(5, 3);
+            let other = with_package(&v, v.pubkeys.verifying_shares().clone(), Some(4));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &other, 1, &v.group_key, 3),
+                Err(ShareCheck::NotThisQuorum)
+            );
+        }
+
+        /// A package from before frost 3.0 records no quorum, and still passes: the vault's t is
+        /// the device's record, and the polynomial is checked at that degree.
+        #[test]
+        fn a_package_that_records_no_quorum_still_passes() {
+            let v = vault(5, 3);
+            let old = with_package(&v, v.pubkeys.verifying_shares().clone(), None);
+            for s in 1..=5u16 {
+                assert_eq!(check(&v.kps[&seat(s)], &old, s, &v.group_key, 3), Ok(()));
+            }
+        }
+
+        /// Another seat's public share replaced: this seat's own entry is intact, and the package
+        /// is still refused, so a member cannot unlock beside a package that misstates the others.
+        #[test]
+        fn a_package_misstating_another_seat_is_refused() {
+            let v = vault(3, 2);
+            let mut shares = v.pubkeys.verifying_shares().clone();
+            let stray = frost::keys::VerifyingShare::from(frost::keys::SigningShare::new(
+                PallasScalarField::random(&mut OsRng),
+            ));
+            shares.insert(seat(3), stray);
+            let bad = with_package(&v, shares, Some(2));
+            assert_eq!(
+                check(&v.kps[&seat(1)], &bad, 1, &v.group_key, 2),
+                Err(ShareCheck::PackageInconsistent)
+            );
+        }
+
+        /// THE LIMIT, recorded on purpose: a share that is not the vault's, with a whole package
+        /// built on a polynomial through the group key and it, is consistent and passes. Only a
+        /// digest of the package pinned at creation would refuse it. The day this test fails,
+        /// that pin exists and the docs that state the limit must change with it.
+        #[test]
+        fn for_two_of_three_a_coherent_forged_package_still_passes() {
+            let v = vault(3, 2);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let ak = {
+                let bytes: [u8; 32] = v.group_key.clone().try_into().unwrap();
+                PallasGroup::deserialize(&bytes).unwrap()
+            };
+            let p1 = point(&public);
+            // P(x) = ak + x (P1 - ak)
+            let line = |x: u64| ak + (p1 - ak) * Scalar::from(x);
+            let mut shares = std::collections::BTreeMap::new();
+            for s in 1..=3u16 {
+                shares.insert(seat(s), share_of(line(s as u64)));
+            }
+            let forged_pk = with_package(&v, shares, Some(2));
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(check(&forged, &forged_pk, 1, &v.group_key, 2), Ok(()));
+        }
+
+        /// The same limit for t = 3: the group key and the chosen share fix two of the three
+        /// points, a third is free, and the rest is interpolated.
+        #[test]
+        fn for_three_of_five_a_coherent_forged_package_still_passes() {
+            let v = vault(5, 3);
+            let good = &v.kps[&seat(1)];
+            let secret = frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng));
+            let public = frost::keys::VerifyingShare::from(secret);
+            let ak = {
+                let bytes: [u8; 32] = v.group_key.clone().try_into().unwrap();
+                PallasGroup::deserialize(&bytes).unwrap()
+            };
+            let p1 = point(&public);
+            let p2 = point(&frost::keys::VerifyingShare::from(
+                frost::keys::SigningShare::new(PallasScalarField::random(&mut OsRng)),
+            ));
+            // Lagrange through (0, ak), (1, p1), (2, p2), in the exponent.
+            let at = |x: u64| {
+                let x = Scalar::from(x);
+                let (one, two) = (Scalar::from(1u64), Scalar::from(2u64));
+                let half = PallasScalarField::invert(&two).unwrap();
+                let l0 = (x - one) * (x - two) * half;
+                let l1 = x * (x - two) * (-one);
+                let l2 = x * (x - one) * half;
+                ak * l0 + p1 * l1 + p2 * l2
+            };
+            let mut shares = std::collections::BTreeMap::new();
+            for s in 1..=5u16 {
+                shares.insert(seat(s), share_of(at(s as u64)));
+            }
+            let forged_pk = with_package(&v, shares, Some(3));
+            let forged = KeyPackage::new(
+                *good.identifier(),
+                secret,
+                public,
+                *good.verifying_key(),
+                *good.min_signers(),
+            );
+            assert_eq!(check(&forged, &forged_pk, 1, &v.group_key, 3), Ok(()));
+        }
+
+        /// THE OTHER LIMIT, recorded on purpose: the rule takes n from the package, so a package
+        /// cut to its first m >= t seats is still one vault's. Only a pinned digest (or a seat
+        /// count recorded at creation) would refuse it. Same day, same change as the test above.
+        #[test]
+        fn a_package_cut_to_its_first_t_seats_still_passes() {
+            let v = vault(5, 3);
+            let shares = (1..=3u16)
+                .map(|s| (seat(s), v.pubkeys.verifying_shares()[&seat(s)]))
+                .collect();
+            let cut = with_package(&v, shares, Some(3));
+            assert_eq!(check(&v.kps[&seat(1)], &cut, 1, &v.group_key, 3), Ok(()));
+        }
+
+        /// A vault with more seats than creation allows today (the cap was 32 before #871) still
+        /// opens: the cap limits what is created, not what a member's device opens.
+        #[test]
+        fn a_vault_over_todays_seat_cap_still_opens() {
+            let n = seal::share_sig::N_MAX + 1;
+            let v = vault(n, 2);
+            for s in [1, n] {
+                assert_eq!(
+                    check(&v.kps[&seat(s)], &v, s, &v.group_key, 2),
+                    Ok(()),
+                    "seat {s}"
+                );
+            }
+        }
+
+        #[test]
+        fn honest_packages_pass_for_every_seat_and_quorum() {
+            for (n, t) in [(2u16, 2u16), (3, 2), (5, 3), (16, 16)] {
+                let v = vault(n, t);
+                for s in 1..=n {
+                    assert_eq!(
+                        check(&v.kps[&seat(s)], &v, s, &v.group_key, t),
+                        Ok(()),
+                        "{t}-of-{n}, seat {s}"
+                    );
+                }
+            }
         }
     }
 }
@@ -3527,18 +3799,7 @@ pub mod pczt_bridge {
         check_header_for(rules, h, now_unix, false)
     }
 
-    use konclave_seal::epochs::GRACE_ACTIONS;
-
-    /// What the fee rule needs to know about one bundle.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct BundleShape {
-        /// Actions in the bundle, padding included.
-        actions: usize,
-        /// Spends still awaiting this vault's signature (the ceremony's own predicate).
-        to_sign: usize,
-        /// Outputs that move value, read after the commitment check.
-        paying: usize,
-    }
+    use konclave_seal::spends::BundleShape;
 
     /// The fee this transaction pays, or the refusal when it is not exactly what ZIP 317 sets for it.
     ///
@@ -3547,20 +3808,15 @@ pub mod pczt_bridge {
     /// signed it, because every check looked at the outputs and none at what they did not add up
     /// to. The fee here comes from the bundles' value balance, which the sighash covers.
     ///
-    /// The ZIP 317 fee grows with the number of actions, so a fee check alone would let a builder
-    /// add empty padding actions and raise the fee it must pay by one marginal fee each. So each
-    /// bundle may carry at most `max(2, to_sign + paying)` actions. That covers both ways a builder
-    /// pairs spends with outputs: one action per spend-or-output where cross-address transfers are
-    /// allowed (Ironwood), and a spend and an output in separate actions where they are not
-    /// (Orchard after NU6.3), whose fabricated zero-value spends are ours to sign and so counted.
+    /// The ZIP 317 fee grows with the number of actions, so a fee check alone would not say what the
+    /// actions are for. Each bundle may carry the actions its payments and change need and no more:
+    /// the device counts the spends and outputs that move value, and one rule decides what that
+    /// allows (`konclave_seal::spends::check_action_bound`, the only place it is written). It runs
+    /// after the exact fee, which gives it the marginal fee the transaction pays.
     ///
-    /// What this does NOT bound: the builder chooses both terms. It can split change into more
-    /// outputs, spend more of the vault's notes, or add fabricated zero-value spends under the
-    /// vault's key, which the device must sign (each is under the vault's key, so the spend check accepts
-    /// it), and each such
-    /// action raises the fee by one marginal fee, paid to the network. Nothing on the device caps
-    /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
-    /// needs the device to know which notes a payment should spend.
+    /// What it does not bound: what counts. More valued outputs, or more of the vault's notes spent,
+    /// raise the count and the fee with it; the relay's 128 KiB message cap is the only limit on
+    /// those today. A real bound needs the device to know which notes a payment should spend.
     ///
     /// `accepted` is the set of marginal fees this device's clock allows; `known` is every rate the
     /// table accepts in any era. A fee that is exact at one of the `known` rates, not at an
@@ -3580,16 +3836,7 @@ pub mod pczt_bridge {
                 fee.unsigned_abs()
             )
         })?;
-        for b in bundles {
-            let enough = (b.to_sign + b.paying).max(GRACE_ACTIONS as usize);
-            if b.actions > enough {
-                return Err(format!(
-                    "[fee] the transaction carries {} actions in one bundle where {enough} are enough",
-                    b.actions
-                ));
-            }
-        }
-        let actions: u64 = bundles.iter().map(|b| b.actions as u64).sum();
+        let actions: u64 = bundles.iter().map(|b| b.len() as u64).sum();
         // Exactly ZIP 317's fee for the transaction's actions: every honest send pays exactly that
         // (all twenty in docs/PROOF.md, payroll and migration included). Above it the builder keeps
         // the difference from the change; below it the network may not relay the transaction, which
@@ -3603,8 +3850,12 @@ pub mod pczt_bridge {
                 .iter()
                 .filter_map(|m| konclave_seal::epochs::conventional_fee(*m, actions))
                 .min();
-            if konclave_seal::epochs::fee_in(fee, actions, known) && lowest.is_some_and(|l| fee < l)
+            if let Some(marginal) = konclave_seal::epochs::marginal_paid(fee, actions, known)
+                .filter(|_| lowest.is_some_and(|l| fee < l))
             {
+                // Padding is `[fee]` whatever the clock says: the bound is read at the rate the fee
+                // is exact at, before the member is asked to check the date.
+                konclave_seal::spends::check_action_bound(bundles, marginal)?;
                 return Err(format!(
                     "[clock] the transaction pays {fee} zatoshis in fee, a rate this device's clock does not allow for its {actions} actions"
                 ));
@@ -3619,6 +3870,9 @@ pub mod pczt_bridge {
                 if want.is_empty() { "any amount".to_string() } else { want.join(" or ") }
             ));
         }
+        let marginal = konclave_seal::epochs::marginal_paid(fee, actions, accepted)
+            .ok_or("[fee] the transaction's fee matched no rate this device accepts")?;
+        konclave_seal::spends::check_action_bound(bundles, marginal)?;
         Ok(fee)
     }
 
@@ -3638,11 +3892,23 @@ pub mod pczt_bridge {
     /// `verify_note_commitment` recomputes the commitment from `recipient`, `value`, `rseed` and the
     /// action's own nullifier, so a field that disagrees with `cmx` is refused. A missing field
     /// cannot be checked and is refused too: a device that cannot confirm an output must not sign.
+    ///
+    /// Once the outputs are checked, the bundle's spends and outputs are read for the action bound
+    /// (`konclave_seal::spends::bundle_shape`): which spends await this vault's signature with a value
+    /// its commitment confirms, which outputs carry value, and which pay the vault's own `receivers`.
+    /// On the reading a device signs on, a spend that awaits this vault's signature is refused when it
+    /// carries no value (`[commitment]`: it cannot be checked against its nullifier), and with no key
+    /// whatever it declares (`[viewingkey]`). A preview (`SpendKey::NotChecked`) checks no spend and
+    /// applies no bound.
     fn read_bundle(
-        pool: &str,
+        ironwood: bool,
         bundle: &orchard::pczt::Bundle,
         fee: konclave_seal::spends::BundleFee,
+        tx_version: u32,
+        receivers: Option<&[[u8; 43]]>,
+        key: konclave_seal::spends::SpendKey<'_>,
     ) -> Result<(Vec<OutputInfo>, BundleShape, i64), String> {
+        let pool = if ironwood { "ironwood" } else { "orchard" };
         let mut out = Vec::with_capacity(bundle.actions().len());
         for (i, action) in bundle.actions().iter().enumerate() {
             let o = action.output();
@@ -3690,11 +3956,11 @@ pub mod pczt_bridge {
         }
         // The action count and the value balance are `konclave_seal::spends::bundle_fee`'s, the one
         // reader the coordinator's guard uses too, so the two halves of the fee rule cannot count apart.
-        let shape = BundleShape {
-            actions: fee.actions,
-            to_sign: spends_to_sign(bundle)?.len(),
-            paying: out.iter().filter(|o| o.value.unwrap_or(0) > 0).count(),
-        };
+        // What the bound counts is read by `bundle_shape`, once the outputs above have been checked
+        // against their commitments, and it still refuses a bundle that was never finalized.
+        let shape =
+            konclave_seal::spends::bundle_shape(bundle, ironwood, tx_version, receivers, key)?;
+        debug_assert_eq!(shape.len(), fee.actions);
         Ok((out, shape, fee.value_balance))
     }
 
@@ -3823,7 +4089,13 @@ pub mod pczt_bridge {
     /// `read_payment_with`. The fixed reading here sits in the 5,000 era every fixture was built in.
     #[cfg(test)]
     pub fn read_payment(pczt_bytes: &[u8]) -> Result<Payment, String> {
-        read_payment_with(&MAINNET, pczt_bytes, FIXTURE_CLOCK)
+        read_payment_under(
+            &MAINNET,
+            pczt_bytes,
+            FIXTURE_CLOCK,
+            None,
+            konclave_seal::spends::SpendKey::NotChecked,
+        )
     }
 
     /// A clock reading in the 5,000-only era, for the test-only readers above and below.
@@ -3831,10 +4103,26 @@ pub mod pczt_bridge {
     pub(crate) const FIXTURE_CLOCK: i64 = MAINNET.anchor.unix + 30 * 86_400;
 
     /// The one reader of a PCZT's outputs, with the rules and the clock the fee is judged by (D3).
+    /// What a device signs on: with no viewing key, a payment that spends a note of the vault is refused.
     pub fn read_payment_with(
         rules: &NetworkRules,
         pczt_bytes: &[u8],
         now_unix: i64,
+        receivers: Option<&[[u8; 43]]>,
+        fvk: Option<&orchard::keys::FullViewingKey>,
+    ) -> Result<Payment, String> {
+        read_payment_under(rules, pczt_bytes, now_unix, receivers, fvk.into())
+    }
+
+    /// `read_payment_with` with how the spends are checked named. A reading that signs nothing (a
+    /// preview, the SDK's) has no key to check spends with and passes `SpendKey::NotChecked`; the one
+    /// a device signs on never does.
+    pub fn read_payment_under(
+        rules: &NetworkRules,
+        pczt_bytes: &[u8],
+        now_unix: i64,
+        receivers: Option<&[[u8; 43]]>,
+        key: konclave_seal::spends::SpendKey<'_>,
     ) -> Result<Payment, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
         let tx_version = *pczt.global().tx_version();
@@ -3849,9 +4137,9 @@ pub mod pczt_bridge {
         // in its digest, so an Ironwood bundle in one is signed by nobody: refused, not read.
         if tx_version == 5 {
             let (_, iw, balance) = with_bundle(&pczt, true, |b| {
-                read_bundle("ironwood", b, fee_of(&pczt, true)?)
+                read_bundle(true, b, fee_of(&pczt, true)?, tx_version, receivers, key)
             })?;
-            if iw.actions > 0 || balance != 0 {
+            if !iw.is_empty() || balance != 0 {
                 return Err(
                     "[shape] a version 5 transaction carries an Ironwood bundle its signature does not cover"
                         .into(),
@@ -3866,9 +4154,16 @@ pub mod pczt_bridge {
         let mut ironwood_values = vec![];
         for &(ironwood_pool, pool) in pools {
             let (part, shape, balance) = with_bundle(&pczt, ironwood_pool, |b| {
-                read_bundle(pool, b, fee_of(&pczt, ironwood_pool)?)
+                read_bundle(
+                    ironwood_pool,
+                    b,
+                    fee_of(&pczt, ironwood_pool)?,
+                    tx_version,
+                    receivers,
+                    key,
+                )
             })?;
-            if shape.actions == 0 && balance != 0 {
+            if shape.is_empty() && balance != 0 {
                 return Err(format!(
                     "[shape] the {pool} bundle has no actions and a value balance its signature does not cover"
                 ));
@@ -3877,7 +4172,7 @@ pub mod pczt_bridge {
                 .checked_add(balance)
                 .ok_or("[fee] the transaction's value balance is out of range")?;
             if ironwood_pool {
-                ironwood_actions = shape.actions;
+                ironwood_actions = shape.len();
                 ironwood_balance = balance;
                 ironwood_values = part
                     .iter()
@@ -3885,7 +4180,7 @@ pub mod pczt_bridge {
                     .filter(|v| *v > 0)
                     .collect();
             } else {
-                orchard_actions = shape.actions;
+                orchard_actions = shape.len();
                 orchard_balance = balance;
             }
             outputs.extend(part);
@@ -3904,7 +4199,7 @@ pub mod pczt_bridge {
             &accepted,
             &rules.every_accepted_marginal_fee(),
         )?;
-        let actions = shapes.iter().map(|s| s.actions).sum();
+        let actions = shapes.iter().map(|s| s.len()).sum();
         Ok(Payment {
             outputs,
             fee_zat,
@@ -3949,10 +4244,12 @@ pub mod pczt_bridge {
         rules: &NetworkRules,
         pczt_bytes: &[u8],
         now_unix: i64,
+        receivers: Option<&[[u8; 43]]>,
+        fvk: Option<&orchard::keys::FullViewingKey>,
     ) -> Result<ForSigning, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
         let header = header_of(&pczt)?;
-        let payment = read_payment_with(rules, pczt_bytes, now_unix)?;
+        let payment = read_payment_with(rules, pczt_bytes, now_unix, receivers, fvk)?;
         let crossing = is_canonical_crossing(
             payment.orchard_actions,
             payment.ironwood_actions,
@@ -3973,8 +4270,13 @@ pub mod pczt_bridge {
     }
 
     /// `read_for_signing_with` for the network this build signs for.
-    pub fn read_for_signing(pczt_bytes: &[u8], now_unix: i64) -> Result<ForSigning, String> {
-        read_for_signing_with(&MAINNET, pczt_bytes, now_unix)
+    pub fn read_for_signing(
+        pczt_bytes: &[u8],
+        now_unix: i64,
+        receivers: Option<&[[u8; 43]]>,
+        fvk: Option<&orchard::keys::FullViewingKey>,
+    ) -> Result<ForSigning, String> {
+        read_for_signing_with(&MAINNET, pczt_bytes, now_unix, receivers, fvk)
     }
 
     /// Every output of a proven PCZT - what this transaction actually pays - so each device can
@@ -3993,7 +4295,80 @@ pub mod pczt_bridge {
         pczt_bytes: &[u8],
         now_unix: i64,
     ) -> Result<Vec<OutputInfo>, String> {
-        read_payment_with(rules, pczt_bytes, now_unix).map(|p| p.outputs)
+        read_payment_under(
+            rules,
+            pczt_bytes,
+            now_unix,
+            None,
+            konclave_seal::spends::SpendKey::NotChecked,
+        )
+        .map(|p| p.outputs)
+    }
+
+    /// The vault's Orchard viewing key, from the UFVK a device holds or was served, for the reading's
+    /// spend check. The decode and the `ak` rule are `konclave_seal::receivers::vault_fvk`, the one
+    /// reader of a UFVK (the key is under this device's own `group_vk`, never a caller's choice),
+    /// and the key must derive the receivers this device recorded for the vault: a key that is the
+    /// vault's by `ak` and not by what it pays to is not accepted. A key that is not the vault's is
+    /// `[viewingkeywrong]` and a device that recorded no receivers cannot check one (`[receivers]`);
+    /// either refuses the payment, which is all a key the coordinator chose can do, because the spend
+    /// check fails closed under a key that is not the vault's. Words only, never key material.
+    pub fn checked_fvk(
+        ufvk: &str,
+        group_vk: &[u8],
+        recorded: Option<&[[u8; 43]]>,
+    ) -> Result<orchard::keys::FullViewingKey, String> {
+        use zcash_protocol::consensus::NetworkType::Main;
+        let wrong = |why: &str| format!("[viewingkeywrong] the viewing key {why}");
+        let group_vk: &[u8; 32] = group_vk
+            .try_into()
+            .map_err(|_| wrong("was checked against a group key that is not 32 bytes"))?;
+        let fvk = konclave_seal::receivers::vault_fvk(ufvk, Main, group_vk)
+            .map_err(|_| wrong("is not this vault's"))?;
+        let derived = konclave_seal::receivers::vault_receivers(ufvk, Main, group_vk)
+            .map_err(|_| wrong("is not this vault's"))?;
+        let recorded = recorded.ok_or_else(|| {
+            "[receivers] this device recorded no receivers for the vault, so it cannot check the viewing key"
+                .to_string()
+        })?;
+        if !(recorded.contains(&derived.external) && recorded.contains(&derived.internal)) {
+            return Err(wrong("does not derive the receivers this device recorded"));
+        }
+        Ok(fvk)
+    }
+
+    /// `read_for_signing` as the export makes it: the recorded receivers as hex, the viewing key as
+    /// a string and the group key as bytes, all of them checked here (`checked_fvk`) before the
+    /// reading. The one call the export makes, so what it accepts can be tested without a browser.
+    pub fn read_for_signing_keyed(
+        pczt_bytes: &[u8],
+        now_unix: i64,
+        receivers: Option<&[String]>,
+        ufvk: Option<&str>,
+        group_vk: &[u8],
+    ) -> Result<ForSigning, String> {
+        let receivers = receivers.map(receivers_from_hex).transpose()?;
+        let fvk = ufvk
+            .map(|u| checked_fvk(u, group_vk, receivers.as_deref()))
+            .transpose()?;
+        read_for_signing(pczt_bytes, now_unix, receivers.as_deref(), fvk.as_ref())
+    }
+
+    /// The vault's receivers as the reading takes them: each one the 43 bytes of a raw Orchard
+    /// receiver, in hex. A list with an entry that is not one is refused, never skipped: the
+    /// reading would count one output fewer as the vault's own.
+    pub fn receivers_from_hex(list: &[String]) -> Result<Vec<[u8; 43]>, String> {
+        list.iter()
+            .map(|h| {
+                hex::decode(h)
+                    .ok()
+                    .and_then(|b| <[u8; 43]>::try_from(b).ok())
+                    .ok_or_else(|| {
+                        "[receivers] this device's record of the vault's receivers is not usable"
+                            .to_string()
+                    })
+            })
+            .collect()
     }
 
     /// The raw Orchard receiver of a unified address, hex-encoded - directly comparable to an
@@ -4266,6 +4641,10 @@ pub mod pczt_bridge {
         // v2 PCZT the engine produces post-Ironwood (a 4-spend `create-max` Ironwood tx).
         const IW_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
+
+        // The integration tests' one `fvk_in`: the vault's viewing key as a proven PCZT carries it
+        // (the published copy clears it).
+        use crate::support::fvk_in;
 
         // What the coordinator publishes into the signing room is a copy of the proven PCZT that
         // carries only what a device reads (`orchestrator::pczt::published_copy`, whose output for
@@ -5160,7 +5539,8 @@ pub mod pczt_bridge {
         #[test]
         fn read_for_signing_gives_the_payment_the_sighash_and_the_txid_it_gives() {
             let (r, now) = rules_for_fixture();
-            let f = read_for_signing_with(&r, IW_PROVEN, now).unwrap();
+            let f =
+                read_for_signing_with(&r, IW_PROVEN, now, None, Some(&fvk_in(IW_PROVEN))).unwrap();
             assert_eq!(f.payment.fee_zat, read_payment(IW_PROVEN).unwrap().fee_zat);
             // Expected values from other implementations, not from the code under test: the sighash
             // is `konclave-signer extract`'s and the txid `zcash-devtool pczt inspect`'s, for this same
@@ -5179,7 +5559,12 @@ pub mod pczt_bridge {
         #[test]
         fn read_for_signing_refuses_what_the_header_check_refuses() {
             // The same testnet transaction, read by a mainnet build today: outside its window.
-            let e = match read_for_signing(IW_PROVEN, T_ANCHOR + 75 * 87_500) {
+            let e = match read_for_signing(
+                IW_PROVEN,
+                T_ANCHOR + 75 * 87_500,
+                None,
+                Some(&fvk_in(IW_PROVEN)),
+            ) {
                 Err(e) => e,
                 Ok(_) => panic!("a testnet transaction passed a mainnet build"),
             };
@@ -5190,7 +5575,8 @@ pub mod pczt_bridge {
             // And the device's clock moved past the window refuses it too.
             let (r, now) = rules_for_fixture();
             let late = now + 75 * 10_000;
-            let e = match read_for_signing_with(&r, IW_PROVEN, late) {
+            let e = match read_for_signing_with(&r, IW_PROVEN, late, None, Some(&fvk_in(IW_PROVEN)))
+            {
                 Err(e) => e,
                 Ok(_) => panic!("an expired transaction passed"),
             };
@@ -5803,7 +6189,8 @@ pub mod pczt_bridge {
             // table that has it: only a reading of the header gives that back.
             const OTHER_KNOWN_BRANCH: u32 = 0xc8e7_1055;
             let (r, now) = rules_for_fixture();
-            let f = read_for_signing_with(&r, IW_PROVEN, now).unwrap();
+            let f =
+                read_for_signing_with(&r, IW_PROVEN, now, None, Some(&fvk_in(IW_PROVEN))).unwrap();
             let p = Pczt::parse(IW_PROVEN).unwrap();
             assert_eq!(f.branch_id, *p.global().consensus_branch_id());
             assert_eq!(f.branch_id, NU6_3);
@@ -5817,7 +6204,7 @@ pub mod pczt_bridge {
                 OTHER_KNOWN_BRANCH
             );
             let (r, now) = rules_for(&other);
-            let f = read_for_signing_with(&r, &other, now).unwrap();
+            let f = read_for_signing_with(&r, &other, now, None, Some(&fvk_in(IW_PROVEN))).unwrap();
             assert_eq!(f.branch_id, OTHER_KNOWN_BRANCH);
             assert_ne!(f.branch_id, NU6_3);
         }
@@ -5833,18 +6220,64 @@ pub mod pczt_bridge {
             assert_refused(&tampered, "[fee]");
         }
 
-        fn shape(actions: usize, to_sign: usize, paying: usize) -> BundleShape {
+        use konclave_seal::spends::ActionShape;
+
+        const NOTE: u64 = 1_000_000;
+
+        /// A bundle that allows cross-address actions, laid out as an honest builder lays it out: a
+        /// spend and an output share an action, and padding fills the rest.
+        fn shape(actions: usize, spends: usize, outputs: usize) -> BundleShape {
             BundleShape {
-                actions,
-                to_sign,
-                paying,
+                cross_address: true,
+                bound_applies: true,
+                actions: (0..actions)
+                    .map(|i| ActionShape {
+                        awaiting_value: (i < spends).then_some(NOTE),
+                        output_value: if i < outputs { NOTE } else { 0 },
+                        to_vault: false,
+                    })
+                    .collect(),
             }
         }
+
+        /// A bundle that does not (Orchard in v6): every requested spend and every requested output
+        /// has an action of its own, paired with a fabricated zero-value counterpart.
+        fn shape_apart(actions: usize, spends: usize, outputs: usize) -> BundleShape {
+            BundleShape {
+                cross_address: false,
+                bound_applies: true,
+                actions: (0..actions)
+                    .map(|i| ActionShape {
+                        awaiting_value: (i < spends).then_some(NOTE),
+                        output_value: if i >= spends && i < spends + outputs {
+                            NOTE
+                        } else {
+                            0
+                        },
+                        to_vault: false,
+                    })
+                    .collect(),
+            }
+        }
+
         const EMPTY: BundleShape = BundleShape {
-            actions: 0,
-            to_sign: 0,
-            paying: 0,
+            cross_address: true,
+            bound_applies: true,
+            actions: Vec::new(),
         };
+
+        /// What a read bundle holds, as the numbers the rule tests are written in: its actions, the
+        /// spends it counts (awaiting, with a verified value) and its valued outputs.
+        fn counts(s: &BundleShape) -> (usize, usize, usize) {
+            (
+                s.len(),
+                s.actions
+                    .iter()
+                    .filter(|a| a.awaiting_value.is_some())
+                    .count(),
+                s.actions.iter().filter(|a| a.output_value > 0).count(),
+            )
+        }
 
         #[test]
         fn the_fee_rule_accepts_what_an_honest_builder_makes() {
@@ -5858,20 +6291,24 @@ pub mod pczt_bridge {
             assert!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)], &[5_000])
                 .unwrap_err()
                 .starts_with("[fee]"));
-            // One spend, a payment and change: two actions where spends and outputs share them,
-            // three where the builder keeps them apart.
+            // One spend, a payment and change: two actions where spends and outputs share them.
             assert_eq!(
                 check_fee(10_000, &[EMPTY, shape(2, 1, 2)], &[5_000]),
                 Ok(10_000)
             );
+            // A third action for the same spend and outputs moves nothing, and is refused at its own
+            // exact fee: the bound is the actions the spends and outputs need, not the sum of them.
+            let err = check_fee(15_000, &[EMPTY, shape(3, 1, 2)], &[5_000]).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            // Where a spend and an output never share an action, one spend and one change are two.
             assert_eq!(
-                check_fee(15_000, &[EMPTY, shape(3, 1, 2)], &[5_000]),
-                Ok(15_000)
+                check_fee(10_000, &[shape_apart(2, 1, 1), EMPTY], &[5_000]),
+                Ok(10_000)
             );
             // An Orchard-to-Ironwood migration: two Orchard spends paired with zero-value outputs,
             // and an Ironwood bundle whose padding spends arrive already signed.
             assert_eq!(
-                check_fee(20_000, &[shape(2, 2, 0), shape(2, 0, 1)], &[5_000]),
+                check_fee(20_000, &[shape_apart(2, 2, 0), shape(2, 0, 1)], &[5_000]),
                 Ok(20_000)
             );
         }
@@ -5885,8 +6322,16 @@ pub mod pczt_bridge {
         #[test]
         fn the_fee_rule_refuses_padding_that_raises_its_own_fee() {
             // Six actions for one spend and two outputs: their exact ZIP 317 fee would be 30000,
-            // and the three extra actions are there only to raise it.
+            // and the four extra actions carry nothing.
             let err = check_fee(30_000, &[EMPTY, shape(6, 1, 2)], &[5_000]).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+            // Nor does it help to give the extra actions spends that move no value (4 spends, one of
+            // them valued) next to two outputs: they are not counted.
+            let mut zero_spends = shape(6, 4, 2);
+            for a in zero_spends.actions.iter_mut().skip(1) {
+                a.awaiting_value = Some(0);
+            }
+            let err = check_fee(30_000, &[EMPTY, zero_spends], &[5_000]).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
         }
 
@@ -5939,7 +6384,9 @@ pub mod pczt_bridge {
             let (r, now) = rules_for_fixture();
             // The fixture's own rules accept 5,000 (MAINNET.fees): reads.
             assert_eq!(
-                read_payment_with(&r, IW_PROVEN, now).unwrap().fee_zat,
+                read_payment_with(&r, IW_PROVEN, now, None, Some(&fvk_in(IW_PROVEN)))
+                    .unwrap()
+                    .fee_zat,
                 20_000
             );
             // A table whose only era accepts 1,000: the same bytes are refused with [fee].
@@ -5952,8 +6399,14 @@ pub mod pczt_bridge {
                 }],
                 anchor: MAINNET.anchor,
             };
-            let e =
-                read_payment_with(&NEW_ONLY, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
+            let e = read_payment_with(
+                &NEW_ONLY,
+                IW_PROVEN,
+                MAINNET.anchor.unix + 1000,
+                None,
+                Some(&fvk_in(IW_PROVEN)),
+            )
+            .unwrap_err();
             assert!(e.starts_with("[fee]"), "{e}");
             // The same bytes against a table whose later era (not reached by this clock) accepts
             // 5,000: a rate of another era, but ABOVE what the clock accepts, so [fee], never the
@@ -5974,11 +6427,24 @@ pub mod pczt_bridge {
                 ],
                 anchor: MAINNET.anchor,
             };
-            let e =
-                read_payment_with(&LATER_ERA, IW_PROVEN, MAINNET.anchor.unix + 1000).unwrap_err();
+            let e = read_payment_with(
+                &LATER_ERA,
+                IW_PROVEN,
+                MAINNET.anchor.unix + 1000,
+                None,
+                Some(&fvk_in(IW_PROVEN)),
+            )
+            .unwrap_err();
             assert!(e.starts_with("[fee]"), "{e}");
             // A clock before the anchor is the empty window: [expiry], not [fee].
-            let e = read_payment_with(&MAINNET, IW_PROVEN, MAINNET.anchor.unix - 1).unwrap_err();
+            let e = read_payment_with(
+                &MAINNET,
+                IW_PROVEN,
+                MAINNET.anchor.unix - 1,
+                None,
+                Some(&fvk_in(IW_PROVEN)),
+            )
+            .unwrap_err();
             assert!(e.starts_with("[expiry]"), "{e}");
         }
 
@@ -5992,23 +6458,41 @@ pub mod pczt_bridge {
             const T_F: i64 = 1_795_057_168;
             let low = patch_once(IW_PROVEN, &varint(20_000), &varint(4_000));
             // Well before the switch: the lower rate is not one this clock allows yet.
-            let e = read_payment_with(&MAINNET, &low, T_F - 120_000).unwrap_err();
+            let e = read_payment_with(
+                &MAINNET,
+                &low,
+                T_F - 120_000,
+                None,
+                Some(&fvk_in(IW_PROVEN)),
+            )
+            .unwrap_err();
             assert!(e.starts_with("[clock]"), "{e}");
             // The window straddles the switch, and after it: both rates read.
             for now in [T_F - 100_000, T_F + 30 * 86_400] {
                 assert_eq!(
-                    read_payment_with(&MAINNET, &low, now).unwrap().fee_zat,
+                    read_payment_with(&MAINNET, &low, now, None, Some(&fvk_in(IW_PROVEN)))
+                        .unwrap()
+                        .fee_zat,
                     4_000
                 );
                 assert_eq!(
-                    read_payment_with(&MAINNET, IW_PROVEN, now).unwrap().fee_zat,
+                    read_payment_with(&MAINNET, IW_PROVEN, now, None, Some(&fvk_in(IW_PROVEN)))
+                        .unwrap()
+                        .fee_zat,
                     20_000
                 );
             }
             // Off-schedule fees stay refused after the switch.
             for off in [12_000u64, 5_000] {
                 let odd = patch_once(IW_PROVEN, &varint(20_000), &varint(off));
-                let e = read_payment_with(&MAINNET, &odd, T_F + 30 * 86_400).unwrap_err();
+                let e = read_payment_with(
+                    &MAINNET,
+                    &odd,
+                    T_F + 30 * 86_400,
+                    None,
+                    Some(&fvk_in(IW_PROVEN)),
+                )
+                .unwrap_err();
                 assert!(e.starts_with("[fee]"), "{off}: {e}");
             }
         }
@@ -6223,9 +6707,9 @@ pub mod pczt_bridge {
             // them itself again, which is how the pool question once drifted (#364).
             let src = include_str!("lib.rs");
             let body = src
-                .split("pub fn read_payment_with(")
+                .split("pub fn read_payment_under(")
                 .nth(1)
-                .expect("read_payment_with exists")
+                .expect("read_payment_under exists")
                 .split("\n    }")
                 .next()
                 .unwrap();
@@ -6249,40 +6733,171 @@ pub mod pczt_bridge {
 
         #[test]
         fn the_shape_counts_spends_to_sign_apart_from_actions() {
-            // Two fixtures where the vault signs fewer spends than the bundle has actions: the
-            // padding bound is computed from `to_sign`, so it must not be the action count.
+            // A fixture where the vault signs fewer spends than the bundle has actions: the bound
+            // is computed from the spends that await a signature, not from the action count.
             let pczt = Pczt::parse(OR_MAINNET_DKG).unwrap();
             let (_, s, _) = with_bundle(&pczt, false, |b| {
-                read_bundle("orchard", b, fee_of(&pczt, false)?)
+                read_bundle(
+                    false,
+                    b,
+                    fee_of(&pczt, false)?,
+                    5,
+                    None,
+                    konclave_seal::spends::SpendKey::Vault(&fvk_in(OR_MAINNET_DKG)),
+                )
             })
             .unwrap();
-            assert_eq!(s, shape_of(2, 1, 2));
+            assert_eq!(counts(&s), (2, 1, 2));
+            // The Foundation's fixture carries no spend values. It once counted its one spend as
+            // nothing; a reading that signs cannot check a spend with no value, with a key or
+            // without one, so it refuses it.
             let pczt = Pczt::parse(ZF_IW_SPLIT_CHANGE).unwrap();
-            let (_, s, _) = with_bundle(&pczt, true, |b| {
-                read_bundle("ironwood", b, fee_of(&pczt, true)?)
-            })
-            .unwrap();
-            assert_eq!(s, shape_of(5, 1, 5));
+            let fvk = fvk_in(OR_MAINNET_DKG);
+            for (key, code) in [
+                (konclave_seal::spends::SpendKey::Absent, "[viewingkey]"),
+                (konclave_seal::spends::SpendKey::Vault(&fvk), "[commitment]"),
+            ] {
+                let e = with_bundle(&pczt, true, |b| {
+                    read_bundle(true, b, fee_of(&pczt, true)?, 6, None, key)
+                })
+                .unwrap_err();
+                assert!(e.starts_with(code), "{code}: {e}");
+            }
         }
 
         #[test]
         fn the_fixture_bundle_has_the_shape_the_fee_rule_reads() {
-            // 4 actions, 4 spends this vault signs, a payment and change: the numbers the padding
-            // bound and the exact ZIP 317 fee are computed from.
+            // 4 actions, 4 spends this vault signs, a payment and change: the numbers the bound
+            // and the exact ZIP 317 fee are computed from.
             let pczt = Pczt::parse(IW_PROVEN).unwrap();
             let (_, shape, balance) = with_bundle(&pczt, true, |b| {
-                read_bundle("ironwood", b, fee_of(&pczt, true)?)
+                read_bundle(
+                    true,
+                    b,
+                    fee_of(&pczt, true)?,
+                    6,
+                    None,
+                    konclave_seal::spends::SpendKey::Vault(&fvk_in(IW_PROVEN)),
+                )
             })
             .unwrap();
-            assert_eq!(shape, shape_of(4, 4, 2));
+            assert_eq!(counts(&shape), (4, 4, 2));
             assert_eq!(balance, 20_000);
         }
 
-        fn shape_of(actions: usize, to_sign: usize, paying: usize) -> BundleShape {
-            BundleShape {
-                actions,
-                to_sign,
-                paying,
+        // A real pair from `zcash-sign generate` (the one konclave-seal's receivers tests use) and the
+        // two addresses it is known to give.
+        const VK_UFVK: &str = "uview1z2nst9y9367acqqykyws80hrc3df87ffnwvtvx3ggf3tvx342sncxxfztdgfk67a0xk4c0wptspqyc4k59ucqrtxgdka96ktjudm5gr65d8aaq6js0jpwrfryrafzu82axyezm9e6y5r96z7hk8a04zpvs5896xeze9pmpwwymh5h7xeae79wscp2c08j";
+        const VK_EXTERNAL: &str = "u1cl9hwu3v580lgfuz9z9u8wp9scpy4c2yzcre7kvghtfuyyvsan33g0fgmkyx246mtq6s5x2qzraetalqfhkmul2agejjxynqxvz5e3el";
+        const VK_INTERNAL: &str = "u1d06pafex5wdk529qnu4lnsdkukajnzncx27gn2t4a6mq7hj4tdx78xe4vl65n97hcq7n7tpu6dqz3kn49yrggdwh25ernx0sag0pvgn2";
+
+        fn vk_ak() -> [u8; 32] {
+            use zcash_address::unified::{Container, Encoding, Fvk, Ufvk, Uitem};
+            let (_, _, u) = Ufvk::decode(VK_UFVK).unwrap();
+            match u.items_as_parsed() {
+                [Uitem::Data(Fvk::Orchard(b))] => b[..32].try_into().unwrap(),
+                other => panic!("one Orchard key: {other:?}"),
+            }
+        }
+
+        fn vk_recorded() -> Vec<[u8; 43]> {
+            receivers_from_hex(&[
+                ua_receiver(VK_EXTERNAL).unwrap(),
+                ua_receiver(VK_INTERNAL).unwrap(),
+            ])
+            .unwrap()
+        }
+
+        #[test]
+        fn the_viewing_key_is_taken_only_for_this_vault_and_the_receivers_it_recorded() {
+            let (ak, recorded) = (vk_ak(), vk_recorded());
+            assert!(checked_fvk(VK_UFVK, &ak, Some(&recorded)).is_ok());
+            let refused = |r: Result<orchard::keys::FullViewingKey, String>, code: &str| {
+                let e = r.map(|_| ()).expect_err("must refuse");
+                assert!(e.starts_with(code), "{e}");
+                assert!(
+                    !e.contains("uview"),
+                    "a refusal carries no key material: {e}"
+                );
+            };
+            let wrong = "[viewingkeywrong]";
+            // Another vault's group key, or one that is not a key's length.
+            let mut other = ak;
+            other[0] ^= 1;
+            refused(checked_fvk(VK_UFVK, &other, Some(&recorded)), wrong);
+            refused(checked_fvk(VK_UFVK, &ak[..31], Some(&recorded)), wrong);
+            // Not a viewing key at all.
+            refused(checked_fvk("not a key", &ak, Some(&recorded)), wrong);
+            // The vault's key, and a record that holds only one of its two receivers, or none.
+            refused(checked_fvk(VK_UFVK, &ak, Some(&recorded[..1])), wrong);
+            refused(checked_fvk(VK_UFVK, &ak, Some(&[])), wrong);
+            // A device with no record cannot check it, which is not the key's fault.
+            refused(checked_fvk(VK_UFVK, &ak, None), "[receivers]");
+        }
+
+        /// The call the export makes, not `checked_fvk` alone: a key that does not derive the
+        /// receivers this device recorded is refused before the transaction is read, and one that
+        /// does is let through to the reading (which then judges the fixture's header, not the key).
+        #[test]
+        fn the_export_refuses_a_key_that_does_not_derive_the_recorded_receivers() {
+            use zcash_address::unified::{Encoding, Fvk, Revision, Ufvk, Uitem};
+            let fvk = fvk_in(IW_PROVEN);
+            let bytes = fvk.to_bytes();
+            let ufvk = Ufvk::try_from_items(Revision::R0, vec![Uitem::Data(Fvk::Orchard(bytes))])
+                .unwrap()
+                .encode(&zcash_protocol::consensus::NetworkType::Main);
+            let theirs = [
+                ua_receiver(VK_EXTERNAL).unwrap(),
+                ua_receiver(VK_INTERNAL).unwrap(),
+            ];
+            let now = MAINNET.anchor.unix + 1000;
+            let e =
+                read_for_signing_keyed(IW_PROVEN, now, Some(&theirs), Some(&ufvk), &bytes[..32])
+                    .map(|_| ())
+                    .expect_err("the vault's key, another vault's receivers");
+            assert!(e.starts_with("[viewingkeywrong]"), "{e}");
+            let e = read_for_signing_keyed(IW_PROVEN, now, None, Some(&ufvk), &bytes[..32])
+                .map(|_| ())
+                .expect_err("a key and no record");
+            assert!(e.starts_with("[receivers]"), "{e}");
+            // The right receivers pass the key check; whatever the fixture's header then does, it is
+            // not a refusal about the key.
+            let mine = {
+                use orchard::keys::Scope;
+                [
+                    hex::encode(fvk.address_at(0u32, Scope::External).to_raw_address_bytes()),
+                    hex::encode(fvk.address_at(0u32, Scope::Internal).to_raw_address_bytes()),
+                ]
+            };
+            if let Err(e) =
+                read_for_signing_keyed(IW_PROVEN, now, Some(&mine), Some(&ufvk), &bytes[..32])
+            {
+                assert!(
+                    !e.starts_with("[viewingkey") && !e.starts_with("[receivers]"),
+                    "{e}"
+                );
+            }
+        }
+
+        /// The export is the thin call the test above exercises: it reads the key, the group key and
+        /// the receivers through `read_for_signing_keyed` and by no other road.
+        #[test]
+        fn the_export_reads_through_the_one_call_that_checks_the_key() {
+            let src = include_str!("lib.rs");
+            let body = src
+                .split("pub fn read_for_signing(\n        pczt: &[u8],")
+                .nth(1)
+                .expect("the export exists")
+                .split("\n    }")
+                .next()
+                .unwrap();
+            let flat: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+            assert!(flat.contains("pczt_bridge::read_for_signing_keyed(pczt,now_unix,receivers.as_deref(),ufvk.as_deref(),group_vk,)"));
+            for forbidden in ["vault_fvk", "checked_fvk", "pczt_bridge::read_for_signing("] {
+                assert!(
+                    !flat.contains(forbidden),
+                    "the export must not {forbidden} itself"
+                );
             }
         }
 
@@ -7183,7 +7798,7 @@ mod js_recovery {
 
     /// Does this saved key package belong to this seat of this vault, against the group's public
     /// package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
-    /// `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+    /// `not-this-quorum`, `share-does-not-derive`, `package-inconsistent`) and never key material. The device runs it on
     /// every import and every unlock; the rule is `recovery::check_share_bundle`.
     #[wasm_bindgen(js_name = checkShareBundle)]
     pub fn check_share_bundle(
@@ -7420,17 +8035,26 @@ mod js_pczt {
             .map_or(0.0, |f| f as f64)
     }
 
-    /// What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
-    /// describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
-    /// signs on (#610): every output checked against its note commitment, its address label against
-    /// the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+    /// What a proven PCZT pays, as a PREVIEW, as JSON: `{"outputs": [...as describeOutputs...],
+    /// "feeZat": number, "actions": number}`. Every output is checked against its note commitment,
+    /// its address label against the receiver it pays, each paying output opened for its memo, and
+    /// the fee bounded by ZIP 317. It is not what a device signs on (`readForSigning` is): it has no
+    /// viewing key to check the spends with, so it counts no spend and applies no bound on the
+    /// actions a payment may carry.
     /// A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
     /// `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
     #[wasm_bindgen(js_name = readPayment)]
     pub fn read_payment(pczt: &[u8]) -> Result<String, JsValue> {
         let now_unix = (js_sys::Date::now() / 1000.0) as i64;
-        let p =
-            pczt_bridge::read_payment_with(&pczt_bridge::MAINNET, pczt, now_unix).map_err(je)?;
+        // A preview: it signs nothing and holds no viewing key, so it does not apply the spend bound.
+        let p = pczt_bridge::read_payment_under(
+            &pczt_bridge::MAINNET,
+            pczt,
+            now_unix,
+            None,
+            konclave_seal::spends::SpendKey::NotChecked,
+        )
+        .map_err(je)?;
         Ok(format!(
             "{{\"outputs\":{},\"feeZat\":{},\"actions\":{}}}",
             outputs_json(&p.outputs),
@@ -7491,16 +8115,57 @@ mod js_pczt {
         )
     }
 
+    /// Whether this viewing key is the vault's for this device: the check `readForSigning` makes
+    /// of the key it is given (`checked_fvk`), on its own, so a caller decides what to keep by the
+    /// reading's own rule. Throws a refusal starting with `[viewingkeywrong]` or `[receivers]`.
+    #[wasm_bindgen(js_name = checkViewingKey)]
+    pub fn check_viewing_key(
+        ufvk: &str,
+        group_vk: &[u8],
+        receivers: Option<Vec<String>>,
+    ) -> Result<(), JsValue> {
+        let receivers = receivers
+            .as_deref()
+            .map(pczt_bridge::receivers_from_hex)
+            .transpose()
+            .map_err(je)?;
+        pczt_bridge::checked_fvk(ufvk, group_vk, receivers.as_deref())
+            .map(|_| ())
+            .map_err(je)
+    }
+
     /// What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
     /// "txid": hex, "expiry": number, "branch": number}`. `readPayment`'s reading plus the header checked against the
     /// network this build signs for, with the DEVICE's own clock read here (never passed in by a
     /// caller, never the coordinator's height). The one call a signing driver makes before its share
     /// leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
     /// `[locktime]`, plus `readPayment`'s).
+    ///
+    /// `receivers` are the vault's own raw receivers as this device recorded them (hex, as
+    /// `uaReceiver` returns them), or `null` for a device that has none. They tell the reading which
+    /// zero-value output is the vault's own change; the gate refuses such a device anyway.
+    ///
+    /// `ufvk` is the vault's viewing key as this device holds or was served it, or `null`; `group_vk`
+    /// is this device's own group key. The key is checked against both and against `receivers`
+    /// (`checked_fvk`), and what the reading counts of the vault's spends is bound to it. With no
+    /// key a payment that spends any note of the vault is refused, whatever value the copy declares
+    /// for it (`[viewingkey]`); with the key, a spend whose value is left out is refused (`[commitment]`).
     #[wasm_bindgen(js_name = readForSigning)]
-    pub fn read_for_signing(pczt: &[u8]) -> Result<String, JsValue> {
+    pub fn read_for_signing(
+        pczt: &[u8],
+        receivers: Option<Vec<String>>,
+        ufvk: Option<String>,
+        group_vk: &[u8],
+    ) -> Result<String, JsValue> {
         let now_unix = (js_sys::Date::now() / 1000.0) as i64;
-        let f = pczt_bridge::read_for_signing(pczt, now_unix).map_err(je)?;
+        let f = pczt_bridge::read_for_signing_keyed(
+            pczt,
+            now_unix,
+            receivers.as_deref(),
+            ufvk.as_deref(),
+            group_vk,
+        )
+        .map_err(je)?;
         let sighash: String = f.sighash.iter().map(|b| format!("{b:02x}")).collect();
         Ok(format!(
             "{{\"outputs\":{},\"feeZat\":{},\"actions\":{},\"sighash\":\"{}\",\"txid\":\"{}\",\"expiry\":{},\"branch\":{}}}",

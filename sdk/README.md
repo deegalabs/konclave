@@ -167,7 +167,7 @@ The shape per spend:
 import {
   init, Coordinator, identifierBytes,
   participantRound1, participantRound2WithRandomizer,
-  pcztSighash, extractRandomizers, readPayment, injectSigs,
+  pcztSighash, extractRandomizers, readForSigning, readPayment, injectSigs,
 } from '@konclave/frost'
 
 await init(wasmUrl)
@@ -177,13 +177,18 @@ await init(wasmUrl)
 const pczt: Uint8Array = /* proven PCZT from your wallet (Konclave: the blind helper) */ undefined!
 
 // 1) "What am I signing?" - read what the transaction really pays and confirm it against the
-//    approved proposal BEFORE signing. readPayment checks every output against its note commitment,
-//    an address label against the receiver it pays, opens each paying output for its memo, and
-//    bounds the fee by ZIP 317 at the rates the device's own clock allows (5,000 zatoshis per action,
-//    and 1,000 as well from block 3,590,000 under ZIP 2009); it throws a refusal ("[fee] ...",
-//    "[commitment] ...") otherwise.
+//    approved proposal BEFORE signing, with readForSigning: the reading a device signs on. It checks
+//    every output against its note commitment, an address label against the receiver it pays,
+//    opens each paying output for its memo, bounds the fee by ZIP 317 at the rates the device's own
+//    clock allows (5,000 zatoshis per action, and 1,000 as well from block 3,590,000 under ZIP 2009),
+//    checks the header against the network, and bounds the actions a payment may carry, which takes
+//    the vault's viewing key to confirm what each spend is worth. It throws a refusal
+//    ("[fee] ...", "[commitment] ...", "[viewingkey] ...", "[viewingkeywrong] ...", "[receivers] ...") otherwise.
+//    `receivers`, `ufvk` and `groupVk` are what YOUR device holds for the vault, never the request's.
 //    Reading the outputs any other way reads what the signature does not cover.
-const { outputs, feeZat } = JSON.parse(readPayment(pczt)) as {
+//    (`readPayment(pczt)` reads the same outputs as a preview, with no key: it does not bound the
+//    actions and is not what a device signs on.)
+const { outputs, feeZat } = JSON.parse(readForSigning(pczt, receivers, ufvk, groupVk)) as {
   outputs: { address: string | null; value: number | null; recipient: string | null; memo: string | null }[]
   feeZat: number
 }

@@ -18,12 +18,14 @@ const h = vi.hoisted(() => ({
   load: vi.fn(),
   swap: vi.fn(),
   decode: vi.fn(),
+  check: vi.fn(),
+  groupKey: vi.fn(() => new Uint8Array(32)),
 }))
 vi.mock('./helper', async (orig) => ({ ...(await orig<typeof import('./helper')>()), getUfvk: async () => h.ufvk }))
 vi.mock('./wasm-ready', () => ({ ensureWasm: async () => {} }))
-vi.mock('./signing', async (orig) => ({ ...(await orig<typeof import('./signing')>()), decodeBundle: (...a: unknown[]) => h.decode(...a) }))
+vi.mock('./signing', async (orig) => ({ ...(await orig<typeof import('./signing')>()), decodeBundle: (...a: unknown[]) => h.decode(...a), deviceGroupKey: () => h.groupKey() }))
 vi.mock('./device-key', async (orig) => ({ ...(await orig<typeof import('./device-key')>()), deviceCommsKey: () => ({}), devicePubHex: () => 'aa' }))
-vi.mock('./wasm-pkg/konclave_wasm.js', async (orig) => ({ ...(await orig<object>()), vaultReceivers: h.derive, uaIsExactly: h.exact }))
+vi.mock('./wasm-pkg/konclave_wasm.js', async (orig) => ({ ...(await orig<object>()), vaultReceivers: h.derive, uaIsExactly: h.exact, checkViewingKey: h.check, uaReceiver: (ua: string) => `raw-${ua}` }))
 vi.mock('./storage', async (orig) => ({
   ...(await orig<typeof import('./storage')>()),
   listVaults: async () => [h.rec],
@@ -33,7 +35,9 @@ vi.mock('./storage', async (orig) => ({
   replaceRefusedReceivers: h.swap,
 }))
 
-const { adoptVaultReceivers, checkedViewingKey, repairVaultReceivers } = await import('./vault-receivers')
+const { adoptVaultReceivers, checkedViewingKey, repairVaultReceivers, vaultViewingKey } = await import('./vault-receivers')
+const { setUnlockedShare, getUnlockedShare, clearUnlockedShare } = await import('./session')
+const { OpenVaultError } = await import('./signing-refusal')
 const { receiversFingerprint } = await import('./format')
 const srcPath = (f: string) => join(dirname(fileURLToPath(import.meta.url)), f)
 function sourceFiles(dir = srcPath('.')): string[] {
@@ -208,3 +212,82 @@ describe('the backup key, further', () => {
   })
 })
 
+
+describe('the viewing key a device signs a payment with', () => {
+  beforeEach(() => {
+    clearUnlockedShare(V)
+    h.check.mockReset()
+    h.rec = { id: V, cp: 3, secured: true, address: 'ua-of-ee', changeReceiver: 'ua-of-dd', receiversState: 'verified' }
+  })
+
+  it('is the one the device holds, with nothing fetched', async () => {
+    h.ufvk = { ufvk: 'served' }
+    expect(await vaultViewingKey(V, { ...(share as object), ufvk: 'held' } as never)).toBe('held')
+    setUnlockedShare(V, { ...(share as object), ufvk: 'kept' } as never)
+    expect(await vaultViewingKey(V, share)).toBe('kept')
+  })
+  it('is fetched when the device holds none, and kept in the session, not written anywhere', async () => {
+    setUnlockedShare(V, share)
+    expect(await vaultViewingKey(V, share)).toBe('uview')
+    expect(getUnlockedShare(V)?.ufvk).toBe('uview')
+    expect(h.record).not.toHaveBeenCalled()
+  })
+  it('fits by the reading\u2019s own check, given this device\u2019s group key and recorded receivers', async () => {
+    setUnlockedShare(V, share)
+    h.groupKey.mockReturnValue(new Uint8Array(32).fill(7))
+    await vaultViewingKey(V, share)
+    expect(h.check).toHaveBeenCalledWith('uview', new Uint8Array(32).fill(7), expect.any(Array))
+    // The receivers are the record's own, decoded: the same list the money gate decides change by.
+    const list = h.check.mock.calls[0]![2] as string[]
+    expect(list).toHaveLength(2)
+  })
+  it('a served key the reading would refuse is passed on as it came and never kept', async () => {
+    setUnlockedShare(V, share)
+    h.check.mockImplementation(() => { throw new Error('[viewingkeywrong]') })
+    expect(await vaultViewingKey(V, share)).toBe('uview')
+    expect(getUnlockedShare(V)?.ufvk).toBeUndefined()
+    // ...and the next payment asks again rather than finding it there.
+    expect(await vaultViewingKey(V, share)).toBe('uview')
+  })
+  it('a key with the right ak that derives other receivers is no better than a wrong one', async () => {
+    // What a hostile answer looks like to the rule: `ak` is right, the receivers are not. The old fit
+    // looked at `ak` only and kept it; the reading's check refuses it, and so does the cache.
+    setUnlockedShare(V, share)
+    h.derive.mockReturnValue(DERIVED) // the ak-only check would pass
+    h.check.mockImplementation(() => { throw new Error('[viewingkeywrong] does not derive the receivers this device recorded') })
+    await vaultViewingKey(V, share)
+    expect(getUnlockedShare(V)?.ufvk).toBeUndefined()
+  })
+  it('a held key that does not fit is not used: the device asks again', async () => {
+    h.check.mockImplementationOnce(() => { throw new Error('[viewingkeywrong]') })
+    expect(await vaultViewingKey(V, { ...(share as object), ufvk: 'stale' } as never)).toBe('uview')
+  })
+  it('is null when a protected vault serves none, and when the package cannot be read', async () => {
+    h.ufvk = null
+    expect(await vaultViewingKey(V, share)).toBe(null)
+    h.decode.mockImplementationOnce(() => { throw new SyntaxError('x') })
+    expect(await vaultViewingKey(V, share)).toBe(null)
+  })
+  it('says so, and not that the vault is out of reach, when a vault with no read key serves none', async () => {
+    h.ufvk = null
+    h.rec = { id: V, cp: 3, secured: false }
+    await expect(vaultViewingKey(V, share)).rejects.toBeInstanceOf(OpenVaultError)
+    // A key the device already holds is still used there.
+    expect(await vaultViewingKey(V, { ...(share as object), ufvk: 'held' } as never)).toBe('held')
+  })
+  it('is read in one place and handed to one caller, which hands it a real accessor; the key is never logged', () => {
+    const callers = sourceFiles().filter((f) => codeAt(f).includes('vaultViewingKey('))
+    expect(callers.map((f) => f.split('/').pop()).sort()).toEqual(['useBackgroundSigner.ts', 'vault-receivers.ts'])
+    // The one wiring, exactly: an accessor that asks `vaultViewingKey` for this vault and share, not
+    // one that returns null while the call sits elsewhere in the file.
+    expect(codeAt(srcPath('useBackgroundSigner.ts'))).toMatch(/viewingKey: \(\) => vaultViewingKey\(id, loaded\),/)
+    const readers = sourceFiles().filter((f) => /readForSigning\(/.test(codeAt(f)))
+    expect(readers.map((f) => f.split('/').pop())).toEqual(['signing-machine.ts'])
+    expect(codeAt(srcPath('vault-receivers.ts')).match(/vaultViewingKey[\s\S]*$/)?.[0] ?? '').not.toMatch(/console\.|onLog|log\(/)
+  })
+  it('has no copy of the fit rule: it asks the reading\u2019s own check', () => {
+    const mine = codeAt(srcPath('vault-receivers.ts')).split('export async function vaultViewingKey')[1] ?? ''
+    expect(mine).toMatch(/checkViewingKey\(/)
+    expect(mine).not.toMatch(/vaultReceivers\(/)
+  })
+})

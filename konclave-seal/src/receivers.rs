@@ -32,15 +32,27 @@ pub fn vault_receivers(
     network: NetworkType,
     ak: &[u8; 32],
 ) -> Result<VaultReceivers, ReceiversError> {
-    let (bytes, receivers) = derive(ufvk, network)?;
+    let fvk = vault_fvk(ufvk, network, ak)?;
+    receivers_of(&fvk, network)
+}
+
+/// The Orchard full viewing key of THIS vault: the one reader of a vault's UFVK, so the receivers
+/// and whatever else a device checks with the key come from one decode and one `ak` rule. `ak` is
+/// the vault's own group key, as for `vault_receivers`; a key under any other `ak` is refused.
+pub fn vault_fvk(
+    ufvk: &str,
+    network: NetworkType,
+    ak: &[u8; 32],
+) -> Result<FullViewingKey, ReceiversError> {
+    let (bytes, fvk) = decode(ufvk, network)?;
     if bytes[..32] != ak[..] {
         return Err(ReceiversError::NotThisVault);
     }
-    Ok(receivers)
+    Ok(fvk)
 }
 
 /// Exactly one Orchard key, revision 0, on this network.
-fn derive(ufvk: &str, network: NetworkType) -> Result<([u8; 96], VaultReceivers), ReceiversError> {
+fn decode(ufvk: &str, network: NetworkType) -> Result<([u8; 96], FullViewingKey), ReceiversError> {
     let (net, revision, parsed) =
         unified::Ufvk::decode(ufvk).map_err(|_| ReceiversError::DoesNotParse)?;
     if net != network {
@@ -54,17 +66,21 @@ fn derive(ufvk: &str, network: NetworkType) -> Result<([u8; 96], VaultReceivers)
     };
     // `from_bytes` refuses an `ak` with an odd y or the identity, and bytes that are not a key.
     let fvk = FullViewingKey::from_bytes(bytes).ok_or(ReceiversError::BadOrchardKey)?;
+    Ok((*bytes, fvk))
+}
+
+fn receivers_of(
+    fvk: &FullViewingKey,
+    network: NetworkType,
+) -> Result<VaultReceivers, ReceiversError> {
     let external = fvk.address_at(0u32, Scope::External).to_raw_address_bytes();
     let internal = fvk.address_at(0u32, Scope::Internal).to_raw_address_bytes();
-    Ok((
-        *bytes,
-        VaultReceivers {
-            external,
-            internal,
-            external_ua: single_receiver_ua(external, network)?,
-            internal_ua: single_receiver_ua(internal, network)?,
-        },
-    ))
+    Ok(VaultReceivers {
+        external,
+        internal,
+        external_ua: single_receiver_ua(external, network)?,
+        internal_ua: single_receiver_ua(internal, network)?,
+    })
 }
 
 /// True iff `ua` is exactly this one Orchard receiver, revision 0, on this network.
@@ -131,6 +147,30 @@ mod tests {
         assert_ne!(r.internal, r.external);
         assert!(ua_is_exactly(EXTERNAL, Main, &r.external));
         assert!(ua_is_exactly(&r.internal_ua, Main, &r.internal));
+    }
+
+    #[test]
+    fn the_viewing_key_is_read_once_and_is_the_vaults_by_its_ak() {
+        let o = orchard();
+        let ak: [u8; 32] = o[..32].try_into().unwrap();
+        let fvk = vault_fvk(UFVK, Main, &ak).unwrap();
+        assert_eq!(fvk.to_bytes(), o, "the key the UFVK carries, whole");
+        let mut other = ak;
+        other[0] ^= 1;
+        assert_eq!(
+            vault_fvk(UFVK, Main, &other).unwrap_err(),
+            ReceiversError::NotThisVault
+        );
+        assert_eq!(
+            vault_fvk(UFVK, Test, &ak).unwrap_err(),
+            ReceiversError::WrongNetwork
+        );
+        // The receivers come from that same key.
+        let r = vault_receivers(UFVK, Main, &ak).unwrap();
+        assert_eq!(
+            r.external,
+            fvk.address_at(0u32, Scope::External).to_raw_address_bytes()
+        );
     }
 
     #[test]

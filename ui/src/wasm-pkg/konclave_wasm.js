@@ -1037,7 +1037,7 @@ export function approvalDecision(signed, sighash) {
 /**
  * Does this saved key package belong to this seat of this vault, against the group's public
  * package? Throws a short code (`malformed`, `not-this-seat`, `not-this-vault`,
- * `not-this-quorum`, `share-does-not-derive`) and never key material. The device runs it on
+ * `not-this-quorum`, `share-does-not-derive`, `package-inconsistent`) and never key material. The device runs it on
  * every import and every unlock; the rule is `recovery::check_share_bundle`.
  * @param {Uint8Array} key_package
  * @param {Uint8Array} pubkeys
@@ -1053,6 +1053,27 @@ export function checkShareBundle(key_package, pubkeys, seat, group_key, t) {
     const ptr2 = passArray8ToWasm0(group_key, wasm.__wbindgen_malloc);
     const len2 = WASM_VECTOR_LEN;
     const ret = wasm.checkShareBundle(ptr0, len0, ptr1, len1, seat, ptr2, len2, t);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
+ * Whether this viewing key is the vault's for this device: the check `readForSigning` makes
+ * of the key it is given (`checked_fvk`), on its own, so a caller decides what to keep by the
+ * reading's own rule. Throws a refusal starting with `[viewingkeywrong]` or `[receivers]`.
+ * @param {string} ufvk
+ * @param {Uint8Array} group_vk
+ * @param {string[] | null} [receivers]
+ */
+export function checkViewingKey(ufvk, group_vk, receivers) {
+    const ptr0 = passStringToWasm0(ufvk, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(group_vk, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    var ptr2 = isLikeNone(receivers) ? 0 : passArrayJsValueToWasm0(receivers, wasm.__wbindgen_malloc);
+    var len2 = WASM_VECTOR_LEN;
+    const ret = wasm.checkViewingKey(ptr0, len0, ptr1, len1, ptr2, len2);
     if (ret[1]) {
         throw takeFromExternrefTable0(ret[0]);
     }
@@ -1376,35 +1397,56 @@ export function pkpDigestHex(pubkeys, t, n) {
  * caller, never the coordinator's height). The one call a signing driver makes before its share
  * leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
  * `[locktime]`, plus `readPayment`'s).
+ *
+ * `receivers` are the vault's own raw receivers as this device recorded them (hex, as
+ * `uaReceiver` returns them), or `null` for a device that has none. They tell the reading which
+ * zero-value output is the vault's own change; the gate refuses such a device anyway.
+ *
+ * `ufvk` is the vault's viewing key as this device holds or was served it, or `null`; `group_vk`
+ * is this device's own group key. The key is checked against both and against `receivers`
+ * (`checked_fvk`), and what the reading counts of the vault's spends is bound to it. With no
+ * key a payment that spends any note of the vault is refused, whatever value the copy declares
+ * for it (`[viewingkey]`); with the key, a spend whose value is left out is refused (`[commitment]`).
  * @param {Uint8Array} pczt
+ * @param {string[] | null | undefined} receivers
+ * @param {string | null | undefined} ufvk
+ * @param {Uint8Array} group_vk
  * @returns {string}
  */
-export function readForSigning(pczt) {
-    let deferred3_0;
-    let deferred3_1;
+export function readForSigning(pczt, receivers, ufvk, group_vk) {
+    let deferred6_0;
+    let deferred6_1;
     try {
         const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.readForSigning(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
+        var ptr1 = isLikeNone(receivers) ? 0 : passArrayJsValueToWasm0(receivers, wasm.__wbindgen_malloc);
+        var len1 = WASM_VECTOR_LEN;
+        var ptr2 = isLikeNone(ufvk) ? 0 : passStringToWasm0(ufvk, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len2 = WASM_VECTOR_LEN;
+        const ptr3 = passArray8ToWasm0(group_vk, wasm.__wbindgen_malloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.readForSigning(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
         if (ret[3]) {
-            ptr2 = 0; len2 = 0;
+            ptr5 = 0; len5 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
     } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
     }
 }
 
 /**
- * What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
- * describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
- * signs on (#610): every output checked against its note commitment, its address label against
- * the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+ * What a proven PCZT pays, as a PREVIEW, as JSON: `{"outputs": [...as describeOutputs...],
+ * "feeZat": number, "actions": number}`. Every output is checked against its note commitment,
+ * its address label against the receiver it pays, each paying output opened for its memo, and
+ * the fee bounded by ZIP 317. It is not what a device signs on (`readForSigning` is): it has no
+ * viewing key to check the spends with, so it counts no spend and applies no bound on the
+ * actions a payment may carry.
  * A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
  * `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
  * @param {Uint8Array} pczt
@@ -1777,6 +1819,14 @@ function __wbg_get_imports() {
             const ret = arg0 === undefined;
             return ret;
         },
+        __wbg___wbindgen_string_get_d154f1e671052120: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'string' ? obj : undefined;
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
         __wbg___wbindgen_throw_bb96b2010945f0bc: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
@@ -1929,6 +1979,14 @@ function getArrayU8FromWasm0(ptr, len) {
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
+}
+
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
 }
@@ -1958,6 +2016,16 @@ function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayJsValueToWasm0(array, malloc) {
+    const ptr = malloc(array.length * 4, 4) >>> 0;
+    for (let i = 0; i < array.length; i++) {
+        const add = addToExternrefTable0(array[i]);
+        getDataViewMemory0().setUint32(ptr + 4 * i, add, true);
+    }
+    WASM_VECTOR_LEN = array.length;
     return ptr;
 }
 
@@ -2038,6 +2106,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedDataViewMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

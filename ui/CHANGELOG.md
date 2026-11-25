@@ -40,6 +40,25 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.25.0] 2026-11-25
+
+### Security
+
+- **A backup file someone had changed could keep the device that opened it busy for a long time and then report a wrong passphrase (from September 2026 until 0.22.0, published on 20 November 2026).** Since September 2026 each backup, and each vault saved in the browser, records the key-derivation count it was sealed with, and the app derived the key with whatever count the file named. Someone who could change a member's backup before the member opened it (a copy kept in a shared folder or a cloud drive, or one sent over a chat), or swap it for a file of their own, could name a count far above anything Konclave writes. The device that opened it then worked for a long time on a key that could not open the file, and said the passphrase was wrong, so the member could believe the backup or the passphrase was lost. The same applied to a vault saved in the browser, for whoever could change that browser's storage, and to `scripts/open-export.mjs`. A changed file could not open a backup, reveal a share or a secret, or move funds. The app and the script now accept only the counts Konclave writes or may write later (210,000 to 5,000,000) and refuse any other as damaged before deriving a key; backups written by any release keep opening. Fixed in the web app and the desktop installers on 20 November 2026: reload the web app, install 0.22.0 or later on the desktop, and use the script from 0.22.0 or later. If a backup you trust said the passphrase was wrong before you updated, do not delete it: open it again on 0.22.0 or later. If it is now refused as damaged, the file was changed; make a new backup from a device that holds the vault. This is the later entry the 0.22.0 Security entry announced. Found by an internal review on 18 November 2026; we have no report that it was used.
+- **Your device now bounds the number of actions a payment may carry to what its payments and change need.** Before it signs, the device counts the spends that wait for a signature and carry a value it confirms with the vault's viewing key, and the outputs that carry value, and refuses a transaction with more actions than those need, with the same message as a fee that is not the standard one. It runs after the exact-fee check and replaces a looser limit. Payments and payrolls built the way our coordinator builds them read as before (checked against the upstream builder's own action count and the repository's real transactions), including a payroll that takes a note exactly once the device has loaded the vault's own addresses. What it does not change is under Known limits.
+
+### Fixed
+
+- **A backup is also refused when the public keys it carries do not belong to one vault,** and a
+  copy already on the device is checked the same way when it is opened. The check still cannot tell
+  who made a file: restore only from a backup you made, under your own passphrase.
+
+### Known limits
+
+- **The device bounds the actions a payment carries to what its spends and outputs need, not how many spends and outputs there are.** Before it signs a payment from the vault's desk, your device checks that the fee is exactly the standard network fee (ZIP 317) for the transaction's actions, and that the actions are no more than the spends and outputs that move value need. It does not decide how many of those there are. The coordinator builds the transaction: it chooses which of the vault's notes are spent and how the change is split into outputs, and each valued output or spend it adds raises the standard fee. So a hostile or compromised coordinator can still make the vault pay a higher fee than the payment needs, by splitting the change into more outputs, and the amount it can make a vault overpay is not reduced by this bound. The extra goes to the network, not to the coordinator, and the recipient and the amount do not change. In a vault that needs t of n members to sign, the bound holds once n - t + 1 devices run a version that has it. Two earlier entries said this more firmly than the code supports: the 0.10.0 Known limits ("refuses padding the coordinator signed itself") and the 0.19.0 entry for the lower network fee ("and so is padding that raises it"). This entry corrects both, and it replaces the 0.21.0 Known limits entry "The device limits padding, but not how many actions a payment carries", which described the limit before the bound (#940).
+- **A device that cannot get the vault's viewing key refuses to sign a payment whose spends it cannot verify, and says so; reopen the vault online and try again.** The key comes from the copy the device already holds, or else from the vault's server when the device signs. A device that is offline, or a vault whose server does not serve it, gets the refusal and signs nothing. A vault with no read key, one created before its members held one, never serves it: its devices say so in their own words (trying again will not help, the vault has to be protected first), and cannot sign a payment that spends a note, nor the transfer out of it, until it is. No vault in production is in that state today (counted 15 November 2026). A key the server serves that is not the vault's, or that does not derive the receivers the device recorded, is refused as well, with the advice not to try again and to tell the other members; a device that has not loaded its record of the vault's addresses says so and asks for a reload.
+- **A payment or payroll that takes a note exactly is refused where the device does not have the vault's own addresses.** When a payment or payroll uses up a note to the last zatoshi, the wallet adds a change that carries no value, and the device can tell it from other outputs only by the vault's own addresses. On a device whose record of those addresses has not loaded yet, such a payment is refused with the message that the device could not load its own record of the vault, which asks for a reload. Nothing is signed. On the vault's desk, the member reloads once the vault is open and starts the signing again. The legacy `/net` page signs no payments.
+
 ## [0.24.0] 2026-11-23
 
 ## [0.23.0] 2026-11-23
@@ -47,14 +66,36 @@ history to tidy it is how context gets lost.
 ### Security
 
 - **A protected vault's saved people and recent addresses open only once the vault is unlocked on
-  this device.** An unfinished payroll in a protected vault is kept while the vault stays unlocked,
-  and a reload or a lock clears it, so finish or propose it in one sitting. A list of saved people
-  that cannot be opened is said so on the People screen instead of showing as empty, and a backup
-  says what it left out and why. The details follow in a later entry.
-- **Diagnostics no longer include a vault's private signing details.** What the app writes to the
-  browser's console when a payment is sent names the payment and how its send went, and no secret
-  or signing detail of the vault; a vault is named there by the first 8 characters of its id. The
-  details follow in a later entry.
+  this device.** Until this release, a protected vault's saved people (names, addresses and default
+  memos), the addresses recently paid from it and an unfinished payroll (its names, addresses,
+  amounts and memos) were kept in the browser's storage as plain text, while the vault's share and
+  secret were sealed under the passphrase. Anyone who could read that browser's storage on the
+  device (another person using the same browser profile, an extension or program with access to it,
+  or a copy of the profile's files) could read them without the passphrase. It never gave access to
+  the share, to the vault's books on the coordinator or to its funds, and nothing was sent anywhere.
+  The saved people and recent addresses are now sealed under a key derived from the vault's secret, which the vault's members hold
+  and which this device opens only when the vault is unlocked. An unfinished payroll is kept in
+  memory only while the vault stays unlocked, so a reload or a lock clears it: finish or propose it
+  in one sitting. A list of saved people that cannot be opened is said so on the People screen
+  instead of showing as empty, and a backup says what it left out and why. A list written before
+  this version is sealed the next time the vault is unlocked on the device (see Known limits). An
+  open vault is unchanged. Live in the web app since 23 November 2026, published on 23 November 2026;
+  exposed from 30 August 2026, when the first protected vaults were created, to 23 November 2026.
+- **The app no longer writes a vault's signing room or full id to the browser's console.** When a
+  payment was sent, the app wrote to the browser's console the name of the vault's signing room. On
+  a protected vault that name is derived from the vault's secret, so that someone who knows only the
+  vault's id cannot find the room. Two messages written when something failed (a passkey that did
+  not open the vault, a governance action that could not be signed) wrote the vault's full id, which
+  lets anyone read the vault's quorum and receive address from the coordinator, and the books of a
+  vault that has no read key. Anyone who read that console output (a member sharing it while
+  reporting a problem, or a person or extension with access to the browser) could find the vault's
+  signing room on the relay, see when its ceremonies run and try to disrupt them (#400). On a vault
+  whose seats have all registered their device key, the request that crosses the room is sealed to
+  the devices, so the payment was not exposed. On a vault created before 8 November 2026 with a seat
+  that had not registered, the request crossed unsealed, and whoever found the room could also read
+  what the payment paid. Nothing could be signed through it. The app's console messages now name the
+  payment and how its send went, and a vault only by the first 8 characters of its id. Live in the
+  web app since 23 November 2026, published on 23 November 2026; exposed from 30 August 2026 to 23 November 2026.
 
 ### Changed
 
@@ -109,6 +150,14 @@ history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **What a protected vault saved on a device before this version stays in plain text until the
+  vault is next unlocked there,** and the browser may keep older copies in its own files after
+  that. The sealed lists open with the vault's secret, which every member of the vault holds, so a
+  member who can read this browser's storage can still read them. The vault's record on the device
+  still keeps its id, its name, its members' names, its quorum and its receive address in the
+  clear, and so do when its balance and its proposals were last read, how many proposals were open
+  and when the newest was made, what the "What changed" view last showed, and this device's record
+  of which transactions it signed.
 - **A screen still open in another tab can name a protected vault before that tab asks for its
   passphrase.** When you switch, in one tab, to a protected vault that is not unlocked on this
   device, a screen another tab of the same browser still shows can make a read that names the

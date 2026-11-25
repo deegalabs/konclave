@@ -96,7 +96,9 @@ pub fn fee_and_actions_of(pczt_bytes: &[u8]) -> Result<(u64, u64), ToolError> {
 }
 
 /// The copy of a proven PCZT that goes into the signing room. It leaves out, in both pools, five
-/// fields no device reads (the calls below name them); the tests pin that exactly those five go.
+/// fields no device reads: each spend's optional key field (96 bytes), the value-commitment blinding
+/// of each action, the bundle's binding signing key, the proof and each spend's witness. The tests
+/// pin that exactly those five go.
 /// The sighash, the outputs and the payment a device shows are built from the
 /// effecting data and the output fields. The coordinator keeps its own full copy to apply the
 /// signatures to; only what is PUBLISHED passes through here.
@@ -323,6 +325,48 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
         assert!(published_copy(&[]).is_err());
     }
 
+    /// The published copy keeps, on every action of the bundle, what the device rebuilds the spend's
+    /// nullifier from: the note's recipient, value, `rho` and `rseed`. The device reads the spends it
+    /// counts through them (`konclave_seal::spends::bundle_shape`, with the vault's own viewing key);
+    /// a copy that lost any would have every spend it awaits refused, since a spend the device cannot
+    /// check is never signed.
+    #[test]
+    fn the_published_copy_keeps_what_each_spends_nullifier_is_rebuilt_from() {
+        use ::pczt::roles::low_level_signer::{OrchardParseError, Signer};
+        for (name, vector, ironwood) in [
+            ("ironwood", VECTOR, true),
+            ("orchard", ORCHARD_TWO_SPEND, false),
+        ] {
+            let published = ::pczt::Pczt::parse(&published_copy(vector).unwrap()).unwrap();
+            let mut seen = 0;
+            let read = |_: &::pczt::Pczt,
+                        b: &mut orchard::pczt::Bundle,
+                        _: &mut u8|
+             -> Result<(), OrchardParseError> {
+                for (i, a) in b.actions().iter().enumerate() {
+                    assert!(
+                        a.spend().value().is_some(),
+                        "{name}: action {i} lost its spend value"
+                    );
+                    let s = a.spend();
+                    assert!(
+                        s.recipient().is_some() && s.rho().is_some() && s.rseed().is_some(),
+                        "{name}: action {i} lost a field its nullifier is rebuilt from"
+                    );
+                    seen += 1;
+                }
+                Ok(())
+            };
+            let signer = Signer::new(published);
+            if ironwood {
+                signer.sign_ironwood_with(read).unwrap();
+            } else {
+                signer.sign_orchard_with(read).unwrap();
+            }
+            assert!(seen >= 2, "{name}: no actions were read");
+        }
+    }
+
     // #821. One vector per pool, so a count that read only one bundle fails on the other.
     #[test]
     fn the_action_count_reads_both_pools() {
@@ -360,9 +404,9 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
     }
     impl rand_core_10::TryCryptoRng for TestRng {}
 
-    /// What a copy answers to the PCZT's IO finalization step (`finalize_io`), asked through the
-    /// signer's parse, on the pool `ironwood` selects.
-    fn finalize_step(bytes: &[u8], ironwood: bool) -> String {
+    /// What a copy answers to the step that sums the actions' blinding into the bundle's
+    /// binding key (`finalize_io`), asked through the signer's parse, on the pool `ironwood` selects.
+    fn binding_key_step(bytes: &[u8], ironwood: bool) -> String {
         use ::pczt::roles::low_level_signer::{OrchardParseError, Signer};
         let mut out = String::new();
         let f = |_: &::pczt::Pczt,
@@ -385,14 +429,14 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
     }
 
     #[test]
-    fn the_published_copy_cannot_be_finalized_in_either_pool() {
+    fn the_published_copy_has_no_blinding_to_sum_in_either_pool() {
         for (name, vector, ironwood) in [
             ("orchard", ORCHARD_TWO_SPEND, false),
             ("ironwood", VECTOR, true),
         ] {
             // Control: the full copy answers the step, so a refusal below is the copy's, not the step's.
-            assert_eq!(finalize_step(vector, ironwood), "ok", "{name}");
-            let out = finalize_step(&published_copy(vector).unwrap(), ironwood);
+            assert_eq!(binding_key_step(vector, ironwood), "ok", "{name}");
+            let out = binding_key_step(&published_copy(vector).unwrap(), ironwood);
             assert!(out.contains("MissingValueCommitTrapdoor"), "{name}: {out}");
         }
     }
