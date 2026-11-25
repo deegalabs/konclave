@@ -56,6 +56,23 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.25.0] 2026-11-25
+
+> **Services deployed when this was cut (2026-11-25):** coordinator `4466e34c`, relay `e5a3e83ea511b6d5`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **`konclave-seal` holds the one rule for how many actions a payment may carry, and the device reads it.** The device counts the spends that await the vault's signature and carry a value it confirmed with the vault's viewing key, and the outputs that carry value (and the one zero-value change the wallet makes when a note is taken exactly), and refuses a bundle with more actions than those need. A spend the device cannot verify is refused. A bundle that moves nothing is refused. The rule is read against the upstream builder's own action count for up to eight spends and eight outputs, with and without a zero-value change, under both flag sets. `bundle_shape` takes the vault's viewing key, read in one place (`receivers::vault_fvk`). `readForSigning` takes the vault's own receivers, its viewing key and its group key, and refuses a key that does not derive the receivers the device recorded. The SDK exports `readForSigning`, the reading a device signs on; its `readPayment` is a preview that has no viewing key and does not apply the bound.
+
+### Fixed
+
+- **The saved-key check also reads the vault's whole public package.** It now refuses a package that
+  is not one vault's (the seats it holds, its quorum and the public shares of every seat), not only
+  the entry for the seat being checked.
+
 ## [0.24.0] 2026-11-23
 
 > **Services deployed when this was cut (2026-11-23):** coordinator `4852aea7`, relay `d44db796681d0109`.
