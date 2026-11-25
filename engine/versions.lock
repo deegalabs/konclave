@@ -228,20 +228,20 @@ zcash_client_backend = "0.24.0-rc.1"
 # engine is not a binary swap (deploy/helper/README.md, "the upgrade is one-way").
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
-date        = "2026-11-24"
-commit      = "4466e34c"
+date        = "2026-11-25"
+commit      = "1d51a21b"
 line        = "released crates.io (pczt 0.10.0 / zcash_client_backend 0.25.0 / zcash_primitives 0.31.0 / zcash_protocol 0.11.0, NU7 at 3,543,405)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
-sha256 = "3345e5761e205153771eef19ffe5f92be74ff57d0f74c05d860acce9efc3da54"
-bytes  = 8362672
-role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); builds the vault's transactions from the fewest notes (build-payroll); built from commit 4466e34c (v0.24.0), byte-identical to the 4852aea7 build"
+sha256 = "6d8f62b1cc4fd7588e633e157fa844d9f600c320e5fc75c1a964736382aff1f7"
+bytes  = 8362656
+role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3); builds the vault's transactions from the fewest notes (build-payroll); built from commit 1d51a21b (v0.25.0)"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "2fe65de5f5263bdd10111cb810c37064b5d972aa964b64bfb83c41e675249ae7"
-bytes  = 4327728
+sha256 = "985dc8d4f3181816e470954e2c50a6e64dc6f859cff31bbdf683aad71c621e7a"
+bytes  = 4325648
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
 # The external tools used alongside them in the helper image. zcash-devtool is the NU7 build recorded
@@ -259,7 +259,23 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
-# The current [deploy_build] is the coordinator of v0.24.0, commit 4466e34c: the squash merge of #1121 into main
+# The current [deploy_build] is the coordinator of v0.25.0, commit 1d51a21b: the merge commit of #1127
+# (staging -> main, tagged v0.25.0), built on 2026-11-25 from a clean worktree at that commit and deployed to
+# production on 2026-11-25 at about 21:25 UTC on the maintainer's word (Railway deployment 6325eb34; `/api/health`
+# reports 1d51a21b, built 2026-11-25T21:18:59Z, client.creation 4) after a volume backup (2026-11-25 18:17 BRT,
+# 1.33 GB) (boot: 8 vaults, 0 held, 0 unreadable). helper-server and konclave-signer are NEW, both from that
+# commit; zcash-devtool and zcash-sign are unchanged. The deploy folder's Dockerfile (sha256 a98d77fd…) and
+# entrypoint.sh (sha256 a7fdde14…) were already the repository's at that commit. The sha256 above are those of the
+# files in the deploy folder (`sha256sum -c` before the `railway up`); they were NOT hashed inside the running
+# container. The relay was NOT redeployed: its source digest at 1d51a21b is e5a3e83ea511b6d5, the one production
+# already ran (deployed with v0.24.0, Railway deployment 2b330dec). Confirmed by a mainnet payment from production
+# (txid b0264f45517659b1e5fe6adba36b8f7d5de24c17fa9988c3f83e13a1dd8989b3, block 3,611,825, v6,
+# fee 2,000).
+# PREVIOUS DEPLOY RECORD (v0.24.0, commit 4466e34c, 2026-11-24), kept as comments: helper-server sha256
+# 2fe65de5f5263bdd10111cb810c37064b5d972aa964b64bfb83c41e675249ae7, 4327728 bytes; konclave-signer sha256
+# 3345e5761e205153771eef19ffe5f92be74ff57d0f74c05d860acce9efc3da54, 8362672 bytes; zcash-devtool and zcash-sign
+# the same as today. Its own record read:
+# The [deploy_build] then was the coordinator of v0.24.0, commit 4466e34c: the squash merge of #1121 into main
 # (tagged v0.24.0), built on 2026-11-24 from a clean worktree at that commit and deployed to production on
 # 2026-11-24 at about 00:54 UTC on the maintainer's word (Railway deployment 81cee610; `/api/health` reports
 # 4466e34c, built 2026-11-24T00:29:38Z, client.creation 4), with KONCLAVE_FEE_MARGINAL_MAX=per-vault unchanged
