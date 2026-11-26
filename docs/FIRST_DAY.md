@@ -91,8 +91,9 @@ A payment goes through four steps, and money moves only at the last one.
 4. **Sent.** One shielded transaction goes out, with a preview and an explicit confirmation first.
    One click never moves money ([README](../README.md#using-it-step-by-step)).
 
-Each payment pays a small network fee. The app shows an estimate before you approve and the exact
-fee, read from the transaction, before you sign.
+Each payment pays a small network fee. The app shows an estimate before you approve and again when
+you confirm signing. Once signing starts, the signing panel shows the exact fee, read from the
+transaction.
 
 **Agree on a time to sign.** The signatures take seconds once the members who sign are online, and
 the whole send takes a few minutes, most of it building the transaction
