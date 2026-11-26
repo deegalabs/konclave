@@ -58,8 +58,8 @@ a payment out of it, so its money cannot be moved this way
 ## What it costs
 
 - **The network fee.** Each payment pays one; it grows with the number of notes the payment spends,
-  and the app shows an estimate before you approve and the exact fee, read from the transaction,
-  before you sign.
+  and the app shows an estimate before you approve and again when you confirm signing. Once signing
+  starts, the signing panel shows the exact fee, read from the transaction.
 - **More than one payment, sometimes.** One payment can spend only a few notes for now
   ([#821](https://github.com/deegalabs/konclave/issues/821)). A vault whose balance is made of many
   small deposits may not be able to send it all at once. The app then asks for a smaller amount, and
