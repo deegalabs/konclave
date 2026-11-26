@@ -11,11 +11,10 @@
 //                       approve", and a governance proposal can change that - all of it lives in the
 //                       caller's `gate`, so the signer never has to know the governance model.
 
-import { SigningMachine, type SigningDeps, type SignWireMsg } from './signing-machine'
+import { SigningMachine, parseSignWire, type SigningDeps } from './signing-machine'
 import { parseSignRequest } from './net-sign'
 import { unb64 } from './net'
 
-const SIGN_TYPES = new Set(['sreq', 's1', 'sp', 's2', 'signed'])
 const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
 /** A vault's own signing room: a deterministic id derived from its group verifying key, DOMAIN
@@ -225,28 +224,29 @@ export class BackgroundSigner {
               }
               continue
             }
-            let parsed: { type?: string; msg?: string }
-            try {
-              parsed = JSON.parse(m.data) as { type?: string; msg?: string }
-            } catch {
-              this.consumed.add(m.seq)
+            // One reader for room messages: what is not a signing message is set aside here.
+            const parsed = parseSignWire(m.data)
+            if (!parsed) {
+              this.consumed.add(m.seq) // e.g. DKG chatter
               continue
             }
             // An `sreq` makes THIS device contribute its share: gate participation on the sighash.
-            if (parsed.type === 'sreq' && parsed.msg) {
+            if (parsed.type === 'sreq') {
               if (!(await this.gate({ sighash: toHex(unb64(parsed.msg)) }))) continue // pending
               if (this.gen !== gen) break drain
             }
-            if (parsed.type && SIGN_TYPES.has(parsed.type)) {
-              const handled = await this.machine.handle(parsed as SignWireMsg, m.from)
-              if (this.gen !== gen) break drain
-              if (handled) {
-                this.consumed.add(m.seq)
-                progressed = true
-              }
-            } else {
-              this.consumed.add(m.seq) // not a signing message (e.g. DKG chatter) - ignore
+            const handled = await this.machine.handle(parsed, m.from)
+            if (this.gen !== gen) break drain
+            if (handled) {
+              this.consumed.add(m.seq)
+              progressed = true
             }
+          }
+        }
+        // What was consumed is not read again: drop it so neither list grows between rearms.
+        if (this.gen === gen) {
+          for (let i = this.msgs.length - 1; i >= 0; i--) {
+            if (this.consumed.delete(this.msgs[i]!.seq)) this.msgs.splice(i, 1)
           }
         }
         // Nothing left to process. Give the machine its one chance to act on what the whole drain

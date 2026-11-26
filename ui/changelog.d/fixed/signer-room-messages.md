@@ -1,0 +1,1 @@
+- **The signing panel handles messages it cannot read more steadily.**
