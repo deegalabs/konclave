@@ -419,6 +419,7 @@ made with an AI assistant are welcome on the same terms:
 - [DEPLOY.md](DEPLOY.md): hosting and CI · [docs/archive/zechub-3.0-submission.md](docs/archive/zechub-3.0-submission.md): the ZecHub Hackathon 3.0 submission page, archived in its last state
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan
 - [docs/DIAGRAMS.md](docs/DIAGRAMS.md): system flow in Mermaid · [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md): the first mainnet transaction
+- [docs/WHAT_IS_PROVEN.md](docs/WHAT_IS_PROVEN.md): what you can check, what is open, and what we do not claim, on one page
 - [SECURITY.md](SECURITY.md): posture and reporting · [CLAUDE.md](CLAUDE.md): project memory and context
 
 ## License
