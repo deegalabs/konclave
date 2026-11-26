@@ -1,0 +1,1 @@
+- **A device that cannot record a signature now stops signing that payment and says so.**

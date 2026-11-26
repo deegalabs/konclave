@@ -917,11 +917,10 @@ export class SigningMachine {
       } catch (e) {
         if (recordEpoch !== this.epoch) return true
         // A withdrawn consent is the owner's own choice, already said on their screen and to the
-        // room; anything else is a record this device could not keep.
+        // room; anything else is a record this device could not keep, and that ends its part in this
+        // ceremony as well: the nonce goes either way, so no later package is answered.
         if (!String(e).includes('[withdrawn]')) this.d.onError(this.d.tt(refusalKey('[record]')))
-        // Withdrawn: this device will not sign this spend, so its nonce goes now. A record that
-        // could not be kept is not that: a later package may still be answered with the same one.
-        else this.dropRound1()
+        this.dropRound1()
         this.d.onLog(`~ ${String(e)}`)
         return true
       }

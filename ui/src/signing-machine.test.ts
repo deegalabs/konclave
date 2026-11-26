@@ -22,7 +22,7 @@ import { dkg2of3, dkgFirstSpendKey, dkgOtherPczt, OTHER_EXPIRY, dkgProvenPczt, d
 import { VECTOR_EXPIRY, honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
-import { OpenVaultError } from './signing-refusal'
+import { OpenVaultError, describeSigningError } from './signing-refusal'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
 import type { GateDecision } from './approved-payment'
 import { codeAt, codeOf } from './source-scan'
@@ -709,7 +709,9 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus)
     expect(A.sig).toBeNull()
+    // A record it could not keep ends this device's part: the final refusal, as a withdrawal does.
     expect(A.errors).toContain('net.err.recordFailed')
+    expect(A.errors.every((k) => describeSigningError(k, (x) => x).kind === 'refusal')).toBe(true)
     expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s2"'))).toBe(false)
   })
 
@@ -2150,8 +2152,8 @@ describe('SigningMachine - the round-1 handle', () => {
     expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), 'no share without the nonce').toBe(false)
   })
 
-  it('a withdrawn consent frees the handle, and a record that could not be kept does not', async () => {
-    for (const [flag, held] of [['recordWithdrawn', false], ['recordFails', true]] as const) {
+  it('a withdrawn consent frees the handle, and so does a record that could not be kept, and no later package is answered', async () => {
+    for (const [flag, held] of [['recordWithdrawn', false], ['recordFails', false]] as const) {
       const { s0, s1, groupVk, pubkeys } = dkg2of3()
       const bus = new Bus()
       const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
@@ -2166,6 +2168,13 @@ describe('SigningMachine - the round-1 handle', () => {
       await pump(B, bus)
       expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), `${flag}: no share`).toBe(false)
       expect(handleOf(B) !== null, `${flag}: handle held`).toBe(held)
+      // A later package gets no share, whichever way the record failed.
+      B.recordFails = false
+      B.recordWithdrawn = false
+      const sp = bus.msgs.find((m) => /"type":"sp"/.test(m.data))!
+      bus.post(sp.from, sp.data)
+      await pump(B, bus)
+      expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), `${flag}: none afterwards`).toBe(false)
     }
   })
 
