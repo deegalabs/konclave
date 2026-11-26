@@ -43,6 +43,39 @@ export type SignWireMsg =
   | ({ type: 's2'; share: string; k: number } & CeremonyTag)
   | ({ type: 'signed'; sig: string; ok: boolean; k: number } & CeremonyTag)
 
+/** Reads each room message in one place. Everything a handler decodes is checked here: a message
+ *  that is not a signing message is `null` and the caller sets it aside. Fields a handler already
+ *  judges itself (`share`, `k`, `h`) are passed through. */
+export function parseSignWire(data: string): SignWireMsg | null {
+  let o: Record<string, unknown>
+  try {
+    const v: unknown = JSON.parse(data)
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return null
+    o = v as Record<string, unknown>
+  } catch {
+    return null
+  }
+  // `nonEmpty` for the fields the next step uses as a key (a sighash, a package).
+  const b64Field = (x: unknown, nonEmpty = false): boolean => {
+    if (typeof x !== 'string' || (nonEmpty && x === '')) return false
+    try {
+      unb64(x)
+      return true
+    } catch {
+      return false
+    }
+  }
+  switch (o.type) {
+    case 'sreq': return b64Field(o.msg, true) && (o.pczt === undefined || b64Field(o.pczt)) ? (o as SignWireMsg) : null
+    case 's1': return b64Field(o.commit) ? (o as SignWireMsg) : null
+    case 'sp':
+      return Array.isArray(o.signers) && o.signers.every((n) => typeof n === 'number') && b64Field(o.sp, true) && b64Field(o.msg, true) ? (o as SignWireMsg) : null
+    case 's2': return o as SignWireMsg
+    case 'signed': return b64Field(o.sig) ? (o as SignWireMsg) : null
+    default: return null
+  }
+}
+
 /** This device's signing material (from a live DKG session OR a restored vault). */
 export interface SigningMaterial {
   keyPackage: Uint8Array
@@ -492,7 +525,8 @@ export class SigningMachine {
   }
 
   /** Dispatch one signing message. Preserves NetVault's exact boolean contract for the fixpoint.
-   *  May throw on a malformed peer package - the caller keeps its try/catch around this call. */
+   *  A message that passes `parseSignWire` can still fail on this device; the pump has no catch, so
+   *  such a message is not consumed. */
   async handle(parsed: SignWireMsg, fromTag: string): Promise<boolean> {
     // A transaction this device took up and refused is over here: every later message about it is
     // consumed and answered with nothing, not even an error. A forged package used to make a refused
@@ -784,7 +818,28 @@ export class SigningMachine {
       const mat = this.d.signingMaterial()
       const coord = new Coordinator(mat.groupVk, mat.pubkeys, this.msg)
       for (const s of chosen) coord.addCommitment(identifierBytes(s), this.commits.get(s)!)
-      coord.prepare()
+      try {
+        coord.prepare()
+      } catch (e) {
+        // Check each seat's commitment alone, and this device's own as a control: if the control
+        // fails too, the original error stands. Otherwise the seats whose commitment is not used
+        // are left out and another seat is waited for.
+        const usable = (s: number): boolean => {
+          const c = this.commits.get(s)
+          if (!c) return false
+          const probe = new Coordinator(mat.groupVk, mat.pubkeys, this.msg)
+          probe.addCommitment(identifierBytes(s), c)
+          try { probe.prepare(); return true } catch { return false }
+        }
+        if (!usable(this.d.mySeat())) throw e
+        const skipped = chosen.filter((s) => !usable(s))
+        if (skipped.length === 0) throw e
+        for (const s of skipped) {
+          this.commits.delete(s)
+          this.provenSeats.delete(s)
+        }
+        return
+      }
       this.coord = coord
       this.chosenSeats = chosen
       this.sp = coord.signingPackage()
@@ -862,11 +917,10 @@ export class SigningMachine {
       } catch (e) {
         if (recordEpoch !== this.epoch) return true
         // A withdrawn consent is the owner's own choice, already said on their screen and to the
-        // room; anything else is a record this device could not keep.
+        // room; anything else is a record this device could not keep, and that ends its part in this
+        // ceremony as well: the nonce goes either way, so no later package is answered.
         if (!String(e).includes('[withdrawn]')) this.d.onError(this.d.tt(refusalKey('[record]')))
-        // Withdrawn: this device will not sign this spend, so its nonce goes now. A record that
-        // could not be kept is not that: a later package may still be answered with the same one.
-        else this.dropRound1()
+        this.dropRound1()
         this.d.onLog(`~ ${String(e)}`)
         return true
       }

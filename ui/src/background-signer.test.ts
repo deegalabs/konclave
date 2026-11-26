@@ -46,11 +46,11 @@ class Bus {
   }
 }
 
-const SEATS: Record<string, number> = { A: 1, B: 2 }
+const SEATS: Record<string, number> = { A: 1, B: 2, C: 3 }
 
 interface Dev { tag: string; signer: BackgroundSigner; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; bus: Bus }
 
-function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, claim: (h: string) => boolean = () => true, record: (h: string, e: number) => Promise<void> = async () => {}): Dev {
+function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, claim: (h: string) => boolean = () => true, record: (h: string, e: number) => Promise<void> = async () => {}, proven: (t: string) => boolean = () => true): Dev {
   const dev: Dev = { tag, signer: null as unknown as BackgroundSigner, delivered: new Set(), sig: null, errors: [], bus }
   dev.signer = new BackgroundSigner({
     signingMaterial: mat,
@@ -62,7 +62,7 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
     claim,
     record,
     seatOf: (t) => SEATS[t],
-    seatIsProven: () => true, // #399 is exercised in signing-machine.test.ts; all seats real here
+    seatIsProven: proven, // #399 is exercised in signing-machine.test.ts; all seats real here
 
     mySeat: () => SEATS[tag]!,
     myTag: () => tag,
@@ -160,6 +160,83 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true)
     expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
+  const coordinatorState = (d: Dev) => (d.signer as unknown as { machine: { commits: Map<number, Uint8Array>; provenSeats: Set<number> } }).machine
+
+  it('keeps signing with the seats it can use when one commitment is not valid base64', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    const B = makeDev('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), () => true)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    bus.post('B', '{"type":"s1","commit":"!","k":0}')
+    await run([A, B], bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('keeps signing with the seats it can use when one commitment does not verify', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    const B = makeDev('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), () => true)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    bus.post('C', '{"type":"s1","commit":"AAAA","k":0}')
+    await expect(run([A, B], bus)).resolves.toBeUndefined()
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  // In a 2-of-3, seat 2 (low) has a commitment that is not used and seat 3 (high) is fine: a
+  // lowest-first choice picks seat 2, so it is left out for seat 3 to be used.
+  it('keeps signing with the higher seat when the lower seat\'s commitment is not used', async () => {
+    const { s0, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    const C = makeDev('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }), () => true)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    bus.post('B', '{"type":"s1","commit":"AAAA","k":0}')
+    await run([A, C], bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(C.sig?.ok).toBe(true)
+  })
+
+  // The same through the deferral and `afterDrain` path: no seat is vouched for, so the first pick
+  // is deferred and re-driven once the drain has landed.
+  it('keeps signing through the deferral path when one commitment is not used and no seat is vouched for', async () => {
+    const { s0, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const none = () => false
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true, () => true, async () => {}, none)
+    const C = makeDev('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }), () => true, () => true, async () => {}, none)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    bus.post('B', '{"type":"s1","commit":"AAAA","k":0}')
+    await run([A, C], bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(C.sig?.ok).toBe(true)
+  })
+
+  // When this device's own group key is not usable, every seat fails the same way, so the error
+  // surfaces and no commitment is set aside.
+  it('reports an error and keeps every commitment when this device\'s own group key is not usable', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    let brokenKey = false
+    const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk: brokenKey ? new Uint8Array(3) : groupVk, pubkeys }), () => true)
+    const B = makeDev('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), () => true)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    await run([A], bus) // A opens the ceremony and commits
+    brokenKey = true // from here this device\'s group key is not usable
+    let threw = false
+    await run([A, B], bus).catch(() => { threw = true })
+    expect(threw || A.errors.length > 0).toBe(true)
+    expect(coordinatorState(A).commits.size).toBe(2)
+    expect(A.sig).toBeNull()
   })
 
   it('with the gate CLOSED, the device does not participate (no sreq, no signature)', async () => {
@@ -290,5 +367,66 @@ describe('a rearm in the middle of a drain', () => {
     release()
     await draining
     expect(B.bus.msgs).toEqual([])
+  })
+})
+
+// A relay message is data from outside. One that is not a signing message is set aside, and the
+// messages after it are still handled.
+describe('a room message that is not a signing message', () => {
+  it.each([
+    'null', '[]', '1', '"x"', 'true',
+    '{"type":"sreq","msg":"!"}', '{"type":"sreq","msg":{}}', '{"type":"sreq"}',
+    '{"type":"s1","commit":"!","k":0}', '{"type":"s1","k":0}',
+    '{"type":"sp","signers":[1,2],"sp":"!","msg":"AA==","k":0}', '{"type":"sp","signers":7,"sp":"AA==","msg":"AA==","k":0}',
+    '{"type":"signed","sig":{},"ok":true,"k":0}',
+  ])('%s is set aside and a later request is still handled', async (data) => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const A = makeDev('A', new Bus(), () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    await expect(A.signer.feed('peer', data)).resolves.toBeUndefined()
+    const pczt = withExpiry(dkgProvenPczt())
+    await expect(A.signer.feed('helper', requestFor(pczt))).resolves.toBeUndefined()
+    const machine = (A.signer as unknown as { machine: { heldReqs: Map<string, unknown> } }).machine
+    expect([...machine.heldReqs.keys()]).toEqual([bytesToHex(pcztSighash(pczt))])
+    expect(A.errors).toEqual([])
+  })
+
+  it('a request with an empty message is set aside without asking the gate, and a later request is handled', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    let asked = 0
+    const A = makeDev('A', new Bus(), () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => { asked++; return true })
+    const inner = A.signer as unknown as { msgs: unknown[]; consumed: Set<number> }
+    await expect(A.signer.feed('peer', '{"type":"sreq","msg":""}')).resolves.toBeUndefined()
+    expect(asked).toBe(0)
+    expect(inner.msgs).toEqual([])
+    const pczt = withExpiry(dkgProvenPczt())
+    await expect(A.signer.feed('helper', requestFor(pczt))).resolves.toBeUndefined()
+    const machine = (A.signer as unknown as { machine: { heldReqs: Map<string, unknown> } }).machine
+    expect([...machine.heldReqs.keys()]).toEqual([bytesToHex(pcztSighash(pczt))])
+    expect(A.errors).toEqual([])
+  })
+
+  it('a consumed message is dropped from the buffer, so it does not grow between rearms', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const A = makeDev('A', new Bus(), () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), () => true)
+    const inner = A.signer as unknown as { msgs: unknown[]; consumed: Set<number> }
+    for (let i = 0; i < 5; i++) await A.signer.feed('peer', i % 2 ? 'not json' : '{"type":"sreq","msg":"!"}')
+    expect(inner.msgs).toEqual([])
+    expect(inner.consumed.size).toBe(0)
+  })
+
+  it('only the unconsumed message stays when consumed ones sit on both sides of it in one drain', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const gate = () => false // closed: the request below is held, not consumed
+    const A = makeDev('A', new Bus(), () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), gate)
+    const inner = A.signer as unknown as { msgs: { data: string }[]; consumed: Set<number> }
+    // text that is not JSON, a request the closed gate holds, null, more text that is not JSON
+    const pending = ['not json', '{"type":"sreq","msg":"AAAA"}', 'null', 'also not json']
+    // Feed them during one drain so they are pruned together.
+    const first = A.signer.feed('peer', pending[0]!)
+    for (const q of pending.slice(1)) void A.signer.feed('peer', q)
+    await first
+    await new Promise((r) => setTimeout(r, 0))
+    expect(inner.msgs.map((m) => m.data)).toEqual([pending[1]])
+    expect(inner.consumed.size).toBe(0)
   })
 })
